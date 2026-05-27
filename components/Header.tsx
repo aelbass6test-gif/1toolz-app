@@ -131,12 +131,12 @@ const Header: React.FC<HeaderProps> = ({
     </div>
 </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 sm:gap-6">
                 {activeStore && (
-                    <div className="hidden lg:flex items-center gap-2 bg-slate-100 dark:bg-slate-900/40 p-1 rounded-2xl border border-slate-200 dark:border-slate-850">
+                    <div className="flex items-center gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-900/40 p-1 rounded-2xl border border-slate-200 dark:border-slate-850">
                         <button
                             onClick={() => setDbSyncMode?.(dbSyncMode === 'manual' ? 'auto' : 'manual')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-[11px] transition-all hover:bg-white dark:hover:bg-slate-800 cursor-pointer ${
+                            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl font-black text-[9px] sm:text-[11px] transition-all hover:bg-white dark:hover:bg-slate-800 cursor-pointer ${
                                 dbSyncMode === 'manual' 
                                     ? 'text-slate-600 dark:text-slate-300' 
                                     : 'text-emerald-600 dark:text-emerald-400 font-extrabold'
@@ -173,7 +173,7 @@ const Header: React.FC<HeaderProps> = ({
                                 }
                             }}
                             disabled={saveStatus === 'saving'}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all cursor-pointer ${
+                            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-[9px] sm:text-[11px] font-black transition-all cursor-pointer ${
                                 saveStatus === 'saving'
                                     ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400'
                                     : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 hover:scale-102 active:scale-98'
@@ -194,7 +194,7 @@ const Header: React.FC<HeaderProps> = ({
                         </button>
                         
                         {saveStatus !== 'idle' && (
-                            <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${
+                            <span className={`hidden sm:inline-block text-[10px] font-black px-2 py-1 rounded-lg ${
                                 saveStatus === 'success' ? 'bg-emerald-100 text-emerald-700' :
                                 saveStatus === 'error' ? 'bg-rose-100 text-rose-700' :
                                 'bg-amber-100 text-amber-700'

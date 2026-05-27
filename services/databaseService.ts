@@ -349,22 +349,31 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     snap = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', store.id)));
                 }
                 
-                const existingDbDocs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const stateIds = new Set(stateItems.map(item => String(item[idField] || `${store.id}_${item.phone || item.id}`)));
-
-                const deletePromises = snap.docs
-                    .filter(doc => !stateIds.has(doc.id))
-                    .map(doc => deleteDoc(doc.ref).catch(err => handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${doc.id}`)));
-                
-                await Promise.all(deletePromises);
+                const existingDbDocs = snap.docs.map(doc => ({ _ref: doc.ref, id: doc.id, ...doc.data() }) as any);
+                const existingDocsMap = new Map(existingDbDocs.map(doc => [doc.id, doc]));
 
                 const upsertPromises = stateItems.map(async (item) => {
                     const docId = String(item[idField] || `${store.id}_${item.phone || item.id}`);
                     const docRef = doc(firebaseDb, collectionName, docId);
-                    const payload = cleanUndefined({ ...item, storeId: store.id, store_id: store.id });
-                    await setDoc(docRef, payload, { merge: true }).catch(err => {
-                        handleFirestoreError(err, OperationType.WRITE, `${collectionName}/${docId}`);
-                    });
+                    
+                    const existingDoc = existingDocsMap.get(docId);
+                    
+                    // Compare updatedAt to avoid overwriting newer cloud data with older local data
+                    let shouldUpdateCloud = true;
+                    if (existingDoc && existingDoc.updatedAt && item.updatedAt) {
+                        const cloudTime = new Date(existingDoc.updatedAt).getTime();
+                        const localTime = new Date(item.updatedAt).getTime();
+                        if (cloudTime > localTime) {
+                            shouldUpdateCloud = false; 
+                        }
+                    }
+
+                    if (shouldUpdateCloud) {
+                        const payload = cleanUndefined({ ...item, storeId: store.id, store_id: store.id });
+                        await setDoc(docRef, payload, { merge: true }).catch(err => {
+                            handleFirestoreError(err, OperationType.WRITE, `${collectionName}/${docId}`);
+                        });
+                    }
                 });
 
                 await Promise.all(upsertPromises);
