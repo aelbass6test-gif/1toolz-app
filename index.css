@@ -1,0 +1,194 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-primary: #6366f1; /* Indigo-500 */
+  --color-primary-dark: #4f46e5; /* Indigo-600 */
+  --color-accent: #8b5cf6; /* Violet-500 */
+  
+  --color-success: #10b981; /* Emerald-500 */
+  --color-pending: #f59e0b; /* Amber-500 */
+  --color-error: #ef4444; /* Red-500 */
+  --color-inactive: #94a3b8; /* Slate-400 */
+
+  --font-sans: "Inter", "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Readex Pro", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.03) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.03) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  .dark body {
+    @apply bg-slate-950 text-slate-50;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.08) 0px, transparent 50%);
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/80 backdrop-blur-xl border border-white/30 shadow-sm;
+  }
+
+  .dark .glass {
+    @apply bg-slate-900/80 backdrop-blur-xl border border-slate-800/60 shadow-none;
+  }
+
+  .glass-card {
+    @apply bg-white border border-slate-200 shadow-sm rounded-2xl p-6 transition-all duration-300 hover:shadow-md hover:border-slate-300;
+  }
+
+  .dark .glass-card {
+    @apply bg-slate-900 border border-slate-800 shadow-none hover:border-slate-700 hover:bg-slate-800;
+  }
+
+  .bento-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4;
+  }
+
+  .sidebar-item {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-primary;
+  }
+
+  .sidebar-item-active {
+    @apply bg-primary/10 text-primary font-black;
+  }
+
+  .dark .sidebar-item-active {
+    @apply bg-primary/20 text-primary;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 rounded-xl font-medium transition-all duration-200 hover:bg-primary-dark hover:shadow-lg hover:shadow-primary/20 active:scale-95;
+  }
+
+  .badge {
+    @apply px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-success { @apply bg-success/10 text-success border border-success/20; }
+  .badge-pending { @apply bg-pending/10 text-pending border border-pending/20; }
+  .badge-error { @apply bg-error/10 text-error border border-error/20; }
+  .badge-inactive { @apply bg-inactive/10 text-inactive border border-inactive/20; }
+}
+
+/* Hide Scrollbars */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* -------------------------------------------------------------------------
+   Pristine Document & Grid Printing Rules (@media print overrides)
+   ------------------------------------------------------------------------- */
+@media print {
+  /* 1. Eliminate application chrome, navigations, widgets, and sidebars */
+  header,
+  aside,
+  nav,
+  button,
+  a[href^="#"],
+  .no-print,
+  .print-control-bar,
+  .chat-bot,
+  #chat-bot-container,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  .filter-bar,
+  .alert-banner {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    opacity: 0 !important;
+  }
+
+  /* 2. Reset canvases, page layout widths, custom variables and typography colors */
+  html, body, #root, main {
+    background: #ffffff !important;
+    background-image: none !important;
+    color: #000000 !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  main {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 1.5cm !important; /* Elegant document margins */
+  }
+
+  /* 3. Re-assert strict visual grid borders for monochrome ink sheets */
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin-top: 15px !important;
+    margin-bottom: 25px !important;
+    border: 1px solid #94a3b8 !important;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 8px 12px !important;
+    color: #000000 !important;
+    background-color: transparent !important;
+    background: none !important;
+    text-align: right !important;
+  }
+
+  th {
+    font-weight: bold !important;
+    background-color: #f1f5f9 !important;
+    border-bottom: 2px solid #94a3b8 !important;
+  }
+
+  /* 4. Support smooth page slicing by avoiding mid-row breaks */
+  tr, 
+  .no-break, 
+  .financial-card, 
+  .summary-card, 
+  .signature-box,
+  .page-section {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* 5. Force text links to match regular printable text style */
+  a {
+    color: #000000 !important;
+    text-decoration: none !important;
+  }
+}

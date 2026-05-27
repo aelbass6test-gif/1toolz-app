@@ -1,0 +1,127 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
+          (request.auth.token.email == "aelbass6test@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isStoreOwner(storeId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerId == request.auth.uid;
+    }
+
+    function isStoreEmployee(storeId) {
+      return isStoreOwner(storeId) || isAdmin();
+    }
+
+    function hasOnlyAllowedFields(allowedFields) {
+      return request.resource.data.keys().hasOnly(allowedFields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser() {
+      let data = request.resource.data;
+      return hasOnlyAllowedFields(['fullName', 'phone', 'email', 'isAdmin', 'isBanned', 'joinDate', 'uid']) &&
+             validStringLength('fullName', 1, 100) &&
+             validStringLength('phone', 5, 20) &&
+             isValidEmail(data.email) &&
+             (data.isAdmin is bool || !('isAdmin' in data)) &&
+             (data.isBanned is bool || !('isBanned' in data));
+    }
+
+    function isValidStore() {
+      let data = request.resource.data;
+      return hasOnlyAllowedFields(['name', 'specialization', 'language', 'currency', 'url', 'creationDate', 'ownerId']) &&
+             validStringLength('name', 1, 100) &&
+             validStringLength('url', 1, 100) &&
+             data.ownerId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      
+      allow create: if isAuthenticated() && 
+                    isOwner(userId) && 
+                    isValidUser() && 
+                    (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false || isAdmin());
+                    
+      allow update: if isAuthenticated() && 
+                    isOwner(userId) && 
+                    isValidUser() && 
+                    (
+                      (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin) || 
+                      isAdmin()
+                    );
+                    
+      allow delete: if isAdmin();
+    }
+
+    match /stores/{storeId} {
+      allow read: if true;
+      
+      allow create: if isAuthenticated() && isValidStore();
+      
+      allow update: if isStoreOwner(storeId) || isAdmin();
+      
+      allow delete: if isStoreOwner(storeId) || isAdmin();
+
+      match /products/{productId} {
+        allow read: if true;
+        allow write: if isStoreEmployee(storeId);
+      }
+
+      match /orders/{orderId} {
+        allow read: if isStoreEmployee(storeId);
+        allow create: if true; 
+        allow update, delete: if isStoreEmployee(storeId);
+      }
+
+      match /transactions/{transactionId} {
+        allow read, write: if isStoreOwner(storeId) || isAdmin();
+      }
+
+      match /settings/{settingId} {
+        allow read: if true;
+        allow write: if isStoreOwner(storeId) || isAdmin();
+      }
+    }
+
+    match /chat_messages/{messageId} {
+      // Only authenticated users can read/write, but we should restrict this to specific rooms/users
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

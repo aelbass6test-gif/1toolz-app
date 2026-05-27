@@ -1,0 +1,8 @@
+{
+  "name": "مدير الأوردرات الذكي",
+  "description": "نظام إدارة المتاجر المتكامل مع دعم التقارير والفواتير والربط منصات التجارة الإلكترونية",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

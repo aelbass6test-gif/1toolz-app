@@ -1,0 +1,28 @@
+{
+  "short_name": "مدير الأوردرات",
+  "name": "مدير الأوردرات المطور",
+  "description": "نظام احترافي لإدارة الأوردرات والحسابات مع مساعد ذكي باللهجة المصرية لحساب الأرباح والخسائر المرتجعة",
+  "icons": [
+    {
+      "src": "/logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    },
+    {
+      "src": "/logo512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#1e293b",
+  "background_color": "#0f172a"
+}

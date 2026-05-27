@@ -1,0 +1,162 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user in the system (admin, employee, or store owner).",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "isAdmin": { "type": "boolean" },
+        "isBanned": { "type": "boolean" },
+        "joinDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "phone", "email"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Represents an e-commerce store.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "specialization": { "type": "string" },
+        "language": { "type": "string" },
+        "currency": { "type": "string" },
+        "url": { "type": "string" },
+        "creationDate": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["name", "specialization", "language", "currency", "url", "ownerId"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Represents a product in a store.",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "weight": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "thumbnail": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "inStock": { "type": "boolean" },
+        "stockQuantity": { "type": "number" },
+        "collectionId": { "type": "string" },
+        "hasVariants": { "type": "boolean" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "storeId": { "type": "string" }
+      },
+      "required": ["name", "price", "weight", "costPrice", "stockQuantity", "hasVariants", "storeId"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Represents a customer order.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string" },
+        "waybillNumber": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "shippingCompany": { "type": "string" },
+        "shippingArea": { "type": "string" },
+        "governorate": { "type": "string" },
+        "city": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerPhone2": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "notes": { "type": "string" },
+        "shippingFee": { "type": "number" },
+        "status": { "type": "string" },
+        "productName": { "type": "string" },
+        "productPrice": { "type": "number" },
+        "productCost": { "type": "number" },
+        "weight": { "type": "number" },
+        "discount": { "type": "number" },
+        "totalAmountOverride": { "type": "number" },
+        "includeInspectionFee": { "type": "boolean" },
+        "isInsured": { "type": "boolean" },
+        "paymentStatus": { "type": "string" },
+        "preparationStatus": { "type": "string" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["orderNumber", "date", "shippingCompany", "shippingArea", "customerName", "customerPhone", "customerAddress", "shippingFee", "status", "productName", "productPrice", "productCost", "weight", "discount", "includeInspectionFee", "isInsured", "paymentStatus", "preparationStatus", "storeId"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Represents a financial transaction in a store's wallet.",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["إيداع", "سحب"] },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "note": { "type": "string" },
+        "category": { "type": "string" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["type", "amount", "date", "note", "storeId"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Store settings.",
+      "type": "object",
+      "properties": {
+        "storeId": { "type": "string" },
+        "enableGlobalFinancials": { "type": "boolean" },
+        "insuranceFeePercent": { "type": "number" },
+        "enableInsurance": { "type": "boolean" },
+        "inspectionFee": { "type": "number" },
+        "enableInspection": { "type": "boolean" },
+        "returnShippingFee": { "type": "number" },
+        "enableReturnShipping": { "type": "boolean" }
+      },
+      "required": ["storeId"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Represents a chat message between employees.",
+      "type": "object",
+      "properties": {
+        "store_id": { "type": "string" },
+        "sender_id": { "type": "string" },
+        "receiver_id": { "type": "string" },
+        "content": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "is_read": { "type": "boolean" }
+      },
+      "required": ["store_id", "sender_id", "receiver_id", "content", "is_read"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Global users collection."
+    },
+    "stores/{storeId}": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Stores created by users."
+    },
+    "stores/{storeId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Products belonging to a specific store."
+    },
+    "stores/{storeId}/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Orders belonging to a specific store."
+    },
+    "stores/{storeId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Transactions belonging to a specific store."
+    },
+    "stores/{storeId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Settings for a specific store."
+    },
+    "chat_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Global chat messages collection."
+    }
+  }
+}

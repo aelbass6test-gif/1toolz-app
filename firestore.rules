@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow read/write for treasury accounts
+    match /treasury_accounts/{accountId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for treasury transactions
+    match /treasury_transactions/{transactionId} {
+      allow read, write: if true;
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Allow read/write for users (Custom authentication logic)
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for store records and configuration
+    match /stores_data/{storeId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for products
+    match /products/{productId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for orders
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for transactions
+    match /transactions/{transactionId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for suppliers
+    match /suppliers/{supplierId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for supply orders
+    match /supply_orders/{supplyOrderId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for reviews
+    match /reviews/{reviewId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for abandoned carts
+    match /abandoned_carts/{cartId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for activity logs
+    match /activity_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for employees
+    match /employees/{employeeId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for discount codes
+    match /discount_codes/{codeId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for collections
+    match /collections/{collectionId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for custom pages
+    match /custom_pages/{pageId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for payment methods
+    match /payment_methods/{methodId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for customers
+    match /customers/{customerId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for global options
+    match /global_options/{optionId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for shipping integrations
+    match /shipping_integrations/{integrationId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for generic documents backups
+    match /documents/{docId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for real-time presence
+    match /presence/{presenceId} {
+      allow read, write: if true;
+    }
+
+    // Allow read/write for team chat messages
+    match /chat_messages/{messageId} {
+      allow read, write: if true;
+    }
+  }
+}

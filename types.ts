@@ -1,0 +1,765 @@
+
+// ... (previous imports and declartions)
+
+// FIX: Declaring the 'google' object in the global scope to make it accessible across all files.
+declare global {
+  const google: {
+    script: {
+      run: {
+        withSuccessHandler(handler: (response: any) => void): any;
+        withFailureHandler(handler: (error: Error) => void): any;
+        serverApiCall(storeId: string, action: string, payload: any | null): void;
+      };
+    };
+  };
+}
+
+export type OrderStatus = 'في_انتظار_المكالمة' | 'جاري_المراجعة' | 'قيد_التنفيذ' | 'تم_الارسال' | 'قيد_الشحن' | 'تم_توصيلها' | 'تم_التحصيل' | 'مرتجع' | 'مرتجع_جزئي' | 'فشل_التوصيل' | 'ملغي' | 'مؤرشف' | 'مرتجع_بعد_الاستلام' | 'تم_الاستبدال' | 'تمت_الاعادة_لشركة_الشحن' | 'مدفوعة' | 'مؤجل' | 'مجدول';
+export type PaymentStatus = 'بانتظار الدفع' | 'مدفوع' | 'مدفوع جزئياً' | 'مرتجع';
+export type PreparationStatus = 'بانتظار التجهيز' | 'جاهز';
+
+export interface CityOption {
+  id: string;
+  name: string;
+  deliveryPrice: number;
+  extraKgPrice: number;
+  returnPrice: number;
+  exchangePrice: number;
+  cashCollectionPrice: number;
+  returnToSenderPrice: number;
+  useParentFees?: boolean; 
+  active?: boolean; 
+}
+
+export interface ShippingOption {
+  id: string;
+  label: string;      
+  details: string;    
+  deliveryPrice: number;      
+  extraKgPrice: number; 
+  returnPrice: number;   
+  exchangePrice: number;      
+  cashCollectionPrice: number;
+  returnToSenderPrice: number;
+  baseWeight: number;
+  cities?: CityOption[];
+  active?: boolean; 
+}
+
+export interface PlatformIntegration {
+  platform: 'none' | 'wuilt';
+  apiKey: string;
+  shopId?: string;
+  shopUrl?: string;
+}
+
+export interface ShippingCarrierIntegration {
+  id: string;
+  provider: 'bosta' | 'mylerz' | 'aramex_api' | 'turbo';
+  apiKey: string;
+  apiSecret?: string;
+  accountNumber?: string;
+  isConnected: boolean;
+}
+
+export interface ProductVariant {
+  id: string;
+  sku: string;
+  price: number;
+  costPrice?: number;
+  weight?: number;
+  stock?: number;
+  stockQuantity: number | null;
+  options: { [optionName: string]: string };
+}
+
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  description?: string;
+  price: number;
+  weight: number;
+  costPrice: number;
+  thumbnail?: string;
+  images?: string[];
+  inStock?: boolean;
+  stock?: number;
+  stockQuantity: number | null;
+  collectionId?: string; 
+  hasVariants: boolean;
+  options: string[];
+  variants: ProductVariant[];
+  
+  // For profit calculation
+  useProfitPercentage?: boolean; // Legacy, will be phased out
+  profitPercentage?: number;     // For margin mode
+
+  profitMode?: 'manual' | 'margin' | 'commission';
+  basePrice?: number;
+  commissionPercentage?: number;
+  stockThreshold?: number;
+}
+
+export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding';
+
+export type WithdrawStatus = 'pending' | 'accepted' | 'rejected' | 'processing';
+
+export interface WithdrawRequest {
+  id: string;
+  amount: number;
+  date: string;
+  status: WithdrawStatus;
+  method: 'bank' | 'wallet' | 'instapay' | 'treasury';
+  details: string; // JSON or formatted string of bank/wallet details
+  fee: number;
+  netAmount: number;
+  isSameDay?: boolean;
+}
+
+export interface BankAccount {
+  bankName: string;
+  accountHolder: string;
+  accountNumber: string;
+  iban?: string;
+}
+
+export interface WalletSettings {
+  preferredWithdrawMethod: 'bank' | 'wallet' | 'instapay' | 'treasury';
+  bankAccount?: BankAccount;
+  mobileWallet?: string;
+  instapayAddress?: string;
+  autoWithdrawal: boolean;
+  autoWithdrawalDays: ('Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday')[];
+  minAutoWithdrawAmount: number;
+}
+
+export interface Transaction {
+  id: string;
+  type: 'إيداع' | 'سحب';
+  amount: number;
+  date: string;
+  note: string;
+  category?: TransactionCategory;
+  status: 'pending' | 'completed' | 'cancelled';
+  fees?: number;
+  orderId?: string;
+  orderNumber?: string;
+  service?: string;
+  details?: any; // Keep details for generic extra data
+}
+
+export interface Wallet {
+  id?: string;
+  data?: any;
+  balance: number;
+  supplyBalance?: number; // Added supplyBalance for inventory funding
+  transactions: Transaction[];
+  withdrawRequests?: WithdrawRequest[];
+  settings?: WalletSettings;
+}
+
+export interface CompanyFees {
+  insuranceFeePercent: number;
+  inspectionFee: number;
+  returnShippingFee: number;
+  useCustomFees: boolean;
+  defaultInspectionActive: boolean; 
+  enableReturnAfter: boolean;    
+  enableReturnWithout: boolean;  
+  enableExchange: boolean;       
+  enableReturn?: boolean;
+  enableCashCollection?: boolean;
+  enableReturnToSender?: boolean;
+  enableFixedReturn: boolean;    
+  baseWeight?: number;
+  enableCodFees: boolean;
+  codThreshold: number;
+  codFeeRate: number;
+  codTaxRate: number;
+  postCollectionReturnRefundsProductPrice: boolean;
+  insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
+  shippingVatRate?: number;
+  enableFlexShip?: boolean;
+  flexShipFee?: number;
+}
+
+export const PERMISSIONS = {
+  DASHBOARD_VIEW: 'DASHBOARD_VIEW',
+  ORDERS_VIEW: 'ORDERS_VIEW',
+  ORDERS_MANAGE: 'ORDERS_MANAGE',
+  PRODUCTS_VIEW: 'PRODUCTS_VIEW',
+  PRODUCTS_MANAGE: 'PRODUCTS_MANAGE',
+  WALLET_VIEW: 'WALLET_VIEW',
+  WALLET_MANAGE: 'WALLET_MANAGE',
+  SETTINGS_VIEW: 'SETTINGS_VIEW',
+  SETTINGS_MANAGE: 'SETTINGS_MANAGE',
+} as const;
+
+export type Permission = keyof typeof PERMISSIONS;
+
+export interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  permissions: Permission[];
+  status?: 'active' | 'invited' | 'pending';
+}
+
+export interface StoreSection {
+  id: string;
+  type: 'hero' | 'products';
+  enabled: boolean;
+}
+
+export interface Banner {
+  id: string;
+  imageUrl: string;
+  title: string;
+  subtitle: string;
+  buttonText?: string;
+  link?: string;
+}
+
+export interface StoreCustomization {
+  logoUrl: string;
+  faviconUrl: string;
+  logoSize: 'sm' | 'md' | 'lg';
+  banners: Banner[];
+  footerText: string;
+  primaryColor: string;
+  backgroundColor: string;
+  textColor: string;
+  fontFamily: 'Cairo' | 'Readex Pro' | 'Tajawal';
+  headingFontWeight: 'font-bold' | 'font-black';
+  bodyFontSize: 'text-sm' | 'text-base' | 'text-lg';
+  announcementBarText: string;
+  isAnnouncementBarVisible: boolean;
+  socialLinks: {
+    facebook: string;
+    instagram: string;
+    x: string;
+    tiktok: string;
+  };
+  pageSections: StoreSection[];
+  buttonBorderRadius: 'rounded-none' | 'rounded-md' | 'rounded-lg' | 'rounded-full';
+  cardStyle: 'default' | 'elevated' | 'outlined';
+  productColumnsDesktop: 2 | 3 | 4 | 5;
+}
+
+export interface DiscountCode {
+  id: string;
+  code: string;
+  type: 'fixed' | 'percentage';
+  value: number;
+  active: boolean;
+  usageCount: number;
+}
+
+export interface AbandonedCart {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  date: string;
+  items: OrderItem[];
+  totalValue: number;
+}
+
+export interface CustomerProfile {
+  id: string; 
+  name: string;
+  phone: string;
+  address: string;
+  totalOrders: number;
+  successfulOrders: number;
+  returnedOrders: number;
+  totalSpent: number; 
+  lastOrderDate: string;
+  firstOrderDate: string;
+  averageOrderValue: number;
+  loyaltyPoints: number;
+  notes?: string;
+}
+
+export interface Review {
+  id: string;
+  productId: string;
+  customerName: string;
+  rating: number;
+  comment: string;
+  date: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface Partner {
+  id: string;
+  name: string;
+  phone?: string;
+  notes?: string;
+  balance: number;
+  profitRatio: number; // Added profit ratio
+}
+
+export interface PartnerTransaction {
+  id: string;
+  partnerId: string;
+  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment';
+  amount: number;
+  date: string;
+  note?: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  phone: string;
+  address?: string;
+  notes?: string;
+  balance?: number; // Zero or Positive means debt to them
+}
+
+export interface SupplyOrderItem {
+  productId: string;
+  name?: string;
+  quantity: number;
+  bonusQuantity?: number;
+  cost: number;
+  discountValue?: number;
+  discountType?: 'amount' | 'percentage';
+}
+
+export interface PartnerPayment {
+  partnerId: string;
+  amount: number;
+}
+
+export interface SupplyOrder {
+  id: string;
+  supplierId: string;
+  date: string;
+  orderNumber?: string;
+  referenceNumber?: string;
+  items: SupplyOrderItem[];
+  totalCost: number;
+  status: 'completed' | 'draft' | 'cancelled';
+  partnerId?: string;
+  partnerPayments?: PartnerPayment[]; // New field for multiple partners
+  notes?: string;
+  paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet';
+}
+
+export interface ActivityLog {
+  id: string;
+  user: string;
+  action: string;
+  details: string;
+  date: string;
+  timestamp: number;
+}
+
+export interface CustomPage {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  isActive: boolean;
+}
+
+export interface PaymentMethod {
+  id: string;
+  name: string; 
+  details: string;
+  instructions: string;
+  logoUrl?: string;
+  active: boolean;
+  type: 'cod' | 'manual';
+}
+
+export interface GlobalOption {
+  id: string;
+  name: string;
+  values: string[];
+}
+
+export interface Collection {
+  id: string;
+  name: string;
+  image?: string;
+  description?: string;
+}
+
+export interface WhatsAppTemplate {
+  id: string;
+  label: string;
+  text: string;
+}
+
+export interface CallScript {
+  id: string;
+  title: string;
+  text: string;
+}
+
+export interface EmployeeDashboardSettings {
+  showAssignedOrders: boolean;
+  showOrderStatuses: OrderStatus[];
+  showFollowUpReminders: boolean;
+}
+
+export interface WebhookIntegration {
+  id: string;
+  storeUrl: string;
+  webhookUrl: string;
+  secretKey: string;
+  isActive: boolean;
+}
+
+export interface Settings {
+  id?: string;
+  data?: any; // For flexible local storage
+  enableGlobalFinancials: boolean; 
+  webhookIntegrations?: WebhookIntegration[];
+  insuranceFeePercent: number;
+  enableInsurance: boolean; 
+  inspectionFee: number;
+  enableInspection: boolean; 
+  returnShippingFee: number;
+  enableReturnShipping: boolean; 
+  enableFlexShip?: boolean;
+  flexShipFee?: number;
+  enableReturnAfterPrice: boolean;
+  enableReturnWithoutPrice: boolean;
+  enableExchangePrice: boolean;
+  baseWeight?: number;
+  products: Product[];
+  shippingOptions: Record<string, ShippingOption[]>;
+  activeCompanies: Record<string, boolean>;
+  exchangeSupported: Record<string, boolean>;
+  companySpecificFees: Record<string, CompanyFees>; 
+  enableGlobalCod: boolean; 
+  codThreshold: number;
+  codFeeRate: number;
+  codTaxRate: number;
+  insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
+  shippingVatRate?: number;
+  sku: string; 
+  defaultProductPrice: number;
+  enableDefaultPrice: boolean;
+  enablePlatformIntegration: boolean;
+  integration: PlatformIntegration;
+  customAppDomain?: string; // <-- New field for SaaS integration
+  platformConfigs?: Record<string, {
+    appId: string;
+    apiKey?: string;
+    apiSecret?: string;
+    shopUrl?: string;
+    shopId?: string;
+    lastSync?: string;
+    lastProductSync?: string;
+    isActive: boolean;
+  }>;
+  employees: Employee[];
+  customization: StoreCustomization;
+  discountCodes: DiscountCode[];
+  abandonedCarts: AbandonedCart[];
+  reviews: Review[]; 
+  shippingIntegrations: ShippingCarrierIntegration[];
+  suppliers: Supplier[];
+  supplyOrders: SupplyOrder[];
+  activityLogs: ActivityLog[];
+  customPages: CustomPage[];
+  paymentMethods: PaymentMethod[];
+  globalOptions: GlobalOption[]; 
+  collections: Collection[];
+  connectedPlatforms: string[]; // <-- Added connected platforms (e.g., 'wuilt', 'shopify')
+  whatsappTemplates?: WhatsAppTemplate[];
+  callScripts?: CallScript[];
+  employeeDashboardSettings?: EmployeeDashboardSettings;
+  partners?: Partner[];
+  partnerTransactions?: PartnerTransaction[];
+  expenseCategories?: string[]; // Added expense categories
+  
+  // Wallet & Payment Fees
+  depositFeePercent?: number;
+  withdrawalFeeType?: 'flat' | 'percent';
+  withdrawalFeePercent?: number;
+  withdrawalFlatFee?: number;
+  sameDayWithdrawalFeeType?: 'flat' | 'percent';
+  sameDayWithdrawalFeePercent?: number;
+  sameDayWithdrawalFlatFee?: number;
+  minWithdrawalFee?: number;
+  feeApplicableMethods?: string[]; // e.g. ['card', 'instapay', 'wallet']
+  inventoryAudits?: InventoryAuditSession[];
+}
+
+export interface InventoryAuditItemDiscrepancy {
+  productId: string;
+  variantId?: string;
+  name: string;
+  sku: string;
+  systemQty: number;
+  actualQty: number;
+  variance: number;
+  costPrice: number;
+  varianceValue: number;
+  method: 'correction' | 'scrap' | 'surplus'; // تصفية المخزن أو هالك أو بضاعة زائدة
+  notes?: string;
+}
+
+export interface InventoryAuditSession {
+  id: string;
+  title: string;
+  date: string;
+  performedBy: string; // user name/email
+  scope: 'all' | string; // 'all' or collection ID
+  totalSystemQty: number;
+  totalActualQty: number;
+  totalVarianceQty: number;
+  totalVarianceValue: number;
+  discrepancies: InventoryAuditItemDiscrepancy[];
+  notes?: string;
+}
+
+export interface OrderItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  price: number;
+  cost: number;
+  weight: number;
+  thumbnail?: string;
+  variantId?: string;
+  variantDescription?: string;
+  description?: string;
+  discountValue?: number;
+  discountType?: 'amount' | 'percentage';
+}
+
+export interface ConfirmationLog {
+  userId: string;
+  userName: string;
+  timestamp: string;
+  action: string;
+  notes?: string;
+  duration?: number; // Call duration in seconds
+}
+
+export interface CallAttempt {
+  id: string;
+  userId: string;
+  userName: string;
+  timestamp: string;
+  status: string;
+  notes?: string;
+  duration?: number;
+}
+
+export interface AuditLog {
+  id: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  action?: string;
+  details?: string;
+  field?: string;
+  oldValue?: string;
+  newValue?: string;
+  timestamp: string;
+}
+
+export interface Order {
+  id: string;
+  store_id?: string;
+  source?: 'manual' | 'synced' | 'saas';
+  platform?: string;
+  orderNumber: string;
+  referenceNumber?: string;
+  waybillNumber?: string;
+  trackingUrl?: string;
+  platformOrderId?: string;
+  date: string;
+  shippingCompany: string;
+  shippingArea: string;
+  customerName: string;
+  customerPhone: string;
+  customerPhone2?: string;
+  customerAddress: string;
+  city?: string;
+  governorate?: string;
+  notes?: string;
+  items: OrderItem[];
+  shippingFee: number;
+  adminFee?: number;
+  tax?: number;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  paymentMethod?: string;
+  productName: string; 
+  productPrice: number; 
+  productCost: number; 
+  totalPrice?: number;
+  insuranceFee?: number;
+  inspectionFee?: number;
+  weight: number; 
+  discount: number;
+  totalAmountOverride?: number;
+  totalAmountOverrideReason?: string;
+  includeInspectionFee?: boolean; 
+  isInsured?: boolean; 
+  inspectionFeeDeducted?: boolean;
+  inspectionFeePaidByCustomer?: boolean;
+  shippingAndInsuranceDeducted?: boolean;
+  returnFeeDeducted?: boolean;
+  collectionProcessed?: boolean;
+  preparationStatus: PreparationStatus;
+  classification?: string;
+  redeemedPoints?: number;
+  pointsDiscount?: number;
+  loyaltyPointsAwarded?: boolean;
+  stockDeducted?: boolean;
+  orderType?: 'standard' | 'exchange';
+  shipmentType?: 'delivery' | 'partial_delivery' | 'exchange' | 'return' | 'cash_collection';
+  originalOrderId?: string;
+  confirmationLogs?: ConfirmationLog[];
+  cancellationReason?: string;
+  followUpReminder?: string;
+  lockedBy?: string;
+  lockedByName?: string;
+  lockedAt?: string;
+  transferStatus?: 'pending' | 'accepted' | 'rejected';
+  transferTo?: string;
+  transferFrom?: string;
+  assignedTo?: string;
+  assignedToName?: string;
+  auditLogs?: AuditLog[];
+  callAttempts?: CallAttempt[];
+  sentiment?: string;
+  images?: string[];
+  advancePayment?: number;
+  advancePaymentPartnerId?: string;
+  advancePaymentTreasuryId?: string;
+  advancePaymentRecipientPhone?: string;
+  advancePaymentSenderDetails?: string;
+  useProductsForShipment?: boolean;
+  shipmentDescription?: string;
+  shipmentQuantity?: number;
+  customShipmentPrice?: number;
+  useProductsForReturn?: boolean;
+  returnProductId?: string;
+  returnVariantId?: string;
+  returnDescription?: string;
+  returnQuantity?: number;
+  returnImage?: string;
+  enableFlexShip?: boolean;
+  flexShipFee?: number;
+  flexShipFeePaidByCustomer?: boolean;
+}
+
+export interface TreasuryAccount {
+  id: string;
+  name: string;
+  type: 'safe' | 'bank' | 'wallet' | 'custody';
+  balance: number;
+  currency: string;
+  accountNumber?: string;
+  beneficiaryName?: string;
+  bankName?: string;
+  walletNumber?: string;
+  walletName?: string;
+}
+
+export interface TreasuryTransaction {
+  id: string;
+  date: string;
+  fromAccountId?: string;
+  toAccountId?: string;
+  amount: number;
+  type: 'deposit' | 'withdrawal' | 'transfer' | 'advance';
+  description: string;
+  reference?: string;
+}
+
+export interface Treasury {
+  id?: string;
+  data?: any;
+  accounts: TreasuryAccount[];
+  transactions: TreasuryTransaction[];
+}
+
+export interface StoreData {
+  orders: Order[];
+  settings: Settings;
+  wallet: Wallet;
+  treasury?: Treasury;
+  cart: OrderItem[];
+  customers: CustomerProfile[]; // Added customers to StoreData
+
+}
+
+export interface PlaceOrderData {
+    customerName: string;
+    customerPhone: string;
+    customerAddress: string;
+    shippingCompany: string;
+    shippingArea: string;
+    shippingFee: number;
+    paymentMethod: string;
+    notes?: string;
+    redeemedPoints: number;
+    discount: number;
+}
+
+export interface Store {
+  id: string;
+  name: string;
+  specialization: string;
+  language: string;
+  currency: string;
+  url: string;
+  creationDate: string;
+}
+
+export interface Site {
+  id: string;
+  name: string;
+  type: 'business' | 'ecommerce';
+  url: string;
+}
+
+export interface User {
+  name?: string;
+  fullName: string;
+  phone: string;
+  password: string;
+  email: string;
+  stores?: Store[];
+  sites?: Site[];
+  isAdmin?: boolean; 
+  isBanned?: boolean; 
+  joinDate?: string;
+}
+
+export interface Invitation {
+  storeId: string;
+  storeName: string;
+  inviterName: string;
+}
+
+export interface JoinRequest {
+  storeId: string;
+  storeName: string;
+  employeeId: string;
+  employeeName: string;
+}
+
+export interface ChatMessage {
+  id: string | number;
+  store_id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  created_at: string;
+  is_read: boolean;
+  is_file?: boolean;
+}

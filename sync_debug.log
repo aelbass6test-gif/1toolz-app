@@ -1,0 +1,124 @@
+[2026-04-17T10:11:01.839Z] Sync Store: store-1775134401540-gggbpbx, Items: 50
+ - Order #W-525: Status=مؤرشف (Raw keys: id,storeId,isArchived,isCanceled,fulfillmentStatus,paymentStatus,isViewed,orderSerial,shippingStatus,wuiltShipmentProvider,customer,cod,customerId,shippingRateCost,tags,paymentIntent,packagingDetails,shippingAddress,shipmentDetails,returnShipmentDetails,receipt,items,createdAt,__typename, isArchived=true)
+ - Order #W-524: Status=مؤرشف (Raw keys: id,storeId,isArchived,isCanceled,fulfillmentStatus,paymentStatus,isViewed,orderSerial,shippingStatus,wuiltShipmentProvider,customer,cod,customerId,shippingRateCost,tags,paymentIntent,packagingDetails,shippingAddress,shipmentDetails,returnShipmentDetails,receipt,items,createdAt,__typename, isArchived=true)
+ - Order #W-523: Status=مؤرشف (Raw keys: id,storeId,isArchived,isCanceled,fulfillmentStatus,paymentStatus,isViewed,orderSerial,shippingStatus,wuiltShipmentProvider,customer,cod,customerId,shippingRateCost,tags,paymentIntent,packagingDetails,shippingAddress,shipmentDetails,returnShipmentDetails,receipt,items,createdAt,__typename, isArchived=true)
+ - Order #W-522: Status=مؤرشف (Raw keys: id,storeId,isArchived,isCanceled,fulfillmentStatus,paymentStatus,isViewed,orderSerial,shippingStatus,wuiltShipmentProvider,customer,cod,customerId,shippingRateCost,tags,paymentIntent,packagingDetails,shippingAddress,shipmentDetails,returnShipmentDetails,receipt,items,createdAt,__typename, isArchived=true)
+ - Order #W-521: Status=مؤرشف (Raw keys: id,storeId,isArchived,isCanceled,fulfillmentStatus,paymentStatus,isViewed,orderSerial,shippingStatus,wuiltShipmentProvider,customer,cod,customerId,shippingRateCost,tags,paymentIntent,packagingDetails,shippingAddress,shipmentDetails,returnShipmentDetails,receipt,items,createdAt,__typename, isArchived=true)
+---
+[2026-05-22T02:50:01.761Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T02:56:22.320Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T03:14:49.833Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T03:46:05.074Z] Sync Store: store-1778212844642-kmq6cpc, Items: 3
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+---
+[2026-05-22T03:46:19.620Z] Sync Store: store-1778212844642-kmq6cpc, Items: 33
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+---
+[2026-05-22T03:47:18.189Z] Sync Store: store-1778212844642-kmq6cpc, Items: 2
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+---
+[2026-05-22T03:48:16.776Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T03:55:45.882Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T03:58:00.051Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T03:58:21.991Z] Sync Store: store-1778212844642-kmq6cpc, Items: 50
+ - Order #W-588: Status=في_انتظار_المكالمة (shippingStatus: "PENDING", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-587: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-586: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-585: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-584: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-583: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-582: Status=مدفوعة (shippingStatus: "DELIVERED", fStatus: "UNFULFILLED", isArchived=false)
+ - Order #W-581: Status=مؤرشف (shippingStatus: "CANCELED", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-580: Status=مؤرشف (shippingStatus: "PENDING", fStatus: "FULFILLED", isArchived=true)
+ - Order #W-579: Status=تمت_الاعادة_لشركة_الشحن (shippingStatus: "RETURNED_TO_SHIPPER", fStatus: "UNFULFILLED", isArchived=false)
+---
+[2026-05-22T04:01:11.599Z] Sync Store: store-1778212844642-kmq6cpc, Items: 33
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+ - Order #undefined: Status=undefined (shippingStatus: "undefined", fStatus: "undefined", isArchived=false)
+---
