@@ -5,6 +5,16 @@ import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc } from "firebase/firestore";
 import fs from "fs";
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.API_KEY!,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    }
+  }
+});
 
 // Governorate translation map
 const GOVERNORATE_MAP: Record<string, string> = {
@@ -372,6 +382,21 @@ async function startServer() {
     : getFirestore(firebaseApp);
 
   // --- API ROUTES ---
+  
+  app.post("/api/gemini", async (req, res) => {
+    const { model, prompt, config, service } = req.body;
+    try {
+        const response = await ai.models.generateContent({
+            model: model || "gemini-3.5-flash",
+            contents: prompt,
+            config: config
+        });
+        res.json({ text: response.text });
+    } catch (error: any) {
+        console.error("Gemini API Error:", error);
+        res.status(500).json({ error: error.message });
+    }
+  });
 
   // OTP Verification API for Firebase
   app.post("/api/verify-otp", (req, res) => {
