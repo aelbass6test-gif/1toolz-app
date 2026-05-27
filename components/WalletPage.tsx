@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Wallet as WalletIcon, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
+import { calculateOrderProfitLoss } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -39,6 +40,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const [chargeMethod, setChargeMethod] = useState<'card' | 'wallet' | 'instapay'>('card');
   const [withdrawMode, setWithdrawMode] = useState<'normal' | 'same_day'>('normal');
   const [amount, setAmount] = useState('');
+  const [walletViewMode, setWalletViewMode] = useState<'balance' | 'cycle'>('balance');
   const [activeTab, setActiveTab] = useState<'all' | 'orders' | 'withdrawals' | 'manual' | 'supply_wallet'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [settingsScreen, setSettingsScreen] = useState<'main' | 'payment_methods' | 'withdraw_settings'>('main');
@@ -478,6 +480,43 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
   const totalPages = Math.ceil(groupedHistory.length / itemsPerPage);
 
+  const getNextMondayFormatted = () => {
+    const d = new Date();
+    const day = d.getDay();
+    const daysUntilMonday = (8 - day) % 7 || 7;
+    const nextMonday = new Date(d.getTime() + daysUntilMonday * 24 * 60 * 60 * 1000);
+    return nextMonday.toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric', year: 'numeric' });
+  };
+
+  const cycleOrders = useMemo(() => {
+    return orders.filter(o => !o.collectionProcessed);
+  }, [orders]);
+
+  const totalCollectedFromCustomers = useMemo(() => {
+    return cycleOrders.reduce((sum, o) => {
+      const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
+      return sum + oTotal;
+    }, 0);
+  }, [cycleOrders]);
+
+  const totalShippingFee = useMemo(() => {
+    return cycleOrders.reduce((sum, o) => {
+      const { net } = calculateOrderProfitLoss(o, settings);
+      const productCost = Number(o.productCost) || 0;
+      const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
+      const totalFeesVal = oTotal - productCost - net;
+      const actualShippingFee = totalFeesVal > 0 ? totalFeesVal : (Number(o.shippingFee) || 0);
+      return sum + actualShippingFee;
+    }, 0);
+  }, [cycleOrders, settings]);
+
+  const totalNetProfit = useMemo(() => {
+    return cycleOrders.reduce((sum, o) => {
+      const { net } = calculateOrderProfitLoss(o, settings);
+      return sum + net;
+    }, 0);
+  }, [cycleOrders, settings]);
+
   return (
     <div className="min-h-[80vh] p-4 md:p-8">
       <motion.div
@@ -487,13 +526,37 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         className="max-w-6xl mx-auto space-y-10"
       >
         {/* Header Section */}
-        <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-6">
-          <motion.div variants={itemVariants} className="space-y-1 text-right">
-            <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">المحفظة المالية</h1>
-            <p className="text-slate-500 text-sm font-medium">نظرة شاملة على نشاطك المالي وأرصدتك</p>
+        <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+          <motion.div variants={itemVariants} className="space-y-1 text-right flex-1 w-full flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1">المحفظة المالية</h1>
+              <p className="text-slate-500 text-sm font-medium">نظرة شاملة على نشاطك المالي وأرصدتك</p>
+            </div>
+            
+            {/* Modern responsive tabs for display modes matching screenshots */}
+            <div className="flex bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-700/50 flex-row-reverse w-full md:w-auto">
+              <button 
+                onClick={() => setWalletViewMode('balance')}
+                className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all duration-300 whitespace-nowrap cursor-pointer ${walletViewMode === 'balance' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+              >
+                الرصيد الحالي
+              </button>
+              <button 
+                onClick={() => setWalletViewMode('cycle')}
+                className={`flex-1 md:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all duration-300 whitespace-nowrap cursor-pointer ${walletViewMode === 'cycle' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+              >
+                الدورة المالية
+              </button>
+            </div>
           </motion.div>
 
-          <motion.div variants={itemVariants} className="flex gap-3">
+          <motion.div variants={itemVariants} className="flex gap-3 w-full md:w-auto justify-end">
+            <button
+              onClick={() => alert('مرحبا بك في مركز الدعم المالي! إذا كنت بحاجة إلى مساعدة، يمكنك الاستفسار من مدير الحساب المالي المخصص لك.')}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-black cursor-pointer leading-tight flex items-center gap-1.5"
+            >
+              احتاج مساعدة ؟
+            </button>
             <button
               onClick={() => setModalMode('settings')}
               className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-600 dark:text-slate-400 hover:text-indigo-600 transition-all shadow-sm flex items-center justify-center"
@@ -502,6 +565,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               <SettingsIcon size={20} />
             </button>
             <button
+              onClick={() => setModalMode('history')}
               className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-600 dark:text-slate-400 hover:text-indigo-600 transition-all shadow-sm flex items-center justify-center"
               title="تصدير التقارير"
             >
@@ -511,120 +575,100 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         </div>
 
         {/* Top Cards Section */}
-        <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Main Balance Card - Premium Glassmorphism */}
-          <div className="relative group perspective-1000">
-            <div className="absolute -inset-1 bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-600 rounded-[3rem] opacity-30 blur-2xl group-hover:opacity-50 transition duration-1000 animate-pulse"></div>
-            <div className="relative overflow-hidden bg-slate-900 dark:bg-black rounded-[3rem] p-8 text-white shadow-2xl flex flex-col justify-between min-h-[340px] border border-white/10">
-                {/* Background effects */}
-                <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
-                    <div className="absolute -top-24 -left-24 w-72 h-72 bg-emerald-500/20 rounded-full blur-[100px]"></div>
-                    <div className="absolute -bottom-24 -right-24 w-72 h-72 bg-teal-500/10 rounded-full blur-[100px]"></div>
-                    <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.1) 1px, transparent 0)', backgroundSize: '32px 32px' }}></div>
-                </div>
+        {walletViewMode === 'balance' ? (
+          <>
+            {/* 3 Premium Cards Section for Current Balance View matching screenshots */}
+            <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 font-sans">
+              {/* Card 1: Available Balance */}
+              <div className="bg-gradient-to-br from-indigo-900 via-slate-905 to-indigo-950 dark:from-black dark:to-slate-950 border border-white/10 rounded-[2.5rem] p-6 text-white shadow-2xl flex flex-col justify-between h-full min-h-[13rem] relative overflow-hidden group">
+                  <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-30 bg-radial-gradient from-indigo-500/10 via-transparent to-transparent"></div>
+                  <div className="text-right font-sans">
+                      <div className="flex justify-between items-center flex-row-reverse mb-3">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">الرصيد الأساسي المتاح</span>
+                          <WalletIcon size={16} className="text-indigo-400" />
+                      </div>
+                      <p className="text-3xl font-black mt-1 tracking-tight">
+                          {walletStats.liveBalance.toLocaleString('ar-EG')} <span className="text-sm font-bold opacity-65">ج.م</span>
+                      </p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-2 leading-relaxed">هذا هو إجمالي رصيد المحفظة المتاح للسحوبات الآن. يرجى الضغط على شحن الرصيد لإنشاء دفعة.</p>
+                  </div>
+                  <div className="flex gap-2.5 justify-end mt-4 relative z-10 flex-wrap">
+                      <button onClick={() => setModalMode('history')} className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center">سجل العمليات</button>
+                      <button onClick={() => { setAmount(''); setModalMode('charge'); }} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-emerald-500/20">شحن الرصيد</button>
+                      <button onClick={() => { setAmount(''); setModalMode('withdraw'); }} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-indigo-500/20">طلب سحب نقدي</button>
+                  </div>
+              </div>
 
-                <div className="relative z-10">
-                    <div className="flex justify-between items-start flex-row-reverse mb-6">
-                        <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/10">
-                            <WalletIcon size={24} className="text-emerald-400" />
+              {/* Card 2: Auto payout settings frequency */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-full min-h-[13rem] shadow-sm font-sans">
+                  <div>
+                      <div className="flex justify-between items-center flex-row-reverse mb-3 font-sans">
+                          <span className="text-[10px] font-black text-slate-400">تكرار السحب النقدي</span>
+                          <Clock size={16} className="text-slate-400" />
+                      </div>
+                      <div className="flex items-center gap-1.5 justify-end mt-1 font-sans">
+                          <span className="bg-indigo-50 text-indigo-650 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded-lg text-[9px] font-black">أسبوعي</span>
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">سيتم تحويل قيمة السحب النقدي إلى حسابك البنكي كل يوم اثنين كمعيار دوري لتأمين الحيازات المعتمدة.</p>
+                  </div>
+                  <div className="flex gap-2 justify-end mt-4">
+                      <button onClick={() => setModalMode('settings')} className="text-indigo-600 dark:text-indigo-400 text-[10px] font-black hover:underline cursor-pointer">تغيير النظام</button>
+                      <span className="w-1.5 h-1.5 bg-slate-200 dark:bg-slate-700/60 rounded-full self-center"></span>
+                      <button onClick={() => alert('نظام السحب مخصص لتجربة تسليم سريعة تحافظ على سلاسة رأس المال التشغيلي.')} className="text-slate-400 text-[10px] font-black hover:underline cursor-pointer">اعرف أكثر</button>
+                  </div>
+              </div>
+
+              {/* Card 3: Next settlement date */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-full min-h-[13rem] shadow-sm font-sans">
+                      <div>
+                          <div className="flex justify-between items-center flex-row-reverse mb-3 font-sans">
+                              <span className="text-[10px] font-black text-slate-400 animate-pulse font-sans">تاريخ السحب النقدي القادم</span>
+                              <Calendar size={16} className="text-slate-400" />
+                          </div>
+                          <p className="text-lg font-black text-slate-850 dark:text-white mt-1">
+                              الإثنين، {getNextMondayFormatted()}
+                          </p>
+                          <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed font-sans">سيتم تحويل قيمة التحصيل المستحق مباشرة بدون أي رسوم معاملات إلى الحساب البنكي المعتمد.</p>
+                      </div>
+                      <div className="mt-4">
+                          <div className="w-full bg-slate-50 dark:bg-slate-800/40 py-2.5 rounded-xl text-center text-[10px] font-black text-slate-500 border border-slate-100 dark:border-slate-800/80 font-sans">
+                              الاثنين القادم، {getNextMondayFormatted()}
+                          </div>
+                      </div>
+              </div>
+            </motion.div>
+
+            {/* Supply Wallet Widget */}
+            <motion.div variants={itemVariants} className="grid grid-cols-1 gap-8 mb-8 font-sans">
+              {/* Supply Wallet Card */}
+              <div className="relative group">
+                <div className="relative overflow-hidden bg-slate-50 dark:bg-slate-900/40 rounded-[2.5rem] p-8 text-right shadow-sm border border-slate-200/60 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
+                    <div className="flex items-center gap-5 flex-row-reverse">
+                        <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-650 dark:text-indigo-400 flex items-center justify-center">
+                            <Coins size={28} />
                         </div>
                         <div className="text-right">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400/80 mb-2">المحفظة الأساسية</p>
-                            <p className="text-[10px] text-white/50 mb-2">تستخدم للمبيعات، السحوبات، والمصاريف العامة</p>
-                            <div className="flex items-baseline gap-2 flex-row-reverse">
-                                <h2 className="text-5xl font-black tracking-tighter drop-shadow-2xl">
-                                    {walletStats.liveBalance.toLocaleString('ar-EG', { minimumFractionDigits: 0 })}
-                                </h2>
-                                <span className="text-xl font-bold text-emerald-400">ج.م</span>
-                            </div>
-                            {walletStats.pendingWithdrawals > 0 && (
-                                <div className="flex justify-end mt-2">
-                                    <span className="text-[11px] font-bold text-amber-400/90 flex items-center gap-1 bg-amber-400/10 px-3 py-1 rounded-full border border-amber-400/20">
-                                        <Clock size={12} />
-                                        قيد المراجعة: {walletStats.pendingWithdrawals.toLocaleString()} ج.م
-                                    </span>
-                                </div>
-                            )}
+                            <h3 className="text-lg font-black text-slate-850 dark:text-white mb-1">محفظة التوريد (رأس مال المخزون)</h3>
+                            <p className="text-xs text-slate-400 font-bold">مخصصة لتمويل عمليات شراء البضاعة والطلب المسبق بأمان مالي تام.</p>
                         </div>
                     </div>
-                </div>
-
-                <div className="relative z-10 grid grid-cols-2 gap-3">
-                    <motion.button
-                        whileHover={{ scale: 1.02, y: -2 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => { setAmount(''); setModalMode('withdraw'); }}
-                        className="group/btn relative py-5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-[1.5rem] text-white font-black text-xs transition-all overflow-hidden backdrop-blur-md"
-                    >
-                        <div className="relative z-10 flex items-center justify-center gap-2">
-                            <span>سحب</span>
-                            <ArrowDownLeft size={14} className="group-hover/btn:-translate-x-1 group-hover/btn:translate-y-1 transition-transform" />
+                    <div className="flex items-center gap-6">
+                        <div className="text-right font-sans">
+                            <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المتاح للمخزون</span>
+                            <p className="text-3xl font-black text-slate-900 dark:text-white mt-0.5">
+                                {walletStats.supplyBalance.toLocaleString('ar-EG')} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                            </p>
                         </div>
-                    </motion.button>
-                    <motion.button
-                        whileHover={{ scale: 1.02, y: -2 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => { setAmount(''); setModalMode('charge'); }}
-                        className="group/btn relative py-5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-[#051C1A] rounded-[1.5rem] font-black text-xs transition-all shadow-2xl shadow-emerald-500/30 overflow-hidden"
-                    >
-                        <div className="relative z-10 flex items-center justify-center gap-2">
-                            <span>إيداع</span>
-                            <Plus size={14} className="group-hover/btn:rotate-90 transition-transform" />
-                        </div>
-                    </motion.button>
-                </div>
-            </div>
-          </div>
-
-          <div className="relative group perspective-1000">
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600 via-blue-500 to-indigo-600 rounded-[3rem] opacity-30 blur-2xl group-hover:opacity-50 transition duration-1000"></div>
-            <div className="relative overflow-hidden bg-slate-900 dark:bg-slate-950 rounded-[3rem] p-8 text-white shadow-2xl flex flex-col justify-between min-h-[340px] border border-white/10">
-                <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden text-indigo-500/5">
-                    <History size={300} className="absolute -bottom-20 -left-20 rotate-12" />
-                </div>
-
-                <div className="relative z-10">
-                    <div className="flex justify-between items-start flex-row-reverse mb-6">
-                        <button 
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveTab('supply_wallet');
-                                const element = document.getElementById('transactions-section');
-                                if (element) element.scrollIntoView({ behavior: 'smooth' });
-                            }}
-                            className="bg-indigo-500/20 backdrop-blur-md p-3 rounded-2xl border border-indigo-500/20 hover:bg-indigo-500/30 transition-all cursor-pointer group/hist"
+                        <button
+                            onClick={() => { setSupplyAmount(''); setModalMode('transfer_supply'); }}
+                            className="px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
                         >
-                            <History size={24} className="text-indigo-400 group-hover/hist:rotate-[-45deg] transition-transform" />
+                            تحويل للمخزون
                         </button>
-                        <div className="text-right">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 mb-2">محفظة التوريد (رأس مال البضاعة)</p>
-                            <p className="text-[10px] text-white/50 mb-2">مخصصة فقط لشراء المخزون وتمويل البضاعة</p>
-                            <div className="flex items-baseline gap-2 flex-row-reverse">
-                                <h2 className="text-5xl font-black tracking-tighter drop-shadow-2xl">
-                                    {walletStats.supplyBalance.toLocaleString('ar-EG', { minimumFractionDigits: 0 })}
-                                </h2>
-                                <span className="text-xl font-bold text-indigo-400">ج.م</span>
-                            </div>
-                        </div>
                     </div>
                 </div>
-
-                <div className="relative z-10 mt-auto">
-                    <motion.button
-                        whileHover={{ scale: 1.02, y: -2 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => { setSupplyAmount(''); setModalMode('transfer_supply'); }}
-                        className="w-full group/btn relative py-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-[2rem] font-black text-sm transition-all shadow-xl shadow-indigo-500/20 overflow-hidden flex items-center justify-center gap-3"
-                    >
-                        <span>تحويل أموال للمخزون</span>
-                        <div className="p-1 px-3 bg-white/20 rounded-lg text-[10px] group-hover/btn:bg-white/30 transition-colors">
-                            إدارة رأس المال
-                        </div>
-                    </motion.button>
-                </div>
-            </div>
-          </div>
-        </motion.div>
+              </div>
+            </motion.div>
 
         {/* Stats Grid - Bento Style */}
         <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
@@ -703,6 +747,133 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 </div>
             </div>
         </motion.div>
+      </>) : (
+          <>
+            {/* Financial Cycle Dashboard view matching second & third screenshots */}
+            <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 font-sans">
+              {/* Card 1: Collected values */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-40 shadow-sm hover:border-indigo-500/30 hover:shadow-md transition-all font-sans">
+                  <div>
+                      <div className="flex justify-between items-center flex-row-reverse mb-2 font-sans overflow-hidden">
+                          <span className="text-[10px] font-black text-slate-400">المبلغ المحصل</span>
+                          <Coins size={16} className="text-indigo-500" />
+                      </div>
+                      <p className="text-3xl font-black text-slate-850 dark:text-white mt-1">
+                          {totalCollectedFromCustomers.toLocaleString('ar-EG')} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                      </p>
+                      <p className="text-[10px] h-4 font-bold text-slate-400 mt-1 whitespace-nowrap">إجمالي القيمة المطلوب تحصيلها بالكامل من العملاء</p>
+                  </div>
+                  <button onClick={() => alert('المبلغ المحصل يتم جمعه من جميع طلباتك للدورة المالية النشطة.')} className="text-indigo-600 dark:text-indigo-400 text-[10px] font-black self-start hover:underline cursor-pointer font-sans">عرض التفاصيل</button>
+              </div>
+
+              {/* Card 2: Shipping Fee */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-40 shadow-sm hover:border-indigo-500/30 hover:shadow-md transition-all font-sans">
+                  <div>
+                      <div className="flex justify-between items-center flex-row-reverse mb-2">
+                          <span className="text-[10px] font-black text-slate-400">سعر الشحن والرسوم</span>
+                          <Truck size={16} className="text-amber-500" />
+                      </div>
+                      <p className="text-3xl font-black text-slate-850 dark:text-white mt-1 font-sans">
+                          {totalShippingFee.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                      </p>
+                      <p className="text-[10px] h-4 font-bold text-slate-400 mt-1">تكلفة النقل والتسليم المخصومة بالكامل</p>
+                  </div>
+                  <button onClick={() => alert('مصاريف الشحن تشمل بوليصة النقل ورسوم تأمين شركات الخدمات.')} className="text-indigo-600 dark:text-indigo-400 text-[10px] font-black self-start hover:underline cursor-pointer font-sans">عرض التفاصيل</button>
+              </div>
+
+              {/* Card 3: Expected Profit from cycle */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-40 shadow-sm hover:border-indigo-500/30 hover:shadow-md transition-all font-sans">
+                  <div>
+                      <div className="flex justify-between items-center flex-row-reverse mb-2">
+                          <span className="text-[10px] font-black text-emerald-600 font-sans">صافي الربح الفعلي للدورة</span>
+                          <TrendingUp size={16} className="text-emerald-500" />
+                      </div>
+                      <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                          {totalNetProfit.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} <span className="text-xs font-bold text-emerald-600/60 font-sans">ج.م</span>
+                      </p>
+                      <p className="text-[10px] h-4 font-bold text-slate-400 opacity-80 mt-1">صافي مكاسبك المقبولة للدفع لك يوم الاثنين</p>
+                  </div>
+                  <button onClick={() => alert('صافي الأرباح يمثل إجمالي مبيعاتك مطروحاً منها سعر الشحن وتكاليف البضائع.')} className="text-emerald-600 dark:text-emerald-400 text-[10px] font-black self-start hover:underline cursor-pointer font-sans">عرض تفصيلي</button>
+              </div>
+            </motion.div>
+
+            {/* Financial Cycle Table ("قائمة بوليصات الدورة") */}
+            <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800 p-6 shadow-sm text-right">
+              <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 mb-6 flex-row-reverse font-sans">
+                <div className="text-right">
+                  <h3 className="text-lg font-black text-slate-850 dark:text-white flex items-center justify-end gap-2 text-right">
+                    <span>قائمة الأوردرات وشحنات الدورة</span>
+                    <span className="text-[11px] font-black text-indigo-100 bg-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 px-2.5 py-0.5 rounded-full font-sans">
+                      {cycleOrders.length} شحنة
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold mt-1 max-w-xl text-right font-sans">توضح الشحنات التابعة لهذه الدورة وحالة تصفيتها المالية وإجمالي الفوائد المستحقة.</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto text-right">
+                <table className="w-full text-right border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 text-right">
+                      <th className="p-5 text-right font-sans">رقم الشحنة</th>
+                      <th className="p-5 text-right font-sans">النوع</th>
+                      <th className="p-5 text-right font-sans">الوجهة</th>
+                      <th className="p-5 text-right font-sans">مبلغ بوليصة التحصيل</th>
+                      <th className="p-5 text-right font-sans">مصاريف الشحن</th>
+                      <th className="p-5 text-right font-sans">تاريخ الإضافة</th>
+                      <th className="p-5 text-right font-sans">صافي الربح للدورة</th>
+                      <th className="p-1 text-center font-sans">حالة التوصيل</th>
+                      <th className="p-1 text-center font-sans">حالة السداد</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/10 text-xs text-right">
+                    {cycleOrders.length > 0 ? (
+                      cycleOrders.map((o) => {
+                        const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
+                        const { net } = calculateOrderProfitLoss(o, settings);
+                        const productCost = Number(o.productCost) || 0;
+                        const totalFeesVal = (Number(o.productPrice) || 0) - (Number(o.discount) || 0) - productCost - net;
+                        const actualShippingFee = totalFeesVal > 0 ? totalFeesVal : (Number(o.shippingFee) || 0);
+                        
+                        return (
+                          <tr key={o.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all font-sans text-right">
+                            <td className="p-5 font-black text-indigo-600 dark:text-indigo-400 text-right">#{o.orderNumber}</td>
+                            <td className="p-5 font-bold text-slate-700 dark:text-slate-300 text-right">توصيل بضاعة</td>
+                            <td className="p-5 text-slate-500 font-medium text-right">{o.governorate}</td>
+                            <td className="p-5 font-black text-slate-850 dark:text-white text-right">{oTotal.toLocaleString()} ج.م</td>
+                            <td className="p-5 text-rose-500 font-bold text-right">{actualShippingFee.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} ج.م</td>
+                            <td className="p-5 text-slate-400 font-bold text-right">{new Date(o.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' })}</td>
+                            <td className={`p-5 font-extrabold text-right ${net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{net.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} ج.م</td>
+                            <td className="p-1 text-center">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black border ${
+                                o.status === 'تم_التحصيل' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10' :
+                                ['جاري_التوصيل', 'تم_الشحن'].includes(o.status as any) ? 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-500/10' :
+                                'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40'
+                              }`}>
+                                {o.status === 'تم_التحصيل' ? 'تم التوصيل ✓' : (o.status as any) === 'جاري_التوصيل' ? 'قيد التوصيل' : 'مع الشاحن'}
+                              </span>
+                            </td>
+                            <td className="p-1 text-center font-sans">
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black border ${
+                                o.paymentStatus === 'مدفوع' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 font-sans' : 'bg-rose-50 text-rose-500 border-rose-100'
+                              }`}>
+                                {o.paymentStatus === 'مدفوع' ? 'تم الدفع' : 'غير مدفوع'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={9} className="p-16 text-center text-slate-400 font-bold">لا يوجد أوردرات مسجلة في هذه الدورة المالية حالياً</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          </>
+        )}
 
         {/* Interactive List Section */}
         <motion.div id="transactions-section" variants={itemVariants} className="space-y-8">

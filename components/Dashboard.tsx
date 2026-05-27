@@ -1,11 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert } from 'lucide-react';
+import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store } from '../types';
 import { Link } from 'react-router-dom';
 import { motion, Variants } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
-import { calculateOrderProfitLoss } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -207,6 +207,9 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
   const stats = useMemo(() => {
     let totalProfit = 0;
     let totalLoss = 0;
+    let totalCOGS = 0;
+    let totalShippingPaid = 0;
+    let totalReturnedExpenses = 0;
     
     // Additional metrics for the new requested cards
     let awaitingDecisionCount = 0;
@@ -233,6 +236,9 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       totalProfit += profit;
       totalLoss += loss;
 
+      const safeProductCost = getOrderProductCost(o) || 0;
+      const safeShippingFee = Number(o.shippingFee) || 0;
+
       // Mapping for the 8 requested cards
       if (o.status === 'جاري_المراجعة' || o.status === 'في_انتظار_المكالمة') {
           awaitingDecisionCount++;
@@ -246,11 +252,14 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       
       if (o.status === 'مرتجع' || o.status === 'تمت_الاعادة_لشركة_الشحن' || o.status === 'فشل_التوصيل') {
           headedToYouCount++;
+          totalReturnedExpenses += loss;
       }
       
-      if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
+      if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها') {
           successfulOrdersCount++;
           actualCollection += (o.totalPrice || (o.productPrice + o.shippingFee));
+          totalCOGS += safeProductCost;
+          totalShippingPaid += safeShippingFee;
       } else if (!['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(o.status)) {
           expectedCollection += (o.totalPrice || (o.productPrice + o.shippingFee));
       }
@@ -258,6 +267,32 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
 
     // Logical fallback for "Awaiting Pickup" based on custom preparation status if available
     awaitingPickupCount = (orders || []).filter(o => o.status === 'قيد_التنفيذ' && (o as any).preparationStatus === 'بانتظار التجهيز').length;
+
+    // Financial calculations for Inventory Value
+    const totalInventoryValue = (settings?.products || []).reduce((acc, p) => {
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        return acc + p.variants.reduce((vAcc, v) => {
+          const stock = v.stockQuantity ?? v.stock ?? 0;
+          const cost = v.costPrice ?? p.costPrice ?? 0;
+          return vAcc + (stock * cost);
+        }, 0);
+      } else {
+        const stock = p.stockQuantity ?? p.stock ?? 0;
+        const cost = p.costPrice ?? 0;
+        return acc + (stock * cost);
+      }
+    }, 0);
+
+    // Liquid cash calculation
+    const cashBalance = (wallet?.transactions || []).reduce((sum, t) => {
+        const amount = Number(t.amount) || 0;
+        if (t.details?.paidByPartnerId) return sum;
+        if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+        if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+        return sum;
+    }, 0);
+
+    const workingCapital = cashBalance + (wallet?.supplyBalance || 0) + totalInventoryValue;
 
     return { 
       net: totalProfit - totalLoss, 
@@ -270,9 +305,14 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       headedToYouCount,
       successfulOrdersCount,
       actualCollection,
-      expectedCollection
+      expectedCollection,
+      totalCOGS,
+      totalShippingPaid,
+      totalReturnedExpenses,
+      totalInventoryValue,
+      workingCapital
     };
-  }, [orders, settings]);
+  }, [orders, settings, wallet]);
 
   const chartData = [
     { name: 'بانتظار مكالمة', value: stats.counts['في_انتظار_المكالمة'] || 0, color: '#06b6d4' },
@@ -417,40 +457,83 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
               </select>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-12">
-              <div className="space-y-2">
-                <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">صافي الأرباح</p>
-                <h4 className="text-4xl font-black text-slate-900 dark:text-white tabular-nums">
-                  {stats.net.toLocaleString()} <span className="text-lg font-bold text-slate-400">ج.م</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+              {/* صافي الأرباح */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <TrendingUp size={16} className="text-emerald-500 animate-bounce" />
+                  <span>صافي الأرباح</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {stats.net.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <div className="flex items-center gap-1.5 text-emerald-500 text-sm font-bold">
-                  <TrendingUp size={16} />
-                  <span>+12.5%</span>
-                </div>
+                <p className="text-[10px] text-slate-400 font-bold">الأرباح المتبقية بعد خصم تكاليف الشحن والمصاريف</p>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">رصيد المحفظة</p>
-                <h4 className="text-4xl font-black text-slate-900 dark:text-white tabular-nums">
-                  {(wallet?.transactions || []).reduce((sum, t) => {
+              {/* رصيد المحفظة */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <WalletIcon size={16} className="text-indigo-500" />
+                  <span>رصيد المحفظة السائل</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tabular-nums">
+                  {((wallet?.transactions || []).reduce((sum, t) => {
                       const amount = Number(t.amount) || 0;
-                      // Exclude partner personal expenses
                       if (t.details?.paidByPartnerId) return sum;
-
                       if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
                       if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
                       return sum;
-                  }, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-lg font-bold text-slate-400">ج.م</span>
+                  }, 0) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-xs text-slate-400 font-medium">متاح للسحب الفوري</p>
+                <p className="text-[10px] text-slate-400 font-bold">السيولة النقدية المتاحة للتوزيع والسحب الفوري</p>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">إجمالي الطلبات</p>
-                <h4 className="text-4xl font-black text-slate-900 dark:text-white tabular-nums">
-                  {stats.total}
+              {/* رأس المال العامل الكلي */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-1.5">
+                  <Layers size={16} className="text-blue-500" />
+                  <span>رأس المال العامل الكلي</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-blue-605 dark:text-blue-400 tabular-nums animate-pulse-slow">
+                  {stats.workingCapital.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-xs text-slate-400 font-medium">معدل تحويل 4.2%</p>
+                <p className="text-[10px] text-slate-400 font-bold">إجمالي الأصول (السيولة + محفظة التوريد + البضاعة بالتكلفة)</p>
+              </div>
+
+              {/* تكلفة البضاعة المباعة COGS */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <Package size={16} className="text-amber-500" />
+                  <span>تكلفة البضائع المباعة (COGS)</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-slate-200 tabular-nums">
+                  {stats.totalCOGS.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold">إجمالي تكلفة شراء المنتجات للأوردرات الناجحة</p>
+              </div>
+
+              {/* قيمة البضائع في المستودع */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <Clock size={16} className="text-cyan-500" />
+                  <span>قيمة المخزون الحالي (بالتكلفة)</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-slate-200 tabular-nums">
+                  {stats.totalInventoryValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.m</span>
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold">قيمة كل قطعة بضاعة موجودة حالياً بالمخزن بسعر التكلفة</p>
+              </div>
+
+              {/* رسوم ومصاريف التشغيل */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <Truck size={16} className="text-rose-500" />
+                  <span>رسوم شحن ومصاريف تشغيل</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-rose-500 dark:text-rose-400 tabular-nums">
+                  {(stats.totalShippingPaid + stats.totalReturnedExpenses).toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold">إجمالي تكاليف التوصيل + خسائر الشحن للأوردرات الراجعة</p>
               </div>
             </div>
           </div>

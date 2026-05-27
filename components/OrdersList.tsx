@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Trash2, Edit3, ChevronDown, Package, MapPin, Coins, FileSearch, AlertCircle, ShieldCheck, ShieldAlert, Banknote, ShoppingBag, Save, XCircle, Info, UploadCloud, User as UserIcon, Building, Download, Filter, Truck, CheckCircle, RefreshCcw, Briefcase, ChevronLeft, ChevronRight, MoreVertical, Percent, Lock, Unlock, Receipt, AlertTriangle, MessageCircle, Printer, Wand2, FileText, Phone, Archive, ArrowRightLeft, Image as ImageIcon, FileDown, LayoutList, LayoutGrid, Settings as SettingsIcon, X, PhoneForwarded, Users, ExternalLink, Link as LinkIcon, MessageSquare, Clock, Shield, Check, TrendingUp, TrendingDown } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Plus, Search, Trash2, Edit3, ChevronDown, Package, MapPin, Coins, FileSearch, AlertCircle, ShieldCheck, ShieldAlert, Banknote, ShoppingBag, Save, XCircle, Info, UploadCloud, User as UserIcon, Building, Download, Filter, Truck, CheckCircle, RefreshCcw, Briefcase, ChevronLeft, ChevronRight, MoreVertical, Percent, Lock, Unlock, Receipt, AlertTriangle, MessageCircle, Printer, Wand2, FileText, Phone, Archive, ArrowRightLeft, Image as ImageIcon, FileDown, LayoutList, LayoutGrid, Settings as SettingsIcon, X, PhoneForwarded, Users, ExternalLink, Link as LinkIcon, MessageSquare, Clock, Shield, Check, TrendingUp, TrendingDown, Sparkles } from 'lucide-react';
 import { Order, Settings, OrderStatus, Wallet, Transaction, PaymentStatus, PreparationStatus, OrderItem, Product, CustomerProfile, Store, Employee, User, AuditLog } from '../types';
 import { ORDER_STATUSES, EGYPT_GOVERNORATES, ORDER_STATUS_METADATA, generateEgyptShippingOptions } from '../constants';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
@@ -182,6 +182,7 @@ const WaybillModal: React.FC<{ order: Order; onClose: () => void; onSave: (waybi
 
 const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ orders, setOrders, products, settings, currentUser, setWallet, setSettings, addLoyaltyPointsForOrder, activeStore, customers, setCustomers, onRefresh, treasury, setTreasury, defaultShowAdd }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(defaultShowAdd || false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -190,13 +191,28 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   useEffect(() => {
     if (defaultShowAdd) {
       setShowAddModal(true);
+      if (location.state?.replacementOrderData) {
+        setNewOrder(getInitialNewOrder());
+      }
     } else {
       setShowAddModal(false);
     }
-  }, [defaultShowAdd]);
+  }, [defaultShowAdd, location.state]);
 
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [showSummaryModal, setShowSummaryModal] = useState<Order | null>(null);
+  const [pendingFlexShipConfirm, setPendingFlexShipConfirm] = useState<{
+    orderId: string;
+    newStatus: OrderStatus;
+    fee: number;
+    companyName: string;
+    orderNumber: string;
+  } | null>(null);
+  const [pendingInspectionConfirm, setPendingInspectionConfirm] = useState<{
+    order: Order;
+    newPaymentStatus: PaymentStatus;
+    inspectionFee: number;
+  } | null>(null);
   const [autoWhatsappData, setAutoWhatsappData] = useState<{order: Order, newStatus: string} | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -301,30 +317,61 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   }, [orders]);
 
 
-  const getInitialNewOrder = (): NewOrderState => ({
-    orderNumber: '', date: new Date().toISOString(), shippingCompany: activeCompanies[0] || 'ارامكس', shippingArea: '', customerName: '', customerPhone: '',
-    customerPhone2: '', country: 'مصر', buildingDetails: '',
-    items: [], shippingFee: 0, status: 'في_انتظار_المكالمة', includeInspectionFee: true, isInsured: true,
-    paymentStatus: 'بانتظار الدفع', preparationStatus: 'بانتظار التجهيز', discount: 0, notes: '',
-    orderType: 'standard', originalOrderId: undefined,
-    shipmentType: 'delivery',
-    totalAmountOverrideReason: '', paymentMethod: 'cod',
-    advancePayment: 0, 
-    advancePaymentPartnerId: '',
-    advancePaymentTreasuryId: '',
-    advancePaymentRecipientPhone: '',
-    advancePaymentSenderDetails: '',
-    useProductsForShipment: false,
-    shipmentDescription: '',
-    shipmentQuantity: 1,
-    customShipmentPrice: 0,
-    useProductsForReturn: false,
-    returnProductId: '',
-    returnVariantId: '',
-    returnDescription: '',
-    returnQuantity: 1,
-    returnImage: ''
-  });
+  const getInitialNewOrder = (): NewOrderState => {
+    let baseOrder: Partial<NewOrderState> = {
+      orderNumber: '', date: new Date().toISOString(), shippingCompany: activeCompanies[0] || 'ارامكس', shippingArea: '', customerName: '', customerPhone: '',
+      customerPhone2: '', country: 'مصر', buildingDetails: '',
+      items: [], shippingFee: 0, status: 'في_انتظار_المكالمة', includeInspectionFee: true, isInsured: true,
+      paymentStatus: 'بانتظار الدفع', preparationStatus: 'بانتظار التجهيز', discount: 0, notes: '',
+      orderType: 'standard', originalOrderId: undefined,
+      shipmentType: 'delivery',
+      totalAmountOverrideReason: '', paymentMethod: 'cod',
+      advancePayment: 0, 
+      advancePaymentPartnerId: '',
+      advancePaymentTreasuryId: '',
+      advancePaymentRecipientPhone: '',
+      advancePaymentSenderDetails: '',
+      useProductsForShipment: false,
+      shipmentDescription: '',
+      shipmentQuantity: 1,
+      customShipmentPrice: 0,
+      useProductsForReturn: false,
+      returnProductId: '',
+      returnVariantId: '',
+      returnDescription: '',
+      returnQuantity: 1,
+      returnImage: ''
+    };
+
+    const replacementOrderData = location.state?.replacementOrderData as Order | undefined;
+    if (replacementOrderData) {
+      baseOrder = {
+        ...baseOrder,
+        customerName: replacementOrderData.customerName || '',
+        customerPhone: replacementOrderData.customerPhone || '',
+        customerPhone2: replacementOrderData.customerPhone2 || '',
+        shippingArea: replacementOrderData.shippingArea || replacementOrderData.governorate || '',
+        country: 'مصر',
+        buildingDetails: replacementOrderData.customerAddress || '',
+        orderType: 'replacement',
+        originalOrderId: replacementOrderData.id,
+        shipmentType: 'exchange'
+      };
+
+      if (replacementOrderData.items && replacementOrderData.items.length > 0) {
+        baseOrder.useProductsForReturn = true;
+        const firstItem = replacementOrderData.items[0];
+        baseOrder.returnProductId = firstItem.productId;
+        baseOrder.returnVariantId = firstItem.variantId;
+        baseOrder.returnDescription = firstItem.description || firstItem.name;
+        baseOrder.returnQuantity = firstItem.quantity || 1;
+      } else {
+        baseOrder.returnDescription = replacementOrderData.productName || '';
+      }
+    }
+    
+    return baseOrder as NewOrderState;
+  };
 
   const [newOrder, setNewOrder] = useState<NewOrderState>(getInitialNewOrder());
 
@@ -1025,7 +1072,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     return { updatedProducts, stockDeducted: newStockDeducted };
   };
 
-  const updateOrderStatus = async (id: string, newStatus: OrderStatus) => {
+  const updateOrderStatus = async (id: string, newStatus: OrderStatus, forcePaidFlexShip?: boolean) => {
     const orderToUpdate = orders.find((o) => o.id === id);
     if (!orderToUpdate) return;
 
@@ -1040,10 +1087,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     const configuredFlexShipFee = useCustomFees ? (compSpecificFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
 
     let isFlexShipPaid = false;
-    if (['مرتجع', 'فشل_التوصيل'].includes(newStatus) && isFlexShipEnabled && configuredFlexShipFee > 0 && !orderToUpdate.flexShipFeePaidByCustomer) {
-        isFlexShipPaid = window.confirm(
-            `الأوردر رقم ${orderToUpdate.orderNumber}\nخدمة فليكس شيب مفعلة لشركة الشحن (${orderToUpdate.shippingCompany}).\nهل قام المستلم بدفع رسوم الخدمة الإضافية بقيمة (${configuredFlexShipFee} ج.م) لرفضه استلام الشحنة؟`
-        );
+    if (['مرتجع', 'فشل_التوصيل'].includes(newStatus) && isFlexShipEnabled && configuredFlexShipFee > 0 && !orderToUpdate.flexShipFeePaidByCustomer && forcePaidFlexShip === undefined) {
+        setPendingFlexShipConfirm({
+            orderId: id,
+            newStatus,
+            fee: configuredFlexShipFee,
+            companyName: orderToUpdate.shippingCompany || '',
+            orderNumber: orderToUpdate.orderNumber
+        });
+        return;
+    }
+
+    if (forcePaidFlexShip !== undefined) {
+        isFlexShipPaid = forcePaidFlexShip;
     }
 
     const orderWithFlexShip = {
@@ -1143,6 +1199,69 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     addAuditLog(orderId, 'إضافة بوليصة', `تم إضافة بوليصة رقم ${waybill} وتغيير الحالة إلى ${newStatus}`);
   };
 
+  const handleToggleFlexShipPaid = (orderId: string) => {
+    const orderToUpdate = orders.find(o => o.id === orderId);
+    if (!orderToUpdate) return;
+    
+    const compFees = settings.companySpecificFees?.[orderToUpdate.shippingCompany];
+    const useCustom = compFees?.useCustomFees ?? false;
+    const flexShipFeeAmount = orderToUpdate.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0));
+    
+    if (flexShipFeeAmount <= 0) return;
+    
+    const isCurrentlyPaid = !!orderToUpdate.flexShipFeePaidByCustomer;
+    const isNowPaid = !isCurrentlyPaid;
+    
+    const newTransactions: Transaction[] = [];
+    if (isNowPaid) {
+        newTransactions.push({
+            id: `flexship_${orderToUpdate.id}_${Date.now()}`,
+            type: 'إيداع',
+            amount: flexShipFeeAmount,
+            date: new Date().toISOString(),
+            note: `تحصيل رسوم خدمة فليكس شيب أوردر #${orderToUpdate.orderNumber}`,
+            category: 'collection',
+            status: 'completed',
+            orderId: orderToUpdate.id,
+            orderNumber: orderToUpdate.orderNumber
+        });
+    } else {
+        newTransactions.push({
+            id: `revert_flexship_${orderToUpdate.id}_${Date.now()}`,
+            type: 'سحب',
+            amount: flexShipFeeAmount,
+            date: new Date().toISOString(),
+            note: `عكس تحصيل رسوم فليكس شيب أوردر #${orderToUpdate.orderNumber} (رفض الدفع / إلغاء)`,
+            category: 'collection',
+            status: 'completed',
+            orderId: orderToUpdate.id,
+            orderNumber: orderToUpdate.orderNumber
+        });
+    }
+    
+    setWallet(prev => {
+        let newBalance = prev.balance || 0;
+        newTransactions.forEach(t => {
+            if (t.type === 'إيداع') newBalance += t.amount;
+            else if (t.type === 'سحب') newBalance -= t.amount;
+        });
+        return {
+            ...prev,
+            balance: newBalance,
+            transactions: [...newTransactions, ...prev.transactions]
+        };
+    });
+    
+    const updatedOrderData = {
+        ...orderToUpdate,
+        flexShipFeePaidByCustomer: isNowPaid,
+        flexShipFee: flexShipFeeAmount
+    };
+    
+    setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? updatedOrderData : o));
+    addAuditLog(orderId, 'تعديل رسوم الشحن', isNowPaid ? 'تم تسجيل سداد رسوم فليكس شيب من العميل' : 'تم تفريغ/إلغاء رسوم فليكس شيب بسبب رفض العميل الدفع');
+  };
+
 
   const handleCollectAction = (order: Order, customerPaidInspection: boolean) => {
     if (order.status !== 'تم_توصيلها' || order.collectionProcessed) return;
@@ -1207,8 +1326,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
         const inspectionFee = useCustom ? (compFees?.inspectionFee ?? settings.inspectionFee) : settings.inspectionFee;
-        const customerPaidInspection = order.includeInspectionFee ? window.confirm(`الأوردر رقم ${order.orderNumber}\nهل قام العميل بدفع رسوم المعاينة (الـ ${inspectionFee} ج)؟`) : false;
-        handleCollectAction(updatedOrder, customerPaidInspection);
+        
+        if (order.includeInspectionFee && inspectionFee && inspectionFee > 0) {
+            setPendingInspectionConfirm({
+                order,
+                newPaymentStatus,
+                inspectionFee
+            });
+        } else {
+            handleCollectAction(updatedOrder, false);
+        }
     } else {
         updateOrderField(order.id, 'paymentStatus', newPaymentStatus);
     }
@@ -1473,32 +1600,46 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   const handleAutoAssign = () => {
     const activeEmployees = settings.employees?.filter(e => e.status === 'active') || [];
     if (activeEmployees.length === 0) {
-      alert("لا يوجد موظفين نشطين متاحين للتوزيع.");
+      confirmAction({
+         title: "تنبيه",
+         message: "لا يوجد موظفين نشطين متاحين للتوزيع. يرجى تفعيل موظف واحد على الأقل في الإعدادات.",
+         type: "warning",
+         onConfirm: () => {}
+      });
       return;
     }
     const unassignedOrders = orders.filter(o => !o.assignedTo && o.status === 'في_انتظار_المكالمة');
     if (unassignedOrders.length === 0) {
-      alert("لا توجد طلبات غير معينة في حالة انتظار المكالمة.");
+      confirmAction({
+         title: "تنبيه",
+         message: "لا توجد طلبات غير معينة في حالة انتظار المكالمة لتوزيعها.",
+         type: "info",
+         onConfirm: () => {}
+      });
       return;
     }
     
-    if (window.confirm(`سيتم توزيع ${unassignedOrders.length} طلب على ${activeEmployees.length} موظف. هل أنت متأكد؟`)) {
-      let empIndex = 0;
-      
-      setOrders(prev => prev.map(o => {
-        if (!o.assignedTo && o.status === 'في_انتظار_المكالمة') {
-          const emp = activeEmployees[empIndex];
-          empIndex = (empIndex + 1) % activeEmployees.length;
-          return {
-            ...o,
-            assignedTo: emp.phone || emp.id,
-            assignedToName: emp.name
-          };
-        }
-        return o;
-      }));
-      alert("تم التوزيع بنجاح.");
-    }
+    confirmAction({
+      title: "توزيع الطلبات تلقائياً",
+      message: `سيتم توزيع ${unassignedOrders.length} طلب على ${activeEmployees.length} موظف دليفري/اتصالات نشطين بالتساوي. هل تريد الاستمرار بالفعل؟`,
+      type: "info",
+      confirmText: "تأكيد وتوزيع الآن",
+      onConfirm: () => {
+        let empIndex = 0;
+        setOrders(prev => prev.map(o => {
+          if (!o.assignedTo && o.status === 'في_انتظار_المكالمة') {
+            const emp = activeEmployees[empIndex];
+            empIndex = (empIndex + 1) % activeEmployees.length;
+            return {
+              ...o,
+              assignedTo: emp.phone || emp.id,
+              assignedToName: emp.name
+            };
+          }
+          return o;
+        }));
+      }
+    });
   };
 
   const getWhatsAppLink = (order: Order) => {
@@ -1821,9 +1962,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                   </th>
                   <th className="p-6">الطلب والعميل</th>
                   <th className="p-6">المنتجات</th>
-                  <th className="p-6">الشحن</th>
+                  <th className="p-6">مبلغ التحصيل</th>
+                  <th className="p-6">رسوم فليكس شيب</th>
                   <th className="p-6">الحالة</th>
-                  <th className="p-6">الدفع</th>
+                  <th className="p-6">المحاولات</th>
+                  <th className="p-6">حالة المبلغ المحصل</th>
                   <th className="p-6 text-left">الإجراءات</th>
                 </tr>
               </thead>
@@ -1846,6 +1989,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                     onShowSummary={() => setShowSummaryModal(order)}
                     onShowAudit={() => setShowAuditLog(order)}
                     onShowAssignment={() => setShowAssignment(order)}
+                    onToggleFlexShipPaid={() => handleToggleFlexShipPaid(order.id)}
                     whatsappLink={getWhatsAppLink(order)}
                     settings={settings}
                   />
@@ -2026,6 +2170,98 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         />
       )}
 
+      {pendingFlexShipConfirm && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-6 text-center animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800" style={{ direction: 'rtl' }}>
+                <div className="w-16 h-16 bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-violet-100 dark:border-violet-500/20">
+                    <Truck size={32} />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">تأكيد رسوم الفليكس شيب (Flex Ship)</h3>
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mb-6">
+                    الطلب رقم <span className="text-slate-800 dark:text-slate-200 font-extrabold">#{pendingFlexShipConfirm.orderNumber}</span> لشركة الشحن ({pendingFlexShipConfirm.companyName}).
+                    <br />
+                    هل قام المستلم بدفع الرسوم الإضافية بقيمة <span className="text-violet-600 dark:text-violet-400 font-black">{pendingFlexShipConfirm.fee} ج.م</span> لرفضه استلام الشحنة؟
+                </p>
+                
+                <div className="grid grid-cols-1 gap-2.5">
+                    <button 
+                        onClick={() => {
+                            updateOrderStatus(pendingFlexShipConfirm.orderId, pendingFlexShipConfirm.newStatus, true);
+                            setPendingFlexShipConfirm(null);
+                        }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                        <span>نعم، تم الدفع والمستلم سدد الرسوم ✓</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            updateOrderStatus(pendingFlexShipConfirm.orderId, pendingFlexShipConfirm.newStatus, false);
+                            setPendingFlexShipConfirm(null);
+                        }}
+                        className="w-full py-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/10 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-extrabold rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                        <span>لا، رفض الدفع (لم يتم التحصيل) ✗</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            setPendingFlexShipConfirm(null);
+                        }}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                    >
+                        <span>إلغاء التغيير والرجوع</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {pendingInspectionConfirm && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[32px] shadow-2xl p-8 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800" style={{ direction: 'rtl' }}>
+                <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 dark:border-emerald-500/20 shadow-sm">
+                    <Coins size={32} />
+                </div>
+                <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">تأكيد رسوم المعاينة</h3>
+                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-6 font-sans leading-relaxed">
+                     الطلب رقم <span className="text-slate-800 dark:text-slate-200 font-extrabold">#{pendingInspectionConfirm.order.orderNumber}</span>.
+                     <br />
+                     هل قام العميل بدفع رسوم المعاينة بقيمة <span className="text-emerald-600 dark:text-emerald-400 font-black">{pendingInspectionConfirm.inspectionFee} ج.م</span>؟
+                </p>
+                
+                <div className="grid grid-cols-1 gap-2.5">
+                    <button 
+                        onClick={() => {
+                            const updatedOrder = { ...pendingInspectionConfirm.order, paymentStatus: pendingInspectionConfirm.newPaymentStatus, inspectionFeePaidByCustomer: true };
+                            handleCollectAction(updatedOrder, true);
+                            setPendingInspectionConfirm(null);
+                        }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
+                    >
+                        <span>✓ نعم، العميل سدد كامل رسوم المعاينة</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            const updatedOrder = { ...pendingInspectionConfirm.order, paymentStatus: pendingInspectionConfirm.newPaymentStatus, inspectionFeePaidByCustomer: false };
+                            handleCollectAction(updatedOrder, false);
+                            setPendingInspectionConfirm(null);
+                        }}
+                        className="w-full py-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/10 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-extrabold rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
+                    >
+                        <span>✗ لا، لم يسدد رسوم المعاينة بالزيادة</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            setPendingInspectionConfirm(null);
+                        }}
+                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                    >
+                        <span>إلغاء الإجراء</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {confirmation.isOpen && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[32px] shadow-2xl p-8 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800">
@@ -2083,6 +2319,49 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   );
 };
 
+const ShipmentTypeBadge: React.FC<{ type?: string }> = ({ type }) => {
+  const t = type || 'delivery';
+  switch (t) {
+    case 'partial_delivery':
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-sky-55/60 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-850 whitespace-nowrap">
+          <Package size={12} />
+          <span>توصيل جزئي</span>
+          <span className="px-1 py-0.5 bg-cyan-400 dark:bg-cyan-500 text-white rounded-[4px] text-[8px] font-black leading-none animate-pulse">جديد</span>
+        </span>
+      );
+    case 'exchange':
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-indigo-55/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-205 dark:border-indigo-850 whitespace-nowrap">
+          <ArrowRightLeft size={12} />
+          <span>تبديل شحنات</span>
+        </span>
+      );
+    case 'return':
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-rose-55/60 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-205 dark:border-rose-850 whitespace-nowrap">
+          <RefreshCcw size={12} />
+          <span>إرجاع شحنة</span>
+        </span>
+      );
+    case 'cash_collection':
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-emerald-55/60 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-205 dark:border-emerald-850 whitespace-nowrap">
+          <Coins size={12} />
+          <span>تحصيل نقدي</span>
+        </span>
+      );
+    case 'delivery':
+    default:
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-750 whitespace-nowrap">
+          <Truck size={12} />
+          <span>توصيل شحنة</span>
+        </span>
+      );
+  }
+};
+
 const OrderCard = ({ 
   order, 
   isSelected, 
@@ -2121,6 +2400,7 @@ const OrderCard = ({
   settings: Settings,
   key?: any
 }) => {
+  const navigate = useNavigate();
   const statusInfo = ORDER_STATUS_METADATA[order.status] || { label: order.status, color: 'bg-slate-500', icon: 'Package' };
   const StatusIcon = {
     PhoneForwarded, FileSearch, Package, Truck, CheckCircle, Coins, RefreshCcw, XCircle, Archive
@@ -2190,12 +2470,13 @@ const OrderCard = ({
         </div>
       </div>
 
-      {/* Status Badge */}
-      <div className="mb-8">
+      {/* Status & Shipment Type Badges */}
+      <div className="flex flex-wrap items-center gap-3 mb-8">
           <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-2xl ${statusInfo.color} text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}>
               <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
               {statusInfo.label}
           </div>
+          <ShipmentTypeBadge type={order.shipmentType} />
       </div>
 
       {/* Profile Section */}
@@ -2322,6 +2603,16 @@ const OrderCard = ({
               >
                 بوليصة شحن <LayoutList size={16} /> {order.source === 'synced' && order.waybillNumber?.startsWith('http') && <ExternalLink size={12} className="text-blue-500 mr-auto" />}
               </button>
+              <button 
+                  onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setIsOpsMenuOpen(false); 
+                      navigate('/create-order', { state: { replacementOrderData: order } }); 
+                  }} 
+                  className="w-full text-right px-4 py-3 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+              >
+                  إنشاء بوليصة استبدال <RefreshCcw size={16} />
+              </button>
               <button onClick={onShowAudit} className="w-full text-right px-4 py-3 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors">
                 سجل التدقيق <FileSearch size={16} />
               </button>
@@ -2362,7 +2653,7 @@ const ShippingDetailsCard: React.FC<{ order: Order }> = ({ order }) => {
     );
 };
 
-const ProfitBreakdown: React.FC<{ order: Order; settings: Settings }> = ({ order, settings }) => {
+const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlexShipPaid?: () => void }> = ({ order, settings, onToggleFlexShipPaid }) => {
     const safeProductPrice = Number(order.productPrice) || 0;
     const safeShippingFee = Number(order.shippingFee) || 0;
     const safeDiscount = Number(order.discount) || 0;
@@ -2393,126 +2684,212 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings }> = ({ order
         : 0;
         
     const totalExpenses = safeProductCost + safeShippingFee + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
-    const netProfit = amountCollectedFromCustomer - totalExpenses;
+    
+    // Dynamic Profit/Loss calculations based on status
+    const carrierCost = safeShippingFee + insuranceFee + bostaVatFee;
+    const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(order.status);
+    const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+    const flexPaidAmount = order.flexShipFeePaidByCustomer ? (order.flexShipFee || flexFeeValue) : 0;
+
+    const netProfit = isReturnedOrFailed
+        ? (flexPaidAmount - carrierCost) // Loss is carrier costs minus what was recouped via Flex Ship
+        : (amountCollectedFromCustomer - totalExpenses);
+
+    const profitLabel = isReturnedOrFailed 
+        ? (netProfit >= 0 ? 'صافي ربح تسوية الشحن' : 'الخسارة الفعلية الموقعة')
+        : (order.status === 'تم_التحصيل' ? 'الربح الصافي المحقق' : 'الربح المتوقع من الأوردر');
 
     return (
-        <div className="bg-white dark:bg-slate-900 rounded-[32px] p-6 sm:p-8 border border-slate-100 dark:border-slate-800 shadow-xl space-y-6 min-w-[320px] text-right">
-            <h4 className="text-lg font-black text-slate-800 dark:text-white pb-4 border-b border-slate-50 dark:border-slate-800">تفاصيل معادلة الربح</h4>
+        <div id="profit-breakdown shadow-lg" className="bg-white dark:bg-slate-900 rounded-[32px] p-6 sm:p-8 border border-slate-100 dark:border-slate-800 shadow-xl space-y-6 min-w-[320px] text-right">
+            <h4 className="text-lg font-black text-slate-800 dark:text-white pb-4 border-b border-slate-50 dark:border-slate-800">تفاصيل معادلة الربح والخسارة</h4>
             
             <div className="space-y-4">
-                {/* الإيرادات */}
-                <div className="py-2">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">الإيرادات (ما يدفعه العميل):</p>
-                    <div className="space-y-3">
-                        <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                            <span className="text-slate-500 font-bold">سعر المنتجات</span>
-                            <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeProductPrice.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                            <span className="text-slate-500 font-bold">رسوم الشحن على العميل</span>
-                            <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeShippingFee.toLocaleString()}</span>
-                        </div>
-                        {safeTax > 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                                <span className="text-slate-500 font-bold">الضريبة المضافة للعميل</span>
-                                <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeTax.toLocaleString()}</span>
+                {!isReturnedOrFailed ? (
+                    <>
+                        {/* الإيرادات */}
+                        <div className="py-2">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">الإيرادات (ما يدفعه العميل):</p>
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                    <span className="text-slate-500 font-bold">سعر المنتجات</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeProductPrice.toLocaleString()} ج.م</span>
+                                </div>
+                                <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                    <span className="text-slate-500 font-bold">رسوم الشحن على العميل</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeShippingFee.toLocaleString()} ج.م</span>
+                                </div>
+                                {safeTax > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                        <span className="text-slate-500 font-bold">الضريبة المضافة للعميل</span>
+                                        <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeTax.toLocaleString()} ج.م</span>
+                                    </div>
+                                )}
+                                {safeDiscount > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                        <span className="text-slate-500 font-bold">خصومات ومسماحات للعميل</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{safeDiscount.toLocaleString()} ج.م</span>
+                                    </div>
+                                )}
+                                {extraAdjustment !== 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2 border-t border-slate-100 dark:border-slate-800/50 pt-2 mt-2">
+                                        <span className="text-slate-500 font-bold">تسوية المبلغ المطلوب يدوياً</span>
+                                        <span className={`font-black ${extraAdjustment > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'} tabular-nums`}>
+                                            {extraAdjustment > 0 ? '+' : ''}{extraAdjustment.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-100 dark:border-slate-700/50">
+                                    <span className="text-slate-700 dark:text-slate-300 font-black">إجمالي الإيرادات =</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{amountCollectedFromCustomer.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                </div>
                             </div>
-                        )}
-                        {safeDiscount > 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                                <span className="text-slate-500 font-bold">خصومات ومسماحات للعميل</span>
-                                <span className="font-black text-rose-500 tabular-nums">-{safeDiscount.toLocaleString()}</span>
-                            </div>
-                        )}
-                        {extraAdjustment !== 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2 border-t border-slate-100 dark:border-slate-800/50 pt-2 mt-2">
-                                <span className="text-slate-500 font-bold">تسوية المبلغ المطلوب يدوياً</span>
-                                <span className={`font-black ${extraAdjustment > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'} tabular-nums`}>
-                                    {extraAdjustment > 0 ? '+' : ''}{extraAdjustment.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                </span>
-                            </div>
-                        )}
-                        <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-100 dark:border-slate-700/50">
-                            <span className="text-slate-700 dark:text-slate-300 font-black">إجمالي الإيرادات =</span>
-                            <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{amountCollectedFromCustomer.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                         </div>
-                    </div>
-                </div>
 
-                {/* التكاليف */}
-                <div className="py-3 border-t border-slate-100 dark:border-slate-800">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 mt-1">المصروفات والتكاليف:</p>
-                    <div className="space-y-3">
-                        <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                            <span className="text-slate-500 font-bold">تكلفة شراء المنتجات</span>
-                            <span className="font-black text-rose-500 tabular-nums">-{safeProductCost.toLocaleString()}</span>
+                        {/* التكاليف */}
+                        <div className="py-3 border-t border-slate-100 dark:border-slate-800">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 mt-1">المصروفات والتكاليف:</p>
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                    <span className="text-slate-500 font-bold">تكلفة شراء المنتجات</span>
+                                    <span className="font-black text-rose-500 tabular-nums">-{safeProductCost.toLocaleString()} ج.م</span>
+                                </div>
+                                <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                    <span className="text-slate-500 font-bold">تكلفة بوليصة الشحن (للشركة)</span>
+                                    <span className="font-black text-rose-500 tabular-nums">-{safeShippingFee.toLocaleString()} ج.م</span>
+                                </div>
+                                {insuranceFee > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                        <span className="text-slate-500 font-bold">التأمين على الشحنة</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{insuranceFee.toFixed(2)} ج.م</span>
+                                    </div>
+                                )}
+                                {bostaVatFee > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                        <span className="text-slate-500 font-bold">{dynamicVatLabel}</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{bostaVatFee.toFixed(2)} ج.م</span>
+                                    </div>
+                                )}
+                                {inspectionAdjustment > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                        <span className="text-slate-500 font-bold">المعاينة</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{inspectionAdjustment.toFixed(2)} ج.م</span>
+                                    </div>
+                                )}
+                                {codFee > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                                        <span className="text-slate-500 font-bold">رسوم التحصيل (COD)</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{codFee.toFixed(2)} ج.m</span>
+                                    </div>
+                                )}
+                                <div className="flex justify-between items-center flex-row-reverse text-sm bg-rose-50 dark:bg-rose-900/10 p-2 rounded-lg mt-2 border border-rose-100 dark:border-rose-900/30">
+                                    <span className="text-rose-700 dark:text-rose-300 font-black">إجمالي المصروفات =</span>
+                                    <span className="font-black text-rose-600 dark:text-rose-400 tabular-nums">-{totalExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                            <span className="text-slate-500 font-bold">تكلفة بوليصة الشحن (للشركة)</span>
-                            <span className="font-black text-rose-500 tabular-nums">-{safeShippingFee.toLocaleString()}</span>
+                    </>
+                ) : (
+                    /* Returned/Failed loss presentation breakdown */
+                    <div className="space-y-4">
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-xs text-amber-700 dark:text-amber-400 font-bold mb-2">
+                            ⚠️ تم إلغاء بيع الشحنة بسبب المرتجع. تم إرجاع المنتجات ذات تكلفة ({safeProductCost.toLocaleString()} ج.م) للمخزون دون أي خسارة في قيمة السلعة نفسها.
                         </div>
-                        {insuranceFee > 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                                <span className="text-slate-500 font-bold">التأمين على الشحنة</span>
-                                <span className="font-black text-rose-500 tabular-nums">-{insuranceFee.toFixed(2)}</span>
+                        
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">حساب مصروفات الشحن الضائعة:</p>
+                        
+                        <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                            <div className="flex justify-between items-center flex-row-reverse text-sm">
+                                <span className="text-slate-500 font-semibold">بوليصة الشحن (الذهاب):</span>
+                                <span className="font-black text-rose-500">-{safeShippingFee.toLocaleString()} ج.م</span>
                             </div>
-                        )}
-                        {bostaVatFee > 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                                <span className="text-slate-500 font-bold">{dynamicVatLabel}</span>
-                                <span className="font-black text-rose-500 tabular-nums">-{bostaVatFee.toFixed(2)}</span>
-                            </div>
-                        )}
-                        {inspectionAdjustment > 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                                <span className="text-slate-500 font-bold">المعاينة</span>
-                                <span className="font-black text-rose-500 tabular-nums">-{inspectionAdjustment.toFixed(2)}</span>
-                            </div>
-                        )}
-                        {codFee > 0 && (
-                            <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                                <span className="text-slate-500 font-bold">رسوم التحصيل (COD)</span>
-                                <span className="font-black text-rose-500 tabular-nums">-{codFee.toFixed(2)}</span>
-                            </div>
-                        )}
-                        <div className="flex justify-between items-center flex-row-reverse text-sm bg-rose-50 dark:bg-rose-900/10 p-2 rounded-lg mt-2 border border-rose-100 dark:border-rose-900/30">
-                            <span className="text-rose-700 dark:text-rose-300 font-black">إجمالي المصروفات =</span>
-                            <span className="font-black text-rose-600 dark:text-rose-400 tabular-nums">-{totalExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Cash Collection & Advance Payment Breakdown */}
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2 mt-4 text-xs font-bold">
-                    <div className="flex justify-between items-center flex-row-reverse">
-                        <span className="text-slate-500">إجمالي فاتورة العميل:</span>
-                        <span className="text-slate-700 dark:text-slate-300">{amountCollectedFromCustomer.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
-                    </div>
-                    {safeAdvance > 0 && (
-                        <div className="space-y-1 py-1 border-y border-slate-100/50 dark:border-slate-800/50 my-1">
-                            <div className="flex justify-between items-center flex-row-reverse text-teal-600 dark:text-teal-400">
-                                <span>العربون المستلم مقدماً:</span>
-                                <span>-{safeAdvance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
-                            </div>
-                            {(order.advancePaymentRecipientPhone || order.advancePaymentSenderDetails) && (
-                                <div className="text-[9px] text-slate-500 dark:text-slate-400 font-bold bg-slate-100/50 dark:bg-slate-800/40 p-2 rounded-xl mt-1">
-                                    {order.advancePaymentRecipientPhone && <div className="flex justify-between items-center flex-row-reverse"><span>رقم المستلم:</span> <span className="font-black text-slate-700 dark:text-slate-300">{order.advancePaymentRecipientPhone}</span></div>}
-                                    {order.advancePaymentSenderDetails && <div className="flex justify-between items-center flex-row-reverse mt-1"><span>المحول (من):</span> <span className="font-black text-slate-700 dark:text-slate-300">{order.advancePaymentSenderDetails}</span></div>}
+                            {insuranceFee > 0 && (
+                                <div className="flex justify-between items-center flex-row-reverse text-sm">
+                                    <span className="text-slate-500 font-semibold">التأمين المقتطع:</span>
+                                    <span className="font-black text-rose-500">-{insuranceFee.toFixed(2)} ج.م</span>
                                 </div>
                             )}
+                            {bostaVatFee > 0 && (
+                                <div className="flex justify-between items-center flex-row-reverse text-sm">
+                                    <span className="text-slate-500 font-semibold">ضريبة القيمة المضافة للبوليصة:</span>
+                                    <span className="font-black text-rose-500">-{bostaVatFee.toFixed(2)} ج.م</span>
+                                </div>
+                            )}
+                            <div className="h-[1px] bg-slate-200/50 dark:bg-slate-700/50" />
+                            <div className="flex justify-between items-center flex-row-reverse text-sm font-bold text-rose-700 dark:text-rose-400">
+                                <span>إجمالي خسائر الشحن لشركة النقل:</span>
+                                <span>-{carrierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                            </div>
                         </div>
-                    )}
-                    <div className="flex justify-between items-center flex-row-reverse text-indigo-600 dark:text-indigo-400 border-t border-slate-200/50 dark:border-slate-800/50 pt-1.5 font-black text-sm">
-                        <span>المتبقي للتحصيل عند الاستلام:</span>
-                        <span>{Math.max(0, amountCollectedFromCustomer - safeAdvance).toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+
+                        {/* Interactive Explanation card */}
+                        <div className="p-4 bg-violet-500/5 border border-violet-550/20 dark:border-violet-500/20 rounded-2xl text-xs space-y-2 mt-4">
+                            <h5 className="font-black text-violet-800 dark:text-violet-405 flex items-center justify-end gap-1.5">
+                                💡 كيف يتم تفادي هذه الخسائر بالفليكس شيب المعجل؟
+                            </h5>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-bold">
+                                عندما يرفض المستلم الاستلام، يتم استدعاء خدمة فليكس شيب للمطالبة بـ <strong className="text-violet-750 font-black">{flexFeeValue} ج.م</strong>.
+                            </p>
+                            <div className="space-y-1.5 mt-2 pt-2 border-t border-violet-200/50 dark:border-violet-850/50 text-[11px]">
+                                <div className="flex justify-between items-center flex-row-reverse text-slate-700 dark:text-slate-300">
+                                    <span>خسارة بوليصة الذهاب:</span>
+                                    <span>-{carrierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                </div>
+                                <div className="flex justify-between items-center flex-row-reverse text-emerald-600 dark:text-emerald-400">
+                                    <span>الفليكس شيب المسترد من العميل:</span>
+                                    <span>+{flexPaidAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                </div>
+                                <div className="h-[1.5px] bg-violet-200/50 dark:bg-violet-850/50" />
+                                <div className="flex justify-between items-center flex-row-reverse font-black text-indigo-700 dark:text-indigo-400 text-xs">
+                                    <span>صافي الخسارة الفعلية المترتبة:</span>
+                                    <span className={netProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
+                                        {netProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="text-[10px] text-slate-450 dark:text-slate-500 font-bold leading-normal text-right mt-1 bg-white/50 dark:bg-slate-900/40 p-2 rounded-xl">
+                                {flexPaidAmount > 0 ? (
+                                    <span className="text-emerald-600 font-black">✓ فليكس الكابتن نشط! لقد وفرت {Math.round((flexPaidAmount / carrierCost) * 100)}% من تكلفة البوليصة بفضل تحصيل الرسوم من العميل.</span>
+                                ) : (
+                                    <span className="text-rose-600 font-black">ℹ️ العميل لم يدفع فليكس شيب (رفض السداد)، لذا تتحمل الشركة خسارة الشحن كاملة بقيمة {carrierCost.toLocaleString()} ج.م.</span>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* Cash Collection & Advance Payment Breakdown */}
+                {!isReturnedOrFailed && (
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2 mt-4 text-xs font-bold font-sans">
+                        <div className="flex justify-between items-center flex-row-reverse">
+                            <span className="text-slate-500">إجمالي فاتورة العميل:</span>
+                            <span className="text-slate-700 dark:text-slate-300">{amountCollectedFromCustomer.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                        </div>
+                        {safeAdvance > 0 && (
+                            <div className="space-y-1 py-1 border-y border-slate-100/50 dark:border-slate-800/50 my-1">
+                                <div className="flex justify-between items-center flex-row-reverse text-teal-600 dark:text-teal-400">
+                                    <span>العربون المستلم مقدماً:</span>
+                                    <span>-{safeAdvance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                </div>
+                                {(order.advancePaymentRecipientPhone || order.advancePaymentSenderDetails) && (
+                                    <div className="text-[9px] text-slate-500 dark:text-slate-400 font-bold bg-slate-100/50 dark:bg-slate-800/40 p-2 rounded-xl mt-1">
+                                        {order.advancePaymentRecipientPhone && <div className="flex justify-between items-center flex-row-reverse"><span>رقم المستلم:</span> <span className="font-black text-slate-700 dark:text-slate-300">{order.advancePaymentRecipientPhone}</span></div>}
+                                        {order.advancePaymentSenderDetails && <div className="flex justify-between items-center flex-row-reverse mt-1"><span>المحول (من):</span> <span className="font-black text-slate-700 dark:text-slate-300">{order.advancePaymentSenderDetails}</span></div>}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center flex-row-reverse text-indigo-600 dark:text-indigo-400 border-t border-slate-200/50 dark:border-slate-800/50 pt-1.5 font-black text-sm">
+                            <span>المتبقي للتحصيل عند الاستلام:</span>
+                            <span>{Math.max(0, amountCollectedFromCustomer - safeAdvance).toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Flex Ship Service Display */}
                 {(() => {
                     const isFlexEnabled = useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false);
                     const flexFee = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
-                    if (isFlexEnabled && flexFee > 0) {
+                    if (isFlexEnabled && flexFee > 0 && !isReturnedOrFailed) {
                         return (
                             <div className="p-4 bg-violet-50 dark:bg-violet-950/20 rounded-2xl border border-violet-100 dark:border-violet-900/40 text-xs text-right mt-4 flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200">
                                 <div className="flex justify-between items-center flex-row-reverse text-violet-800 dark:text-violet-400 font-bold">
@@ -2522,12 +2899,6 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings }> = ({ order
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-bold">
                                     يُطالب المستلم بدفع رسوم إضافية بقيمة <strong className="text-violet-700 dark:text-violet-400 font-black">{flexFee} ج.م</strong> إذا رفض استلام الشحنة.
                                 </p>
-                                {order.flexShipFeePaidByCustomer && (
-                                    <div className="flex justify-between items-center flex-row-reverse mt-1 pt-1.5 border-t border-violet-100 dark:border-violet-900/30 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
-                                        <span>حالة تحصيل الرسوم:</span>
-                                        <span className="font-bold">تم تحصيل {order.flexShipFee || flexFee} ج.م من المستلم ✓</span>
-                                    </div>
-                                )}
                             </div>
                         );
                     }
@@ -2536,7 +2907,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings }> = ({ order
             </div>
 
             <div className={`mt-6 p-5 rounded-3xl flex justify-between items-center flex-row-reverse ${netProfit >= 0 ? 'bg-emerald-50 border border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-900/50' : 'bg-rose-50 border border-rose-100 dark:bg-rose-900/10 dark:border-rose-900/50'}`}>
-                <span className={`text-sm font-black ${netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>الربح المتوقع</span>
+                <span className={`text-sm font-black ${netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'}`}>{profitLabel}</span>
                 <div className="flex items-baseline gap-1 flex-row-reverse">
                     <span className={`text-2xl font-black ${netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{netProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                     <span className="text-xs font-bold opacity-60">ج.م</span>
@@ -2595,6 +2966,7 @@ const OrderRow = ({
   onShowSummary,
   onShowAudit,
   onShowAssignment,
+  onToggleFlexShipPaid,
   whatsappLink,
   settings
 }: { 
@@ -2613,10 +2985,12 @@ const OrderRow = ({
   onShowSummary: () => void,
   onShowAudit: () => void,
   onShowAssignment: () => void,
+  onToggleFlexShipPaid?: () => void,
   whatsappLink: string,
   settings: Settings,
   key?: any
 }) => {
+  const navigate = useNavigate();
   const statusInfo = ORDER_STATUS_METADATA[order.status] || { label: order.status, color: 'bg-slate-500', icon: 'Package' };
   const StatusIcon = {
     PhoneForwarded, FileSearch, Package, Truck, CheckCircle, Coins, RefreshCcw, XCircle, Archive
@@ -2635,6 +3009,26 @@ const OrderRow = ({
   // Detailed Profit Calculation
   const compFees = settings.companySpecificFees?.[order.shippingCompany];
   const useCustom = compFees?.useCustomFees ?? false;
+  const getStatusBadgeStyle = (status: OrderStatus) => {
+      switch (status) {
+          case 'تم_التحصيل':
+          case 'تم_توصيلها':
+          case 'مدفوعة':
+              return 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20';
+          case 'مرتجع':
+          case 'فشل_التوصيل':
+          case 'مرتجع_جزئي':
+          case 'مرتجع_بعد_الاستلام':
+              return 'bg-rose-50 text-rose-605 border-rose-100 dark:bg-rose-500/10 dark:text-rose-405 dark:border-rose-500/20';
+          case 'في_انتظار_المكالمة':
+          case 'جاري_المراجعة':
+              return 'bg-indigo-50 text-indigo-650 border-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20';
+          default:
+              return 'bg-slate-50 text-slate-650 border-slate-100 dark:bg-slate-500/10 dark:text-slate-405 dark:border-slate-500/20';
+      }
+  };
+  const attemptsCount = (order.callAttempts || []).length;
+  const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
   
   const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
   const calculatedInsuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
@@ -2697,6 +3091,7 @@ const OrderRow = ({
           </div>
           <div className="text-right">
             <div className="flex items-center gap-2 mb-1 justify-end">
+              <ShipmentTypeBadge type={order.shipmentType} />
               <h4 className="text-base font-black text-slate-900 dark:text-white tracking-tighter cursor-pointer hover:text-indigo-600" onClick={onShowSummary}>#{order.orderNumber}</h4>
               <a href={whatsappLink} target="_blank" rel="noopener noreferrer" className="text-emerald-500 hover:scale-110 transition-transform p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
                 <MessageCircle size={14} />
@@ -2730,84 +3125,91 @@ const OrderRow = ({
             </div>
         </div>
       </td>
+      {/* 4. مبلغ التحصيل */}
       <td className="p-6">
         <div className="text-right space-y-1 relative">
-            <div className="flex items-center gap-2 justify-end overflow-hidden cursor-pointer" onClick={() => setShowShippingPopover(!showShippingPopover)}>
-                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{order.shippingCompany}</span>
-                <Truck size={14} className="text-slate-300" />
-            </div>
-            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate max-w-[150px]">{order.governorate}</p>
-            
-            <AnimatePresence>
-                {showShippingPopover && (
-                    <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowShippingPopover(false)}/>
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                            className="absolute bottom-full left-0 mb-4 z-50"
-                        >
-                            <ShippingDetailsCard order={order} />
-                        </motion.div>
-                    </>
-                )}
-            </AnimatePresence>
-        </div>
-      </td>
-      <td className="p-6">
-        <div className="relative group/status-select">
-            <select 
-              value={order.status}
-              onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
-              className={`appearance-none text-right pr-4 pl-10 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border-none focus:ring-4 focus:ring-indigo-500/10 cursor-pointer shadow-sm transition-all ${statusInfo.color} text-white hover:brightness-110`}
-            >
-              {ORDER_STATUSES.map(s => (
-                <option key={s} value={s} className="text-slate-900 bg-white font-bold">{ORDER_STATUS_METADATA[s]?.label || s}</option>
-              ))}
-            </select>
-            <ChevronDown size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/70 pointer-events-none" />
-        </div>
-      </td>
-      <td className="p-6">
-        <div className="text-right space-y-2 relative">
-            <div className="flex flex-col items-end">
-                <div className="flex items-baseline gap-1 justify-end">
-                    <span className="text-[10px] font-black text-indigo-600">ج.م</span>
+            <div className="flex items-center gap-2 justify-end">
+                <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
                     <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums drop-shadow-sm">{displayTotal.toLocaleString()}</span>
+                    <span className="text-[10px] font-black text-indigo-650 dark:text-indigo-400">ج.م</span>
                 </div>
-                {(order.advancePayment || 0) > 0 && (
-                    <div className="text-[9px] text-teal-600 font-bold text-right">
-                        <span>عربون: {order.advancePayment}</span>
-                        {(order.advancePaymentRecipientPhone || order.advancePaymentSenderDetails) && (
-                            <div className="text-[8px] text-slate-400 font-medium">
-                                {order.advancePaymentRecipientPhone && <span>إلى: {order.advancePaymentRecipientPhone}</span>}
-                                {order.advancePaymentRecipientPhone && order.advancePaymentSenderDetails && <span> | </span>}
-                                {order.advancePaymentSenderDetails && <span>من: {order.advancePaymentSenderDetails}</span>}
-                            </div>
-                        )}
-                    </div>
-                )}
+                <Coins size={14} className="text-amber-500/80" />
             </div>
-            <div className="flex flex-col gap-1 items-end">
-                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${
-                    order.paymentStatus === 'مدفوع' 
-                    ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' 
-                    : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'
-                }`}>
-                    {order.paymentStatus}
+            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-1 justify-end">
+                <span>الدفع عند الاستلام</span>
+                <span className="w-1 h-1 bg-slate-200/60 rounded-full"></span>
+                <span className="text-indigo-600 dark:text-indigo-400">{order.shippingCompany}</span>
+            </p>
+            <p className="text-[9px] font-bold text-slate-405 dark:text-slate-500 text-right">{order.governorate}</p>
+        </div>
+      </td>
+
+      {/* 5. رسوم فليكس شيب */}
+      <td className="p-6">
+        <div className="text-right space-y-0.5">
+            <div className="flex items-center gap-1 justify-end">
+                <span className="cursor-help text-slate-350 hover:text-indigo-600" title="رسوم فليكس شيب المستحقة">
+                    <Info size={11} className="inline-block" />
                 </span>
-                {safeProductCost > 0 && (
-                    <div 
-                        onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                        className={`flex items-center gap-1 text-[9px] font-black uppercase tracking-tight cursor-pointer p-1 rounded-lg ${isProfitable ? 'text-emerald-500 bg-emerald-50/50' : 'text-rose-500 bg-rose-50/50'} hover:scale-105 transition-transform`}
-                    >
-                        <span>{Math.abs(currentNetProfit).toLocaleString()} {profitLabel}</span>
-                        {isProfitable ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                    </div>
-                )}
+                <span className="text-xs font-black text-slate-850 dark:text-slate-200">
+                    {flexFeeValue || 105} ج.م
+                </span>
+            </div>
+            <span className="text-[10px] font-bold block text-slate-400 text-right">
+                {['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(order.status) ? 'مستحق للفصل' : 'غير مستحق بعد'}
+            </span>
+        </div>
+      </td>
+
+      {/* 6. الحالة */}
+      <td className="p-6">
+        <div className="relative group/status-select inline-block text-right">
+            {/* Overlay a custom beautiful badge below while keeping select fully functional for events */}
+            <div className={`relative flex items-center gap-1 px-3 py-1.5 rounded-full text-[11px] font-black border transition-all ${getStatusBadgeStyle(order.status)}`}>
+                <span>{statusInfo.label}</span>
+                {order.status === 'تم_التحصيل' ? <span>✓</span> : <StatusIcon size={12} />}
+                <ChevronDown size={11} className="opacity-50" />
+                
+                {/* Fully transparent interactive select positioned over the badge */}
+                <select 
+                  value={order.status}
+                  onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                >
+                  {ORDER_STATUSES.map(s => (
+                    <option key={s} value={s} className="text-slate-900 bg-white font-bold">{ORDER_STATUS_METADATA[s]?.label || s}</option>
+                  ))}
+                </select>
             </div>
         </div>
+      </td>
+
+      {/* 7. المحاولات */}
+      <td className="p-6">
+        <div className="flex items-center gap-2 justify-end text-xs font-bold text-slate-600 dark:text-slate-400 font-sans">
+            <div className="relative w-4.5 h-7.5 border border-slate-300 dark:border-slate-705 rounded-[6px] p-[2.5px] flex flex-col justify-end gap-[1.5px] bg-slate-50/50 dark:bg-slate-800/10">
+                {/* Top terminal pin on battery */}
+                <div className="absolute -top-[3px] left-1/2 -translate-x-1/2 w-1.5 h-[3px] bg-slate-300 dark:bg-slate-705 rounded-t-[1.5px]" />
+                {/* 3 bars */}
+                <div className={`h-1.5 rounded-[2px] transition-colors ${attemptsCount >= 3 ? 'bg-emerald-500' : 'bg-slate-100 dark:bg-slate-800'}`} />
+                <div className={`h-1.5 rounded-[2px] transition-colors ${attemptsCount >= 2 ? 'bg-amber-500' : 'bg-slate-100 dark:bg-slate-800'}`} />
+                <div className={`h-1.5 rounded-[2px] transition-colors ${attemptsCount >= 1 ? 'bg-emerald-500' : 'bg-emerald-500'}`} />
+            </div>
+            <span className="tabular-nums font-extrabold">{attemptsCount === 0 ? '1' : attemptsCount}/3</span>
+        </div>
+      </td>
+
+      {/* 8. حالة المبلغ المحصل */}
+      <td className="p-6">
+        <span 
+          className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest text-center inline-block cursor-default ${
+            order.paymentStatus === 'مدفوع' 
+            ? 'bg-emerald-50 text-emerald-650 border border-emerald-110 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20' 
+            : 'bg-rose-50 text-rose-650 border border-rose-110 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20'
+          }`}
+        >
+          {order.paymentStatus === 'مدفوع' ? 'مدفوع' : 'غير مدفوع'}
+        </span>
       </td>
       <td className="p-6">
         <div className="flex items-center gap-2 justify-end">
@@ -2844,6 +3246,9 @@ const OrderRow = ({
                         <button onClick={(e) => { e.stopPropagation(); setShowOps(false); onPrintLabel(); }} className="w-full h-12 text-right px-4 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors">
                             بوليصة شحن <LayoutList size={16} className="text-blue-500" />
                         </button>
+                        <button onClick={(e) => { e.stopPropagation(); setShowOps(false); navigate('/create-order', { state: { replacementOrderData: order } }); }} className="w-full h-12 text-right px-4 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors">
+                            إنشاء بوليصة استبدال <RefreshCcw size={16} className="text-teal-500" />
+                        </button>
                         <button onClick={(e) => { e.stopPropagation(); setShowOps(false); onShowAssignment(); }} className="w-full h-12 text-right px-4 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors">
                             تعيين موظف <UserIcon size={16} className="text-purple-500" />
                         </button>
@@ -2874,7 +3279,7 @@ const OrderRow = ({
                                 <ProductDetailsList order={order} />
                             </div>
                             <div className="w-full md:w-[350px]">
-                                <ProfitBreakdown order={order} settings={settings} />
+                                <ProfitBreakdown order={order} settings={settings} onToggleFlexShipPaid={onToggleFlexShipPaid} />
                             </div>
                         </div>
                     </motion.div>
@@ -2932,8 +3337,11 @@ const KanbanView: React.FC<{ orders: Order[]; onStatusChange: (id: string, newSt
                   onClick={() => onEdit(order)}
                 >
                   <div className="absolute top-0 right-0 w-1 h-full opacity-20" style={{ backgroundColor: statusColors[status].split(' ')[0].split('-')[1] }}></div>
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="text-[10px] font-black text-slate-400 tracking-wider">#{order.orderNumber || order.id.slice(0, 4)}</span>
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-slate-400 tracking-wider">#{order.orderNumber || order.id.slice(0, 4)}</span>
+                      <ShipmentTypeBadge type={order.shipmentType} />
+                    </div>
                     <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button className="p-1.5 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors"><Edit3 size={14}/></button>
                     </div>
@@ -3304,6 +3712,45 @@ const OrderModal: React.FC<OrderModalProps> = ({
     const totalBeforeCredit = useMemo(() => subtotal - itemDiscounts + (orderData.shippingFee || 0) - (orderData.discount || 0) + inspectionFee, [subtotal, itemDiscounts, orderData.shippingFee, orderData.discount, inspectionFee]);
     const finalAmount = totalBeforeCredit - creditAmount - (orderData.advancePayment || 0);
 
+    const liveProfitMargin = useMemo(() => {
+        const costOfItems = (orderData.items || []).reduce((sum: number, item: any) => {
+            const prod = settings.products.find(p => p.id === item.productId);
+            let itemCostByQty = Number(prod?.costPrice) || 0;
+            if (prod?.hasVariants && item.variantId) {
+                const variant = prod.variants?.find(v => v.id === item.variantId);
+                itemCostByQty = Number(variant?.costPrice) || itemCostByQty;
+            }
+            return sum + (itemCostByQty * (Number(item.quantity) || 1));
+        }, 0);
+
+        const totalCollected = orderData.totalAmountOverride !== undefined && orderData.totalAmountOverride !== null && (orderData.totalAmountOverride as any) !== ''
+            ? Number(orderData.totalAmountOverride)
+            : Number(finalAmount || 0);
+
+        const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
+        const useCustom = compFees?.useCustomFees ?? false;
+        
+        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+        const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+        
+        const insuranceFee = (orderData.isInsured !== false) ? Math.round((totalCollected * (Number(insuranceRate) / 100)) * 100) / 100 : 0;
+        const effectiveInspectionCost = orderData.includeInspectionFee ? Number(inspectionCost) : 0;
+        const codFee = Number(calculateCodFee({ status: 'تم_التحصيل', totalPrice: totalCollected, shippingFee: orderData.shippingFee || 0 } as any, settings)) || 0;
+        
+        const totalExpenses = costOfItems + Number(orderData.shippingFee || 0) + insuranceFee + effectiveInspectionCost + codFee;
+        const profit = totalCollected - totalExpenses;
+        
+        return {
+            costOfItems,
+            insuranceFee,
+            effectiveInspectionCost,
+            codFee,
+            totalExpenses,
+            profit,
+            profitPercent: totalCollected > 0 ? Math.round((profit / totalCollected) * 100) : 0
+        };
+    }, [orderData.items, orderData.totalAmountOverride, orderData.shippingFee, orderData.discount, orderData.isInsured, orderData.includeInspectionFee, orderData.shippingCompany, finalAmount, settings]);
+
     const handleFieldChange = (field: keyof NewOrderState, value: any) => setOrderData((prev: any) => ({ ...prev, [field]: value }));
     const handleReturnProductChange = (productId: string) => {
         const prod = settings.products.find(p => p.id === productId);
@@ -3528,15 +3975,15 @@ const OrderModal: React.FC<OrderModalProps> = ({
 
                 <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-5 gap-6 custom-scrollbar">
                     <div className="lg:col-span-3 space-y-6">
-                        <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50">
-                            <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-5 flex items-center gap-2">
+                        <div className="p-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                            <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-6 flex items-center gap-2">
                                 <UserIcon size={18} className="text-blue-500"/> بيانات العميل
                             </h4>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="relative" ref={customerSearchRef}>
-                                    <input type="text" placeholder="اسم العميل أو رقم الهاتف" required value={customerSearch || orderData.customerName || ''} onChange={e => { setCustomerSearch(e.target.value); handleFieldChange('customerName', e.target.value); }} onFocus={() => setIsCustomerListOpen(true)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl w-full focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
+                                    <input type="text" placeholder="اسم العميل أو رقم الهاتف" required value={customerSearch || orderData.customerName || ''} onChange={e => { setCustomerSearch(e.target.value); handleFieldChange('customerName', e.target.value); }} onFocus={() => setIsCustomerListOpen(true)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
                                     {isCustomerListOpen && filteredCustomers.length > 0 && (
-                                        <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-xl z-20 max-h-60 overflow-y-auto custom-scrollbar">
+                                        <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-2xl shadow-xl z-20 max-h-60 overflow-y-auto custom-scrollbar">
                                             {filteredCustomers.map(c => (
                                                 <div key={c.phone} onClick={() => handleCustomerSelect(c)} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer border-b border-slate-50 dark:border-slate-700/50 last:border-0 transition-colors">
                                                     <p className="font-bold text-slate-800 dark:text-slate-200">{c.name}</p>
@@ -3546,16 +3993,16 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                         </div>
                                     )}
                                 </div>
-                                <input type="tel" placeholder="رقم الهاتف" required value={orderData.customerPhone || ''} onChange={e => handleFieldChange('customerPhone', e.target.value)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
-                                <input type="tel" placeholder="رقم هاتف إضافي (اختياري)" value={(orderData as NewOrderState).customerPhone2 || ''} onChange={e => handleFieldChange('customerPhone2', e.target.value)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
-                                <input type="text" placeholder="الدولة" value={(orderData as NewOrderState).country || 'مصر'} onChange={e => handleFieldChange('country', e.target.value)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
+                                <input type="tel" placeholder="رقم الهاتف" required value={orderData.customerPhone || ''} onChange={e => handleFieldChange('customerPhone', e.target.value)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white text-right" dir="rtl" />
+                                <input type="tel" placeholder="رقم هاتف إضافي (اختياري)" value={(orderData as NewOrderState).customerPhone2 || ''} onChange={e => handleFieldChange('customerPhone2', e.target.value)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white text-right" dir="rtl" />
+                                <input type="text" placeholder="مصر" value={(orderData as NewOrderState).country || 'مصر'} onChange={e => handleFieldChange('country', e.target.value)} className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" disabled />
                             </div>
-                            <textarea placeholder="العنوان بالتفصيل" required value={orderData.customerAddress || ''} onChange={e => handleFieldChange('customerAddress', e.target.value)} className="mt-4 w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl h-24 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none dark:text-white" />
-                            <input type="text" placeholder="تفاصيل العنوان (رقم المبنى، الشقة...)" value={(orderData as NewOrderState).buildingDetails || ''} onChange={e => handleFieldChange('buildingDetails', e.target.value)} className="mt-4 w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
+                            <textarea placeholder="العنوان بالتفصيل" required value={orderData.customerAddress || ''} onChange={e => handleFieldChange('customerAddress', e.target.value)} className="mt-4 w-full p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl h-24 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none dark:text-white" />
+                            <input type="text" placeholder="تفاصيل العنوان (رقم المبنى، الشقة...)" value={(orderData as NewOrderState).buildingDetails || ''} onChange={e => handleFieldChange('buildingDetails', e.target.value)} className="mt-4 w-full p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all dark:text-white" />
                         </div>
                         
-                        <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50">
-                           <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-5 flex items-center gap-2">
+                        <div className="p-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                           <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-6 flex items-center gap-2">
                                <Building size={18} className="text-emerald-500"/> بيانات الشحن والطلب
                            </h4>
                            
@@ -3632,14 +4079,14 @@ const OrderModal: React.FC<OrderModalProps> = ({
                            </div>
                         </div>
                         
-                        <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50">
+                        <div className="p-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                                 <FileText size={18} className="text-slate-500"/> ملاحظات إضافية
                             </h4>
-                            <textarea placeholder="أي ملاحظات للمندوب أو الطلب..." value={orderData.notes || ''} onChange={e => handleFieldChange('notes', e.target.value)} className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl h-24 focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none transition-all resize-none dark:text-white" />
+                            <textarea placeholder="أي ملاحظات للمندوب أو الطلب..." value={orderData.notes || ''} onChange={e => handleFieldChange('notes', e.target.value)} className="w-full p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl h-24 focus:ring-2 focus:ring-slate-500/20 focus:border-slate-500 outline-none transition-all resize-none dark:text-white text-right" />
                         </div>
 
-                        <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50">
+                        <div className="p-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-sm">
                             <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
                                 <ImageIcon size={18} className="text-pink-500"/> صور ومرفقات الطلب
                             </h4>
@@ -4186,18 +4633,18 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                         <div className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-indigo-505/20 focus-within:border-indigo-505 transition-all">
                                             <label className="text-[10px] text-slate-500 dark:text-slate-400 mb-1 block font-bold">حساب الخزينة / محصل العربون</label>
                                             <select 
-                                                value={orderData.advancePaymentTreasuryId || orderData.advancePaymentPartnerId || ''} 
+                                                value={orderData.advancePaymentTreasuryId ? `treasury_${orderData.advancePaymentTreasuryId}` : (orderData.advancePaymentPartnerId ? `partner_${orderData.advancePaymentPartnerId}` : '')} 
                                                 onChange={e => {
                                                     const val = e.target.value;
                                                     if (val.startsWith('treasury_')) {
                                                         handleFieldChange('advancePaymentTreasuryId', val.replace('treasury_', ''));
-                                                        handleFieldChange('advancePaymentPartnerId', undefined);
+                                                        handleFieldChange('advancePaymentPartnerId', '');
                                                     } else if (val.startsWith('partner_')) {
                                                         handleFieldChange('advancePaymentPartnerId', val.replace('partner_', ''));
-                                                        handleFieldChange('advancePaymentTreasuryId', undefined);
+                                                        handleFieldChange('advancePaymentTreasuryId', '');
                                                     } else {
-                                                        handleFieldChange('advancePaymentPartnerId', undefined);
-                                                        handleFieldChange('advancePaymentTreasuryId', undefined);
+                                                        handleFieldChange('advancePaymentPartnerId', '');
+                                                        handleFieldChange('advancePaymentTreasuryId', '');
                                                     }
                                                 }} 
                                                 className="w-full bg-transparent outline-none font-bold text-slate-700 dark:text-slate-300 text-[10px] py-0.5"
@@ -4290,6 +4737,45 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                     }}
                                 />
                             )}
+                        </div>
+
+                        {/* Live Profit & Loss Feasibility Simulator */}
+                        <div className="p-6 bg-emerald-50/50 dark:bg-emerald-950/10 rounded-3xl border border-emerald-110 shadow-sm space-y-6">
+                            <h4 className="font-extrabold text-emerald-800 dark:text-emerald-400 text-[15px] flex items-center gap-2">
+                                <Sparkles size={20} className="text-emerald-500 animate-pulse" />
+                                <span>دراسة ربحية وحساب تكلفة الأوردر الحالية</span>
+                            </h4>
+                            
+                            <div className="grid grid-cols-2 gap-4 text-right">
+                                <div className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col gap-2 relative overflow-hidden">
+                                    <p className="text-[11px] text-slate-400 font-bold mb-1 z-10 w-full text-right w-full">تكلفة المنتجات بسعر الجملة</p>
+                                    <p className="text-base font-black text-slate-800 dark:text-slate-200 z-10 w-full text-left">{liveProfitMargin.costOfItems.toLocaleString()} ج.م</p>
+                                </div>
+                                <div className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col gap-2 relative overflow-hidden">
+                                    <p className="text-[11px] text-slate-400 font-bold mb-1 z-10 w-full text-right">إجمالي تحصيل الأوردر</p>
+                                    <p className="text-base font-black text-slate-800 dark:text-slate-200 z-10 w-full text-left">{(orderData.totalAmountOverride ?? finalAmount).toLocaleString()} ج.م</p>
+                                </div>
+                                <div className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col gap-2 relative overflow-hidden">
+                                    <p className="text-[11px] text-slate-400 font-bold mb-1 z-10 w-full text-right">رسوم الشحن الأساسية</p>
+                                    <p className="text-base font-black text-slate-600 dark:text-slate-400 z-10 w-full text-left">{(orderData.shippingFee || 0).toLocaleString()} ج.م</p>
+                                </div>
+                                <div className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col gap-2 relative overflow-hidden">
+                                    <p className="text-[11px] text-slate-400 font-bold mb-1 z-10 w-full text-right">تأمين + تحصيل + معاينة</p>
+                                    <p className="text-base font-black text-slate-600 dark:text-slate-400 z-10 w-full text-left">{(liveProfitMargin.insuranceFee + liveProfitMargin.effectiveInspectionCost + liveProfitMargin.codFee).toLocaleString()} ج.م</p>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-white dark:bg-slate-900 p-5 rounded-[1.5rem] border border-slate-800 dark:border-slate-700 flex justify-between items-center relative overflow-hidden shadow-sm">
+                                <div>
+                                    <span className="text-[11px] font-bold text-slate-400 block mb-1">صافي الربح المتوقع للطلب</span>
+                                    <span className={`text-[12px] font-black ${liveProfitMargin.profit >= 0 ? 'text-rose-500' : 'text-rose-500'}`}>
+                                        هامش الربحية: {liveProfitMargin.profitPercent}%
+                                    </span>
+                                </div>
+                                <span className={`text-xl font-black ${liveProfitMargin.profit >= 0 ? 'text-rose-600 dark:text-rose-500' : 'text-rose-500'}`}>
+                                    {liveProfitMargin.profit >= 0 ? '' : ''}{liveProfitMargin.profit.toLocaleString()} ج.م
+                                </span>
+                            </div>
                         </div>
                          <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50 space-y-4">
                              <h4 className="font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">

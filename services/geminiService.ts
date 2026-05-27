@@ -80,8 +80,16 @@ export const generateProductDescription = async (productName: string, productPri
     return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.8 });
 };
 
-export const generateSocialMediaPost = async (productName: string, productPrice: number) => {
-    const prompt = `اكتب بوست فيسبوك جذاب لمنتج "${productName}" بسعر ${productPrice} جنيه باللهجة المصرية.`;
+export const generateSocialMediaPost = async (productName: string, productDescriptionOrPrice: any, productPrice?: number) => {
+    let desc = "";
+    let price = 0;
+    if (typeof productDescriptionOrPrice === 'number') {
+        price = productDescriptionOrPrice;
+    } else {
+        desc = productDescriptionOrPrice || "";
+        price = productPrice || 0;
+    }
+    const prompt = `اكتب بوست فيسبوك جذاب لمنتج "${productName}" ${desc ? `وصفه: "${desc}"` : ''} ${price ? `بسعر ${price} جنيه` : ''} باللهجة المصرية مع إيموجي وهاشتاجات مناسبة وطريقة تواصل جذابة.`;
     return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.8 });
 };
 
@@ -90,12 +98,41 @@ export const generateShippingNote = async (items: OrderItem[]) => {
     return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.7 });
 };
 
-export const getAnalyticsFromAI = async (orders: Order[]) => {
-    const prompt = `حلل بيانات الطلبات دي وقدم ملخص تقني سريع عن الأداء: ${JSON.stringify(orders)}.`;
-    return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.5 });
+export const getAnalyticsFromAI = async (query: any, orders?: any, settings?: any, wallet?: any) => {
+    let finalQuery = "";
+    let finalOrders = orders;
+    if (Array.isArray(query)) {
+        finalOrders = query;
+        finalQuery = "حلل بيانات الطلبات دي وقدم ملخص تقني سريع عن الأداء.";
+    } else {
+        finalQuery = query || "";
+    }
+    const prompt = `أنت مساعد ذكي ومحلل بيانات متقدم لمتجر إلكتروني.
+السؤال المطلوب إجابته: "${finalQuery}"
+
+بيانات الطلبات: ${finalOrders ? JSON.stringify(finalOrders.slice(0, 50)) : 'لا توجد'}
+الحساب المالي: ${wallet ? JSON.stringify(wallet) : 'لا يوجد'}
+الإعدادات: ${settings ? JSON.stringify(settings) : 'لا توجد'}
+
+قدم إجابة باللغة العربية واضحة وتفصيلية وملهمة بناءً على هذه البيانات والتحليل المالي والطلبات.`;
+    const result = await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.5 });
+    return {
+        analysisText: result || "عذراً، لم أتمكن من إتمام التحليل.",
+        chart: {
+            type: 'none' as const,
+            title: '',
+            data: []
+        }
+    };
 };
 
-export const generateAdCopy = async (productName: string, productPrice: number) => {
-    const prompt = `اكتب نص إعلاني (Ads Copy) قوي لمنتج "${productName}" بسعر ${productPrice}.`;
+export const generateAdCopy = async (productName: string, targetAudienceOrPrice: any) => {
+    let audText = "";
+    if (typeof targetAudienceOrPrice === 'number') {
+        audText = `بسعر ${targetAudienceOrPrice}`;
+    } else {
+        audText = targetAudienceOrPrice ? `الموجه إلى الجمهور المستهدف: "${targetAudienceOrPrice}"` : "";
+    }
+    const prompt = `اكتب نص إعلاني (Ads Copy) قوي لمنتج "${productName}" ${audText}. باللهجة المصرية مع هاشتاجات وإيموجي وحث قوي على اتخاذ إجراء (CTA) للشراء بروح وفكاهة مصرية.`;
     return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.9 });
 };

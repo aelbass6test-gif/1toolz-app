@@ -32,7 +32,9 @@ import {
     CustomerProfile, 
     GlobalOption, 
     ShippingCarrierIntegration,
-    Treasury
+    Treasury,
+    TreasuryAccount,
+    TreasuryTransaction
 } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 

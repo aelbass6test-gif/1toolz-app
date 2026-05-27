@@ -62,6 +62,45 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     p.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const inventoryFinancials = useMemo(() => {
+    let totalStock = 0;
+    let totalCostValue = 0;
+    let totalSaleValue = 0;
+
+    (settings.products || []).forEach(p => {
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          const qty = v.stockQuantity ?? v.stock ?? 0;
+          const cost = v.costPrice ?? p.costPrice ?? 0;
+          const price = v.price ?? p.price ?? 0;
+          
+          totalStock += qty;
+          totalCostValue += qty * cost;
+          totalSaleValue += qty * price;
+        });
+      } else {
+        const qty = p.stockQuantity ?? p.stock ?? 0;
+        const cost = p.costPrice ?? 0;
+        const price = p.price ?? 0;
+
+        totalStock += qty;
+        totalCostValue += qty * cost;
+        totalSaleValue += qty * price;
+      }
+    });
+
+    const potentialProfit = totalSaleValue - totalCostValue;
+    const marginPercent = totalSaleValue > 0 ? Math.round((potentialProfit / totalSaleValue) * 100) : 0;
+
+    return {
+      totalStock,
+      totalCostValue,
+      totalSaleValue,
+      potentialProfit,
+      marginPercent
+    };
+  }, [settings.products]);
+
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
     const productData = editingProduct || newProduct;
@@ -539,6 +578,69 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
           <span className="font-bold text-sm">{syncStatus.message}</span>
         </motion.div>
       )}
+
+      {/* Inventory Financial Health Indicators Bento Bar */}
+      <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-5 gap-4 my-6">
+        {/* Total Cost Value / Assets invested */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+            <Layers size={14} className="text-indigo-500" />
+            رأس المال المستثمر (بالتكلفة)
+          </p>
+          <p className="text-base sm:text-lg font-black text-slate-800 dark:text-white tabular-nums">
+            {inventoryFinancials.totalCostValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+          </p>
+          <span className="text-[9px] text-slate-400 block font-normal">إجمالي تكلفة شراء المخزون الحالي</span>
+        </div>
+
+        {/* Total Retail Value */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+            <DollarSign size={14} className="text-emerald-500" />
+            القيمة البيعية المتوقعة
+          </p>
+          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+            {inventoryFinancials.totalSaleValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+          </p>
+          <span className="text-[9px] text-slate-400 block font-normal">إجمالي سعر بيع كافة حبات المخزون</span>
+        </div>
+
+        {/* Projected Profit */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+            <Wand2 size={14} className="text-amber-500" />
+            الأرباح المتوقعة عند التصفية
+          </p>
+          <p className="text-base sm:text-lg font-black text-amber-550 dark:text-amber-400 tabular-nums">
+            {inventoryFinancials.potentialProfit.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+          </p>
+          <span className="text-[9px] text-slate-400 block font-normal">صافي الربح الإجمالي المتوقع من المخزون</span>
+        </div>
+
+        {/* Profit Margin Ratio */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+            <Percent size={14} className="text-blue-500" />
+            متوسط هامش الربح
+          </p>
+          <p className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 tabular-nums">
+            {inventoryFinancials.marginPercent}%
+          </p>
+          <span className="text-[9px] text-slate-400 block font-normal">نسبة الربح من سعر البيع التقديري</span>
+        </div>
+
+        {/* Total Stocked Pieces */}
+        <button onClick={() => setSearchTerm('')} className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right hover:border-indigo-400 transition-colors">
+          <p className="text-[10px] sm:text-xs font-bold text-slate-400 flex items-center gap-1">
+            <Package size={14} className="text-cyan-500" />
+            إجمالي عدد القطع
+          </p>
+          <p className="text-base sm:text-lg font-black text-slate-705 dark:text-slate-300 tabular-nums">
+            {inventoryFinancials.totalStock.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">قطعة</span>
+          </p>
+          <span className="text-[9px] text-slate-400 block font-normal">عدد كل القطع والبدائل في المستودع</span>
+        </button>
+      </motion.div>
 
       <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors relative">
          {isSyncing && (

@@ -16,22 +16,12 @@ interface PartnerProfilePageProps {
 const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updateSettings, wallet, setWallet, orders }) => {
   const { partnerId } = useParams<{ partnerId: string }>();
   const navigate = useNavigate();
-  const partner = settings.partners?.find(p => p.id === partnerId);
-  const transactions = (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId);
-
-  if (!partner) {
-    return (
-      <div className="p-12 text-center space-y-4">
-        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
-           <User size={40} />
-        </div>
-        <h2 className="text-2xl font-black text-slate-800">الشريك غير موجود</h2>
-        <button onClick={() => navigate('/partners')} className="text-indigo-600 font-bold hover:underline">العودة للشركاء</button>
-      </div>
-    );
-  }
+  
+  const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
+  const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId), [settings.partnerTransactions, partnerId]);
 
   const stats = useMemo(() => {
+    if (!partner) return { totalInvested: 0, totalWithdrawn: 0, totalLoans: 0, totalAdvances: 0, totalRepaid: 0 };
     return {
        totalInvested: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding').reduce((sum, t) => sum + t.amount, 0),
        totalWithdrawn: transactions.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + t.amount, 0),
@@ -39,9 +29,10 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
        totalAdvances: transactions.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0),
        totalRepaid: transactions.filter(t => t.type === 'repayment').reduce((sum, t) => sum + t.amount, 0),
     };
-  }, [transactions]);
+  }, [transactions, partner]);
 
   const chartData = useMemo(() => {
+    if (!partner) return [];
     let currentBalance = 0;
     return transactions
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -58,7 +49,19 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                 type: t.type
             };
         });
-  }, [transactions]);
+  }, [transactions, partner]);
+
+  if (!partner) {
+    return (
+      <div className="p-12 text-center space-y-4">
+        <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
+           <User size={40} />
+        </div>
+        <h2 className="text-2xl font-black text-slate-800">الشريك غير موجود</h2>
+        <button onClick={() => navigate('/partners')} className="text-indigo-600 font-bold hover:underline">العودة للشركاء</button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-8 bg-slate-50/30 dark:bg-slate-900/10 min-h-screen">
