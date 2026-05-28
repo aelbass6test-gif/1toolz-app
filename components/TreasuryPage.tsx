@@ -136,122 +136,146 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
 
   return (
     <div className="p-4 sm:p-8 space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto" dir="rtl">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
         <div>
-          <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-2">الخزانة والعهد النقدية</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">إدارة السيولة النقدية، الحسابات البنكية، وعهد الموظفين</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">نظام الخزينة المركزي</span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight">الخزانة والعهد النقدية</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">إضافة، تمويل، وموازنة حساباتك النقدية والبنكية وعهد الموظفين بدقة تامة</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <button 
             onClick={() => { setTransactionType('deposit'); setShowTransactionModal(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold transition-all"
+            className="flex items-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-500 hover:-translate-y-0.5 active:translate-y-0 text-white rounded-2xl font-black text-sm shadow-lg shadow-emerald-500/10 transition-all duration-200 cursor-pointer"
           >
             <TrendingUp className="w-4 h-4" />
-            <span>إيداع / إيراد</span>
+            <span>إيداع جديد</span>
           </button>
           <button 
             onClick={() => { setTransactionType('withdrawal'); setShowTransactionModal(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition-all"
+            className="flex items-center gap-2 px-5 py-3 bg-rose-600 hover:bg-rose-500 hover:-translate-y-0.5 active:translate-y-0 text-white rounded-2xl font-black text-sm shadow-lg shadow-rose-500/10 transition-all duration-200 cursor-pointer"
           >
             <TrendingDown className="w-4 h-4" />
-            <span>صرف / مصروف</span>
+            <span>تسجيل مصروف</span>
           </button>
           <button 
             onClick={() => { setTransactionType('transfer'); setShowTransactionModal(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-400 rounded-xl font-bold transition-all"
+            className="flex items-center gap-2 px-5 py-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-2xl font-black text-sm transition-all duration-200 cursor-pointer"
           >
             <ArrowRightLeft className="w-4 h-4" />
-            <span>تحويل داخلي</span>
+            <span>تحويل أرصدة</span>
           </button>
         </div>
       </div>
 
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-xl">
+      {/* Overview Cards with polished gradient mesh */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-900 via-slate-900 to-indigo-950 dark:from-black dark:to-slate-950 rounded-[2.5rem] p-8 text-white shadow-2xl border border-white/10 group flex flex-col justify-between min-h-[11rem]">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div>
+              <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">إجمالي السيولة النقدية</span>
+              <p className="text-4xl font-black tracking-tight mt-1">
+                {getTotalBalance().toLocaleString()} <span className="text-lg font-bold opacity-60">ج.م</span>
+              </p>
+            </div>
+            <div className="p-4 bg-white/10 rounded-2xl backdrop-blur-md border border-white/10 text-indigo-300">
               <Landmark className="w-6 h-6" />
             </div>
           </div>
-          <h3 className="text-slate-500 dark:text-slate-400 font-bold mb-1">إجمالي السيولة النقدية</h3>
-          <p className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-            {getTotalBalance().toLocaleString()} <span className="text-sm text-slate-500">ج.م</span>
+          <p className="text-xs text-slate-400 font-medium relative z-10 leading-relaxed mt-4">
+            إجمالي الأموال المتوفرة حالياً في جميع الخزائن النقدية والحسابات البنكية والمحافظ النشطة.
           </p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-sm">
-          <div className="flex justify-between items-start mb-4">
-            <div className="p-3 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-xl">
+        <div className="relative overflow-hidden bg-slate-900 dark:bg-slate-900/40 rounded-[2.5rem] p-8 text-white shadow-md border border-slate-200 dark:border-slate-800 text-right group flex flex-col justify-between min-h-[11rem]">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[10px] font-black uppercase text-amber-500 tracking-wider">إجمالي العهد لدى الموظفين</span>
+              <p className="text-4xl font-black tracking-tight mt-1 text-slate-800 dark:text-white">
+                {getTotalCustody().toLocaleString()} <span className="text-lg font-bold text-slate-450 dark:text-slate-500">ج.م</span>
+              </p>
+            </div>
+            <div className="p-4 bg-amber-500/15 rounded-2xl text-amber-500">
               <Users className="w-6 h-6" />
             </div>
           </div>
-          <h3 className="text-slate-500 dark:text-slate-400 font-bold mb-1">إجمالي العهد لدى الموظفين</h3>
-          <p className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-            {getTotalCustody().toLocaleString()} <span className="text-sm text-slate-500">ج.م</span>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed mt-4">
+            السلف المؤقتة والعهد التشغيلية المسلمة لرجالك الميدانيين أو فريق المبيعات والمنتشرة للعمل.
           </p>
         </div>
       </div>
 
       {/* Accounts List */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-          <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-            <Wallet className="w-5 h-5 text-indigo-500" />
-            الخزائن والحسابات
-          </h3>
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-1">
+          <div>
+            <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+              <Wallet className="w-5 h-5 text-indigo-500" />
+              الخزائن والحسابات النشطة
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">تتبع الرصيد الحالي والموزع لكل خيار دفع ومؤسسة تشغيلية</p>
+          </div>
           <button 
             onClick={() => setShowAddAccountModal(true)}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-bold transition-all"
+            className="flex items-center gap-2 px-5 py-3 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black shadow-lg shadow-indigo-600/15 hover:-translate-y-0.5 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>إضافة حساب/خزينة</span>
           </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 divide-y md:divide-y-0 md:divide-x md:divide-x-reverse divide-slate-100 dark:divide-slate-800">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {accounts.map(acc => (
-            <div key={acc.id} className="p-6 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-              <div className="flex items-center justify-between mb-4">
-                <div className={`p-2 rounded-lg ${
-                  acc.type === 'safe' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' :
-                  acc.type === 'bank' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30' :
-                  acc.type === 'wallet' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30' :
-                  'bg-amber-100 text-amber-600 dark:bg-amber-900/30'
-                }`}>
-                  {getAccountIcon(acc.type)}
+            <div key={acc.id} className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/85 p-6 hover:shadow-xl hover:border-indigo-500/20 dark:hover:border-indigo-500/20 transition-all duration-300 flex flex-col justify-between min-h-[14rem] group relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-bl-full pointer-events-none"></div>
+              <div>
+                <div className="flex items-center justify-between mb-6">
+                  <div className={`p-3 rounded-2xl ${
+                    acc.type === 'safe' ? 'bg-emerald-55 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                    acc.type === 'bank' ? 'bg-blue-55 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400' :
+                    acc.type === 'wallet' ? 'bg-purple-55 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400' :
+                    'bg-amber-55 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400'
+                  }`} style={{backgroundColor: acc.type === 'safe' ? 'rgba(16, 185, 129, 0.08)' : acc.type === 'bank' ? 'rgba(59, 130, 246, 0.08)' : acc.type === 'wallet' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(245, 158, 11, 0.08)'}}>
+                    {getAccountIcon(acc.type)}
+                  </div>
+                  <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                    {acc.type === 'safe' ? 'خزينة' : acc.type === 'bank' ? 'حساب بنكي' : acc.type === 'wallet' ? 'محفظة' : 'عهدة موقتة'}
+                  </span>
                 </div>
-                <span className="text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
-                  {acc.type === 'safe' ? 'خزينة' : acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'عهدة'}
-                </span>
+                <h4 className="text-slate-800 dark:text-slate-100 font-extrabold text-base mb-2">{acc.name}</h4>
+                
+                {acc.type === 'bank' && (
+                  <div className="mb-4 space-y-1 bg-slate-50 dark:bg-slate-850/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] text-slate-400 font-bold">{acc.bankName || 'البنك المعني'}</p>
+                    <p className="text-xs text-indigo-600 dark:text-indigo-400 font-mono font-black select-all tracking-tight">{acc.accountNumber}</p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">{acc.beneficiaryName}</p>
+                  </div>
+                )}
+
+                {acc.type === 'wallet' && (
+                  <div className="mb-4 space-y-1 bg-slate-50 dark:bg-slate-850/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono font-black select-all">{acc.walletNumber}</p>
+                    <p className="text-[10px] text-slate-500 font-medium">{acc.walletName} - صاحب المحفظة</p>
+                  </div>
+                )}
               </div>
-              <h4 className="text-slate-600 dark:text-slate-300 font-bold mb-1">{acc.name}</h4>
-              
-              {acc.type === 'bank' && (
-                <div className="mb-2 space-y-0.5">
-                  <p className="text-[10px] text-slate-400 font-bold">{acc.bankName || 'البنك'}</p>
-                  <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-mono font-black">{acc.accountNumber}</p>
-                  <p className="text-[10px] text-slate-500 font-bold">{acc.beneficiaryName}</p>
-                </div>
-              )}
 
-              {acc.type === 'wallet' && (
-                <div className="mb-2 space-y-0.5">
-                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono font-black">{acc.walletNumber}</p>
-                  <p className="text-[10px] text-slate-500 font-bold">{acc.walletName}</p>
-                </div>
-              )}
-
-              <p className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">
-                {acc.balance.toLocaleString()} <span className="text-sm text-slate-500 font-bold">ج.م</span>
-              </p>
+              <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/70">
+                <span className="text-[10px] text-slate-405 dark:text-slate-500 font-bold block mb-0.5">الرصيد المتوفر</span>
+                <p className="text-2xl font-black text-slate-800 dark:text-white tabular-nums tracking-tight">
+                  {acc.balance.toLocaleString()} <span className="text-xs text-slate-400 font-bold">ج.م</span>
+                </p>
+              </div>
             </div>
           ))}
         </div>
       </div>
 
       {/* Transaction History */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/40 dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="p-8 border-b border-slate-100 dark:border-slate-800">
           <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
             <History className="w-5 h-5 text-indigo-500" />
             سجل حركة النقدية

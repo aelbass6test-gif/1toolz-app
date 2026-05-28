@@ -203,8 +203,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 text-right pb-12 px-4">
-      <div className="bg-gradient-to-l from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 p-6 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-sm flex flex-col md:flex-row items-center gap-6 justify-between animate-in slide-in-from-top duration-700">
+    <div className="max-w-6xl mx-auto space-y-8 text-right pb-12 px-4" dir="rtl">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">التحكم والإدارة الشاملة</span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+            <SettingsIcon size={32} className="text-indigo-500"/>
+            الإعدادات العامة وإدارة المتجر
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">التحكم في المزامنة السحابية وقاعدة البيانات، وتخصيص إعدادات المتجر الأساسية</p>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-l from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/40 shadow-sm flex flex-col md:flex-row items-center gap-6 justify-between animate-in slide-in-from-top duration-700">
         <div className="flex items-center gap-4">
           <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md">
             <CheckCircle2 className="text-emerald-500 w-8 h-8" />

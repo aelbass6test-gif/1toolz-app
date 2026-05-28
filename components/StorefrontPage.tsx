@@ -70,44 +70,44 @@ const ProductCard: React.FC<{ product: Product, customization: StoreCustomizatio
     };
 
     return (
-        <div className="bg-slate-500 dark:bg-slate-700 rounded-2xl overflow-hidden flex flex-col shadow-lg cursor-pointer group transition-transform hover:-translate-y-1" onClick={onViewDetails}>
-            <div className="bg-white p-2">
-                <div className="aspect-square w-full rounded-lg overflow-hidden relative">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-hidden flex flex-col shadow-sm hover:shadow-xl hover:border-indigo-500/20 dark:hover:border-indigo-500/20 cursor-pointer group transition-all duration-300 hover:-translate-y-1.5" onClick={onViewDetails}>
+            <div className="bg-slate-50 dark:bg-slate-950 p-2">
+                <div className="aspect-square w-full rounded-xl overflow-hidden relative">
                     <img 
                         src={product.thumbnail || `https://picsum.photos/400/400?random=${product.id}`} 
                         alt={product.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
                         loading="lazy"
                     />
                      {productReviews.length > 0 && (
-                        <div className="absolute top-2 right-2 bg-white/80 backdrop-blur-sm px-2 py-1 rounded-full flex items-center gap-1 text-xs font-bold shadow-sm">
-                            <Star size={12} className="text-amber-500" fill="#f59e0b"/>
-                            <span>{averageRating.toFixed(1)}</span>
+                        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-md dark:bg-slate-900/90 px-2.5 py-1 rounded-full flex items-center gap-1 text-[10px] font-black shadow-lg">
+                            <Star size={10} className="text-amber-500" fill="#f59e0b"/>
+                            <span className="text-slate-800 dark:text-white">{averageRating.toFixed(1)}</span>
                         </div>
                     )}
                 </div>
             </div>
 
-            <div className="p-4 flex flex-col flex-grow text-white">
-                <h3 className={`font-bold text-base flex-grow mb-2 line-clamp-2 ${customization.headingFontWeight}`}>{product.name}</h3>
-                <div className="flex justify-between items-center mb-3">
-                     <p className="font-black text-2xl" style={{ color: '#A5B4FC' /* indigo-300 */ }}>{product.price.toLocaleString()} <span className="text-sm font-semibold">ج.م</span></p>
-                     <button onClick={handleReviewClick} className="text-xs text-slate-300 hover:text-white underline z-10 relative">أضف تقييم</button>
+            <div className="p-5 flex flex-col flex-grow text-right">
+                <h3 className={`font-extrabold text-sm sm:text-base text-slate-800 dark:text-slate-100 flex-grow mb-3 line-clamp-2 leading-relaxed ${customization.headingFontWeight}`}>{product.name}</h3>
+                <div className="flex justify-between items-center mb-4 flex-row-reverse">
+                     <p className="font-black text-xl text-slate-900 dark:text-white">{product.price.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span></p>
+                     <button onClick={handleReviewClick} className="text-xs text-indigo-500 hover:text-indigo-650 font-bold underline z-10 relative">أضف تقييم</button>
                 </div>
                 <button 
                     onClick={handleAddToCartClick}
                     disabled={isAdded}
-                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold transition-all text-white z-10 relative rounded-lg ${isAdded ? 'bg-emerald-500' : ''}`}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-semibold text-sm transition-all text-white z-10 relative rounded-xl shadow-md cursor-pointer ${isAdded ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/10' : 'hover:opacity-90 shadow-indigo-500/10'}`}
                     style={{ backgroundColor: isAdded ? '' : customization.primaryColor }}
                 >
                     {isAdded ? (
                         <>
-                            <CheckCircle size={18} />
-                            <span>تمت الإضافة!</span>
+                            <CheckCircle size={16} />
+                            <span>تمت الإضافة للسلة!</span>
                         </>
                     ) : (
                         <>
-                            <ShoppingCart size={18} />
+                            <ShoppingCart size={16} />
                             <span>أضف للسلة</span>
                         </>
                     )}

@@ -138,7 +138,22 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
 
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 pb-12 px-4 sm:px-8" dir="rtl">
+      {/* Header & Main Actions */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">التحصيل المالي والسيولة</span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+            <Coins size={32} className="text-indigo-500"/>
+            سجل التحصيلات التفصيلي والتقارير المالية
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">متابعة دقيقة لعمليات التحصيل الناجحة لشركة الشحن، حساب رسوم الدفع عند الاستلام COD وصافي الأرباح</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <StatCard title="إجمالي المحصل" value={`${stats.totalGross.toLocaleString()} ج.م`} icon={<Banknote className="text-emerald-600"/>} color="emerald" />
         <StatCard title="صافي الأرباح" value={`${stats.totalNetProfit.toLocaleString()} ج.م`} icon={<TrendingUp className="text-blue-600"/>} color="blue" />

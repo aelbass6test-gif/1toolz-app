@@ -1101,7 +1101,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
     }, [activeOrder, settings.shippingOptions]);
 
     return (
-        <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden">
+        <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 overflow-hidden" dir="rtl">
             {/* Top Stats Bar / Dashboard Integration */}
             <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-4 py-2 flex items-center justify-between gap-2 sm:gap-4 overflow-x-auto no-scrollbar shrink-0 rounded-b-2xl shadow-sm z-10">
                 <div className="flex items-center gap-3 sm:gap-4 min-w-max">

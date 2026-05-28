@@ -267,12 +267,12 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto space-y-8 pb-12 px-4 sm:px-8" dir="rtl">
       {dialog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl text-right" dir="rtl">
             <h3 className="font-bold text-lg">{dialog.title}</h3>
-            <p className="text-slate-600">{dialog.message}</p>
+            <p className="text-slate-600 text-sm">{dialog.message}</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setDialog(null)} className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200">إلغاء</button>
               <button onClick={dialog.onConfirm} className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">تأكيد</button>
@@ -281,111 +281,128 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         </div>
       )}
       {toast && (
-        <div className={`fixed bottom-4 right-4 z-50 px-6 py-3 rounded-xl shadow-lg text-white font-bold ${toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        <div className={`fixed bottom-4 right-4 z-50 px-6 py-3 rounded-xl shadow-lg text-white font-bold ${toast.type === 'success' ? 'bg-emerald-600' : 'bg-red-650'}`}>
           {toast.message}
         </div>
       )}
-        <div className="flex justify-between items-center gap-4">
-            <div>
-                <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-2">
-                    <Receipt size={32} className="text-red-500"/>
-                    إدارة المصروفات
-                </h1>
-                <p className="text-slate-500 dark:text-slate-400 mt-1">تتبع كافة التكاليف التشغيلية لمتجرك لضبط صافي الربح.</p>
-            </div>
-            <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-red-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg hover:bg-red-700 transition-all active:scale-95">
-                <Plus size={20}/> تسجيل مصروف
-            </button>
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">الضبط المالي والمصروفات</span>
+          </div>
+          <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
+            <Receipt size={32} className="text-rose-500"/>
+            إدارة المصروفات العامة
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">تتبع التكاليف الإدارية، التسويق والرواتب لضبط هامش الربح التشغيلي بدقة</p>
         </div>
+        <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-rose-600/10 transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer">
+          <Plus size={20}/>
+          <span>تسجيل مصروف جديد</span>
+        </button>
+      </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-950 dark:from-black dark:to-slate-950 p-8 rounded-[2.5rem] shadow-2xl flex flex-col justify-between text-white min-h-[14rem] border border-white/5">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
                 <div>
-                    <h3 className="text-slate-500 dark:text-slate-400 font-bold mb-2">إجمالي المصروفات</h3>
-                    <div className="text-4xl font-black text-slate-800 dark:text-white">{stats.total.toLocaleString()} <span className="text-lg text-slate-500">ج.م</span></div>
+                    <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider">إجمالي المصروفات العامة</span>
+                    <div className="text-4xl font-black tracking-tight mt-1">{stats.total.toLocaleString()} <span className="text-lg font-bold opacity-60">ج.م</span></div>
                 </div>
-                <div className="mt-6 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl flex items-center gap-3 text-red-700 dark:text-red-400 text-sm font-bold">
-                    <TrendingDown size={20}/>
-                    <span>المصروفات من الخزينة تخصم من الرصيد، أما المدفوعة شخصياً فتسجل كمديونية للشريك.</span>
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-3 text-red-300 text-xs font-medium leading-relaxed mt-4">
+                    <TrendingDown className="w-5 h-5 flex-shrink-0 text-rose-400" />
+                    <span>المصروفات من الخزينة تخصم تلقائياً من الأرصدة المتوفرة، بينما المسددة شخصياً تقيد للشريك كذمة دائنة.</span>
                 </div>
             </div>
 
-            <div className="md:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center">
+            <div className="md:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200/40 dark:border-slate-850 shadow-sm flex items-center">
                 {stats.categoryTotals.length > 0 ? (
                     <div className="w-full flex flex-col md:flex-row items-center gap-8">
-                        <div className="w-48 h-48 flex-shrink-0">
+                        <div className="w-44 h-44 flex-shrink-0 relative flex items-center justify-center">
                             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                                 <PieChart>
-                                    <Pie data={stats.categoryTotals} cx="50%" cy="50%" innerRadius={40} outerRadius={80} paddingAngle={5} dataKey="value">
+                                    <Pie data={stats.categoryTotals} cx="50%" cy="50%" innerRadius={35} outerRadius={70} paddingAngle={4} dataKey="value">
                                         {stats.categoryTotals.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={entry.color} stroke={entry.color} />
                                         ))}
                                     </Pie>
-                                    <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', backgroundColor: '#0f172a', color: '#fff', fontSize: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
                                 </PieChart>
                             </ResponsiveContainer>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <span className="text-[10px] uppercase font-black text-slate-400">التصنيفات</span>
+                                <span className="text-lg font-extrabold text-slate-800 dark:text-white">{stats.categoryTotals.length}</span>
+                            </div>
                         </div>
-                        <div className="flex-1 grid grid-cols-2 gap-4">
+                        <div className="flex-1 grid grid-cols-2 gap-3">
                             {stats.categoryTotals.map((cat, idx) => (
-                                <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                                <div key={idx} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850/50 border border-slate-100/10">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }}></div>
-                                        <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">{cat.name}</span>
+                                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                                        <span className="font-extrabold text-slate-650 dark:text-slate-300 text-xs truncate max-w-[100px]">{cat.name}</span>
                                     </div>
-                                    <span className="font-black text-slate-800 dark:text-white">{cat.value.toLocaleString()} ج.م</span>
+                                    <span className="font-black text-slate-800 dark:text-white text-xs">{cat.value.toLocaleString()} ج.م</span>
                                 </div>
                             ))}
                         </div>
                     </div>
                 ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400">
-                        <PieChartIcon size={48} className="mb-2 opacity-50"/>
-                        <p>لا توجد بيانات تحليلية بعد.</p>
+                    <div className="w-full h-44 flex flex-col items-center justify-center text-slate-400">
+                        <PieChartIcon size={40} className="mb-2 opacity-35 text-slate-300 dark:text-slate-600"/>
+                        <p className="text-xs font-bold text-slate-400">لا توجد بيانات تحليلية بعد.</p>
+                        <p className="text-[10px] text-slate-500 mt-1">ابدأ بتوزيع مصروفاتك في الحقول المخصصة لتظهر التحليلات هنا.</p>
                     </div>
                 )}
             </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="font-black text-lg dark:text-white">سجل المصروفات</h3>
+        <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/45 dark:border-slate-850 shadow-sm overflow-hidden">
+            <div className="p-8 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="font-black text-lg text-slate-800 dark:text-white">سجل المصروفات العامة</h3>
+                <p className="text-xs text-slate-400 mt-1">قائمة تفصيلية بكافة قيود المصروفات مرتبة زمنياً من الأحدث للأقدم</p>
             </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-right">
-                    <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 text-xs font-black uppercase tracking-wider">
+                    <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 text-xs font-black uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
                         <tr>
-                            <th className="px-6 py-4">البيان</th>
-                            <th className="px-6 py-4">التصنيف</th>
-                            <th className="px-6 py-4">التاريخ</th>
-                            <th className="px-6 py-4 text-center">القيمة</th>
-                            <th className="px-6 py-4"></th>
+                            <th className="px-8 py-4">البيان</th>
+                            <th className="px-8 py-4">التصنيف</th>
+                            <th className="px-8 py-4">التاريخ والوقت</th>
+                            <th className="px-8 py-4 text-center">القيمة لـ (ج.م)</th>
+                            <th className="px-8 py-4"></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {expenses.length === 0 ? (
-                            <tr><td colSpan={5} className="text-center py-12 text-slate-400">لم يتم تسجيل أي مصروفات.</td></tr>
+                            <tr><td colSpan={5} className="text-center py-16 text-slate-400 text-sm font-bold">لم يتم تسجيل أي مصروفات في هذا الدفتر بعد.</td></tr>
                         ) : (
                             expenses.map(exp => {
                                 const catInfo = expenseCategoriesConfig.find(c => c.key === exp.category);
                                 return (
-                                    <tr key={exp.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="font-bold text-slate-700 dark:text-slate-300">{exp.note}</div>
+                                    <tr key={exp.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-850/40 transition-colors">
+                                        <td className="px-8 py-5">
+                                            <div className="font-extrabold text-slate-800 dark:text-slate-200">{exp.note}</div>
                                             {exp.details?.paidByPartnerId && (
-                                                <div className="text-[10px] text-indigo-500 font-bold flex items-center gap-1 mt-1">
+                                                <div className="text-[10px] text-indigo-500 font-black flex items-center gap-1 mt-1.5 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md w-max">
                                                     <User size={10} /> سدد شخصياً بواسطة: {settings.partners?.find(p => p.id === exp.details.paidByPartnerId)?.name}
                                                 </div>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <span className="px-3 py-1 rounded-full text-xs font-bold text-white" style={{ backgroundColor: catInfo?.color || '#94a3b8' }}>
-                                                {catInfo?.label || 'عام'}
+                                        <td className="px-8 py-5">
+                                            <span className="px-3 py-1 rounded-full text-[10px] font-black text-white" style={{ backgroundColor: catInfo?.color || '#94a3b8' }}>
+                                                {catInfo?.label || 'مصروف عام'}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-slate-500 font-mono"><Calendar size={12} className="inline ml-1"/>{new Date(exp.date).toLocaleString('ar-EG')}</td>
-                                        <td className="px-6 py-4 text-center font-black text-red-600">-{exp.amount.toLocaleString()} ج.م</td>
-                                        <td className="px-6 py-4 text-left">
-                                            <button onClick={() => deleteExpense(exp.id)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"><Trash2 size={18}/></button>
+                                        <td className="px-8 py-5 text-sm text-slate-500 font-medium font-mono">
+                                            {new Date(exp.date).toLocaleDateString('ar-EG')} - {new Date(exp.date).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'})}
+                                        </td>
+                                        <td className="px-8 py-5 text-center font-black text-base text-rose-600 dark:text-rose-500 tabular-nums">
+                                            -{exp.amount.toLocaleString()} ج.م
+                                        </td>
+                                        <td className="px-8 py-5 text-left">
+                                            <button onClick={() => deleteExpense(exp.id)} className="p-2 text-slate-450 hover:text-red-650 dark:text-slate-500 dark:hover:text-red-400 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"><Trash2 size={16}/></button>
                                         </td>
                                     </tr>
                                 );

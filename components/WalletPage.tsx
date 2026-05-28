@@ -518,7 +518,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   }, [cycleOrders, settings]);
 
   return (
-    <div className="min-h-[80vh] p-4 md:p-8">
+    <div className="min-h-[80vh] p-4 md:p-8" dir="rtl">
       <motion.div
         variants={containerVariants}
         initial="hidden"
@@ -526,11 +526,18 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         className="max-w-6xl mx-auto space-y-10"
       >
         {/* Header Section */}
-        <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-6 border-b border-slate-100 dark:border-slate-800 pb-6">
-          <motion.div variants={itemVariants} className="space-y-1 text-right flex-1 w-full flex flex-col md:flex-row justify-between items-end md:items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+          <motion.div variants={itemVariants} className="space-y-1 text-right flex-1 w-full flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight mb-1">المحفظة المالية</h1>
-              <p className="text-slate-500 text-sm font-medium">نظرة شاملة على نشاطك المالي وأرصدتك</p>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">نظام الإدارة المالية الشاملة</span>
+              </div>
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                <WalletIcon size={32} className="text-indigo-500"/>
+                المحفظة الماليّة المركزيّة
+              </h1>
+              <p className="text-slate-500 text-sm font-medium">نظرة تفصيلية على حركات السحب، الإيداع، الدورة المالية، ومحفظة المورّدين الخاصة بك</p>
             </div>
             
             {/* Modern responsive tabs for display modes matching screenshots */}

@@ -58,6 +58,8 @@ import GlobalLoader from './components/GlobalLoader';
 import EmployeesPage from './components/EmployeesPage';
 import ReportsPage from './components/ReportsPage';
 import { TreasuryPage } from './components/TreasuryPage';
+import CreateOrderPage from './components/CreateOrderPage';
+import EditOrderPage from './components/EditOrderPage';
 import ChatBot from './components/ChatBot';
 import CongratsModal from './components/CongratsModal';
 import OrderTrackingPage from './components/OrderTrackingPage';
@@ -274,7 +276,7 @@ export const AppComponent = () => {
     
     const [dbSyncMode, setDbSyncModeState] = useState<'manual' | 'auto'>(() => {
         const value = localStorage.getItem('dbSyncMode');
-        return (value === 'auto' || value === 'manual') ? value : 'manual';
+        return (value === 'auto' || value === 'manual') ? value : 'auto';
     });
 
     const setDbSyncMode = (mode: 'manual' | 'auto') => {
@@ -426,7 +428,7 @@ export const AppComponent = () => {
             };
 
             syncWithTimeout();
-        }, 5000); // Higher debounce for network to prioritize local 
+        }, 1000); // 1s debounce for "real-time" feel while staying efficient
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1245,7 +1247,9 @@ export const AppComponent = () => {
                     <Route index element={<Dashboard {...pageProps} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
-                    <Route path="create-order" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} defaultShowAdd={true} />} />
+                    <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
+                    <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
+                    <Route path="create-order" element={<Navigate to="/orders/new" replace />} />
                     <Route path="products" element={<ProductsPage {...pageProps} />} />
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />

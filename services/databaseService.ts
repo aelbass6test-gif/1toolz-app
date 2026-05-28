@@ -352,6 +352,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const existingDbDocs = snap.docs.map(doc => ({ _ref: doc.ref, id: doc.id, ...doc.data() }) as any);
                 const existingDocsMap = new Map(existingDbDocs.map(doc => [doc.id, doc]));
 
+                const activeIds = new Set(stateItems.map(item => String(item[idField] || `${store.id}_${item.phone || item.id}`)));
+
                 const upsertPromises = stateItems.map(async (item) => {
                     const docId = String(item[idField] || `${store.id}_${item.phone || item.id}`);
                     const docRef = doc(firebaseDb, collectionName, docId);
@@ -376,7 +378,15 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     }
                 });
 
-                await Promise.all(upsertPromises);
+                const deletePromises = existingDbDocs
+                    .filter(doc => !activeIds.has(doc.id))
+                    .map(async (doc) => {
+                        await deleteDoc(doc._ref).catch(err => {
+                            handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${doc.id}`);
+                        });
+                    });
+
+                await Promise.all([...upsertPromises, ...deletePromises]);
             } catch (err) {
                 console.error(`Error syncing collection ${collectionName}:`, err);
             }
