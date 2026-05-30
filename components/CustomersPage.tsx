@@ -53,7 +53,10 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
           lastOrderDate: order.date,
           firstOrderDate: order.date,
           averageOrderValue: 0,
-          loyaltyPoints: loyaltyData[cleanPhone] || 0
+          loyaltyPoints: loyaltyData[cleanPhone] || 0,
+          governorate: order.governorate || order.shippingArea || '',
+          city: order.city || '',
+          shippingFee: order.shippingFee || 0
         });
       }
 
@@ -64,6 +67,9 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
       if (new Date(order.date) > new Date(customer.lastOrderDate)) {
           customer.name = order.customerName;
           customer.address = order.customerAddress;
+          customer.governorate = order.governorate || order.shippingArea || customer.governorate;
+          customer.city = order.city || customer.city;
+          customer.shippingFee = order.shippingFee || customer.shippingFee;
           customer.lastOrderDate = order.date;
       }
       if (new Date(order.date) < new Date(customer.firstOrderDate)) {
@@ -193,7 +199,11 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
                                     <td className="px-6 py-4">
                                         <div className="font-bold text-slate-800 dark:text-white">{customer.name}</div>
                                         <div className="text-xs text-slate-500 font-mono flex items-center gap-1"><Phone size={10}/> {customer.phone}</div>
-                                        <div className="text-[10px] text-slate-400 truncate max-w-[150px]" title={customer.address}><MapPin size={10} className="inline"/> {customer.address}</div>
+                                        <div className="text-[10px] text-slate-400 truncate max-w-[250px]" title={`${customer.governorate || ''} ${customer.city || ''} ${customer.address}`}>
+                                            <MapPin size={10} className="inline mr-0.5 ml-0.5 text-indigo-500"/>
+                                            {customer.governorate ? <span className="font-semibold text-slate-600 dark:text-slate-300">{customer.governorate}، {customer.city} - </span> : ''}
+                                            {customer.address}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="inline-flex items-center gap-1 font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-1 rounded-lg">

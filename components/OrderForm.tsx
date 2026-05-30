@@ -96,8 +96,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     // Helper functions moved from OrderModal
     const handleFieldChange = (field: keyof NewOrderState, value: any) => setOrderData((prev: any) => ({ ...prev, [field]: value }));
     
-    const handleCustomerSelect = (customer: Pick<CustomerProfile, 'name'|'phone'|'address'>) => {
-        setOrderData((prev: any) => ({ ...prev, customerName: customer.name, customerPhone: customer.phone, customerAddress: customer.address }));
+    const handleCustomerSelect = (customer: CustomerProfile) => {
+        setOrderData((prev: any) => ({ 
+            ...prev, 
+            customerName: customer.name, 
+            customerPhone: customer.phone, 
+            customerAddress: customer.address,
+            governorate: customer.governorate || prev.governorate || '',
+            shippingArea: customer.governorate || prev.shippingArea || '',
+            city: customer.city || prev.city || '',
+            shippingFee: typeof customer.shippingFee === 'number' ? customer.shippingFee : prev.shippingFee || 0
+        }));
         setCustomerSearch('');
         setIsCustomerListOpen(false);
     };

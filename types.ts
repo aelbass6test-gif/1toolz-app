@@ -280,6 +280,9 @@ export interface CustomerProfile {
   averageOrderValue: number;
   loyaltyPoints: number;
   notes?: string;
+  governorate?: string;
+  city?: string;
+  shippingFee?: number;
 }
 
 export interface Review {

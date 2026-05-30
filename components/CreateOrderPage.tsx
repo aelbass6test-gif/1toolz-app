@@ -226,6 +226,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                         ...c, 
                         name: orderToAdd.customerName || c.name,
                         address: orderToAdd.customerAddress || c.address,
+                        governorate: orderToAdd.governorate || orderToAdd.shippingArea || c.governorate,
+                        city: orderToAdd.city || c.city,
+                        shippingFee: (typeof orderToAdd.shippingFee === 'number' && orderToAdd.shippingFee > 0) ? orderToAdd.shippingFee : c.shippingFee,
                         lastOrderDate: new Date().toISOString()
                     } : c);
                 } else {
@@ -234,6 +237,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                         name: orderToAdd.customerName || '',
                         phone: orderToAdd.customerPhone || '',
                         address: orderToAdd.customerAddress || '',
+                        governorate: orderToAdd.governorate || orderToAdd.shippingArea || '',
+                        city: orderToAdd.city || '',
+                        shippingFee: orderToAdd.shippingFee || 0,
                         totalOrders: 1,
                         successfulOrders: 0,
                         returnedOrders: 0,

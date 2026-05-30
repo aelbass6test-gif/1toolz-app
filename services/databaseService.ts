@@ -129,6 +129,14 @@ export const getLocal = async (key: string): Promise<any> => {
         const treasury = await localDb.treasury.get(key);
         const customers = await localDb.customers.where('store_id').equals(key).toArray();
 
+        // If there's no settings in IndexedDB and no orders, we don't have this store locally at all.
+        if (!settingsRecord && (!orders || orders.length === 0)) {
+            // Check emergency fallback first
+            const backup = localStorage.getItem(`emergency_store_backup_${key}`);
+            if (backup) return JSON.parse(backup);
+            return null;
+        }
+
         // Safe fetch settings, fallback to INITIAL_SETTINGS if store was created but settings lost
         const settings = settingsRecord?.data || { ...INITIAL_SETTINGS };
 
@@ -213,7 +221,11 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
 };
 
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
-    if (!forceRemote) {
+    const isBrowser = typeof window !== 'undefined';
+    const savedSyncMode = isBrowser ? localStorage.getItem('dbSyncMode') : 'auto';
+    const shouldForce = forceRemote || (savedSyncMode === 'auto');
+
+    if (!shouldForce) {
         const local = await getLocal(storeId);
         if (local) {
             // Return local immediately
@@ -378,13 +390,20 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     }
                 });
 
-                const deletePromises = existingDbDocs
-                    .filter(doc => !activeIds.has(doc.id))
-                    .map(async (doc) => {
-                        await deleteDoc(doc._ref).catch(err => {
-                            handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${doc.id}`);
+                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 2 && ['products', 'orders', 'customers', 'users', 'transactions'].includes(collectionName));
+                if (isMassDeletionRisk) {
+                    console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records. This prevents accidental database wipes during initialization.`);
+                }
+
+                const deletePromises = isMassDeletionRisk
+                    ? []
+                    : existingDbDocs
+                        .filter(doc => !activeIds.has(doc.id))
+                        .map(async (doc) => {
+                            await deleteDoc(doc._ref).catch(err => {
+                                handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${doc.id}`);
+                            });
                         });
-                    });
 
                 await Promise.all([...upsertPromises, ...deletePromises]);
             } catch (err) {
@@ -426,7 +445,11 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 };
 
 export const getGlobalData = async (forceRemote: boolean = false): Promise<{ users: User[], loyaltyData: any } | null> => {
-    if (!forceRemote) {
+    const isBrowser = typeof window !== 'undefined';
+    const savedSyncMode = isBrowser ? localStorage.getItem('dbSyncMode') : 'auto';
+    const shouldForce = forceRemote || (savedSyncMode === 'auto');
+
+    if (!shouldForce) {
         const local = await getLocal('global');
         if (local && local.users && local.users.length > 0) {
             return local;
