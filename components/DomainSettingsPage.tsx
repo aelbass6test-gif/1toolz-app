@@ -907,9 +907,9 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                       {/* Record 3: Ownership Verification TXT */}
                       {(cfDetails?.ownership_verification || settings.domainDNSRecords?.ownership_verification) && (
                         <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
-                          <div className="font-mono text-slate-800 dark:text-slate-200 font-medium text-[10px]">TXT (Ownership)</div>
+                          <div className="font-mono text-indigo-700 dark:text-indigo-400 font-bold text-[10px]">TXT (الملكية)</div>
                           <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
-                            {(cfDetails?.ownership_verification?.name || settings.domainDNSRecords?.ownership_verification?.name || "").replace(`.${customDomain || settings.customDomain}`, '')}
+                            {(cfDetails?.ownership_verification?.name || settings.domainDNSRecords?.ownership_verification?.name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
                           </div>
                           <div className="flex items-center justify-center gap-2">
                             <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
@@ -926,27 +926,27 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                         </div>
                       )}
 
-                      {/* Record 4: SSL Verification TXT */}
-                      {(cfDetails?.ssl?.validation_records?.[0] || settings.domainDNSRecords?.ssl?.validation_records?.[0]) && (
-                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center bg-pink-50/20 dark:bg-pink-900/10">
-                          <div className="font-mono text-slate-800 dark:text-slate-200 font-medium text-[10px]">TXT (SSL)</div>
+                      {/* SSL Verification TXT Records */}
+                      {(cfDetails?.ssl?.validation_records || settings.domainDNSRecords?.ssl?.validation_records || []).map((record: any, idx: number) => (
+                        <div key={`ssl-rec-${idx}`} className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-pink-50/20 dark:bg-pink-900/10">
+                          <div className="font-mono text-pink-700 dark:text-pink-400 font-bold text-[10px]">TXT (SSL {idx + 1})</div>
                           <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
-                            {(cfDetails?.ssl?.validation_records?.[0]?.txt_name || settings.domainDNSRecords?.ssl?.validation_records?.[0]?.txt_name || "").replace(`.${customDomain || settings.customDomain}`, '')}
+                            {(record?.txt_name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
                           </div>
                           <div className="flex items-center justify-center gap-2">
                             <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
-                              {cfDetails?.ssl?.validation_records?.[0]?.txt_value || settings.domainDNSRecords?.ssl?.validation_records?.[0]?.txt_value}
+                              {record?.txt_value}
                             </div>
                             <button 
-                              onClick={() => handleCopy(cfDetails?.ssl?.validation_records?.[0]?.txt_value || settings.domainDNSRecords?.ssl?.validation_records?.[0]?.txt_value, 'txt-ssl')}
+                              onClick={() => handleCopy(record?.txt_value, `txt-ssl-${idx}`)}
                               className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
                             >
-                              {copiedText === 'txt-ssl' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                              {copiedText === `txt-ssl-${idx}` ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                             </button>
                           </div>
                           <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
                         </div>
-                      )}
+                      ))}
                     </>
                   )}
                 </div>
