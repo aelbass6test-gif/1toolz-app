@@ -1963,7 +1963,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                 {/* 2. Custom Domain Setting */}
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                        <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">النطاق المخصص (3bdomedia.com)</label>
+                        <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">النطاق المخصص</label>
                         {settings.domainStatus && (
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                                 settings.domainStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : 

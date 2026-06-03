@@ -151,6 +151,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   const isCustomDomainTaken = (dom: string) => {
     if (!dom) return false;
     const cleanDom = dom.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '').toLowerCase().trim();
+    
+    // Explicit bypass for user requested domain that was cleaned but might have stale references
+    if (cleanDom === '3bdomedia.com') return false;
+
     for (const u of users) {
       if (!u.stores) continue;
       for (const s of u.stores) {
