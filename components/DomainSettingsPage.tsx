@@ -17,6 +17,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 }) => {
   const [customDomain, setCustomDomain] = useState('');
   const [domainStatus, setDomainStatus] = useState<'none' | 'pending' | 'verifying' | 'active'>('none');
+  const [cfDetails, setCfDetails] = useState<any>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -30,8 +31,12 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     if (activeStoreId) {
       const savedDomain = localStorage.getItem(`custom_domain_${activeStoreId}`) || '';
       const savedStatus = localStorage.getItem(`custom_domain_status_${activeStoreId}`) || 'none';
+      const savedDetails = localStorage.getItem(`custom_domain_details_${activeStoreId}`);
       setCustomDomain(savedDomain);
       setDomainStatus(savedStatus as any);
+      if (savedDetails) {
+        try { setCfDetails(JSON.parse(savedDetails)); } catch (e) {}
+      }
     }
   }, [activeStoreId]);
 
@@ -94,6 +99,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
       localStorage.setItem(`custom_domain_${activeStoreId}`, cleanDomain);
       
+      if (data.details) {
+        localStorage.setItem(`custom_domain_details_${activeStoreId}`, JSON.stringify(data.details));
+        setCfDetails(data.details);
+      }
+
       const nextStatus = data.simulation ? 'pending' : (data.details?.status || 'pending');
       localStorage.setItem(`custom_domain_status_${activeStoreId}`, nextStatus);
       setDomainStatus(nextStatus as any);
@@ -188,11 +198,19 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       if (data.status === 'active' && data.ssl_status === 'active') {
         setDomainStatus('active');
         localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'active');
+        if (data.details) {
+           localStorage.setItem(`custom_domain_details_${activeStoreId}`, JSON.stringify(data.details));
+           setCfDetails(data.details);
+        }
         alert("🎉 مبارك! تم التحقق من ربط النطاق بنجاح وهو الآن نشط ومحمي بشهادة SSL آمنة ومجانية.");
       } else {
         // Still pending
         setDomainStatus('pending');
         localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'pending');
+        if (data.details) {
+           localStorage.setItem(`custom_domain_details_${activeStoreId}`, JSON.stringify(data.details));
+           setCfDetails(data.details);
+        }
         
         let statusText = "النطاق ما زال قيد التحقق أو بانتظار تفعيل الـ SSL بـ Cloudflare.";
         if (data.verification_errors && data.verification_errors.length > 0) {
@@ -243,8 +261,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     if (confirm("هل أنت متأكد من حذف وإلغاء ربط النطاق المخصص؟")) {
       setCustomDomain('');
       setDomainStatus('none');
+      setCfDetails(null);
       localStorage.removeItem(`custom_domain_${activeStoreId}`);
       localStorage.removeItem(`custom_domain_status_${activeStoreId}`);
+      localStorage.removeItem(`custom_domain_details_${activeStoreId}`);
       setSettings((prev: any) => ({
         ...prev,
         customAppDomain: ''
@@ -469,7 +489,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   </div>
 
                   {/* CNAME / A Record for main domain */}
-                  <div className="grid grid-cols-4 py-4 px-4 text-center items-center">
+                  <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-t border-slate-200 dark:border-slate-850">
                     <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME / A</div>
                     <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@ (النطاق الرئيسي)</div>
                     <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-semibold" dir="ltr">
@@ -494,6 +514,63 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                       </button>
                     </div>
                   </div>
+
+                  {/* Cloudflare Validation Records */}
+                  {cfDetails?.ownership_verification?.name && (
+                    <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-t border-slate-200 dark:border-slate-850 bg-indigo-50/30 dark:bg-indigo-900/10">
+                      <div className="font-mono bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">TXT (التحقق)</div>
+                      <div className="font-mono font-bold text-slate-800 dark:text-slate-200 select-all text-[11px] truncate px-1" dir="ltr">{cfDetails.ownership_verification.name.replace(`.${customDomain}`, '')}</div>
+                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate px-1" dir="ltr">
+                        {cfDetails.ownership_verification.value}
+                      </div>
+                      <div>
+                        <button 
+                          onClick={() => handleCopy(cfDetails.ownership_verification.value, 'txt-own')}
+                          className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
+                        >
+                          {copiedText === 'txt-own' ? (
+                            <>
+                              <Check size={12} className="text-green-500" />
+                              <span>تم!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} />
+                              <span>نسخ</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {cfDetails?.ssl?.validation_records?.[0]?.txt_name && (
+                    <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-t border-slate-200 dark:border-slate-850 bg-pink-50/30 dark:bg-pink-900/10">
+                      <div className="font-mono bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">TXT (شهادة SSL)</div>
+                      <div className="font-mono font-bold text-slate-800 dark:text-slate-200 select-all text-[11px] truncate px-1" dir="ltr">{cfDetails.ssl.validation_records[0].txt_name.replace(`.${customDomain}`, '')}</div>
+                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate px-1" dir="ltr">
+                        {cfDetails.ssl.validation_records[0].txt_value}
+                      </div>
+                      <div>
+                        <button 
+                          onClick={() => handleCopy(cfDetails.ssl.validation_records[0].txt_value, 'txt-ssl')}
+                          className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
+                        >
+                          {copiedText === 'txt-ssl' ? (
+                            <>
+                              <Check size={12} className="text-green-500" />
+                              <span>تم!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} />
+                              <span>نسخ</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 mt-4 bg-amber-50 dark:bg-amber-950/20 p-4 rounded-xl border border-amber-200/50 dark:border-amber-900/30">

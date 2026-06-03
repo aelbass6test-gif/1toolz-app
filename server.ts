@@ -453,7 +453,7 @@ async function startServer() {
           body: JSON.stringify({
             hostname: cleanDomain,
             ssl: {
-              method: "http",
+              method: "txt",
               type: "dv"
             }
           })

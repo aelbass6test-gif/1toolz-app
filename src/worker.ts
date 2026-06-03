@@ -56,7 +56,7 @@ app.post("/api/domains/add", async (c) => {
         },
         body: JSON.stringify({
           hostname: cleanDomain,
-          ssl: { method: "http", type: "dv" }
+          ssl: { method: "txt", type: "dv" }
         })
       }
     );

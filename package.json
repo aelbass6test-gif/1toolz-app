@@ -17,7 +17,7 @@
     "@tailwindcss/vite": "^4.2.1",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
-    "firebase": "^12.10.0",
+    "firebase": "~12.10.0",
     "framer-motion": "^11.3.8",
     "hono": "^4.12.23",
     "html-to-image": "^1.11.13",
