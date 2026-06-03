@@ -224,9 +224,16 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         
         let statusText = "النطاق ما زال قيد التحقق أو بانتظار تفعيل الـ SSL بـ Cloudflare.";
         if (data.verification_errors && data.verification_errors.length > 0) {
-          statusText += `\n🔍 أخطاء التحقق: ${data.verification_errors[0].message}`;
+          const firstErr = data.verification_errors[0];
+          const errMessage = typeof firstErr === 'string' ? firstErr : (firstErr?.message || firstErr?.error || JSON.stringify(firstErr));
+          statusText += `\n🔍 أخطاء إثبات الملكية: ${errMessage}`;
         }
-        alert(`ℹ️ حالة النطاق: ${statusText}\nيرجى التأكد من توجيه سجلات الـ DNS بشكل صحيح والانتظار قليلاً.`);
+        if (data.ssl_validation_errors && data.ssl_validation_errors.length > 0) {
+          const firstErr = data.ssl_validation_errors[0];
+          const errMessage = typeof firstErr === 'string' ? firstErr : (firstErr?.message || firstErr?.error || JSON.stringify(firstErr));
+          statusText += `\n🔒 أخطاء شهادة الـ SSL: ${errMessage}`;
+        }
+        alert(`ℹ️ حالة النطاق: ${statusText}\nيرجى التأكد من توجيه سجلات الـ DNS (خاصة TXT) بشكل صحيح والانتظار قليلاً.`);
       }
     } catch (err: any) {
       console.error(err);
