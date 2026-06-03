@@ -881,23 +881,29 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                             <p className="text-xs font-black text-slate-700 dark:text-slate-300">السحب العادي (مدة معالجة ٢٤-٤٨ ساعة)</p>
                             <div className="flex p-0.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-250 dark:border-slate-800">
                                 <button 
-                                    onClick={() => setAllStoresData(prev => {
-                                        const next = { ...prev };
-                                        for(const sid in next) {
-                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, withdrawalFeeType: 'flat' } };
-                                        }
-                                        return next;
-                                    })}
+                                    onClick={() => {
+                                        setAllStoresData(prev => {
+                                            const next = { ...prev };
+                                            for(const sid in next) {
+                                                next[sid] = { ...next[sid], settings: { ...next[sid].settings, withdrawalFeeType: 'flat' } };
+                                            }
+                                            return next;
+                                        });
+                                        setSettings(prev => ({ ...prev, withdrawalFeeType: 'flat' }));
+                                    }}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.withdrawalFeeType === 'flat' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >مبلغ ثابت</button>
                                 <button 
-                                    onClick={() => setAllStoresData(prev => {
-                                        const next = { ...prev };
-                                        for(const sid in next) {
-                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, withdrawalFeeType: 'percent' } };
-                                        }
-                                        return next;
-                                    })}
+                                    onClick={() => {
+                                        setAllStoresData(prev => {
+                                            const next = { ...prev };
+                                            for(const sid in next) {
+                                                next[sid] = { ...next[sid], settings: { ...next[sid].settings, withdrawalFeeType: 'percent' } };
+                                            }
+                                            return next;
+                                        });
+                                        setSettings(prev => ({ ...prev, withdrawalFeeType: 'percent' }));
+                                    }}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.withdrawalFeeType === 'percent' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >نسبة مئوية %</button>
                             </div>
@@ -921,6 +927,10 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                         }
                                         return next;
                                     });
+                                    setSettings(prev => ({ 
+                                        ...prev, 
+                                        [settings.withdrawalFeeType === 'percent' ? 'withdrawalFeePercent' : 'withdrawalFlatFee']: val 
+                                    }));
                                 }}
                                 className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-2xl px-4 py-3 text-right text-sm font-black outline-none focus:ring-4 focus:ring-indigo-500/15"
                                 placeholder={settings.withdrawalFeeType === 'percent' ? "أدخل النسبة المئوية" : "أدخل المبلغ الثابت للتسوية ج.م"}
@@ -936,23 +946,29 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                             </div>
                             <div className="flex p-0.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-250 dark:border-slate-800">
                                 <button 
-                                    onClick={() => setAllStoresData(prev => {
-                                        const next = { ...prev };
-                                        for(const sid in next) {
-                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, sameDayWithdrawalFeeType: 'flat' } };
-                                        }
-                                        return next;
-                                    })}
+                                    onClick={() => {
+                                        setAllStoresData(prev => {
+                                            const next = { ...prev };
+                                            for(const sid in next) {
+                                                next[sid] = { ...next[sid], settings: { ...next[sid].settings, sameDayWithdrawalFeeType: 'flat' } };
+                                            }
+                                            return next;
+                                        });
+                                        setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'flat' }));
+                                    }}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.sameDayWithdrawalFeeType === 'flat' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >مبلغ ثابت</button>
                                 <button 
-                                    onClick={() => setAllStoresData(prev => {
-                                        const next = { ...prev };
-                                        for(const sid in next) {
-                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, sameDayWithdrawalFeeType: 'percent' } };
-                                        }
-                                        return next;
-                                    })}
+                                    onClick={() => {
+                                        setAllStoresData(prev => {
+                                            const next = { ...prev };
+                                            for(const sid in next) {
+                                                next[sid] = { ...next[sid], settings: { ...next[sid].settings, sameDayWithdrawalFeeType: 'percent' } };
+                                            }
+                                            return next;
+                                        });
+                                        setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'percent' }));
+                                    }}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.sameDayWithdrawalFeeType === 'percent' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >نسبة مئوية %</button>
                             </div>
@@ -976,6 +992,10 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                         }
                                         return next;
                                     });
+                                    setSettings(prev => ({ 
+                                        ...prev, 
+                                        [settings.sameDayWithdrawalFeeType === 'flat' ? 'sameDayWithdrawalFlatFee' : 'sameDayWithdrawalFeePercent']: val 
+                                    }));
                                 }}
                                 className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-2xl px-4 py-3 text-right text-sm font-black outline-none focus:ring-4 focus:ring-indigo-500/15"
                                 placeholder={settings.sameDayWithdrawalFeeType === 'percent' ? "أدخل النسبة المئوية" : "أدخل المبلغ الثابت للجلسة ج.م"}

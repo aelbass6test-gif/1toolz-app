@@ -221,16 +221,12 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
 };
 
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
-    const isBrowser = typeof window !== 'undefined';
-    const savedSyncMode = isBrowser ? localStorage.getItem('dbSyncMode') : 'auto';
-    const shouldForce = forceRemote || (savedSyncMode === 'auto');
-
-    if (!shouldForce) {
-        const local = await getLocal(storeId);
-        if (local) {
-            // Return local immediately
-            return local;
-        }
+    // 1. Always attempt local fetch first for offline-first resilience
+    const local = await getLocal(storeId);
+    
+    // 2. If it's not a forced refresh, and local exists, return it immediately
+    if (!forceRemote && local) {
+        return local;
     }
 
     try {
@@ -239,7 +235,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             throw err;
         });
 
-        const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
+        const fetchCollection = async <T>(collectionName: string, localItems: T[]): Promise<T[]> => {
             try {
                 let snap = await getDocs(query(collection(firebaseDb, collectionName), where('storeId', '==', storeId)));
                 let items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
@@ -247,9 +243,13 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     const snap_snake = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', storeId)));
                     items = snap_snake.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
                 }
-                return items;
+                // If cloud fetch returns empty, but local has data, trust local
+                if (items.length === 0 && localItems.length > 0) {
+                    return localItems;
+                }
+                return items.length > 0 ? items : localItems;
             } catch (err) {
-                return [];
+                return localItems;
             }
         };
 
@@ -258,24 +258,24 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             activityLogs, employees, discountCodes, collectionsList, customPages, 
             paymentMethods, customers, globalOptions, shippingIntegrations
         ] = await Promise.all([
-            fetchCollection<Product>('products'),
-            fetchCollection<Order>('orders'),
-            fetchCollection<Transaction>('transactions'),
-            fetchCollection<TreasuryAccount>('treasury_accounts'),
-            fetchCollection<TreasuryTransaction>('treasury_transactions'),
-            fetchCollection<Supplier>('suppliers'),
-            fetchCollection<SupplyOrder>('supply_orders'),
-            fetchCollection<Review>('reviews'),
-            fetchCollection<AbandonedCart>('abandoned_carts'),
-            fetchCollection<ActivityLog>('activity_logs'),
-            fetchCollection<Employee>('employees'),
-            fetchCollection<DiscountCode>('discount_codes'),
-            fetchCollection<Collection>('collections'),
-            fetchCollection<CustomPage>('custom_pages'),
-            fetchCollection<PaymentMethod>('payment_methods'),
-            fetchCollection<CustomerProfile>('customers'),
-            fetchCollection<GlobalOption>('global_options'),
-            fetchCollection<ShippingCarrierIntegration>('shipping_integrations')
+            fetchCollection<Product>('products', local?.settings?.products || []),
+            fetchCollection<Order>('orders', local?.orders || []),
+            fetchCollection<Transaction>('transactions', local?.wallet?.transactions || []),
+            fetchCollection<TreasuryAccount>('treasury_accounts', local?.treasury?.accounts || []),
+            fetchCollection<TreasuryTransaction>('treasury_transactions', local?.treasury?.transactions || []),
+            fetchCollection<Supplier>('suppliers', local?.settings?.suppliers || []),
+            fetchCollection<SupplyOrder>('supply_orders', local?.settings?.supplyOrders || []),
+            fetchCollection<Review>('reviews', local?.settings?.reviews || []),
+            fetchCollection<AbandonedCart>('abandoned_carts', local?.settings?.abandonedCarts || []),
+            fetchCollection<ActivityLog>('activity_logs', local?.settings?.activityLogs || []),
+            fetchCollection<Employee>('employees', local?.settings?.employees || []),
+            fetchCollection<DiscountCode>('discount_codes', local?.settings?.discountCodes || []),
+            fetchCollection<Collection>('collections', local?.settings?.collections || []),
+            fetchCollection<CustomPage>('custom_pages', local?.settings?.customPages || []),
+            fetchCollection<PaymentMethod>('payment_methods', local?.settings?.paymentMethods || []),
+            fetchCollection<CustomerProfile>('customers', local?.customers || []),
+            fetchCollection<GlobalOption>('global_options', local?.settings?.globalOptions || []),
+            fetchCollection<ShippingCarrierIntegration>('shipping_integrations', local?.settings?.shippingIntegrations || [])
         ]);
 
         const storeSettings = storeSnap.exists() ? (storeSnap.data().settings || {}) : {};
@@ -325,10 +325,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             customers: customers
         };
 
+        // Cache fetched data to local
         await saveLocal(storeId, fullData);
         return fullData;
     } catch (err: any) {
-        return getLocal(storeId);
+        // Fallback to local if fetch fails
+        return local;
     }
 };
 
@@ -390,6 +392,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     if (shouldUpdateCloud) {
                         const payload = cleanUndefined({ ...item, storeId: store.id, store_id: store.id });
                         await setDoc(docRef, payload, { merge: true }).catch(err => {
+                            if (err?.code === 'resource-exhausted') {
+                                throw new Error('QUOTA_EXCEEDED');
+                            }
                             handleFirestoreError(err, OperationType.WRITE, `${collectionName}/${docId}`);
                         });
                     }
@@ -406,12 +411,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         .filter(doc => !activeIds.has(doc.id))
                         .map(async (doc) => {
                             await deleteDoc(doc._ref).catch(err => {
+                                if (err?.code === 'resource-exhausted') {
+                                    throw new Error('QUOTA_EXCEEDED');
+                                }
                                 handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${doc.id}`);
                             });
                         });
 
                 await Promise.all([...upsertPromises, ...deletePromises]);
-            } catch (err) {
+            } catch (err: any) {
+                if (err.message === 'QUOTA_EXCEEDED') throw err;
                 console.error(`Error syncing collection ${collectionName}:`, err);
             }
         };
@@ -439,12 +448,18 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         const storeRef = doc(firebaseDb, 'stores_data', store.id);
         const storePayload = cleanUndefined({ settings: cleanSettingsFinal, name: store.name });
         await WITH_TIMEOUT(setDoc(storeRef, storePayload, { merge: true })).catch(err => {
+            if (err?.code === 'resource-exhausted') {
+                throw new Error('QUOTA_EXCEEDED');
+            }
             handleFirestoreError(err, OperationType.WRITE, `stores_data/${store.id}`);
             throw err;
         });
 
         return { success: true };
     } catch (err: any) {
+        if (err.message === 'QUOTA_EXCEEDED') {
+            return { success: false, error: 'QUOTA_EXCEEDED' };
+        }
         return { success: false, error: err.message };
     }
 };
@@ -536,6 +551,9 @@ export const saveGlobalData = async (data: { users: User[], loyaltyData: any }):
                 joinDate: u.joinDate || ''
             });
             await setDoc(userRef, userPayload, { merge: true }).catch(err => {
+                if (err?.code === 'resource-exhausted') {
+                    throw new Error('QUOTA_EXCEEDED');
+                }
                 handleFirestoreError(err, OperationType.WRITE, `users/${u.phone}`);
             });
         });
@@ -543,6 +561,7 @@ export const saveGlobalData = async (data: { users: User[], loyaltyData: any }):
         await Promise.all(savePromises);
         return { success: true };
     } catch (err: any) {
+        if (err.message === 'QUOTA_EXCEEDED') return { success: false, error: 'QUOTA_EXCEEDED' };
         return { success: false, error: err.message };
     }
 };

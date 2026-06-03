@@ -606,6 +606,15 @@ export const AppComponent = () => {
                     }
 
                     const results = await Promise.all(cloudPromises);
+                    const quotaExceeded = results.some(r => r.error === 'QUOTA_EXCEEDED');
+                    
+                    if (quotaExceeded) {
+                        setDbSyncMode('manual');
+                        setSaveStatus('error');
+                        setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
+                        return;
+                    }
+
                     const failed = results.find(r => !r.success);
                     
                     if (failed) {
@@ -622,6 +631,12 @@ export const AppComponent = () => {
                         setSaveStatus(prev => prev === 'success' ? 'idle' : prev);
                     }, 3000);
                 } catch (e: any) {
+                    if (e?.message === 'QUOTA_EXCEEDED' || e === 'QUOTA_EXCEEDED') {
+                        setDbSyncMode('manual');
+                        setSaveStatus('error');
+                        setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
+                        return;
+                    }
                     console.error('[AUTO-SYNC] Error during cloud sync:', e);
                     // Fallback to local_saved so the user doesn't see a permanent error/loading
                     setSaveStatus('local_saved');
@@ -632,7 +647,7 @@ export const AppComponent = () => {
             };
 
             syncWithTimeout();
-        }, 1000); // 1s debounce for "real-time" feel while staying efficient
+        }, 5000); // 5s debounce for efficiency
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -694,25 +709,29 @@ export const AppComponent = () => {
             const savedStoreId = localStorage.getItem('lastActiveStoreId');
             const savedSessionType = localStorage.getItem('sessionType');
             
-            if (savedUserPhone) {
-                const user = loadedUsers.find((u: User) => u.phone === savedUserPhone);
-                if (user) {
-                    setCurrentUser(user);
-                    if (savedSessionType === 'employee') {
-                        setIsEmployeeSession(true);
-                    }
-                    const storeId = savedStoreId || user.stores?.[0]?.id;
-                    if (storeId) {
-                        setActiveStoreId(storeId);
-                        // Force a remote fetch for the active store during boot to ensure fresh cloud data
-                        const storeData = await db.getStoreData(storeId, true) as StoreData | null;
-                        if (storeData) {
-                            const sanitizedStoreData = sanitizeData(storeData);
-                            setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
-                        }
+        if (loadedUsers.length > 0) {
+            let user = loadedUsers.find((u: User) => u.phone === savedUserPhone);
+            if (!user && loadedUsers.length > 0) {
+                user = loadedUsers[0];
+            }
+
+            if (user) {
+                setCurrentUser(user);
+                if (savedSessionType === 'employee') {
+                    setIsEmployeeSession(true);
+                }
+                const storeId = savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
+                if (storeId) {
+                    setActiveStoreId(storeId);
+                    
+                    const storeData = await db.getStoreData(storeId, false) as StoreData | null;
+                    if (storeData) {
+                        const sanitizedStoreData = sanitizeData(storeData);
+                        setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
                     }
                 }
             }
+        }
         } catch (error) {
             console.error("Failed to load initial data:", error);
         } finally {
