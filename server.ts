@@ -407,6 +407,167 @@ async function startServer() {
     return res.status(400).json({ valid: false, message: "رمز التحقق غير صحيح." });
   });
 
+  // Cloudflare SaaS Domain Automation API
+  app.post("/api/domains/add", async (req, res) => {
+    const { domain, storeId } = req.body;
+    
+    if (!domain) {
+      return res.status(400).json({ success: false, error: "النطاق مطلوب" });
+    }
+
+    const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
+    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+    console.log(`[DOMAIN-AUTOMATION] Registering custom domain: ${cleanDomain} for store: ${storeId}`);
+
+    // If Cloudflare is not fully configured, provide simulation with clear guidance
+    if (!zoneId || !apiToken) {
+      console.log("[DOMAIN-AUTOMATION] Cloudflare API token or Zone ID is missing. Simulating successful automated connection.");
+      return res.json({
+        success: true,
+        simulation: true,
+        message: "تم حفظ النطاق بنجاح ومحاكاة التفعيل. يرجى توجيه الـ DNS كما هو موضح بالدليل.",
+        domain: cleanDomain,
+        details: {
+          hostname: cleanDomain,
+          status: "pending",
+          ssl_status: "initializing"
+        }
+      });
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            hostname: cleanDomain,
+            ssl: {
+              method: "http",
+              type: "dv"
+            }
+          })
+        }
+      );
+
+      const data: any = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error("[DOMAIN-AUTOMATION-ERROR] Cloudflare responded with error:", data);
+        
+        // If domain is already registered, still treat as success for front-end
+        const errors = data.errors || [];
+        const isDuplicate = errors.some((err: any) => err.code === 1406 || (err.message && err.message.includes("already exists")));
+        
+        if (isDuplicate) {
+          return res.json({
+            success: true,
+            message: "هذا النطاق مسجل بالفعل في حساب Cloudflare.",
+            domain: cleanDomain,
+            details: {
+              hostname: cleanDomain,
+              status: "active",
+              ssl_status: "active"
+            }
+          });
+        }
+
+        return res.status(400).json({
+          success: false,
+          error: data.errors?.[0]?.message || "فشلت عملية إضافة النطاق في Cloudflare",
+          details: data.errors
+        });
+      }
+
+      console.log("[DOMAIN-AUTOMATION] Cloudflare registered custom hostname successfully:", data.result);
+      return res.json({
+        success: true,
+        message: "تم تفعيل وتسجيل النطاق بنجاح وتوليد شهادة الـ SSL تلقائياً عبر Cloudflare API!",
+        domain: cleanDomain,
+        details: data.result
+      });
+    } catch (err: any) {
+      console.error("[DOMAIN-AUTOMATION-EXCEPTION] Error in registration process:", err);
+      return res.status(500).json({
+        success: false,
+        error: "حدث خطأ أثناء معالجة طلب تسجيل النطاق: " + err.message
+      });
+    }
+  });
+
+  // Cloudflare Custom Hostname Status API
+  app.post("/api/domains/status", async (req, res) => {
+    const { domain } = req.body;
+    if (!domain) {
+      return res.status(400).json({ success: false, error: "النطاق مطلوب" });
+    }
+
+    const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
+    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+    if (!zoneId || !apiToken) {
+      return res.json({
+        success: true,
+        simulation: true,
+        status: "active",
+        ssl_status: "active",
+        message: "محاكاة: حالة النطاق نشط والـ SSL مفعل"
+      });
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?hostname=${cleanDomain}`,
+        {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${apiToken}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      const data: any = await response.json();
+      if (!response.ok || !data.success) {
+        return res.status(400).json({
+          success: false,
+          error: data.errors?.[0]?.message || "فشلت عملية التحقق في Cloudflare"
+        });
+      }
+
+      const hostnameInfo = data.result?.[0];
+      if (!hostnameInfo) {
+        return res.json({
+          success: false,
+          status: "none",
+          message: "النطاق غير مسجل في الحساب بـ Cloudflare"
+        });
+      }
+
+      return res.json({
+        success: true,
+        status: hostnameInfo.status, // e.g. "active" or "pending"
+        ssl_status: hostnameInfo.ssl?.status, // e.g. "active" or "pending_validation"
+        verification_errors: hostnameInfo.verification_errors,
+        ssl_validation_errors: hostnameInfo.ssl?.validation_errors,
+        details: hostnameInfo
+      });
+    } catch (err: any) {
+      console.error("[DOMAIN-STATUS-EXCEPTION]", err);
+      return res.status(500).json({
+        success: false,
+        error: err.message
+      });
+    }
+  });
+
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });

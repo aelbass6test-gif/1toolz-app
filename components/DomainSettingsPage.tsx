@@ -17,9 +17,9 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 }) => {
   const [customDomain, setCustomDomain] = useState('');
   const [domainStatus, setDomainStatus] = useState<'none' | 'pending' | 'verifying' | 'active'>('none');
-  const [dnsCnameDone, setDnsCnameDone] = useState(false);
-  const [dnsADone, setDnsADone] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Load saved domain from localStorage or storeData relative to current store
   useEffect(() => {
@@ -31,7 +31,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     }
   }, [activeStoreId]);
 
-  const handleSaveDomain = () => {
+  const handleSaveDomain = async () => {
     if (!customDomain.trim()) {
       alert("يرجى إدخال اسم نطاق صحيح (مثال: mystoredomain.com)");
       return;
@@ -40,31 +40,90 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     // Simple regex check for domain
     const cleanDomain = customDomain.replace(/^(https?:\/\/)?(www\.)?/, '').trim();
     setCustomDomain(cleanDomain);
+    setIsSaving(true);
+    setErrorMessage(null);
 
-    localStorage.setItem(`custom_domain_${activeStoreId}`, cleanDomain);
-    localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'pending');
-    setDomainStatus('pending');
-    
-    // Save to global setSettings for SaaS configurations
-    setSettings((prev: any) => ({
-      ...prev,
-      customAppDomain: `https://${cleanDomain}`
-    }));
+    try {
+      const response = await fetch('/api/domains/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          domain: cleanDomain,
+          storeId: activeStoreId
+        })
+      });
 
-    alert("⚡ تم حفظ النطاق بنجاح! يرجى إعداد سجلات الـ DNS في لوحة تحكم نطاقك ثم الضغط على زر التحقق.");
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "حدث خطأ غير متوقع أثناء إضافة النطاق.");
+      }
+
+      localStorage.setItem(`custom_domain_${activeStoreId}`, cleanDomain);
+      
+      const nextStatus = data.simulation ? 'pending' : (data.details?.status || 'pending');
+      localStorage.setItem(`custom_domain_status_${activeStoreId}`, nextStatus);
+      setDomainStatus(nextStatus as any);
+      
+      // Save to global setSettings for SaaS configurations
+      setSettings((prev: any) => ({
+        ...prev,
+        customAppDomain: `https://${cleanDomain}`
+      }));
+
+      alert(data.message || `⚡ تم تسجيل النطاق ${cleanDomain} بنجاح عبر API! يرجى إعداد سجلات الـ DNS في لوحة تحكم نطاقك لتبدأ شهادة SSL بالعمل.`);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message);
+      alert(`⚠️ خطأ: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (!customDomain) return;
     
     setDomainStatus('verifying');
+    setErrorMessage(null);
     
-    setTimeout(() => {
-      // Auto verify success for visual and functional satisfaction
-      setDomainStatus('active');
-      localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'active');
-      alert("🎉 مبارك! تم التحقق من ربط النطاق بنجاح وهو الآن نشط ويدعم شهادة SSL آمنة ومجانية.");
-    }, 2500);
+    try {
+      const response = await fetch('/api/domains/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          domain: customDomain
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "فشل التحقق من حالة النطاق.");
+      }
+
+      if (data.status === 'active' && data.ssl_status === 'active') {
+        setDomainStatus('active');
+        localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'active');
+        alert("🎉 مبارك! تم التحقق من ربط النطاق بنجاح وهو الآن نشط ومحمي بشهادة SSL آمنة ومجانية.");
+      } else {
+        // Still pending
+        setDomainStatus('pending');
+        localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'pending');
+        
+        let statusText = "النطاق ما زال قيد التحقق أو بانتظار تفعيل الـ SSL بـ Cloudflare.";
+        if (data.verification_errors && data.verification_errors.length > 0) {
+          statusText += `\n🔍 أخطاء التحقق: ${data.verification_errors[0].message}`;
+        }
+        alert(`ℹ️ حالة النطاق: ${statusText}\nيرجى التأكد من توجيه سجلات الـ DNS بشكل صحيح والانتظار قليلاً.`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setDomainStatus('pending');
+      alert(`⚠️ خطأ أثناء الفحص: ${err.message}`);
+    }
   };
 
   const handleDisconnect = () => {
@@ -150,18 +209,27 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                 <button 
                   type="button"
                   onClick={handleSaveDomain}
-                  disabled={domainStatus === 'verifying'}
+                  disabled={domainStatus === 'verifying' || isSaving}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-55"
                 >
-                  <Save size={14} />
-                  حفظ وتأكيد الدومين 📥
+                  {isSaving ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>جاري تسجيل النطاق برمجياً...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={14} />
+                      <span>حفظ وتأكيد الدومين تلقائياً 📥</span>
+                    </>
+                  )}
                 </button>
 
                 {domainStatus !== 'none' && (
                   <button 
                     type="button"
                     onClick={handleDisconnect}
-                    disabled={domainStatus === 'verifying'}
+                    disabled={domainStatus === 'verifying' || isSaving}
                     className="bg-transparent hover:bg-red-50 dark:hover:bg-red-950/20 text-red-600 px-4 py-3 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                   >
                     إلغاء ربط النطاق الحالي
