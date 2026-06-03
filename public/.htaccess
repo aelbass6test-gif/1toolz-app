@@ -1,0 +1,17 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  
+  # Forward /api/domains/add to the PHP controller
+  RewriteRule ^api/domains/add$ api/domains/add/index.php [L,QSA]
+  RewriteRule ^api/domains/add/$ api/domains/add/index.php [L,QSA]
+  
+  # Forward /api/domains/status to the PHP controller
+  RewriteRule ^api/domains/status$ api/domains/status/index.php [L,QSA]
+  RewriteRule ^api/domains/status/$ api/domains/status/index.php [L,QSA]
+  
+  # Standard SPA Routing: Redirect all other non-file/non-folder requests to index.html
+  # This makes React Router routes (like /orders or /settings) work perfectly on page reload!
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ index.html [L,QSA]
+</IfModule>

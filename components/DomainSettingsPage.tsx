@@ -295,19 +295,49 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   <div className="flex gap-2.5 items-start text-red-800 dark:text-red-400">
                     <AlertTriangle size={18} className="mt-0.5 shrink-0" />
                     <div className="space-y-1">
-                      <p className="text-xs font-black">تشخيص سبب الفشل والخطأ الحالي ⚠️</p>
+                      <p className="text-xs font-black">تشخيص سبب الفشل وحل المشكلة على استضافتك ⚠️</p>
                       <p className="text-[11px] leading-relaxed opacity-95">
                         {backendError.message}
                       </p>
                     </div>
                   </div>
                   
-                  <div className="bg-white/80 dark:bg-slate-900/50 p-3 rounded-xl border border-red-100 dark:border-red-900/10 space-y-1.5 text-[11px]">
-                    <div className="font-bold text-slate-800 dark:text-white">🚀 لتصحيح هذه المشكلة وتفعيل الـ API على استضافتك:</div>
-                    <ul className="list-disc list-inside space-y-1 text-slate-600 dark:text-slate-400 pr-2 leading-relaxed">
-                      <li>تأكد من تشغيل ملف كود الـ Backend الخلفي <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">server.ts</code> أو <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">dist/server.mjs</code> كـ Node.js Server نشط.</li>
-                      <li>في استضافات مشتركة مثل <strong>Hostinger</strong>، لا يكفي رفع مجلد <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">dist</code> الثابت فقط. يجب الدخول إلى <strong>Node.js App Manager</strong> وإضافة التطبيق وإدخال أمر التشغيل الخاص بـ <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">package.json</code> لتمرير الطلبات لـ Express.</li>
-                    </ul>
+                  <div className="bg-white/80 dark:bg-slate-900/50 p-4 rounded-xl border border-red-100 dark:border-red-900/10 space-y-5 text-[11px]">
+                    <div className="font-bold text-slate-800 dark:text-white text-xs">🚀 دليل الربط السحابي الحقيقي لجميع أنواع الاستضافات:</div>
+                    
+                    <div className="space-y-4 divide-y divide-slate-100 dark:divide-slate-800">
+                      {/* cPanel / Shared Hosting */}
+                      <div className="space-y-1">
+                        <p className="font-extrabold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                          <span>1. الاستضافات المشتركة ولوحة تحكم cPanel (مثل GoDaddy أو Namecheap أو Bluehost):</span>
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed pr-2">
+                          صممنا لك ملفات API مكتوبة بـ <strong>PHP الأصلية</strong> في مسار <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">public/api/</code> وهي متوافقة تماماً وبشكل فوري مع أي استضافة مشتركة! 
+                          فقط قم ببناء الكود (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-bold text-indigo-600">npm run build</code>) وارفع كود مجلد <code className="font-bold">dist</code> الناتج كاملاً لـ <code className="font-mono">public_html</code>. ثم افتح ملف <code className="font-mono text-red-600 dark:text-red-400">api/domains/add/index.php</code> على مدير ملفات cPanel، وضع الـ <code className="font-mono">API Token</code> والـ <code className="font-mono">Zone ID</code> لحسابك وسيعمل الربط الحقيقي 100% تلقائياً دون الحاجة لاستضافة Hostinger!
+                        </p>
+                      </div>
+
+                      {/* VPS */}
+                      <div className="space-y-1 pt-3">
+                        <p className="font-extrabold text-indigo-600 dark:text-indigo-400">
+                          <span>2. خادمك الخاص VPS (سواء Ubuntu أو Windows Server):</span>
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed pr-2">
+                          قم بتشغيل خادم الـ Node.js backend المكتوب في <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">server.ts</code>. نفّذ أمر البناء وتأكد من تشغيل Node.js بإنشاء خدمة أو باستعمال PM2 على بورت 3000، وقم بتهيئة Nginx كـ Reverse Proxy لتوجيه مسارات الـ <code className="font-mono">/api</code> السحابية حقيقياً.
+                        </p>
+                      </div>
+
+                      {/* Static hosting */}
+                      <div className="space-y-1 pt-3">
+                        <p className="font-extrabold text-indigo-600 dark:text-indigo-400">
+                          <span>3. استضافة Cloudflare Pages للواجهات (Static SPA):</span>
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed pr-2">
+                          بما أنك تستخدم Cloudflare Pages الآن، قمنا ببرمجة مجلد <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">functions/api/</code> داخل المشروع ليتكامل تلقائياً مع خوادمهم وبدون الحاجة لخادم Node.js خلفي!
+                          فقط ارفع الكود الجديد إلى مستودعك، ثم من لوحة تحكم Cloudflare Pages اذهب إلى (<strong>Settings</strong>) ثم (<strong>Environment variables</strong>)، وأضف المتغيرات <code className="font-mono text-[10px]">CLOUDFLARE_API_TOKEN</code> و <code className="font-mono text-[10px]">CLOUDFLARE_ZONE_ID</code> وسيعمل الربط الحقيقي 100% فوراً. أو يمكنك تفعيل وضع المحاكاة أدناه لتجربته محلياً.
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="pt-2 border-t border-red-200/40 flex items-center justify-between flex-wrap gap-2 text-[11px]">
@@ -315,7 +345,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <button
                       type="button"
                       onClick={handleActivateDemoMode}
-                      className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-450 font-black rounded-lg border border-indigo-200/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition text-[10px] cursor-pointer"
+                      className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-455 font-black rounded-lg border border-indigo-200/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition text-[10px] cursor-pointer"
                     >
                       تفعيل الدومين الآن (وضع المحاكاة) ⚡
                     </button>
