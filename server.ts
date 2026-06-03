@@ -416,8 +416,8 @@ async function startServer() {
     try {
       const { domain, storeId } = await c.req.json();
       
-      if (!domain) {
-        return c.json({ success: false, error: "النطاق مطلوب" }, 400);
+      if (!domain || !storeId) {
+        return c.json({ success: false, error: "النطاق ومعرف المتجر مطلوبان" }, 400);
       }
 
       const cleanDomain = domain
@@ -428,154 +428,147 @@ async function startServer() {
       const zoneId = process.env.CLOUDFLARE_ZONE_ID;
       const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
-      console.log(`[DOMAIN-AUTOMATION] Registering custom domain: ${cleanDomain} for store: ${storeId}`);
+      console.log(`[DOMAIN-AUTOMATION] Processing custom domain: ${cleanDomain} for store: ${storeId}`);
+
+      // Helper to fetch custom hostname details
+      const fetchHostname = async (hostname: string) => {
+        const res = await fetch(
+            `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+            { headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" } }
+        );
+        const json: any = await res.json();
+        return json.success && json.result?.[0] ? json.result[0] : null;
+      };
+
+      // Helper to update store settings in Firestore
+      const updateStoreSettings = async (storeId: string, updates: any) => {
+          try {
+              const storeRef = doc(db, "stores_data", storeId);
+              const storeSnap = await getDoc(storeRef);
+              if (storeSnap.exists()) {
+                  const data = storeSnap.data();
+                  const newSettings = cleanUndefined({
+                      ...(data.settings || {}),
+                      ...updates
+                  });
+                  await setDoc(storeRef, { settings: newSettings }, { merge: true });
+                  // Also update cache
+                  storeCache.set(storeId, { data: { ...data, settings: newSettings }, timestamp: Date.now() });
+              }
+          } catch (e) {
+              console.error(`[DOMAIN-AUTOMATION] Failed to update Firestore for store ${storeId}:`, e);
+          }
+      };
 
       // If Cloudflare is not fully configured, provide simulation
       if (!zoneId || !apiToken) {
-        console.log("[DOMAIN-AUTOMATION] Cloudflare API token or Zone ID is missing. Simulating successful automated connection.");
-        return c.json({
-          success: true,
-          simulation: true,
-          message: "تم حفظ النطاق بنجاح ومحاكاة التفعيل. يرجى توجيه الـ DNS كما هو موضح بالدليل.",
-          domain: cleanDomain,
-          details: {
+        console.log("[DOMAIN-AUTOMATION] Cloudflare credentials missing. Simulation mode.");
+        const mockRecords = {
             hostname: cleanDomain,
-            status: "pending",
-            ssl_status: "initializing"
+            ownership_verification: { type: "txt", name: `_cf-custom-hostname.${cleanDomain}`, value: "MOCK_VERIFICATION_VALUE" },
+            ssl: { status: "pending_validation", validation_records: [{ type: "cname", name: `_ssl.${cleanDomain}`, value: "MOCK_SSL_VALUE" }] }
+        };
+        await updateStoreSettings(storeId, { customDomain: cleanDomain, domainStatus: 'pending_validation', domainDNSRecords: mockRecords });
+        return c.json({ success: true, simulation: true, domain: cleanDomain, details: mockRecords });
+      }
+
+      // 1. Check if hostname already exists
+      let hostnameInfo = await fetchHostname(cleanDomain);
+
+      if (!hostnameInfo) {
+          // 2. Create if not exists
+          const response = await fetch(
+            `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames`,
+            {
+              method: "POST",
+              headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ hostname: cleanDomain, ssl: { method: "txt", type: "dv" } })
+            }
+          );
+
+          const data: any = await response.json();
+          if (!response.ok || !data.success) {
+            return c.json({ success: false, error: data.errors?.[0]?.message || "فشلت عملية إضافة النطاق" }, 400);
           }
-        });
+          hostnameInfo = data.result;
       }
 
-      const response = await fetch(
-        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames`,
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            hostname: cleanDomain,
-            ssl: {
-              method: "txt",
-              type: "dv"
-            }
-          })
-        }
-      );
+      // 3. Update Firestore with latest records
+      const isStatusActive = hostnameInfo.status === 'active' && hostnameInfo.ssl?.status === 'active';
+      const domainStatus = isStatusActive ? 'active' : 'pending_validation';
+      await updateStoreSettings(storeId, { 
+          customDomain: cleanDomain, 
+          domainStatus, 
+          domainDNSRecords: hostnameInfo 
+      });
 
-      const data: any = await response.json();
-
-      if (!response.ok || !data.success) {
-        console.error("[DOMAIN-AUTOMATION-ERROR] Cloudflare responded with error:", data);
-        
-        const errors = data.errors || [];
-        const isDuplicate = errors.some((err: any) => err.code === 1406 || (err.message && err.message.includes("already exists")));
-        
-        if (isDuplicate) {
-          return c.json({
-            success: true,
-            message: "هذا النطاق مسجل بالفعل في حساب Cloudflare.",
-            domain: cleanDomain,
-            details: {
-              hostname: cleanDomain,
-              status: "active",
-              ssl_status: "active"
-            }
-          });
-        }
-
-        return c.json({
-          success: false,
-          error: data.errors?.[0]?.message || "فشلت عملية إضافة النطاق في Cloudflare",
-          details: data.errors
-        }, 400);
-      }
-
-      console.log("[DOMAIN-AUTOMATION] Cloudflare registered custom hostname successfully:", data.result);
+      console.log("[DOMAIN-AUTOMATION] Successfully processed domain for store:", storeId);
       return c.json({
         success: true,
-        message: "تم تفعيل وتسجيل النطاق بنجاح وتوليد شهادة الـ SSL تلقائياً عبر Cloudflare API!",
+        message: domainStatus === 'active' ? "النطاق نشط ومفعل!" : "تم تسجيل النطاق، يرجى إتمام سجلات التوثيق.",
         domain: cleanDomain,
-        details: data.result
+        details: hostnameInfo
       });
     } catch (err: any) {
-      console.error("[DOMAIN-AUTOMATION-EXCEPTION] Error in registration process:", err);
-      return c.json({
-        success: false,
-        error: "حدث خطأ أثناء معالجة طلب تسجيل النطاق: " + err.message
-      }, 500);
+      console.error("[DOMAIN-AUTOMATION-EXCEPTION]", err);
+      return c.json({ success: false, error: "خطأ في المعالجة: " + err.message }, 500);
     }
   });
 
   // Cloudflare Custom Hostname Status API
   app.post("/api/domains/status", async (c) => {
     try {
-      const { domain } = await c.req.json();
-      if (!domain) {
-        return c.json({ success: false, error: "النطاق مطلوب" }, 400);
+      const { domain, storeId } = await c.req.json();
+      if (!domain || !storeId) {
+        return c.json({ success: false, error: "النطاق ومعرف المتجر مطلوبان" }, 400);
       }
 
-      const cleanDomain = domain
-        .replace(/^(https?:\/\/)?(www\.)?/, "")
-        .replace(/\/.*$/, '')
-        .replace(/[^a-zA-Z0-9.-]/g, '')
-        .toLowerCase();
+      const cleanDomain = domain.toLowerCase().trim();
       const zoneId = process.env.CLOUDFLARE_ZONE_ID;
       const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
       if (!zoneId || !apiToken) {
-        return c.json({
-          success: true,
-          simulation: true,
-          status: "active",
-          ssl_status: "active",
-          message: "محاكاة: حالة النطاق نشط والـ SSL مفعل"
-        });
+        return c.json({ success: true, simulation: true, status: "active", ssl_status: "active" });
       }
 
       const response = await fetch(
         `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(cleanDomain)}`,
-        {
-          method: "GET",
-          headers: {
-            "Authorization": `Bearer ${apiToken}`,
-            "Content-Type": "application/json"
-          }
-        }
+        { headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" } }
       );
 
       const data: any = await response.json();
-      if (!response.ok || !data.success) {
-        return c.json({
-          success: false,
-          error: data.errors?.[0]?.message || "فشلت عملية التحقق في Cloudflare"
-        }, 400);
+      if (!response.ok || !data.success || !data.result?.[0]) {
+        return c.json({ success: false, error: "لم يتم العثور على النطاق في Cloudflare" }, 404);
       }
 
-      const hostnameInfo = data.result?.[0];
-      if (!hostnameInfo) {
-        return c.json({
-          success: false,
-          status: "none",
-          message: "النطاق غير مسجل في الحساب بـ Cloudflare"
-        });
+      const hostnameInfo = data.result[0];
+      const isStatusActive = hostnameInfo.status === 'active' && hostnameInfo.ssl?.status === 'active';
+      const domainStatus = isStatusActive ? 'active' : (hostnameInfo.status === 'pending' ? 'pending_validation' : 'error');
+
+      // Update Firestore
+      const storeRef = doc(db, "stores_data", storeId);
+      const storeSnap = await getDoc(storeRef);
+      if (storeSnap.exists()) {
+          const sData = storeSnap.data();
+          const newSettings = cleanUndefined({
+              ...(sData.settings || {}),
+              domainStatus,
+              domainDNSRecords: hostnameInfo
+          });
+          await setDoc(storeRef, { settings: newSettings }, { merge: true });
+          storeCache.set(storeId, { data: { ...sData, settings: newSettings }, timestamp: Date.now() });
       }
 
       return c.json({
         success: true,
-        status: hostnameInfo.status, // e.g. "active" or "pending"
-        ssl_status: hostnameInfo.ssl?.status, // e.g. "active" or "pending_validation"
-        verification_errors: hostnameInfo.verification_errors,
-        ssl_validation_errors: hostnameInfo.ssl?.validation_errors,
+        status: hostnameInfo.status,
+        ssl_status: hostnameInfo.ssl?.status,
+        domainStatus,
         details: hostnameInfo
       });
     } catch (err: any) {
       console.error("[DOMAIN-STATUS-EXCEPTION]", err);
-      return c.json({
-        success: false,
-        error: err.message
-      }, 500);
+      return c.json({ success: false, error: err.message }, 500);
     }
   });
 

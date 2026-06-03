@@ -512,6 +512,8 @@ export interface Settings {
   integration: PlatformIntegration;
   customAppDomain?: string; // <-- New field for SaaS integration
   customDomain?: string; // <-- New field for live store domain mapping
+  domainStatus?: 'pending' | 'active' | 'error' | 'pending_validation';
+  domainDNSRecords?: any; 
   subdomain?: string; // <-- New field for subdomains
   platformConfigs?: Record<string, {
     appId: string;

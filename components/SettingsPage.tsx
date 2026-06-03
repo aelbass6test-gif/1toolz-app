@@ -1398,7 +1398,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       {activeTab === 'general' && (
         <div className="space-y-8 animate-in fade-in duration-300">
           <POSSettingsCard settings={settings} setSettings={setSettings} />
-          <DomainSettingsCard settings={settings} setSettings={setSettings} />
+          <DomainSettingsCard settings={settings} setSettings={setSettings} activeStore={activeStore} />
           <PlatformIntegrationCard 
             integration={settings.integration} 
             onSave={handleIntegrationSave} 
@@ -1839,21 +1839,101 @@ interface PlatformIntegrationCardProps {
   onToggle: () => void;
 }
 
-const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>> }> = ({ settings, setSettings }) => {
+const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>>, activeStore?: Store }> = ({ settings, setSettings, activeStore }) => {
+    const [isVerifying, setIsVerifying] = React.useState(false);
+    const [verifyError, setVerifyError] = React.useState<string | null>(null);
+    const [lastSyncResult, setLastSyncResult] = React.useState<any>(null);
+
+    const handleAddDomain = async () => {
+        if (!settings.customDomain) {
+            setVerifyError('يرجى إدخال اسم النطاق أولاً (مثال: example.com)');
+            return;
+        }
+        if (!activeStore?.id) {
+            setVerifyError('خطأ: معرف المتجر غير متوفر');
+            return;
+        }
+
+        setIsVerifying(true);
+        setVerifyError(null);
+        try {
+            const res = await fetch('/api/domains/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    domain: settings.customDomain,
+                    storeId: activeStore.id
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setLastSyncResult(data.details);
+                // The server also updates Firestore, but we can update local state too
+                setSettings(prev => ({
+                    ...prev,
+                    domainStatus: data.details.status === 'active' && data.details.ssl?.status === 'active' ? 'active' : 'pending_validation',
+                    domainDNSRecords: data.details
+                }));
+                alert('تم تسجيل النطاق بنجاح! يرجى إعداد سجلات DNS الموضحة بالأسفل لتفعيل النطاق والـ SSL.');
+            } else {
+                setVerifyError(data.error || 'فشلت عملية إضافة النطاق');
+            }
+        } catch (err: any) {
+            setVerifyError('حدث خطأ أثناء الاتصال بالخادم: ' + err.message);
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+
+    const handleCheckStatus = async () => {
+        if (!settings.customDomain || !activeStore?.id) return;
+        
+        setIsVerifying(true);
+        setVerifyError(null);
+        try {
+            const res = await fetch('/api/domains/status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    domain: settings.customDomain,
+                    storeId: activeStore.id
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setLastSyncResult(data.details);
+                setSettings(prev => ({
+                    ...prev,
+                    domainStatus: data.domainStatus,
+                    domainDNSRecords: data.details
+                }));
+            } else {
+                setVerifyError(data.error || 'فشل فحص الحالة');
+            }
+        } catch (err: any) {
+            setVerifyError('حدث خطأ أثناء فحص الحالة: ' + err.message);
+        } finally {
+            setIsVerifying(false);
+        }
+    };
+
+    const hostnameInfo = settings.domainDNSRecords || lastSyncResult;
+    const records = hostnameInfo?.ownership_verification || hostnameInfo?.ssl?.validation_records?.[0];
+
     return (
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-right">
             <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
                 <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg"><LinkIcon size={24}/></div>
                 <div>
-                    <h2 className="text-xl font-black dark:text-white">إعدادات النطاق والربط (Store Domains)</h2>
-                    <p className="text-xs text-slate-500">تخصيص رابط المتجر وربط النطاقات الخاصة بمتجرك المباشر.</p>
+                    <h2 className="text-xl font-black dark:text-white">أتمتة النطاقات المخصصة (Cloudflare Enterprise Automation)</h2>
+                    <p className="text-xs text-slate-500 font-sans">ربط وتفعيل النطاقات المخصصة وتوليد شهادات SSL تلقائياً عبر منصتنا.</p>
                 </div>
             </div>
             
             <div className="space-y-6">
                 {/* 1. Subdomain Setting */}
                 <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">نطاق المتجر الفرعي (Subdomain)</label>
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">نطاق المتجر المجاني (Subdomain)</label>
                     <div className="flex items-center gap-2">
                         <div className="relative flex-1">
                             <input 
@@ -1867,18 +1947,9 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                         </div>
                         <span className="text-sm font-bold text-slate-400 dark:text-slate-500 font-mono" dir="ltr">.abdomedi.com</span>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                        هذا هو الرابط المجاني لمتجرك. يمكنك تغييره في أي وقت، وسيتم توجيه العملاء للرابط الجديد فور الحفظ.
-                    </p>
-                    {(settings.subdomain) && (
-                        <a 
-                            href={`https://${settings.subdomain}.abdomedi.com`} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:underline mt-1"
-                        >
-                            <Globe size={12} />
-                            زيارة المتجر: {settings.subdomain}.abdomedi.com
+                    {settings.subdomain && (
+                        <a href={`https://${settings.subdomain}.abdomedi.com`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:underline mt-1">
+                            <Globe size={12} /> زيارة المتجر: {settings.subdomain}.abdomedi.com
                         </a>
                     )}
                 </div>
@@ -1886,24 +1957,130 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                 <hr className="border-slate-100 dark:border-slate-800" />
 
                 {/* 2. Custom Domain Setting */}
-                <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">النطاق الخاص (Custom Domain)</label>
-                    <div className="relative">
-                        <input 
-                            type="text" 
-                            placeholder="example.com"
-                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-mono"
-                            value={settings.customDomain || ''}
-                            onChange={(e) => setSettings(prev => ({ ...prev, customDomain: e.target.value.toLowerCase().trim() }))}
-                            dir="ltr"
-                        />
-                        <div className="absolute left-4 top-3 text-slate-400">
-                           <AppWindow size={18} />
-                        </div>
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">النطاق المخصص (3bdomedia.com)</label>
+                        {settings.domainStatus && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                settings.domainStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : 
+                                settings.domainStatus === 'pending_validation' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                                {settings.domainStatus === 'active' ? 'متصل ونشط' : 
+                                 settings.domainStatus === 'pending_validation' ? 'بانتظار سجلات DNS' : 'خطأ في الربط'}
+                            </span>
+                        )}
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                        إذا قمت بشراء نطاق خاص (مثل mydomain.com)، أدخله هنا وقم بتوجيه سجلات CNAME أو A لنظامنا.
-                    </p>
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                        <div className="relative flex-1">
+                            <input 
+                                type="text" 
+                                placeholder="example.com"
+                                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-mono"
+                                value={settings.customDomain || ''}
+                                onChange={(e) => setSettings(prev => ({ ...prev, customDomain: e.target.value.toLowerCase().trim() }))}
+                                dir="ltr"
+                            />
+                            <div className="absolute left-4 top-3.5 text-slate-400">
+                                <Globe size={18} />
+                            </div>
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={handleAddDomain}
+                            disabled={isVerifying}
+                            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-lg shadow-blue-500/10 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+                        >
+                            {isVerifying ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                            ربط النطاق الآن
+                        </button>
+                    </div>
+
+                    {verifyError && <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg">{verifyError}</p>}
+
+                    {/* Verification Records Table */}
+                    {settings.domainDNSRecords && settings.domainStatus !== 'active' && (
+                        <div className="mt-6 bg-slate-50 dark:bg-slate-850 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 animate-in slide-in-from-top-2 duration-300">
+                            <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                    <Cloud size={16} className="text-blue-500" />
+                                    سجلات توثيق النطاق والـ SSL المطلوبة:
+                                </h4>
+                                <button 
+                                    onClick={handleCheckStatus} 
+                                    disabled={isVerifying}
+                                    className="text-[10px] font-black text-blue-600 hover:underline flex items-center gap-1"
+                                >
+                                    {isVerifying ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                                    تحديث الحالة
+                                </button>
+                            </div>
+
+                            <p className="text-[10px] text-slate-500 mb-4 font-sans leading-relaxed">
+                                يرجى إضافة السجلات التالية في لوحة تحكم النطاق (Hostinger / Cloudflare) لتوثيق ملكية النطاق وتفعيل شهادة الـ SSL المجانية.
+                            </p>
+
+                            <div className="space-y-3 font-mono">
+                                {/* Ownership Verification */}
+                                {hostnameInfo.ownership_verification && (
+                                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
+                                        <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-1">
+                                            <span className="bg-indigo-50 text-indigo-600 px-1.5 rounded font-black text-[9px]">TXT Record (Ownership)</span>
+                                            <span className="text-slate-400">سجل إثبات الملكية</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            <div className="flex justify-between gap-4">
+                                                <span className="text-slate-400">Name:</span>
+                                                <span className="font-bold text-slate-700 dark:text-slate-300 select-all" dir="ltr">{hostnameInfo.ownership_verification.name}</span>
+                                            </div>
+                                            <div className="flex justify-between gap-4">
+                                                <span className="text-slate-400">Value:</span>
+                                                <span className="font-bold text-blue-600 dark:text-blue-400 select-all break-all text-left" dir="ltr">{hostnameInfo.ownership_verification.value}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* SSL Validation */}
+                                {hostnameInfo.ssl?.validation_records?.map((record: any, idx: number) => (
+                                    <div key={idx} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
+                                        <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-1">
+                                            <span className="bg-emerald-50 text-emerald-600 px-1.5 rounded font-black text-[9px] uppercase">{record.type} Record (SSL)</span>
+                                            <span className="text-slate-400">سجل توثيق SSL</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2">
+                                            <div className="flex justify-between gap-4">
+                                                <span className="text-slate-400">Name:</span>
+                                                <span className="font-bold text-slate-700 dark:text-slate-300 select-all" dir="ltr">{record.name}</span>
+                                            </div>
+                                            <div className="flex justify-between gap-4">
+                                                <span className="text-slate-400">Value:</span>
+                                                <span className="font-bold text-emerald-600 dark:text-emerald-400 select-all break-all text-left" dir="ltr">{record.value}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Standard CNAME Points to fallback */}
+                                <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
+                                    <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-1">
+                                        <span className="bg-blue-50 text-blue-600 px-1.5 rounded font-black text-[9px]">CNAME Record (Routing)</span>
+                                        <span className="text-slate-400">سجل توجيه المتجر</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        <div className="flex justify-between gap-4">
+                                            <span className="text-slate-400">Name:</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300 select-all" dir="ltr">@</span>
+                                        </div>
+                                        <div className="flex justify-between gap-4">
+                                            <span className="text-slate-400">Value:</span>
+                                            <span className="font-bold text-blue-600 dark:text-blue-400 select-all" dir="ltr">fallback.abdomedi.com</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <hr className="border-slate-100 dark:border-slate-800" />
@@ -1920,7 +2097,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                             onChange={(e) => setSettings(prev => ({ ...prev, customAppDomain: e.target.value }))}
                             dir="ltr"
                         />
-                        <div className="absolute left-4 top-3 text-slate-400">
+                        <div className="absolute left-4 top-3.5 text-slate-400">
                            <Globe size={18} />
                         </div>
                     </div>
