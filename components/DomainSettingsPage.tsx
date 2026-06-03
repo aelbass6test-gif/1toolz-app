@@ -471,9 +471,23 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               </h2>
 
               <div className="space-y-4">
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  قم بتسجيل الدخول إلى حسابك لدى الشركة التي اشتريت منها الدومين (مثل GoDaddy أو Namecheap)، ثم توجه إلى لوحة إعدادات الـ <span className="font-bold text-slate-700 dark:text-slate-300">DNS Zones</span> وأضف السجلات التالية بدقة:
-                </p>
+                <div className="bg-indigo-50/50 dark:bg-indigo-900/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800/30">
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">الإرشادات</h3>
+                  <ul className="space-y-3 text-xs text-slate-600 dark:text-slate-400">
+                    <li className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full border border-indigo-200 bg-white dark:bg-slate-800 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">1</span>
+                      <span>اذهب إلى لوحة التحكم في الموقع الذي يستضيف الدومين الخاص بك.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full border border-indigo-200 bg-white dark:bg-slate-800 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">2</span>
+                      <span>انتقل إلى إعدادات إدارة ملفات DNS الخاصة بالدومين.</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full border border-indigo-200 bg-white dark:bg-slate-800 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">3</span>
+                      <span><strong className="text-red-500">احذف سجلات A</strong> الخاصة بالنطاق (@) وأيضاً <strong className="text-red-500">سجلات AAAA</strong>، ثم أضف سجلات CNAME من الجدول أدناه.</span>
+                    </li>
+                  </ul>
+                </div>
 
                 {/* DNS Records Table */}
                 <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-950/30 text-xs">
@@ -484,19 +498,19 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <div>نسخ سريع</div>
                   </div>
 
-                  {/* CNAME Record */}
+                  {/* Record 1: CNAME for root (@) */}
                   <div className="grid grid-cols-4 py-4 px-4 text-center border-b border-slate-200 dark:border-slate-850 items-center">
                     <div className="font-mono bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-indigo-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME</div>
-                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">www (أو أي اسم فرعي)</div>
-                    <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate shrink px-1" dir="ltr">
+                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@</div>
+                    <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-semibold" dir="ltr">
                       {window.location.hostname}
                     </div>
                     <div>
                       <button 
-                        onClick={() => handleCopy(window.location.hostname, 'cname')}
+                        onClick={() => handleCopy(window.location.hostname, 'arecord')}
                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
                       >
-                        {copiedText === 'cname' ? (
+                        {copiedText === 'arecord' ? (
                           <>
                             <Check size={12} className="text-green-500" />
                             <span>تم!</span>
@@ -511,19 +525,19 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     </div>
                   </div>
 
-                  {/* CNAME / A Record for main domain */}
-                  <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-t border-slate-200 dark:border-slate-850">
-                    <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME / A</div>
-                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@ (النطاق الرئيسي)</div>
-                    <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-semibold" dir="ltr">
-                      {window.location.hostname}
+                  {/* Record 2: CNAME for www */}
+                  <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-slate-200 dark:border-slate-850">
+                    <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME</div>
+                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">www</div>
+                    <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate shrink px-1" dir="ltr">
+                      {customDomain}
                     </div>
                     <div>
                       <button 
-                        onClick={() => handleCopy(window.location.hostname, 'arecord')}
+                        onClick={() => handleCopy(customDomain, 'cname')}
                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
                       >
-                        {copiedText === 'arecord' ? (
+                        {copiedText === 'cname' ? (
                           <>
                             <Check size={12} className="text-green-500" />
                             <span>تم!</span>
@@ -596,49 +610,52 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   )}
                 </div>
 
-                <div className="space-y-2 mt-4 bg-amber-50 dark:bg-amber-950/20 p-4 rounded-xl border border-amber-200/50 dark:border-amber-900/30">
-                  <div className="flex gap-2 items-start text-amber-800 dark:text-amber-400">
-                    <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                    <div className="space-y-1">
-                      <p className="text-xs font-black">ملاحظة أمان وهام للربط:</p>
-                      <p className="text-[10px] leading-relaxed opacity-90">
-                        عملية تحديث الـ DNS عالمياً قد تستغرق من ساعتين إلى 24 ساعة كحد أقصى ليصبح نطاقك الجديد فعالاً بالكامل بكود التشفير المباشر SSL.
-                      </p>
+                <div className="space-y-3 mt-4">
+                  <div className="flex items-center gap-2 mb-2 p-2 px-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
+                    <span className="w-5 h-5 rounded-full border border-emerald-200 bg-white dark:bg-slate-800 dark:border-emerald-800 flex items-center justify-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">4</span>
+                    <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">تأكد من أنك قمت بإعداده بالشكل المطلوب</p>
+                  </div>
+                  
+                  <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-xl border border-amber-200/50 dark:border-amber-900/30">
+                    <div className="flex gap-2 items-start text-amber-800 dark:text-amber-400">
+                      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-bold">يحتاج الدومين 24 ساعة لربطه ويظهر موقعك أونلاين على مستوى العالم</p>
+                        <p className="text-[10px] leading-relaxed opacity-90">
+                          يحتاج ربط الدومين 24 ساعة، لأن تغييرات DNS تستغرق وقتاً للظهور.
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Verify DNS mapping card */}
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between flex-wrap gap-4">
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-black text-slate-800 dark:text-slate-200">التحقق من صحة وسرعة الاتصال بالنطاق:</p>
-                    <p className="text-[10px] text-slate-400">سيقوم برنامجنا بمحاكاة فحص السجلات عالمياً والتحقق من التوجيه الصحيح.</p>
-                  </div>
+                <div className="pt-4 flex items-center justify-end flex-wrap gap-4">
                   
                   <button 
                     type="button"
                     onClick={handleVerify}
-                    disabled={domainStatus === 'verifying' || domainStatus === 'active'}
-                    className={`px-5 py-3 rounded-xl text-xs font-black shadow-md flex items-center gap-2 cursor-pointer transition-all ${
+                    disabled={domainStatus === 'verifying'}
+                    className={`px-5 py-2.5 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer transition-all ${
                       domainStatus === 'active' 
-                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 pointer-events-none' 
-                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                        ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600' 
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     }`}
                   >
                     {domainStatus === 'verifying' ? (
                       <>
                         <RefreshCw size={14} className="animate-spin" />
-                        <span>جاري فحص وتحديث النطاق...</span>
+                        <span>جاري التحقق...</span>
                       </>
                     ) : domainStatus === 'active' ? (
                       <>
-                        <CheckCircle2 size={14} className="text-emerald-500" />
-                        <span>تم الربط بنجاح كامل 🛡️</span>
+                        <CheckCircle2 size={14} className="text-emerald-600" />
+                        <span>تم الربط بنجاح</span>
                       </>
                     ) : (
                       <>
-                        <RefreshCw size={14} />
-                        <span>فحص حالة الاتصال والتحقق الآن ⚡</span>
+                        <span>تحقق</span>
+                        <CheckCircle2 size={14} />
                       </>
                     )}
                   </button>
