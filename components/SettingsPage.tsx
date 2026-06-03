@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Settings, PlatformIntegration, Store } from '../types';
 import { 
   Link2, CheckCircle2, Database, Upload, RefreshCw, AlertTriangle, Check, Trash2, XCircle, Lock, 
   ShoppingCart, Package, Users, Wallet, Activity, Tag, MessageSquare, PhoneCall, Plus, Edit3, 
-  Save, X, Link, AppWindow, Globe, CreditCard, Smartphone, Banknote, ShoppingBasket, LayoutDashboard, 
+  Save, X, Link as LinkIcon, AppWindow, Globe, CreditCard, Smartphone, Banknote, ShoppingBasket, LayoutDashboard, 
   UserPlus, TrendingUp, Settings as SettingsIcon, Grid, UserCog, Loader2, Cloud, CloudDownload, 
   CloudUpload, ShieldCheck, Wifi, WifiOff, FileJson, Clock, HardDrive
 } from 'lucide-react';
@@ -912,81 +913,406 @@ const DatabaseCard: React.FC<{
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 text-amber-850 dark:text-amber-400 flex items-start gap-3 text-xs leading-relaxed mb-6 font-sans">
+                        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 text-amber-850 dark:text-amber-400 flex items-start gap-3 text-xs leading-relaxed mb-6 font-sans">
               <AlertTriangle className="shrink-0 mt-0.5 text-amber-600" size={16} />
               <div>
                 <span className="font-black block mb-0.5">⚠️ تحذير أمان ممتلكات البيانات:</span>
-                عند تنفيذ الاستعادة، سيتم استبدال كامل مخزون البيانات وسجل الطلبات على هذا الجهاز ببيانات اللقطة المحددة.
-                <span className="block mt-1 font-bold">💡 للتأمين الشامل: سنلتقط تلقائياً لقطة تراجع عكسية لبياناتك الحالية قبل التبديل يمكنك الرّجوع إليها دائماً!</span>
+                عند تنفيذ الاستعادة، سيتم استبدال كامل مخزون البيانات وسجل الطلبات على هذا الجهاز بالبيانات المسجلة في نقطة الاسترداد.
               </div>
             </div>
 
-            <div className="flex items-center gap-3 justify-end text-right">
+            <div className="flex gap-3 justify-end">
               <button 
+                type="button"
                 onClick={() => { setIsCompareModalOpen(false); setSelectedSnapForRestore(null); }}
-                className="px-5 py-2.5 text-xs font-black text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
+                className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold text-xs"
               >
-                تراجع وإغلاق
+                تراجع وإلغاء
               </button>
               <button 
-                onClick={async () => {
-                  const snap = selectedSnapForRestore;
-                  setIsCompareModalOpen(false);
-                  setSelectedSnapForRestore(null);
-                  
-                  try {
-                    const savedData = localStorage.getItem(`wuilt_snapshot_data_${snap.id}`);
-                    if (!savedData) {
-                      alert('يتعذر العثور على ملفات النسخة في ذاكرة هذا المتصفح');
-                      return;
-                    }
-
-                    const parsed = JSON.parse(savedData);
-                    const dbService = await import('../services/databaseService');
-                    const storeId = activeStore?.id || 'default';
-
-                    // 1. Rollback Snapshot backup (current state before restoring)
-                    const rollbackId = `wuilt_snap_rollback_${Date.now()}`;
-                    const rollbackPayload = { orders, settings, wallet, treasury, customers };
-                    localStorage.setItem(`wuilt_snapshot_data_${rollbackId}`, JSON.stringify(rollbackPayload));
-                    
-                    const listKey = `wuilt_snapshots_list_${storeId}`;
-                    let existingList: any[] = [];
-                    try {
-                      const saved = localStorage.getItem(listKey);
-                      if (saved) existingList = JSON.parse(saved);
-                    } catch {}
-                    const rollbackItem = {
-                      id: rollbackId,
-                      name: `تلقائي: لقطة التراجع الاختيارية [قبل استرداد ${snap.name}]`,
-                      timestamp: new Date().toLocaleString('ar-EG', { hour12: true }),
-                      ordersCount: orders.length,
-                      productsCount: products.length,
-                      customersCount: customers.length,
-                      size: Math.round(JSON.stringify(rollbackPayload).length / 1024)
-                    };
-                    localStorage.setItem(listKey, JSON.stringify([rollbackItem, ...existingList]));
-
-                    // 2. Overwrite local storage & IndexedDB
-                    await dbService.saveLocal(storeId, parsed);
-
-                    alert(`تم استرداد لقطة النظام "${snap.name}" بنجاح! تم إنشاء نقطة تراجع تلقائية لحماية بياناتك السابقة. سيتم الآن إعادة تحميل المتجر.`);
-                    window.location.reload();
-                  } catch (e: any) {
-                    alert('فشلت حركة الاسترداد والتبديل: ' + e.message);
-                  }
-                }}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-lg shadow-emerald-500/10 active:scale-95 transition-all cursor-pointer"
+                type="button"
+                onClick={() => { handleRestoreSnapshot(selectedSnapForRestore); setIsCompareModalOpen(false); }}
+                className="px-5 py-2.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/10 active:scale-95 transition-all"
               >
-                تأكيد واستعادة اللقطة الآن ⚡
+                <Check size={14} /> تأكيد استعادة البيانات 🔄
               </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };
+
+
+const SQL_SCHEMA_SCRIPT = ``;
+/*
+-- 1. STORES_DATA (قاعدة بيانات المتاجر)
+CREATE TABLE IF NOT EXISTS stores_data (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    settings JSONB DEFAULT '{}'::jsonb
+);
+
+-- 2. USERS (المستخدمون والمدراء)
+CREATE TABLE IF NOT EXISTS users (
+    phone TEXT PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    fullName TEXT,
+    password TEXT NOT NULL,
+    email TEXT,
+    stores JSONB DEFAULT '[]'::jsonb,
+    sites JSONB DEFAULT '[]'::jsonb,
+    is_admin BOOLEAN DEFAULT false,
+    isAdmin BOOLEAN DEFAULT false,
+    is_banned BOOLEAN DEFAULT false,
+    isBanned BOOLEAN DEFAULT false,
+    join_date TEXT,
+    joinDate TEXT
+);
+
+-- 3. PRODUCTS (المنتجات)
+CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    sku TEXT,
+    price NUMERIC NOT NULL,
+    stock_quantity NUMERIC DEFAULT 0,
+    stockQuantity NUMERIC DEFAULT 0,
+    details JSONB DEFAULT '{}'::jsonb
+);
+
+-- 4. ORDERS (الطلبات والأوردرات)
+CREATE TABLE IF NOT EXISTS orders (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    order_number TEXT NOT NULL,
+    orderNumber TEXT,
+    customer_name TEXT NOT NULL,
+    customerName TEXT,
+    status TEXT NOT NULL,
+    date TEXT NOT NULL,
+    total_price NUMERIC NOT NULL,
+    totalPrice NUMERIC,
+    details JSONB DEFAULT '{}'::jsonb
+);
+
+-- 5. TRANSACTIONS (الحركات المالية والمحفظة)
+CREATE TABLE IF NOT EXISTS transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    type TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    category TEXT,
+    note TEXT,
+    details JSONB DEFAULT '{}'::jsonb
+);
+
+-- 6. SUPPLIERS (الموردين)
+CREATE TABLE IF NOT EXISTS suppliers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    address TEXT,
+    notes TEXT,
+    balance NUMERIC DEFAULT 0
+);
+
+-- 7. SUPPLY_ORDERS (أوردرات الإمداد والمخزون)
+CREATE TABLE IF NOT EXISTS supply_orders (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    supplier_id TEXT,
+    supplierId TEXT,
+    total_cost NUMERIC NOT NULL,
+    totalCost NUMERIC,
+    date TEXT NOT NULL,
+    status TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    notes TEXT,
+    details JSONB DEFAULT '{}'::jsonb
+);
+
+-- 8. REVIEWS (مراجعات وآراء التقاطعات)
+CREATE TABLE IF NOT EXISTS reviews (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+    productId TEXT,
+    customer_name TEXT,
+    customerName TEXT,
+    rating NUMERIC DEFAULT 5,
+    comment TEXT,
+    status TEXT
+);
+
+-- 9. ABANDONED_CARTS (السلات المتروكة)
+CREATE TABLE IF NOT EXISTS abandoned_carts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    customer_name TEXT,
+    customerName TEXT,
+    customer_phone TEXT,
+    customerPhone TEXT,
+    total_value NUMERIC,
+    totalValue NUMERIC,
+    date TEXT,
+    items JSONB DEFAULT '[]'::jsonb
+);
+
+-- 10. ACTIVITY_LOGS (سجل الحركات العام)
+CREATE TABLE IF NOT EXISTS activity_logs (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    user_name TEXT,
+    userName TEXT,
+    action TEXT NOT NULL,
+    details JSONB,
+    timestamp TEXT,
+    date TEXT
+);
+
+-- 11. EMPLOYEES (الموظفون وصلاحياتهم)
+CREATE TABLE IF NOT EXISTS employees (
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    phone TEXT NOT NULL,
+    permissions JSONB DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL,
+    PRIMARY KEY (store_id, phone)
+);
+
+-- 12. DISCOUNT_CODES (أكواد الخصم)
+CREATE TABLE IF NOT EXISTS discount_codes (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    code TEXT NOT NULL,
+    discount_type TEXT NOT NULL,
+    discountType TEXT,
+    value NUMERIC NOT NULL,
+    usage_limit NUMERIC,
+    usageLimit TEXT,
+    usage_count NUMERIC DEFAULT 0,
+    usageCount NUMERIC,
+    expiration_date TEXT,
+    expirationDate TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
+);
+
+-- 13. COLLECTIONS (التصنيفات والجموعات للمنتجات)
+CREATE TABLE IF NOT EXISTS collections (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    imageUrl TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
+);
+
+-- 14. CUSTOM_PAGES (الصفحات التعريفية المخصصة)
+CREATE TABLE IF NOT EXISTS custom_pages (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    content TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
+);
+
+-- 15. PAYMENT_METHODS (طرق الدفع المفعلة)
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    logo_url TEXT,
+    logoUrl TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true,
+    details JSONB DEFAULT '{}'::jsonb
+);
+
+-- 16. CUSTOMERS (بيانات العملاء وتقييمات الولاء)
+CREATE TABLE IF NOT EXISTS customers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    address TEXT,
+    loyalty_points NUMERIC DEFAULT 0,
+    loyaltyPoints NUMERIC,
+    total_spent NUMERIC DEFAULT 0,
+    totalSpent NUMERIC,
+    first_order_date TEXT,
+    firstOrderDate TEXT,
+    last_order_date TEXT,
+    lastOrderDate TEXT,
+    notes TEXT
+);
+
+-- 17. GLOBAL_OPTIONS (خيارات الضبط العام للمتجر)
+CREATE TABLE IF NOT EXISTS global_options (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    key TEXT NOT NULL,
+    value TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
+);
+
+-- 18. SHIPPING_INTEGRATIONS (تكاملات شركات الشحن والدليفري)
+CREATE TABLE IF NOT EXISTS shipping_integrations (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    provider TEXT NOT NULL,
+    api_key TEXT,
+    apiKey TEXT,
+    api_secret TEXT,
+    apiSecret TEXT,
+    account_number TEXT,
+    accountNumber TEXT,
+    is_connected BOOLEAN DEFAULT false,
+    isConnected BOOLEAN DEFAULT false
+);
+
+-- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    content JSONB DEFAULT '{}'::jsonb
+);
+
+-- 20. TREASURY_ACCOUNTS (خزائن وحسابات السيولة المالية)
+CREATE TABLE IF NOT EXISTS treasury_accounts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL, -- safe, bank, wallet, custody
+    balance NUMERIC DEFAULT 0,
+    currency TEXT DEFAULT 'EGP',
+    account_number TEXT,
+    accountNumber TEXT,
+    beneficiary_name TEXT,
+    beneficiaryName TEXT,
+    bank_name TEXT,
+    bankName TEXT,
+    wallet_number TEXT,
+    walletNumber TEXT,
+    wallet_name TEXT,
+    walletName TEXT
+);
+
+-- 21. TREASURY_TRANSACTIONS (الحركات والمعاملات المالية الخزينة)
+CREATE TABLE IF NOT EXISTS treasury_transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    date TEXT NOT NULL,
+    from_account_id TEXT,
+    fromAccountId TEXT,
+    to_account_id TEXT,
+    toAccountId TEXT,
+    amount NUMERIC NOT NULL,
+    type TEXT NOT NULL, -- deposit, withdrawal, transfer, advance
+    description TEXT,
+    reference TEXT
+);
+
+-- 22. PARTNERS (بيانات الشركاء وحصص رأس المال)
+CREATE TABLE IF NOT EXISTS partners (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    notes TEXT,
+    balance NUMERIC DEFAULT 0,
+    profit_ratio NUMERIC DEFAULT 0,
+    profitRatio NUMERIC DEFAULT 0
+);
+
+-- 23. PARTNER_TRANSACTIONS (الحركات والمسحوبات مع الشركاء)
+CREATE TABLE IF NOT EXISTS partner_transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    partner_id TEXT,
+    partnerId TEXT,
+    type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT
+);
+
+-- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    sender_id TEXT NOT NULL,
+    senderId TEXT,
+    receiver_id TEXT NOT NULL,
+    receiverId TEXT,
+    content TEXT NOT NULL,
+    created_at TEXT,
+    createdAt TEXT,
+    is_read BOOLEAN DEFAULT false,
+    isRead BOOLEAN DEFAULT false,
+    is_file BOOLEAN DEFAULT false,
+    isFile BOOLEAN DEFAULT false
+);
+
+-- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
+ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE products DISABLE ROW LEVEL SECURITY;
+ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE supply_orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE reviews DISABLE ROW LEVEL SECURITY;
+ALTER TABLE abandoned_carts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE activity_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
+ALTER TABLE discount_codes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
+ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
+ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_accounts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE partners DISABLE ROW LEVEL SECURITY;
+ALTER TABLE partner_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages DISABLE ROW LEVEL SECURITY;
+*/
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ 
   settings, 
@@ -1004,7 +1330,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   wallet,
   treasury
 }) => {
-  
+  const [activeTab, setActiveTab ] = useState<'general' | 'database'>('general');
+
   const handleIntegrationSave = (integration: PlatformIntegration) => {
     setSettings(prev => ({ ...prev, integration }));
   };
@@ -1030,111 +1357,150 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">التحكم والإدارة الشاملة</span>
+            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">التحكم والإدارة الشاملة</span>
           </div>
           <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
             <SettingsIcon size={32} className="text-indigo-500"/>
             الإعدادات العامة وإدارة المتجر
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">التحكم في المزامنة السحابية وقاعدة البيانات، وتخصيص إعدادات المتجر الأساسية</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">التحكم الموحد في المزامنة وقواعد البيانات، وتخصيص إعدادات المتجر الأساسية.</p>
         </div>
       </div>
 
-      <div className="bg-gradient-to-l from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/40 shadow-sm flex flex-col md:flex-row items-center gap-6 justify-between animate-in slide-in-from-top duration-700">
-        <div className="flex items-center gap-4">
-          <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md">
-            <CheckCircle2 className="text-emerald-500 w-8 h-8" />
-          </div>
-          <div>
-            <h3 className="text-lg font-black dark:text-white">نظام الحفظ المتقدم (Hybrid Database)</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-lg leading-relaxed">
-              تطبيقك يستخدم تقنية **IndexedDB** وهي قاعدة بيانات حقيقية مخزنة على الهارد ديسك الخاص بجهازك. البيانات لا تضيع حتى لو انقطع الإنترنت أو تم تحديث الصفحة. المزامنة السحابية هي فقط "نسخة إضافية" للتأمين والوصول من أجهزة أخرى.
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-4 flex-wrap justify-end">
-            <div className="flex flex-col gap-1 items-end">
-              <span className="text-[10px] text-slate-400 font-bold">المتجر الحالي الفردي:</span>
-              <div className="flex gap-2">
-                <button 
-                  onClick={handleExportData}
-                  className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-705 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 dark:text-white hover:bg-slate-50"
-                >
-                  <Database size={14} className="text-indigo-500" /> تصدير المتجر النشط (.json)
-                </button>
-                <label className="px-4 py-2 bg-white hover:bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-705 dark:text-white text-slate-700 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
-                  <Upload size={14} className="text-indigo-500" /> استيراد المتجر النشط
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept=".json"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImportData(file);
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1 items-end border-r border-slate-200 dark:border-slate-800 pr-4">
-              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">🔧 النظام بالكامل وجميع المتاجر:</span>
-              <div className="flex gap-2">
-                <button 
-                  onClick={handleExportMasterBackup}
-                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-150 dark:border-indigo-900 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5"
-                >
-                  <CloudUpload size={14} /> تصدير نسخة النظام الكلي (الشاملة)
-                </button>
-                <label className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold text-[11px] shadow-lg shadow-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
-                  <CloudDownload size={14} /> استيراد نسخة النظام الكلي
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept=".json"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImportMasterBackup(file);
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-        </div>
+      {/* 🚀 قسم التبويبات الموحد والمنسق لمنع التشتت */}
+      <div className="flex flex-wrap border-b border-slate-200 dark:border-slate-800 gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab('general')}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 font-black text-sm transition-all duration-200 active:scale-95 ${
+            activeTab === 'general'
+              ? 'border-indigo-600 text-indigo-650 dark:border-indigo-400 dark:text-indigo-400 bg-indigo-50/10'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+          }`}
+        >
+          <SettingsIcon size={18} />
+          إدارة وتخصيص المتجر ⚙️
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('database')}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 font-black text-sm transition-all duration-200 active:scale-95 ${
+            activeTab === 'database'
+              ? 'border-indigo-600 text-indigo-650 dark:border-indigo-400 dark:text-indigo-400 bg-indigo-50/10'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+          }`}
+        >
+          <Database size={18} />
+          المزامنة والاتصال السحابي والنسخ الاحتياطي ☁️
+        </button>
       </div>
 
-      <DatabaseCard 
-        dbSyncMode={dbSyncMode} 
-        setDbSyncMode={setDbSyncMode} 
-        forceSync={forceSync} 
-        forcePullFromCloud={forcePullFromCloud}
-        saveStatus={saveStatus} 
-        activeStore={activeStore}
-        orders={orders}
-        products={products}
-        customers={customers}
-        settings={settings}
-        wallet={wallet}
-        treasury={treasury}
-      />
-
-      {onManualSave && (
-          <DatabaseManagementCard onSync={onManualSave} />
+      {activeTab === 'general' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          <POSSettingsCard settings={settings} setSettings={setSettings} />
+          <DomainSettingsCard settings={settings} setSettings={setSettings} />
+          <PlatformIntegrationCard 
+            integration={settings.integration} 
+            onSave={handleIntegrationSave} 
+            isEnabled={settings.enablePlatformIntegration}
+            onToggle={togglePlatformIntegration}
+          />
+          <WalletFeesSettingsCard settings={settings} setSettings={setSettings} />
+          <ExpenseCategoriesSettingsCard settings={settings} setSettings={setSettings} />
+          <CommunicationSettingsCard settings={settings} setSettings={setSettings} />
+          <EmployeeDashboardSettingsCard settings={settings} setSettings={setSettings} />
+        </div>
       )}
-      <DomainSettingsCard settings={settings} setSettings={setSettings} />
-      <ExpenseCategoriesSettingsCard settings={settings} setSettings={setSettings} />
-      <WalletFeesSettingsCard settings={settings} setSettings={setSettings} />
-      <CommunicationSettingsCard settings={settings} setSettings={setSettings} />
-      <EmployeeDashboardSettingsCard settings={settings} setSettings={setSettings} />
-      <POSSettingsCard settings={settings} setSettings={setSettings} />
-      <PlatformIntegrationCard 
-        integration={settings.integration} 
-        onSave={handleIntegrationSave} 
-        isEnabled={settings.enablePlatformIntegration}
-        onToggle={togglePlatformIntegration}
-      />
 
-      <DangerZone activeStore={activeStore} />
+      {activeTab === 'database' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* Hybrid Database Explain Banner */}
+          <div className="bg-gradient-to-l from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/40 shadow-sm flex flex-col lg:flex-row items-center gap-6 justify-between animate-in slide-in-from-top duration-700">
+            <div className="flex items-center gap-4">
+              <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md shrink-0">
+                <CheckCircle2 className="text-emerald-500 w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black dark:text-white">نظام الحفظ المتقدم (Hybrid Database)</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-lg leading-relaxed">
+                  تطبيقك يستخدم تقنية **IndexedDB** وهي قاعدة بيانات حقيقية مخزنة على الهارد ديسك الخاص بجهازك. البيانات لا تضيع حتى لو انقطع الإنترنت أو تم تحديث الصفحة. المزامنة السحابية هي فقط "نسخة إضافية" للتأمين والوصول من أجهزة أخرى.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-4 flex-wrap justify-end">
+                <div className="flex flex-col gap-1 items-end">
+                  <span className="text-[10px] text-slate-400 font-bold">المتجر الحالي الفردي:</span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleExportData}
+                      className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-705 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 dark:text-white hover:bg-slate-50 cursor-pointer"
+                    >
+                      <Database size={14} className="text-indigo-500" /> تصدير المتجر النشط (.json)
+                    </button>
+                    <label className="px-4 py-2 bg-white hover:bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-705 dark:text-white text-slate-700 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
+                      <Upload size={14} className="text-indigo-500" /> استيراد المتجر النشط
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept=".json"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImportData(file);
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 items-end border-r border-slate-200 dark:border-slate-800 pr-4">
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">🔧 النظام بالكامل وجميع المتاجر:</span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleExportMasterBackup}
+                      className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-150 dark:border-indigo-900 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <CloudUpload size={14} /> تصدير نسخة النظام الكلي
+                    </button>
+                    <label className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold text-[11px] shadow-lg shadow-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
+                      <CloudDownload size={14} /> استيراد نسخة النظام الكلي
+                      <input 
+                        type="file" 
+                        className="hidden" 
+                        accept=".json"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImportMasterBackup(file);
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
+            </div>
+          </div>
+
+          {/* Sync mode options & Manual Sync push/pull */}
+          <DatabaseCard 
+            dbSyncMode={dbSyncMode} 
+            setDbSyncMode={setDbSyncMode} 
+            forceSync={forceSync} 
+            forcePullFromCloud={forcePullFromCloud}
+            saveStatus={saveStatus} 
+            activeStore={activeStore}
+            orders={orders}
+            products={products}
+            customers={customers}
+            settings={settings}
+            wallet={wallet}
+            treasury={treasury}
+          />
+
+          {onManualSave && (
+              <DatabaseManagementCard onSync={onManualSave} />
+          )}
+
+          <DangerZone activeStore={activeStore} />
+        </div>
+      )}
     </div>
   );
 };
@@ -1477,7 +1843,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
     return (
         <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
-                <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg"><Link size={24}/></div>
+                <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg"><LinkIcon size={24}/></div>
                 <div>
                     <h2 className="text-xl font-black dark:text-white">إعدادات النطاق (SaaS Domain)</h2>
                     <p className="text-xs text-slate-500">تحديد الرابط الأساسي لمتجرك لاستخدامه في الـ Webhooks والروابط الخارجية.</p>

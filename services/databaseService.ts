@@ -372,6 +372,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
                 }));
 
+                const conflictStrategy = (typeof window !== 'undefined' ? localStorage.getItem('syncConflictStrategy') : 'last_write_wins') || 'last_write_wins';
+
                 const upsertPromises = stateItems.map(async (item) => {
                     const baseId = String(item[idField] || item.phone || item.id);
                     const docId = baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
@@ -379,18 +381,54 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     
                     const existingDoc = existingDocsMap.get(docId);
                     
-                    // Compare updatedAt to avoid overwriting newer cloud data with older local data
                     let shouldUpdateCloud = true;
-                    if (existingDoc && existingDoc.updatedAt && item.updatedAt) {
-                        const cloudTime = new Date(existingDoc.updatedAt).getTime();
-                        const localTime = new Date(item.updatedAt).getTime();
-                        if (cloudTime > localTime) {
-                            shouldUpdateCloud = false; 
+                    const nowISO = new Date().toISOString();
+                    const itemWithTimestamp = { ...item };
+
+                    if (existingDoc) {
+                        // Check if fields other than ID and metadata have actually changed
+                        const fieldsChanged = Object.keys(item).some(k => {
+                            if (['id', 'storeId', 'store_id', 'updatedAt', 'updated_at', '_ref'].includes(k)) return false;
+                            
+                            const val1 = item[k];
+                            const val2 = existingDoc[k];
+                            if (typeof val1 === 'object' && val1 !== null && typeof val2 === 'object' && val2 !== null) {
+                                return JSON.stringify(val1) !== JSON.stringify(val2);
+                            }
+                            return val1 !== val2;
+                        });
+
+                        if (fieldsChanged) {
+                            itemWithTimestamp.updatedAt = nowISO;
+                        } else if (existingDoc.updatedAt) {
+                            itemWithTimestamp.updatedAt = existingDoc.updatedAt;
+                        } else {
+                            itemWithTimestamp.updatedAt = nowISO;
+                        }
+
+                        // Apply conflict resolution strategies
+                        if (conflictStrategy === 'last_write_wins') {
+                            if (existingDoc.updatedAt && itemWithTimestamp.updatedAt) {
+                                const cloudTime = new Date(existingDoc.updatedAt).getTime();
+                                const localTime = new Date(itemWithTimestamp.updatedAt).getTime();
+                                if (cloudTime > localTime) {
+                                    shouldUpdateCloud = false; 
+                                }
+                            }
+                        } else if (conflictStrategy === 'cloud_wins') {
+                            shouldUpdateCloud = false; // Never overwrite cloud with older/newer local if item exists
+                        } else if (conflictStrategy === 'local_wins') {
+                            shouldUpdateCloud = true; // Always overwrite cloud with local state
+                        }
+                    } else {
+                        // Brand new record
+                        if (!itemWithTimestamp.updatedAt) {
+                            itemWithTimestamp.updatedAt = nowISO;
                         }
                     }
 
                     if (shouldUpdateCloud) {
-                        const payload = cleanUndefined({ ...item, storeId: store.id, store_id: store.id });
+                        const payload = cleanUndefined({ ...itemWithTimestamp, storeId: store.id, store_id: store.id });
                         await setDoc(docRef, payload, { merge: true }).catch(err => {
                             if (err?.code === 'resource-exhausted') {
                                 throw new Error('QUOTA_EXCEEDED');

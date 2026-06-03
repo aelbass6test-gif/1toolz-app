@@ -315,10 +315,25 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
 
     const workingCapital = cashBalance + (wallet?.supplyBalance || 0) + totalInventoryValue;
 
+    // 💡 Pro KPI Calculations
+    const totalOrdersCount = (orders || []).length;
+    const deliveryRate = totalOrdersCount > 0 ? Math.round((successfulOrdersCount / totalOrdersCount) * 100) : 0;
+    const aov = successfulOrdersCount > 0 ? Math.round(actualCollection / successfulOrdersCount) : 0;
+    const cancellationRate = totalOrdersCount > 0 ? Math.round((cancelledCount / totalOrdersCount) * 100) : 0;
+    const returnRate = totalOrdersCount > 0 ? Math.round((returnedCount / totalOrdersCount) * 100) : 0;
+    const netMargin = actualCollection > 0 ? Math.round(((totalProfit - totalLoss) / actualCollection) * 100) : 0;
+
+    // Build unique customer set
+    const uniqueCustomerCount = (orders || []).reduce((acc, o) => {
+      const clean = (o.customerPhone || '').trim();
+      if (clean) acc.add(clean);
+      return acc;
+    }, new Set<string>()).size;
+
     return { 
       net: totalProfit - totalLoss, 
       counts, 
-      total: (orders || []).length,
+      total: totalOrdersCount,
       awaitingDecisionCount,
       processingCount,
       outForDeliveryCount,
@@ -339,7 +354,14 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       cancelledCount,
       returnedCount,
       failedCount,
-      delayedCount
+      delayedCount,
+      // Pro metrics
+      deliveryRate,
+      aov,
+      cancellationRate,
+      returnRate,
+      netMargin,
+      uniqueCustomerCount
     };
   }, [orders, settings, wallet]);
 
@@ -429,73 +451,192 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
         <SmartSuggestions orders={orders} settings={settings} />
       </motion.div>
 
-      {/* NEW Quick Stats Grid */}
-      <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <DashboardStatusCard 
-          title="في إنتظار قرارك" 
-          value={stats.awaitingDecisionCount} 
-          color="text-orange-500"
-        />
-        <DashboardStatusCard 
-          title="الأوردرات الناجحة" 
-          value={`${stats.successfulOrdersCount} / ${stats.total}`} 
-          color="text-emerald-600"
-        />
-        <DashboardStatusCard 
-          title="متجه للعميل" 
-          value={stats.outForDeliveryCount} 
-          color="text-blue-600"
-        />
-        <DashboardStatusCard 
-          title="قيد التنفيذ" 
-          value={stats.processingCount} 
-          color="text-purple-600"
-        />
-        
-        {/* Additional Stats Row */}
-        <DashboardStatusCard 
-          title="المرتجعات" 
-          value={stats.returnedCount} 
-          color="text-rose-600"
-        />
-        <DashboardStatusCard 
-          title="ملغي" 
-          value={stats.cancelledCount} 
-          color="text-slate-500"
-        />
-        <DashboardStatusCard 
-          title="فشل التوصيل" 
-          value={stats.failedCount} 
-          color="text-red-500"
-        />
-        <DashboardStatusCard 
-          title="مؤجل ومجدول" 
-          value={stats.delayedCount} 
-          color="text-amber-500"
-        />
+      {/* 📊 E-commerce Pro KPIs Hub */}
+      <motion.div variants={itemVariants} className="space-y-4">
+        <div className="flex items-center gap-2">
+          <TrendingUp className="text-primary" size={18} />
+          <h2 className="text-lg font-black text-slate-800 dark:text-slate-100">مؤشرات الأداء كفاءة المتجر (KPIs)</h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {/* KPI 1: Delivery success rate */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-emerald-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                <TrendingUp size={20} />
+              </div>
+              <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-full font-black">
+                أداء الشحن
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">معدل نجاح التسليم النهائي (Delivery Rate)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.deliveryRate}%</span>
+              <span className="text-[10px] text-slate-400 font-bold">من إجمالي الطلبات</span>
+            </div>
+            {/* Miniature visual bar */}
+            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 ${
+                  stats.deliveryRate > 75 
+                    ? 'bg-emerald-500' 
+                    : stats.deliveryRate > 50 
+                    ? 'bg-amber-500' 
+                    : 'bg-rose-500'
+                }`}
+                style={{ width: `${stats.deliveryRate}%` }}
+              ></div>
+            </div>
+          </div>
 
-        {/* Financial collection and pickups */}
-        <DashboardStatusCard 
-          title="التحصيل الفعلي" 
-          value={`${stats.actualCollection.toLocaleString()} ج.م`} 
-          color="text-slate-700"
-          badge={`${stats.total > 0 ? Math.round((stats.successfulOrdersCount / stats.total) * 100) : 0}%`}
-        />
-        <DashboardStatusCard 
-          title="التحصيل المتوقع" 
-          value={`${(stats.expectedCollection).toLocaleString()} ج.م`} 
-          color="text-slate-700"
-        />
-        <DashboardStatusCard 
-          title="في انتظار الاستلام" 
-          value={stats.awaitingPickupCount} 
-          color="text-slate-700"
-        />
-        <DashboardStatusCard 
-          title="متجه إليك" 
-          value={stats.headedToYouCount} 
-          color="text-slate-700"
-        />
+          {/* KPI 2: Average Order Value */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-indigo-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                <DollarSign size={20} />
+              </div>
+              <span className="text-[10px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 px-2.5 py-1 rounded-full font-black">
+                المعدل التجاري
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString()}</span>
+              <span className="text-xs font-black text-slate-400">ج.م / طلب</span>
+            </div>
+            <p className="text-[9px] text-slate-400 font-bold mt-3.5">
+              💡 اقتراح: إعرض باقات مكملة لزيادة حجم السلة الشرائية.
+            </p>
+          </div>
+
+          {/* KPI 3: Net Profit Margin */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-cyan-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan-500/5 rounded-full blur-xl group-hover:bg-cyan-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-xl">
+                <ChartIcon size={20} />
+              </div>
+              <span className="text-[10px] bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-300 px-2.5 py-1 rounded-full font-black">
+                صحة الهامش
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">هامش صافي ربح المتجر (Profit Margin)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.netMargin}%</span>
+              <span className="text-[10px] text-slate-400 font-bold">من إجمالي المبيعات</span>
+            </div>
+            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 ${
+                  stats.netMargin > 30 
+                    ? 'bg-emerald-500' 
+                    : stats.netMargin > 15 
+                    ? 'bg-cyan-500' 
+                    : 'bg-amber-500'
+                }`}
+                style={{ width: `${Math.max(stats.netMargin, 0)}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* KPI 4: Active unique customers */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-purple-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-xl">
+                <Users2 size={20} />
+              </div>
+              <span className="text-[10px] bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 px-2.5 py-1 rounded-full font-black">
+                العملاء الفريدين
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">قاعدة العملاء الفريدين (Unique Customers)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.uniqueCustomerCount}</span>
+              <span className="text-xs font-bold text-slate-400">عميل فعال</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mt-3">
+              🔁 معدل الشراء المتكرر: {(stats.successfulOrdersCount > 0 && stats.uniqueCustomerCount > 0 ? (stats.successfulOrdersCount / stats.uniqueCustomerCount).toFixed(1) : 1)}x لكل عميل
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* 🔄 Pipeline and tracking */}
+      <motion.div variants={itemVariants} className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Layers className="text-indigo-500" size={18} />
+          <h2 className="text-lg font-black text-slate-800 dark:text-slate-100">دورة حياة المبيعات وحالات الطلبات اليومية</h2>
+        </div>
+        
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <DashboardStatusCard 
+            title="في إنتظار قرارك" 
+            value={stats.awaitingDecisionCount} 
+            color="text-orange-500"
+          />
+          <DashboardStatusCard 
+            title="الأوردرات الناجحة" 
+            value={`${stats.successfulOrdersCount} / ${stats.total}`} 
+            color="text-emerald-600"
+          />
+          <DashboardStatusCard 
+            title="متجه للعميل" 
+            value={stats.outForDeliveryCount} 
+            color="text-blue-600"
+          />
+          <DashboardStatusCard 
+            title="قيد التنفيذ" 
+            value={stats.processingCount} 
+            color="text-purple-600"
+          />
+          
+          {/* Additional Stats Row */}
+          <DashboardStatusCard 
+            title="المرتجعات" 
+            value={stats.returnedCount} 
+            color="text-rose-600"
+          />
+          <DashboardStatusCard 
+            title="ملغي" 
+            value={stats.cancelledCount} 
+            color="text-slate-500"
+          />
+          <DashboardStatusCard 
+            title="فشل التوصيل" 
+            value={stats.failedCount} 
+            color="text-red-500"
+          />
+          <DashboardStatusCard 
+            title="مؤجل ومجدول" 
+            value={stats.delayedCount} 
+            color="text-amber-500"
+          />
+
+          {/* Financial collection and pickups */}
+          <DashboardStatusCard 
+            title="التحصيل الفعلي" 
+            value={`${stats.actualCollection.toLocaleString()} ج.م`} 
+            color="text-emerald-600 font-bold"
+            badge={`${stats.total > 0 ? Math.round((stats.successfulOrdersCount / stats.total) * 100) : 0}%`}
+          />
+          <DashboardStatusCard 
+            title="التحصيل المتوقع" 
+            value={`${(stats.expectedCollection).toLocaleString()} ج.م`} 
+            color="text-indigo-600"
+          />
+          <DashboardStatusCard 
+            title="في انتظار الاستلام" 
+            value={stats.awaitingPickupCount} 
+            color="text-slate-700"
+          />
+          <DashboardStatusCard 
+            title="متجه إليك" 
+            value={stats.headedToYouCount} 
+            color="text-rose-500"
+          />
+        </div>
       </motion.div>
 
       {/* Bento Grid Layout */}

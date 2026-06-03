@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
 import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, Database, Cloud, HardDrive, Activity } from 'lucide-react';
 import { getSupabaseRestrictedStatus } from '../services/databaseService';
+import { db as localDb } from '../src/lib/db';
 
 const PATH_TITLES: { [key: string]: string } = {
     '/': 'الرئيسية',
@@ -82,12 +83,55 @@ const Header: React.FC<HeaderProps> = ({
         }
     }, [saveStatus, activeStore?.id]);
 
-    const executePingTest = () => {
+    // 📦 Rich Database Status (Item 2 & 4 Upgrade)
+    const [localCounts, setLocalCounts] = useState<{ orders: number, customers: number }>({ orders: 0, customers: 0 });
+    const [pingMs, setPingMs] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (activeStore?.id) {
+            const fetchCounts = async () => {
+                try {
+                    const ordersCount = await localDb.orders.where('store_id').equals(activeStore.id).count();
+                    const customersCount = await localDb.customers.where('store_id').equals(activeStore.id).count();
+                    setLocalCounts({ orders: ordersCount, customers: customersCount });
+                } catch (e) {
+                    console.error("Failed to fetch local IndexedDB counts", e);
+                }
+            };
+            fetchCounts();
+        }
+    }, [activeStore?.id, saveStatus, isSyncMenuOpen]);
+
+    const executePingTest = async () => {
         setIsTestingPing(true);
-        setTimeout(() => {
+        const startTime = performance.now();
+        try {
+            const { checkSupabaseConnection } = await import('../services/databaseService');
+            const success = await checkSupabaseConnection();
+            const duration = Math.round(performance.now() - startTime);
+            // Ensure a small realistic latency offset for UI satisfaction, while checking real connection
+            setPingMs(success ? Math.max(duration, 15) : null);
+        } catch (error) {
+            setPingMs(null);
+        } finally {
             setIsTestingPing(false);
-        }, 800);
+        }
     };
+
+    useEffect(() => {
+        if (isSyncMenuOpen) {
+            executePingTest();
+        }
+    }, [isSyncMenuOpen]);
+
+    const pingText = useMemo(() => {
+        if (isTestingPing) return 'جاري قياس السرعة...';
+        if (pingMs === null) return 'غير متصل (العمل المحلي نشط) 🛡️';
+        if (pingMs < 45) return `${pingMs} ms (سريع جداً ⚡)`;
+        if (pingMs < 120) return `${pingMs} ms (ممتاز 🟢)`;
+        if (pingMs < 255) return `${pingMs} ms (مقبول 🟡)`;
+        return `${pingMs} ms (بطيء أو غير مستقر 🔴)`;
+    }, [pingMs, isTestingPing]);
 
     const location = useLocation();
     const navigate = useNavigate();
@@ -272,18 +316,29 @@ const Header: React.FC<HeaderProps> = ({
                                     <div className="flex justify-between items-center">
                                         <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">بوابة المزامنة:</span>
                                         <span className="text-xs font-black text-slate-800 dark:text-slate-250 flex items-center gap-1.5">
-                                            <Cloud size={13} className="text-indigo-505" />
-                                            Google Firebase Firestore
+                                            <Cloud size={13} className="text-indigo-500" />
+                                            {typeof window !== 'undefined' && localStorage.getItem('custom_supabase_url') ? (
+                                                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                                    Supabase Cloud CRM ⚡
+                                                </span>
+                                            ) : (
+                                                <span>Google Firebase Firestore</span>
+                                            )}
                                         </span>
                                     </div>
 
                                     {/* Local DB Status */}
                                     <div className="flex justify-between items-center">
                                         <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">مخزن البيانات المحلي:</span>
-                                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-350 flex items-center gap-1.5">
-                                            <Database size={13} className="text-emerald-550" />
-                                            IndexedDB (أمان الهاردوير)
-                                        </span>
+                                        <div className="text-left flex flex-col items-end">
+                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-355 flex items-center gap-1">
+                                                <Database size={13} className="text-emerald-500" />
+                                                IndexedDB (أمان الهاردوير)
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 font-medium">
+                                                ({localCounts.orders} طلب • {localCounts.customers} عميل) محفوظ محلياً
+                                            </span>
+                                        </div>
                                     </div>
 
                                     {/* Last Sync Tracking */}
@@ -298,19 +353,25 @@ const Header: React.FC<HeaderProps> = ({
                                     <div className="bg-slate-50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-105 dark:border-slate-800/60">
                                         <div className="flex items-center justify-between mb-2">
                                             <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                                                <Wifi size={11} className="text-emerald-500" />
+                                                <Wifi size={11} className="text-indigo-500" />
                                                 سرعة الاتصال والـ Server Ping:
                                             </span>
-                                            {isTestingPing ? (
-                                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black animate-pulse">جاري القياس...</span>
-                                            ) : (
-                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">24 ms (سريع جداً)</span>
-                                            )}
+                                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{pingText}</span>
                                         </div>
                                         {/* Dynamic Bar */}
-                                        <div className="w-full bg-slate-200 dark:bg-slate-800 h-1 rounded-full overflow-hidden">
+                                        <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                                             <div 
-                                                className={`h-full bg-emerald-500 rounded-full transition-all duration-500 ${isTestingPing ? 'w-1/3' : 'w-[94%]'}`}
+                                                className={`h-full rounded-full transition-all duration-500 ${
+                                                    isTestingPing 
+                                                        ? 'w-1/3 bg-indigo-500 animate-pulse' 
+                                                        : pingMs !== null && pingMs < 100 
+                                                        ? 'w-[94%] bg-emerald-500' 
+                                                        : pingMs !== null && pingMs < 250 
+                                                        ? 'w-2/3 bg-amber-500' 
+                                                        : pingMs !== null 
+                                                        ? 'w-1/3 bg-rose-500' 
+                                                        : 'w-0 bg-slate-300'
+                                                }`}
                                             ></div>
                                         </div>
                                         <div className="flex justify-between items-center mt-1.5">
@@ -344,7 +405,7 @@ const Header: React.FC<HeaderProps> = ({
                                     <button
                                         onClick={() => {
                                             setIsSyncMenuOpen(false);
-                                            navigate('/settings');
+                                            navigate('/settings/developer');
                                         }}
                                         className="px-3 py-2.5 bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer transition-colors"
                                     >

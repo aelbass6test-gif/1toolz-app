@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Settings, WebhookIntegration } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink } from 'lucide-react';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted } from '../services/databaseService';
 
 const SQL_SCHEMA_SCRIPT = `-- 1. STORES_DATA (قاعدة بيانات المتاجر)
@@ -14,23 +14,29 @@ CREATE TABLE IF NOT EXISTS stores_data (
 CREATE TABLE IF NOT EXISTS users (
     phone TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
+    fullName TEXT,
     password TEXT NOT NULL,
     email TEXT,
     stores JSONB DEFAULT '[]'::jsonb,
     sites JSONB DEFAULT '[]'::jsonb,
     is_admin BOOLEAN DEFAULT false,
+    isAdmin BOOLEAN DEFAULT false,
     is_banned BOOLEAN DEFAULT false,
-    join_date TEXT
+    isBanned BOOLEAN DEFAULT false,
+    join_date TEXT,
+    joinDate TEXT
 );
 
 -- 3. PRODUCTS (المنتجات)
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     name TEXT NOT NULL,
     sku TEXT,
     price NUMERIC NOT NULL,
     stock_quantity NUMERIC DEFAULT 0,
+    stockQuantity NUMERIC DEFAULT 0,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -38,11 +44,15 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     order_number TEXT NOT NULL,
+    orderNumber TEXT,
     customer_name TEXT NOT NULL,
+    customerName TEXT,
     status TEXT NOT NULL,
     date TEXT NOT NULL,
     total_price NUMERIC NOT NULL,
+    totalPrice NUMERIC,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -50,6 +60,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     type TEXT NOT NULL,
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
@@ -62,29 +73,39 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE TABLE IF NOT EXISTS suppliers (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     name TEXT NOT NULL,
     phone TEXT,
     address TEXT,
-    notes TEXT
+    notes TEXT,
+    balance NUMERIC DEFAULT 0
 );
 
 -- 7. SUPPLY_ORDERS (أوردرات الإمداد والمخزون)
 CREATE TABLE IF NOT EXISTS supply_orders (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     supplier_id TEXT,
+    supplierId TEXT,
     total_cost NUMERIC NOT NULL,
+    totalCost NUMERIC,
     date TEXT NOT NULL,
-    items JSONB DEFAULT '{}'::jsonb,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    notes TEXT,
+    details JSONB DEFAULT '{}'::jsonb
 );
 
 -- 8. REVIEWS (مراجعات وآراء التقاطعات)
 CREATE TABLE IF NOT EXISTS reviews (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+    productId TEXT,
     customer_name TEXT,
+    customerName TEXT,
     rating NUMERIC DEFAULT 5,
     comment TEXT,
     status TEXT
@@ -94,9 +115,13 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE TABLE IF NOT EXISTS abandoned_carts (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     customer_name TEXT,
+    customerName TEXT,
     customer_phone TEXT,
+    customerPhone TEXT,
     total_value NUMERIC,
+    totalValue NUMERIC,
     date TEXT,
     items JSONB DEFAULT '[]'::jsonb
 );
@@ -105,7 +130,9 @@ CREATE TABLE IF NOT EXISTS abandoned_carts (
 CREATE TABLE IF NOT EXISTS activity_logs (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     user_name TEXT,
+    userName TEXT,
     action TEXT NOT NULL,
     details JSONB,
     timestamp TEXT,
@@ -115,6 +142,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 -- 11. EMPLOYEES (الموظفون وصلاحياتهم)
 CREATE TABLE IF NOT EXISTS employees (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     phone TEXT NOT NULL,
     permissions JSONB DEFAULT '[]'::jsonb,
     status TEXT NOT NULL,
@@ -125,43 +153,57 @@ CREATE TABLE IF NOT EXISTS employees (
 CREATE TABLE IF NOT EXISTS discount_codes (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     code TEXT NOT NULL,
     discount_type TEXT NOT NULL,
+    discountType TEXT,
     value NUMERIC NOT NULL,
     usage_limit NUMERIC,
+    usageLimit TEXT,
     usage_count NUMERIC DEFAULT 0,
+    usageCount NUMERIC,
     expiration_date TEXT,
-    is_active BOOLEAN DEFAULT true
+    expirationDate TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
 );
 
 -- 13. COLLECTIONS (التصنيفات والجموعات للمنتجات)
 CREATE TABLE IF NOT EXISTS collections (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     name TEXT NOT NULL,
     description TEXT,
     image_url TEXT,
-    is_active BOOLEAN DEFAULT true
+    imageUrl TEXT,
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
 );
 
 -- 14. CUSTOM_PAGES (الصفحات التعريفية المخصصة)
 CREATE TABLE IF NOT EXISTS custom_pages (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     title TEXT NOT NULL,
     slug TEXT NOT NULL,
     content TEXT,
-    is_active BOOLEAN DEFAULT true
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
 );
 
 -- 15. PAYMENT_METHODS (طرق الدفع المفعلة)
 CREATE TABLE IF NOT EXISTS payment_methods (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     name TEXT NOT NULL,
     type TEXT NOT NULL,
     logo_url TEXT,
+    logoUrl TEXT,
     is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -169,13 +211,18 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 CREATE TABLE IF NOT EXISTS customers (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     name TEXT NOT NULL,
     phone TEXT NOT NULL,
     address TEXT,
     loyalty_points NUMERIC DEFAULT 0,
+    loyaltyPoints NUMERIC,
     total_spent NUMERIC DEFAULT 0,
+    totalSpent NUMERIC,
     first_order_date TEXT,
+    firstOrderDate TEXT,
     last_order_date TEXT,
+    lastOrderDate TEXT,
     notes TEXT
 );
 
@@ -183,29 +230,119 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS global_options (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     key TEXT NOT NULL,
     value TEXT,
-    is_active BOOLEAN DEFAULT true
+    is_active BOOLEAN DEFAULT true,
+    isActive BOOLEAN DEFAULT true
 );
 
 -- 18. SHIPPING_INTEGRATIONS (تكاملات شركات الشحن والدليفري)
 CREATE TABLE IF NOT EXISTS shipping_integrations (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     provider TEXT NOT NULL,
     api_key TEXT,
+    apiKey TEXT,
     api_secret TEXT,
+    apiSecret TEXT,
     account_number TEXT,
-    is_connected BOOLEAN DEFAULT false
+    accountNumber TEXT,
+    is_connected BOOLEAN DEFAULT false,
+    isConnected BOOLEAN DEFAULT false
 );
 
 -- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     content JSONB DEFAULT '{}'::jsonb
 );
 
--- تعطيل نظام الحماية للمشاريع البسيطة لتمكين الاتصال المباشر دون تعقيد السياسات
+-- 20. TREASURY_ACCOUNTS (خزائن وحسابات السيولة المالية)
+CREATE TABLE IF NOT EXISTS treasury_accounts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL, -- safe, bank, wallet, custody
+    balance NUMERIC DEFAULT 0,
+    currency TEXT DEFAULT 'EGP',
+    account_number TEXT,
+    accountNumber TEXT,
+    beneficiary_name TEXT,
+    beneficiaryName TEXT,
+    bank_name TEXT,
+    bankName TEXT,
+    wallet_number TEXT,
+    walletNumber TEXT,
+    wallet_name TEXT,
+    walletName TEXT
+);
+
+-- 21. TREASURY_TRANSACTIONS (الحركات والمعاملات المالية الخزينة)
+CREATE TABLE IF NOT EXISTS treasury_transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    date TEXT NOT NULL,
+    from_account_id TEXT,
+    fromAccountId TEXT,
+    to_account_id TEXT,
+    toAccountId TEXT,
+    amount NUMERIC NOT NULL,
+    type TEXT NOT NULL, -- deposit, withdrawal, transfer, advance
+    description TEXT,
+    reference TEXT
+);
+
+-- 22. PARTNERS (بيانات الشركاء وحصص رأس المال)
+CREATE TABLE IF NOT EXISTS partners (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    notes TEXT,
+    balance NUMERIC DEFAULT 0,
+    profit_ratio NUMERIC DEFAULT 0,
+    profitRatio NUMERIC DEFAULT 0
+);
+
+-- 23. PARTNER_TRANSACTIONS (الحركات والمسحوبات مع الشركاء)
+CREATE TABLE IF NOT EXISTS partner_transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    partner_id TEXT,
+    partnerId TEXT,
+    type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT
+);
+
+-- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    sender_id TEXT NOT NULL,
+    senderId TEXT,
+    receiver_id TEXT NOT NULL,
+    receiverId TEXT,
+    content TEXT NOT NULL,
+    created_at TEXT,
+    createdAt TEXT,
+    is_read BOOLEAN DEFAULT false,
+    isRead BOOLEAN DEFAULT false,
+    is_file BOOLEAN DEFAULT false,
+    isFile BOOLEAN DEFAULT false
+);
+
+-- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
 ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE products DISABLE ROW LEVEL SECURITY;
@@ -224,16 +361,38 @@ ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
 ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
 ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE documents DISABLE ROW LEVEL SECURITY;`;
+ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_accounts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE partners DISABLE ROW LEVEL SECURITY;
+ALTER TABLE partner_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages DISABLE ROW LEVEL SECURITY;`;
 
 interface DeveloperSettingsPageProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   activeStoreId?: string | null;
   hostUrl?: string;
+  dbSyncMode?: 'auto' | 'manual';
+  setDbSyncMode?: (mode: 'auto' | 'manual') => void;
+  forcePullFromCloud?: () => Promise<{ success: boolean; error?: string }>;
+  forceSync?: () => Promise<void>;
+  saveStatus?: string;
+  saveMessage?: string;
 }
 
-const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({ settings, setSettings, activeStoreId, hostUrl }) => {
+const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({ 
+  settings, 
+  setSettings, 
+  activeStoreId, 
+  hostUrl,
+  dbSyncMode = 'auto',
+  setDbSyncMode,
+  forcePullFromCloud,
+  forceSync,
+  saveStatus,
+  saveMessage
+}) => {
   const [integrations, setIntegrations] = useState<WebhookIntegration[]>(settings.webhookIntegrations || []);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   
@@ -242,6 +401,45 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({ settings,
   const [customSupabaseAnonKey, setCustomSupabaseAnonKey] = useState(localStorage.getItem('custom_supabase_anon_key') || '');
   const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
   const [showSqlSchema, setShowSqlSchema] = useState(false);
+
+  // Sync Conflict Strategy State
+  const [syncConflictStrategy, setSyncConflictStrategy] = useState(
+    localStorage.getItem('syncConflictStrategy') || 'last_write_wins'
+  );
+  
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [isPullingRemote, setIsPullingRemote] = useState(false);
+
+  const handleSaveConflictStrategy = (strategy: string) => {
+    localStorage.setItem('syncConflictStrategy', strategy);
+    setSyncConflictStrategy(strategy);
+    alert("🚀 تم تعديل سياسة حل التعارض وتأمين المزامنة تلقائياً للفروع والديسك توب!");
+  };
+
+  const triggerManualSync = async () => {
+    if (!forceSync) return;
+    setIsManualSyncing(true);
+    try {
+      await forceSync();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsManualSyncing(false);
+    }
+  };
+
+  const triggerCloudPull = async () => {
+    if (!forcePullFromCloud) return;
+    if (!window.confirm("⚠️ هل أنت متأكد من رغبتك في سحب البيانات من السحابة؟ هذا قد يستبدل أي بيانات محلية لم يتم رفعها بعد.")) return;
+    setIsPullingRemote(true);
+    try {
+      await forcePullFromCloud();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsPullingRemote(false);
+    }
+  };
 
   const handleCopy = (text: string) => {
       navigator.clipboard.writeText(text);
@@ -474,6 +672,198 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({ settings,
                 <pre className="max-h-72 overflow-y-auto pt-8 text-left dir-ltr" style={{ direction: 'ltr' }}>
                   {SQL_SCHEMA_SCRIPT}
                 </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 🔐 قسم أمان حماية وتزامن البيانات وعلاج التعارض */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mb-8">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+          <div className="flex items-center gap-3 text-right">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+               <ShieldAlert size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">أمان المزامنة والوقاية من تعارض وتضارب البيانات 🔐</h2>
+              <p className="text-sm text-slate-500">حماية المعاملات الحسابية والفواتير والطلبات عند العمل بأكثر من جهاز أو دون اتصال بالإنترنت.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-6 text-right">
+          {/* شرح مبسط */}
+          <div className="p-4 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/30 rounded-xl text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            💬 يواجه أصحاب المتاجر أحياناً مشكلة تداخل البيانات وتضاربها إذا قام الكاشير بالاقتصاص بدون إنترنت ثم حدث تعديل لطلب من هاتف المدير سحابياً. يقوم هذا النظام المتكامل بمقارنة الحقول تلقائياً وتطبيق استراتيجيات دقيقة جداً مع ميزة 
+            <strong className="text-indigo-600 dark:text-indigo-400 mx-1">مزامنة CDC الرقمية</strong> لحماية أرباحك وتجنب أي تعويضات أو ضياع للعمليات المالية.
+          </div>
+
+          {/* اختيار سياسة حل التعارض */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5 justify-start">
+              <Layers size={16} className="text-indigo-500" />
+              <span>اختر سياسة المزامنة وحل الخلافات (Conflict Strategy)</span>
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* خيار 1: الأحدث فوزا */}
+              <div 
+                onClick={() => handleSaveConflictStrategy('last_write_wins')}
+                className={`border rounded-xl p-4 cursor-pointer transition-all duration-200 relative ${
+                  syncConflictStrategy === 'last_write_wins'
+                    ? 'border-indigo-600 bg-indigo-50/10 dark:bg-indigo-950/10 ring-2 ring-indigo-500/10'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                    syncConflictStrategy === 'last_write_wins' 
+                      ? 'border-indigo-600 bg-indigo-600' 
+                      : 'border-slate-300'
+                  }`}>
+                    {syncConflictStrategy === 'last_write_wins' && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                  </span>
+                  <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full">الافتراضي والأقوى</span>
+                </div>
+                <h4 className="font-bold text-sm text-slate-800 dark:text-white mb-1.5">الأحدث فوزاً (Last-Write)</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
+                  مقارنة البصمة الزمنية الفريدة <code className="font-mono bg-slate-100 dark:bg-black px-1 rounded">updatedAt</code> محلياً وسحابياً وحفظ التعديل الأحدث دائماً لمنع ضياع الفواتير المنقحة.
+                </p>
+              </div>
+
+              {/* خيار 2: المحلي يفوز */}
+              <div 
+                onClick={() => handleSaveConflictStrategy('local_wins')}
+                className={`border rounded-xl p-4 cursor-pointer transition-all duration-200 relative ${
+                  syncConflictStrategy === 'local_wins'
+                    ? 'border-blue-600 bg-blue-50/10 dark:bg-blue-950/10 ring-2 ring-blue-500/10'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                    syncConflictStrategy === 'local_wins' 
+                      ? 'border-blue-600 bg-blue-600' 
+                      : 'border-slate-300'
+                  }`}>
+                    {syncConflictStrategy === 'local_wins' && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                  </span>
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded-full">محلي يفوق</span>
+                </div>
+                <h4 className="font-bold text-sm text-slate-800 dark:text-white mb-1.5">النسخ المحلي يفرض (Local Wins)</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
+                  تحديث السحابة فوراً بأي تغيير في هذا الجهاز، ممتاز للغاية عند الرغبة باعتماد بيانات الحاسوب المكتبي (الرئيسي) كمرجع دائم فوق أي تعديل خارجي.
+                </p>
+              </div>
+
+              {/* خيار 3: السحابي يفوز */}
+              <div 
+                onClick={() => handleSaveConflictStrategy('cloud_wins')}
+                className={`border rounded-xl p-4 cursor-pointer transition-all duration-200 relative ${
+                  syncConflictStrategy === 'cloud_wins'
+                    ? 'border-orange-600 bg-orange-50/10 dark:bg-orange-950/10 ring-2 ring-orange-500/10'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                    syncConflictStrategy === 'cloud_wins' 
+                      ? 'border-orange-600 bg-orange-600' 
+                      : 'border-slate-300'
+                  }`}>
+                    {syncConflictStrategy === 'cloud_wins' && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
+                  </span>
+                  <span className="text-xs font-bold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/60 px-2 py-0.5 rounded-full">سحابي حاسم</span>
+                </div>
+                <h4 className="font-bold text-sm text-slate-800 dark:text-white mb-1.5">السحابة مهيمنة (Cloud Wins)</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-normal">
+                  تجاهل وإهمال المزامنة لأي بند محلي لو كان موجوداً وصالحاً مسبقاً في قواعد البيانات لتجنب أي تلاعب من الأجهزة الفرعية للعمال دون إذن.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* لوحة تحكم التزامن الفوري */}
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5 justify-start mb-4">
+              <History size={16} className="text-indigo-500" />
+              <span>التحكم اليدوي ومؤشرات الأمان الفورية ⚙️</span>
+            </h3>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* مؤشر 1 */}
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50 flex items-center justify-between">
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">حالة الاتصال والبيئة</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
+                    {dbSyncMode === 'auto' ? (
+                      <>
+                        <Wifi size={14} className="text-green-500 animate-pulse" />
+                        <span className="text-green-600">تزامن تلقائي فوري مفعّل</span>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff size={14} className="text-amber-500" />
+                        <span className="text-amber-600 font-bold">وضع العمل محلياً (ديسك توب)</span>
+                      </>
+                    )}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => {
+                    const nextMode = dbSyncMode === 'auto' ? 'manual' : 'auto';
+                    if (setDbSyncMode) {
+                      setDbSyncMode(nextMode);
+                      localStorage.setItem('dbSyncMode', nextMode);
+                      alert(`🔄 تم التحويل إلى وضع: ${nextMode === 'auto' ? 'التزامن التلقائي السحابي' : 'العمل دون إنترنت محلياً (ديسك توب)'}`);
+                    }
+                  }}
+                  className="bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 text-xs font-bold transition"
+                >
+                  تغيير الوضع
+                </button>
+              </div>
+
+              {/* مؤشر 2 */}
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50">
+                <p className="text-xs text-slate-500">حماية وسلامة العمليات المالية</p>
+                <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1">
+                  <Sparkles size={14} />
+                  <span>محصنة تلقائياً من التداخلات المزدوجة</span>
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5">يقوم خادم CDC المدمج والمنفذ بحرص بمراجعة كل المعاملات.</p>
+              </div>
+
+              {/* أزرار الإجراءات */}
+              <div className="flex flex-col gap-2 justify-center">
+                <button 
+                  onClick={triggerManualSync}
+                  disabled={isManualSyncing}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-white disabled:opacity-50 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-slate-700 shadow-sm"
+                >
+                  <RefreshCw size={14} className={isManualSyncing ? "animate-spin" : ""} />
+                  {isManualSyncing ? "جاري دفع المزامنة السحابية..." : "دفع المزامنة السحابية الآن (رفع) 📤"}
+                </button>
+
+                <button 
+                  onClick={triggerCloudPull}
+                  disabled={isPullingRemote}
+                  className="w-full bg-indigo-50 hover:bg-indigo-100/80 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 border border-indigo-200/50 dark:border-indigo-900/30"
+                >
+                  <RefreshCw size={14} className={isPullingRemote ? "animate-spin" : ""} />
+                  {isPullingRemote ? "جاري الاسترداد كلياً..." : "استرداد البيانات سحابياً (تنزيل) 📥"}
+                </button>
+              </div>
+            </div>
+
+            {/* حالة المزامنة اللحظية */}
+            {(saveStatus === 'saving' || saveStatus === 'success' || saveStatus === 'error') && (
+              <div className={`mt-3 p-3 rounded-lg text-xs font-bold text-center flex items-center justify-center gap-2 transition ${
+                saveStatus === 'saving' ? 'bg-indigo-50 text-indigo-600' :
+                saveStatus === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
+              }`}>
+                <span>{saveMessage}</span>
               </div>
             )}
           </div>

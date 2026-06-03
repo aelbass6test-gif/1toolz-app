@@ -58,6 +58,7 @@ import GlobalLoader from './components/GlobalLoader';
 import EmployeesPage from './components/EmployeesPage';
 import ReportsPage from './components/ReportsPage';
 import { TreasuryPage } from './components/TreasuryPage';
+import { DomainSettingsPage } from './components/DomainSettingsPage';
 import InventoryTransfers from './components/InventoryTransfers';
 import OrderReturnsPage from './components/OrderReturnsPage';
 import PurchaseReturnsPage from './components/PurchaseReturnsPage';
@@ -1552,11 +1553,24 @@ export const AppComponent = () => {
                     <Route path="product-attributes" element={<ComingSoonPage />} />
                     <Route path="withdrawals" element={<ComingSoonPage />} />
                     <Route path="design-templates" element={<ComingSoonPage />} />
-                    <Route path="domain" element={<ComingSoonPage />} />
+                    <Route path="domain" element={<DomainSettingsPage activeStoreId={activeStoreId} storeData={allStoresData[activeStoreId] || null} settings={pageProps.settings} setSettings={pageProps.setSettings} />} />
                     <Route path="legal-pages" element={<ComingSoonPage />} />
                     <Route path="apps" element={<AppsPage storeId={activeStoreId} storeData={allStoresData[activeStoreId] || null} onUpdateSettings={pageProps.setSettings} onUpdateOrders={pageProps.setOrders} onRefresh={pageProps.onRefresh} hostUrl={pageProps.settings.customAppDomain || window.location.origin} />} />
                     <Route path="settings/tax" element={<ComingSoonPage />} />
-                    <Route path="settings/developer" element={<DeveloperSettingsPage settings={pageProps.settings} setSettings={pageProps.setSettings} activeStoreId={activeStoreId} hostUrl={pageProps.settings.customAppDomain || window.location.origin} />} />
+                    <Route path="settings/developer" element={
+                        <DeveloperSettingsPage 
+                            settings={pageProps.settings} 
+                            setSettings={pageProps.setSettings} 
+                            activeStoreId={activeStoreId} 
+                            hostUrl={pageProps.settings.customAppDomain || window.location.origin}
+                            dbSyncMode={dbSyncMode}
+                            setDbSyncMode={setDbSyncMode}
+                            forcePullFromCloud={pageProps.forcePullFromCloud}
+                            forceSync={pageProps.forceSync}
+                            saveStatus={saveStatus}
+                            saveMessage={saveMessage}
+                        />
+                    } />
                 </Route>
 
                 <Route path="store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
