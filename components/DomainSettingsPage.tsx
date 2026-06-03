@@ -20,6 +20,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<{
+    type: '405' | '404' | 'json' | 'generic' | null;
+    message: string;
+  } | null>(null);
 
   // Load saved domain from localStorage or storeData relative to current store
   useEffect(() => {
@@ -42,6 +46,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     setCustomDomain(cleanDomain);
     setIsSaving(true);
     setErrorMessage(null);
+    setBackendError(null);
 
     try {
       const response = await fetch('/api/domains/add', {
@@ -55,7 +60,20 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         })
       });
 
-      const data = await response.json();
+      if (response.status === 405) {
+        throw new Error("405_METHOD_NOT_ALLOWED");
+      }
+      if (response.status === 404) {
+        throw new Error("404_NOT_FOUND");
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        throw new Error("JSON_PARSE_ERROR");
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || "حدث خطأ غير متوقع أثناء إضافة النطاق.");
       }
@@ -75,8 +93,29 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       alert(data.message || `⚡ تم تسجيل النطاق ${cleanDomain} بنجاح عبر API! يرجى إعداد سجلات الـ DNS في لوحة تحكم نطاقك لتبدأ شهادة SSL بالعمل.`);
     } catch (err: any) {
       console.error(err);
+      if (err.message === "405_METHOD_NOT_ALLOWED") {
+        setBackendError({
+          type: '405',
+          message: "خطأ 405 (Method Not Allowed): السيرفر المستضيف على app.abdomedi.com يستقبل ملفات الـ Static فقط. لا توجد بيئة Node.js نشطة أو مفعلة لمعالجة طلب الـ POST لـ API الدومينات المخصصة."
+        });
+      } else if (err.message === "404_NOT_FOUND") {
+        setBackendError({
+          type: '404',
+          message: "خطأ 404 (Not Found): لم يتم العثور على endpoint في السيرفر. ربما لم يتم رفع كود server.ts المحدّث أو أن خادم الويب لا يوجه المسار /api بشكل صحيح."
+        });
+      } else if (err.message === "JSON_PARSE_ERROR") {
+        setBackendError({
+          type: 'json',
+          message: "فشلت قراءة رد السيرفر بنجاح (JSON Parse Error). السيرفر قام بإرجاع صفحة خطأ HTML مثل 405 أو 404 بسبب رفع مجلد الـ dist للـ React فقط على Hostinger دون تشغيل الـ Node backend."
+        });
+      } else {
+        setBackendError({
+          type: 'generic',
+          message: err.message || "حدث خطأ غير متوقع أثناء الاتصال بالـ API."
+        });
+      }
       setErrorMessage(err.message);
-      alert(`⚠️ خطأ: ${err.message}`);
+      alert(`⚠️ خطأ: ${err.message === "405_METHOD_NOT_ALLOWED" ? "لقد تم رفع ملفات الـ Static فقط على الاستضافة ولا يوجد Node backend تشغيلي نشط (خطأ 405)." : err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -87,6 +126,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     
     setDomainStatus('verifying');
     setErrorMessage(null);
+    setBackendError(null);
     
     try {
       const response = await fetch('/api/domains/status', {
@@ -99,7 +139,20 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         })
       });
 
-      const data = await response.json();
+      if (response.status === 405) {
+        throw new Error("405_METHOD_NOT_ALLOWED");
+      }
+      if (response.status === 404) {
+        throw new Error("404_NOT_FOUND");
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        throw new Error("JSON_PARSE_ERROR");
+      }
+
       if (!response.ok || !data.success) {
         throw new Error(data.error || "فشل التحقق من حالة النطاق.");
       }
@@ -122,8 +175,40 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     } catch (err: any) {
       console.error(err);
       setDomainStatus('pending');
+      if (err.message === "405_METHOD_NOT_ALLOWED") {
+        setBackendError({
+          type: '405',
+          message: "خطأ 405 (Method Not Allowed) أثناء فحص السجلات. الاستضافة تدعم الملفات الثابتة فقط حالياً."
+        });
+      } else if (err.message === "JSON_PARSE_ERROR") {
+        setBackendError({
+          type: 'json',
+          message: "لم نستطع قراءة رد فحص الدومين لأن السيرفر أرجع صفحة HTML بدلاً من JSON."
+        });
+      }
       alert(`⚠️ خطأ أثناء الفحص: ${err.message}`);
     }
+  };
+
+  const handleActivateDemoMode = () => {
+    if (!customDomain.trim()) {
+      alert("يرجى إدخال اسم نطاق أولاً.");
+      return;
+    }
+    const cleanDomain = customDomain.replace(/^(https?:\/\/)?(www\.)?/, '').trim();
+    setCustomDomain(cleanDomain);
+    
+    localStorage.setItem(`custom_domain_${activeStoreId}`, cleanDomain);
+    localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'active');
+    setDomainStatus('active');
+    
+    setSettings((prev: any) => ({
+      ...prev,
+      customAppDomain: `https://${cleanDomain}`
+    }));
+    
+    setBackendError(null);
+    alert(`⚡ [وضع المحاكاة النشط]: تم تفعيل وحفظ الدومين ${cleanDomain} بنجاح محلياً لتجربته في المتجر ولوحة التحكم!`);
   };
 
   const handleDisconnect = () => {
@@ -204,6 +289,39 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   dir="ltr"
                 />
               </div>
+
+              {backendError && (
+                <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-2xl border border-red-200/50 dark:border-red-900/30 space-y-3">
+                  <div className="flex gap-2.5 items-start text-red-800 dark:text-red-400">
+                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-black">تشخيص سبب الفشل والخطأ الحالي ⚠️</p>
+                      <p className="text-[11px] leading-relaxed opacity-95">
+                        {backendError.message}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white/80 dark:bg-slate-900/50 p-3 rounded-xl border border-red-100 dark:border-red-900/10 space-y-1.5 text-[11px]">
+                    <div className="font-bold text-slate-800 dark:text-white">🚀 لتصحيح هذه المشكلة وتفعيل الـ API على استضافتك:</div>
+                    <ul className="list-disc list-inside space-y-1 text-slate-600 dark:text-slate-400 pr-2 leading-relaxed">
+                      <li>تأكد من تشغيل ملف كود الـ Backend الخلفي <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">server.ts</code> أو <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">dist/server.mjs</code> كـ Node.js Server نشط.</li>
+                      <li>في استضافات مشتركة مثل <strong>Hostinger</strong>، لا يكفي رفع مجلد <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">dist</code> الثابت فقط. يجب الدخول إلى <strong>Node.js App Manager</strong> وإضافة التطبيق وإدخال أمر التشغيل الخاص بـ <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">package.json</code> لتمرير الطلبات لـ Express.</li>
+                    </ul>
+                  </div>
+
+                  <div className="pt-2 border-t border-red-200/40 flex items-center justify-between flex-wrap gap-2 text-[11px]">
+                    <span className="text-slate-500 dark:text-slate-400">هل تريد تجاوز هذا الفحص وحفظ وتفعيل الدومين محلياً فوراً لتجربة لوحة التحكم؟</span>
+                    <button
+                      type="button"
+                      onClick={handleActivateDemoMode}
+                      className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-450 font-black rounded-lg border border-indigo-200/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition text-[10px] cursor-pointer"
+                    >
+                      تفعيل الدومين الآن (وضع المحاكاة) ⚡
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center gap-3">
                 <button 
