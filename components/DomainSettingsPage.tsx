@@ -200,13 +200,13 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   {/* CNAME Record */}
                   <div className="grid grid-cols-4 py-4 px-4 text-center border-b border-slate-200 dark:border-slate-850 items-center">
                     <div className="font-mono bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-indigo-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME</div>
-                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">www</div>
+                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">www (أو أي اسم فرعي)</div>
                     <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate shrink px-1" dir="ltr">
-                      ingress.smart-orders.com
+                      abdomedi.com
                     </div>
                     <div>
                       <button 
-                        onClick={() => handleCopy('ingress.smart-orders.com', 'cname')}
+                        onClick={() => handleCopy('abdomedi.com', 'cname')}
                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
                       >
                         {copiedText === 'cname' ? (
@@ -224,16 +224,16 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     </div>
                   </div>
 
-                  {/* A Record */}
+                  {/* CNAME / A Record for main domain */}
                   <div className="grid grid-cols-4 py-4 px-4 text-center items-center">
-                    <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">A Record</div>
-                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@</div>
+                    <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME / A</div>
+                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@ (النطاق الرئيسي)</div>
                     <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-semibold" dir="ltr">
-                      151.101.1.1
+                      fallback.abdomedi.com
                     </div>
                     <div>
                       <button 
-                        onClick={() => handleCopy('151.101.1.1', 'arecord')}
+                        onClick={() => handleCopy('fallback.abdomedi.com', 'arecord')}
                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
                       >
                         {copiedText === 'arecord' ? (
