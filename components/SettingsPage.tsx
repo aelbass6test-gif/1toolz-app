@@ -1845,18 +1845,76 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
             <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
                 <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg"><LinkIcon size={24}/></div>
                 <div>
-                    <h2 className="text-xl font-black dark:text-white">إعدادات النطاق (SaaS Domain)</h2>
-                    <p className="text-xs text-slate-500">تحديد الرابط الأساسي لمتجرك لاستخدامه في الـ Webhooks والروابط الخارجية.</p>
+                    <h2 className="text-xl font-black dark:text-white">إعدادات النطاق والربط (Store Domains)</h2>
+                    <p className="text-xs text-slate-500">تخصيص رابط المتجر وربط النطاقات الخاصة بمتجرك المباشر.</p>
                 </div>
             </div>
             
-            <div className="space-y-4">
+            <div className="space-y-6">
+                {/* 1. Subdomain Setting */}
                 <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">رابط النظام الأساسي (App Domain)</label>
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">نطاق المتجر الفرعي (Subdomain)</label>
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <input 
+                                type="text" 
+                                placeholder="اسم-متجرك"
+                                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-mono"
+                                value={settings.subdomain || ''}
+                                onChange={(e) => setSettings(prev => ({ ...prev, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                                dir="ltr"
+                            />
+                        </div>
+                        <span className="text-sm font-bold text-slate-400 dark:text-slate-500 font-mono" dir="ltr">.abdomedi.com</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                        هذا هو الرابط المجاني لمتجرك. يمكنك تغييره في أي وقت، وسيتم توجيه العملاء للرابط الجديد فور الحفظ.
+                    </p>
+                    {(settings.subdomain) && (
+                        <a 
+                            href={`https://${settings.subdomain}.abdomedi.com`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:underline mt-1"
+                        >
+                            <Globe size={12} />
+                            زيارة المتجر: {settings.subdomain}.abdomedi.com
+                        </a>
+                    )}
+                </div>
+
+                <hr className="border-slate-100 dark:border-slate-800" />
+
+                {/* 2. Custom Domain Setting */}
+                <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">النطاق الخاص (Custom Domain)</label>
                     <div className="relative">
                         <input 
                             type="text" 
-                            placeholder="https://your-saas-domain.com"
+                            placeholder="example.com"
+                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-mono"
+                            value={settings.customDomain || ''}
+                            onChange={(e) => setSettings(prev => ({ ...prev, customDomain: e.target.value.toLowerCase().trim() }))}
+                            dir="ltr"
+                        />
+                        <div className="absolute left-4 top-3 text-slate-400">
+                           <AppWindow size={18} />
+                        </div>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                        إذا قمت بشراء نطاق خاص (مثل mydomain.com)، أدخله هنا وقم بتوجيه سجلات CNAME أو A لنظامنا.
+                    </p>
+                </div>
+
+                <hr className="border-slate-100 dark:border-slate-800" />
+
+                {/* 3. Custom App Domain (The original setting) */}
+                <div className="space-y-2">
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mr-1">رابط النظام الأساسي (App Domain) - اختياري</label>
+                    <div className="relative">
+                        <input 
+                            type="text" 
+                            placeholder="https://app.example.com"
                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-mono"
                             value={settings.customAppDomain || ''}
                             onChange={(e) => setSettings(prev => ({ ...prev, customAppDomain: e.target.value }))}
@@ -1868,7 +1926,6 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                     </div>
                     <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
                         اترك هذا الحقل فارغاً لاستخدام الرابط الحالي للتطبيق تلقائياً. 
-                        أدخل رابطاً ثابتاً إذا كنت تستخدم التطبيق كمنصة (SaaS) على نطاق خاص بك لضمان صحة روابط الـ Webhook.
                     </p>
                 </div>
             </div>

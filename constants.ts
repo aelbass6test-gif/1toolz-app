@@ -166,6 +166,8 @@ export const INITIAL_SETTINGS: Settings = {
     apiKey: ''
   },
   enablePlatformIntegration: false,
+  customDomain: '',
+  subdomain: '',
   employees: [],
   customization: INITIAL_CUSTOMIZATION,
   discountCodes: [],

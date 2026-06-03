@@ -45,7 +45,10 @@ const CreateStorePage: React.FC<CreateStorePageProps> = ({ currentUser, onStoreC
     
     // Simple slugify function for the URL
     const slug = storeName.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const uniqueUrl = `${slug}-${Math.random().toString(36).substring(2, 8)}.wuitstore.com`;
+    const cleanSlug = slug || 'store';
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000).toString();
+    const generatedSubdomain = `${cleanSlug.substring(0, 20)}-${randomSuffix}`;
+    const uniqueUrl = `${generatedSubdomain}.abdomedi.com`;
 
     const newStore: Store = {
       id: `store-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
@@ -54,6 +57,7 @@ const CreateStorePage: React.FC<CreateStorePageProps> = ({ currentUser, onStoreC
       language,
       currency: 'EGP',
       url: uniqueUrl,
+      subdomain: generatedSubdomain,
       creationDate: new Date().toISOString(),
     };
     

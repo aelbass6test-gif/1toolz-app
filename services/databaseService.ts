@@ -238,10 +238,16 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         const fetchCollection = async <T>(collectionName: string, localItems: T[]): Promise<T[]> => {
             try {
                 let snap = await getDocs(query(collection(firebaseDb, collectionName), where('storeId', '==', storeId)));
-                let items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+                let items = snap.docs.map(doc => ({ 
+                    id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
+                    ...doc.data() 
+                } as any));
                 if (items.length === 0) {
                     const snap_snake = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', storeId)));
-                    items = snap_snake.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+                    items = snap_snake.docs.map(doc => ({ 
+                        id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
+                        ...doc.data() 
+                    } as any));
                 }
                 // If cloud fetch returns empty, but local has data, trust local
                 if (items.length === 0 && localItems.length > 0) {
@@ -278,12 +284,24 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             fetchCollection<ShippingCarrierIntegration>('shipping_integrations', local?.settings?.shippingIntegrations || [])
         ]);
 
-        const storeSettings = storeSnap.exists() ? (storeSnap.data().settings || {}) : {};
-        const storeName = storeSnap.exists() ? (storeSnap.data().name || '') : '';
+        const storeSnapData = storeSnap.exists() ? storeSnap.data() : {};
+        const storeSettings = storeSnapData.settings || {};
+        const storeName = storeSnapData.name || '';
 
         let finalProducts = products;
-        if (finalProducts.length === 0 && INITIAL_SETTINGS.products.length > 0) {
-            finalProducts = INITIAL_SETTINGS.products;
+        if (finalProducts.length === 0) {
+            // Priority: Cloud Relational -> Cloud Legacy -> Local Cache -> Initial
+            finalProducts = storeSettings.products || local?.settings?.products || INITIAL_SETTINGS.products || [];
+        }
+
+        let finalCollections = collectionsList;
+        if (finalCollections.length === 0) {
+            finalCollections = storeSettings.collections || local?.settings?.collections || [];
+        }
+
+        let finalReviews = reviews;
+        if (finalReviews.length === 0) {
+            finalReviews = storeSettings.reviews || local?.settings?.reviews || [];
         }
 
         const walletSettingsObj = storeSettings.wallet_settings;
@@ -291,19 +309,29 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         const supplyBalanceNum = storeSettings.supply_balance || 0;
         const mainBalanceNum = storeSettings.wallet_balance || 0;
 
+        const customization = {
+            ...(INITIAL_SETTINGS.customization || {}),
+            ...(storeSettings.customization || {})
+        };
+        // Ensure pageSections exists
+        if (!customization.pageSections || customization.pageSections.length === 0) {
+            customization.pageSections = INITIAL_SETTINGS.customization.pageSections;
+        }
+
         const fullData: StoreData = {
             settings: {
                 ...INITIAL_SETTINGS,
                 ...storeSettings,
+                customization,
                 products: finalProducts,
                 suppliers: suppliers,
                 supplyOrders: supplyOrders,
-                reviews: reviews,
+                reviews: finalReviews,
                 abandonedCarts: abandonedCarts,
                 activityLogs: activityLogs,
                 employees: employees.length > 0 ? employees : (storeSettings.employees || []),
                 discountCodes: discountCodes,
-                collections: collectionsList,
+                collections: finalCollections,
                 customPages: customPages,
                 paymentMethods: paymentMethods,
                 globalOptions: globalOptions,
@@ -339,6 +367,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     try {
         await ensureStoreRecordExists(store.id, store.name);
 
+        // Destructure items to sync relationally
         const { 
             products = [], suppliers = [], supplyOrders = [], reviews = [], abandonedCarts = [], activityLogs = [],
             employees = [], discountCodes = [], collections = [], customPages = [], paymentMethods = [],
@@ -348,8 +377,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         
         const { orders = [], wallet = { balance: 0, transactions: [] }, treasury = { accounts: [], transactions: [] }, customers = [] } = data;
 
+        // SAFEGUARD: Keep products/collections in main document if they are few (Hybrid redundancy)
+        // This ensures storefront always works even if sub-collection fetch fails
+        const redundantSettings: any = {};
+        if (products.length < 150) redundantSettings.products = products;
+        if (collections.length < 50) redundantSettings.collections = collections;
+        if (customPages.length < 50) redundantSettings.customPages = customPages;
+
         const cleanSettingsFinal = cleanUndefined({
             ...cleanSettings,
+            ...redundantSettings,
             wallet_settings: wallet.settings || null,
             withdraw_requests: wallet.withdrawRequests || [],
             supply_balance: wallet.supplyBalance || 0,

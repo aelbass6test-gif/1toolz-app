@@ -38,6 +38,22 @@ const StoreCard: React.FC<{ store: Store; ownerName?: string; onSelect: (id: str
   const creationDate = new Date(store.creationDate);
   const formattedDate = `تم إنشاؤه في ${creationDate.getDate()} ${creationDate.toLocaleString('ar-EG', { month: 'long' })} ${creationDate.getFullYear()}`;
 
+  // Intelligently derive the display and link URL
+  const displayUrl = store.customDomain || (store.subdomain ? `${store.subdomain}.abdomedi.com` : store.url);
+  
+  // In development/preview environment, clicking the link should open the preview mode 
+  // so the user can actually see their store interface.
+  const isInternal = typeof window !== 'undefined' && (
+      window.location.hostname.includes('run.app') || 
+      window.location.hostname.includes('pages.dev') ||
+      window.location.hostname.includes('localhost') ||
+      window.location.hostname.includes('127.0.0.1')
+  );
+  
+  const linkUrl = isInternal 
+    ? `${window.location.origin}${window.location.pathname}?preview_store=${store.id}`
+    : (displayUrl.startsWith('http') ? displayUrl : `https://${displayUrl}`);
+
   return (
     <motion.div variants={itemVariants} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:shadow-lg hover:-translate-y-1 flex flex-col group">
       <div className="p-5 flex-1 flex flex-col">
@@ -47,13 +63,13 @@ const StoreCard: React.FC<{ store: Store; ownerName?: string; onSelect: (id: str
         <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-1 leading-tight">{store.name}</h3>
         {ownerName && <p className="text-xs font-bold text-slate-400 mb-2">المالك: {ownerName}</p>}
         <a 
-          href={`https://${store.url}`}
+          href={linkUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1.5 text-sm text-slate-500 font-medium hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
-          <span className="truncate">{store.url}</span>
+          <span className="truncate">{displayUrl}</span>
           <ExternalLink size={14}/>
         </a>
         <p className="text-xs text-slate-400 mt-auto pt-4">{formattedDate}</p>
@@ -102,8 +118,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({ currentUser, ownedSto
   };
 
   const handlePreviewStore = (storeId: string) => {
-    setActiveStoreId(storeId);
-    navigate('/store');
+    window.open(`${window.location.origin}${window.location.pathname}?preview_store=${storeId}`, '_blank');
   };
   
   const handleSaveSettings = (updatedStore: Store) => {

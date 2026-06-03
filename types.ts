@@ -511,6 +511,8 @@ export interface Settings {
   enablePlatformIntegration: boolean;
   integration: PlatformIntegration;
   customAppDomain?: string; // <-- New field for SaaS integration
+  customDomain?: string; // <-- New field for live store domain mapping
+  subdomain?: string; // <-- New field for subdomains
   platformConfigs?: Record<string, {
     appId: string;
     apiKey?: string;
@@ -903,6 +905,8 @@ export interface Store {
   language: string;
   currency: string;
   url: string;
+  customDomain?: string;
+  subdomain?: string;
   creationDate: string;
 }
 

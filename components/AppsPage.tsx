@@ -93,6 +93,8 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
   const connectedPlatforms = storeData?.settings?.connectedPlatforms || [];
   const platformConfigs: Record<string, PlatformConfig> = (storeData?.settings as any)?.platformConfigs || {};
 
+  const [appToUninstall, setAppToUninstall] = useState<string | null>(null);
+
   const handleInstallApp = () => {
     if (!storeData || !selectedApp) return;
     
@@ -118,22 +120,22 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
     setConfig({});
   };
 
-  const handleUninstallApp = (appId: string) => {
-      if (!storeData) return;
-      if (!window.confirm('هل أنت متأكد من رغبتك في إيقاف الربط؟ سيؤدي هذا إلى تعطيل التحديثات اللحظية للسلة والطلبات.')) return;
+  const confirmUninstallApp = () => {
+      if (!storeData || !appToUninstall) return;
 
       const currentPlatforms = storeData.settings.connectedPlatforms || [];
       const currentConfigs = (storeData.settings as any).platformConfigs || {};
       
       const newConfigs = { ...currentConfigs };
-      delete newConfigs[appId];
+      delete newConfigs[appToUninstall];
 
       const updatedSettings = {
           ...storeData.settings,
-          connectedPlatforms: currentPlatforms.filter(id => id !== appId),
+          connectedPlatforms: currentPlatforms.filter(id => id !== appToUninstall),
           platformConfigs: newConfigs
       };
       onUpdateSettings(updatedSettings);
+      setAppToUninstall(null);
   };
 
   const updateSyncTime = (appId: string, syncType: 'orders' | 'products', additionalData?: any) => {
@@ -368,7 +370,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                                  الإعدادات
                              </button>
                              <button 
-                                onClick={() => handleUninstallApp(app.id)}
+                                onClick={() => setAppToUninstall(app.id)}
                                 className="py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 border border-red-100 dark:border-red-900/20 rounded-lg transition-colors"
                               >
                                  إيقاف الربط
@@ -510,6 +512,36 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
             onConfirm={() => handleSyncProducts(selectedApp.id, Array.from(selectedProductIds))}
             isSyncing={syncingProducts === selectedApp.id}
           />
+      )}
+
+      {/* Custom Unlink Confirmation Modal */}
+      {appToUninstall && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] p-8 shadow-2xl border border-slate-200 dark:border-slate-800 text-center">
+                  <div className="w-16 h-16 bg-red-50 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                      <XCircle size={32} />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">تأكيد إيقاف الربط</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+                      هل أنت متأكد من رغبتك في إيقاف الربط مع <strong>{AVAILABLE_APPS.find(a => a.id === appToUninstall)?.name}</strong>؟ 
+                      <br />سيتم تعطيل المزامنة اللحظية والتحكم في الطلبات والمنتجات.
+                  </p>
+                  <div className="flex gap-3">
+                      <button 
+                          onClick={confirmUninstallApp}
+                          className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm shadow-lg shadow-red-200 dark:shadow-none transition-all active:scale-95"
+                      >
+                          نعم، إيقاف الربط
+                      </button>
+                      <button 
+                          onClick={() => setAppToUninstall(null)}
+                          className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl font-black text-sm transition-all"
+                      >
+                          تراجع
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

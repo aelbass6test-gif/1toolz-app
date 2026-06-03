@@ -290,6 +290,8 @@ export const AppComponent = () => {
     const [welcomeScreenShown, setWelcomeScreenShown] = useState<boolean>(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'local_saved' | 'success' | 'pending' | 'error'>('idle');
     const [saveMessage, setSaveMessage] = useState('');
+    const [isStandaloneStorefront, setIsStandaloneStorefront] = useState<boolean>(false);
+    const [isStoreNotFound, setIsStoreNotFound] = useState<boolean>(false);
     
     const [dbSyncMode, setDbSyncModeState] = useState<'manual' | 'auto'>(() => {
         const value = localStorage.getItem('dbSyncMode');
@@ -532,6 +534,99 @@ export const AppComponent = () => {
         return changes;
     };
 
+    // Ensure every store has a subdomain and generate a random one if missing
+    useEffect(() => {
+        if (isInitialLoad || isRefreshing.current) return;
+        
+        let changed = false;
+        const newAllStoresData = { ...allStoresData };
+        
+        Object.keys(newAllStoresData).forEach(storeId => {
+            const data = newAllStoresData[storeId];
+            if (data && data.settings && !data.settings.subdomain) {
+                const storeName = storeId;
+                const base = storeName.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
+                const random = Math.floor(1000 + Math.random() * 9000).toString();
+                const generatedSubdomain = `${base || 'store'}-${random}`;
+                
+                newAllStoresData[storeId] = {
+                    ...data,
+                    settings: {
+                        ...data.settings,
+                        subdomain: generatedSubdomain
+                    }
+                };
+                changed = true;
+            }
+        });
+        
+        if (changed) {
+            setAllStoresData(newAllStoresData);
+        }
+    }, [allStoresData, isInitialLoad]);
+
+    // Sync domains to users for ALL stores that have loaded data
+    useEffect(() => {
+        if (isInitialLoad || isRefreshing.current) return;
+
+        setUsers(prevUsers => {
+            let changed = false;
+            const newUsers = prevUsers.map(user => {
+                if (!user.stores) return user;
+                
+                let storesChanged = false;
+                const newStores = user.stores.map(store => {
+                    // Try to get data from settings if loaded
+                    const storeData = allStoresData[store.id];
+                    
+                    let currentCustomDomain = store.customDomain;
+                    let currentSubdomain = store.subdomain;
+                    
+                    if (storeData && storeData.settings) {
+                        currentCustomDomain = storeData.settings.customAppDomain || currentCustomDomain;
+                        currentSubdomain = storeData.settings.subdomain || currentSubdomain;
+                    }
+
+                    // Proactive fallback for missing subdomain or bad URL
+                    if (!currentSubdomain && (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
+                        const base = store.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
+                        const random = Math.floor(1000 + Math.random() * 9000).toString();
+                        currentSubdomain = `${base || 'store'}-${random}`;
+                    }
+                    
+                    // Determine the best URL
+                    let bestUrl = store.url;
+                    if (currentCustomDomain) {
+                        bestUrl = currentCustomDomain;
+                    } else if (currentSubdomain) {
+                        bestUrl = `${currentSubdomain}.abdomedi.com`;
+                    }
+
+                    if (
+                        store.customDomain !== currentCustomDomain || 
+                        store.subdomain !== currentSubdomain ||
+                        store.url !== bestUrl
+                    ) {
+                        changed = true;
+                        storesChanged = true;
+                        return { 
+                            ...store, 
+                            customDomain: currentCustomDomain, 
+                            subdomain: currentSubdomain,
+                            url: bestUrl
+                        };
+                    }
+                    return store;
+                });
+                
+                if (storesChanged) return { ...user, stores: newStores };
+                return user;
+            });
+            
+            return changed ? newUsers : prevUsers;
+        });
+    }, [allStoresData, isInitialLoad]);
+
     // --- Aggressive Auto-Save Logic ---
     // 1. Instant local persistence to IndexedDB
     useEffect(() => {
@@ -701,38 +796,91 @@ export const AppComponent = () => {
             const globalData = await db.getGlobalData();
             let loadedUsers: User[] = globalData?.users || [];
 
-            const hasAdmin = loadedUsers.some(u => u.isAdmin);
-            // No more auto-generating admin user
-            
             setUsers(loadedUsers);
             
-            const savedUserPhone = localStorage.getItem('currentUserPhone');
-            const savedStoreId = localStorage.getItem('lastActiveStoreId');
-            const savedSessionType = localStorage.getItem('sessionType');
+            const host = window.location.hostname.toLowerCase();
+            const hostNoWww = host.replace(/^www\./, '');
+            const mainDomains = ['app.abdomedi.com', 'abdomedi.com', 'localhost', '127.0.0.1'];
             
-        if (loadedUsers.length > 0) {
-            let user = loadedUsers.find((u: User) => u.phone === savedUserPhone);
-            if (!user && loadedUsers.length > 0) {
-                user = loadedUsers[0];
-            }
+            // Refined isMainDomain check: exact match for root domains or the dev/preview pages
+            const isExactMainDomain = mainDomains.includes(hostNoWww) || hostNoWww.includes('run.app') || hostNoWww.includes('pages.dev');
+            
+            // Support for forcing storefront view in development via query param
+            const urlParams = new URLSearchParams(window.location.search);
+            const previewId = urlParams.get('preview_store');
 
-            if (user) {
-                setCurrentUser(user);
-                if (savedSessionType === 'employee') {
-                    setIsEmployeeSession(true);
+            let foundStoreId: string | null = previewId;
+            
+            if (!foundStoreId && !isExactMainDomain) {
+                for (const u of loadedUsers) {
+                    if (!u.stores) continue;
+                    const store = u.stores.find(s => {
+                        const storeCustomDomain = (s.customDomain || '').toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim();
+                        const storeSubdomain = (s.subdomain || '').toLowerCase().trim();
+                        
+                        // 1. Match custom domain (e.g. 3bdomedia.com or www.3bdomedia.com)
+                        if (storeCustomDomain && (storeCustomDomain === hostNoWww || `www.${storeCustomDomain}` === host)) {
+                            return true;
+                        }
+                        
+                        // 2. Match free subdomain of abdomedi (e.g. mystore.abdomedi.com)
+                        if (storeSubdomain && host.endsWith('.abdomedi.com')) {
+                            const sub = host.split('.')[0].toLowerCase();
+                            if (sub === storeSubdomain) {
+                                console.log('[DOMAIN-MATCH] Matched subdomain:', sub);
+                                return true;
+                            }
+                        }
+                        
+                        return false;
+                    });
+                    if (store) { foundStoreId = store.id; break; }
                 }
-                const storeId = savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
-                if (storeId) {
-                    setActiveStoreId(storeId);
-                    
-                    const storeData = await db.getStoreData(storeId, false) as StoreData | null;
-                    if (storeData) {
-                        const sanitizedStoreData = sanitizeData(storeData);
-                        setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
+            }
+            
+            if (foundStoreId) {
+                setIsStandaloneStorefront(true);
+                setActiveStoreId(foundStoreId);
+                const storeData = await db.getStoreData(foundStoreId, false) as StoreData | null;
+                if (storeData) {
+                    const sanitizedStoreData = sanitizeData(storeData);
+                    setAllStoresData(prev => ({ ...prev, [foundStoreId!]: sanitizedStoreData }));
+                } else if (!isExactMainDomain || previewId) {
+                    setIsStoreNotFound(true);
+                }
+            } else if (!isExactMainDomain) {
+                // Not a main domain and no store matched by domain/subdomain
+                setIsStoreNotFound(true);
+            } else {
+                // Normal Dashboard flow (no match found or it is the main domain)
+                const savedUserPhone = localStorage.getItem('currentUserPhone');
+                const savedStoreId = localStorage.getItem('lastActiveStoreId');
+                const savedSessionType = localStorage.getItem('sessionType');
+                
+                if (loadedUsers.length > 0) {
+                    let user = loadedUsers.find((u: User) => u.phone === savedUserPhone);
+                    if (!user && loadedUsers.length > 0) {
+                        user = loadedUsers[0];
+                    }
+
+                    if (user) {
+                        setCurrentUser(user);
+                        if (savedSessionType === 'employee') {
+                            setIsEmployeeSession(true);
+                        }
+                        const storeId = savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
+                        if (storeId) {
+                            setActiveStoreId(storeId);
+                            
+                            const storeData = await db.getStoreData(storeId, false) as StoreData | null;
+                            if (storeData) {
+                                const sanitizedStoreData = sanitizeData(storeData);
+                                setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
+                            }
+                        }
                     }
                 }
             }
-        }
         } catch (error) {
             console.error("Failed to load initial data:", error);
         } finally {
@@ -1183,17 +1331,48 @@ export const AppComponent = () => {
         try {
             isSavingRef.current = true;
             
-            // 1. Local backup (Instant)
-            await db.saveLocal('global', { users, loyaltyData: {} });
+            // 1. Sync custom domains up to users
+            let updatedUsers = [...users];
+            if (activeStoreId && allStoresData[activeStoreId]) {
+                const storeSettings = allStoresData[activeStoreId].settings;
+                updatedUsers = updatedUsers.map(user => {
+                    if (user.stores) {
+                        return {
+                            ...user,
+                            stores: user.stores.map(store => {
+                                if (store.id === activeStoreId) {
+                                    return {
+                                        ...store,
+                                        customDomain: storeSettings.customDomain,
+                                        subdomain: storeSettings.subdomain
+                                    };
+                                }
+                                return store;
+                            })
+                        }
+                    }
+                    return user;
+                });
+                
+                // Update users state if it's different
+                if (JSON.stringify(users) !== JSON.stringify(updatedUsers)) {
+                    setUsers(updatedUsers);
+                }
+            }
+            
+            // 2. Local backup (Instant)
+            await db.saveLocal('global', { users: updatedUsers, loyaltyData: {} });
             if (activeStoreId && allStoresData[activeStoreId]) {
                 await db.saveLocal(activeStoreId, allStoresData[activeStoreId]);
             }
 
-            // 2. Cloud sync (Parallel with Timeout)
+            // 3. Cloud sync (Parallel with Timeout)
             const syncPromises = [];
-            syncPromises.push(db.saveGlobalData({ users, loyaltyData: {} }));
+            syncPromises.push(db.saveGlobalData({ users: updatedUsers, loyaltyData: {} }));
             if (activeStoreId && allStoresData[activeStoreId] && activeStore) {
-                syncPromises.push(db.saveStoreData(activeStore, allStoresData[activeStoreId]));
+                // Must pass updated version of store!
+                const updatedStore = updatedUsers.find(u => u.stores?.some(s => s.id === activeStoreId))?.stores?.find(s => s.id === activeStoreId) || activeStore;
+                syncPromises.push(db.saveStoreData(updatedStore, allStoresData[activeStoreId]));
             }
 
             const results = await Promise.all(syncPromises);
@@ -1452,6 +1631,32 @@ export const AppComponent = () => {
         pageProps.setCart((prev: any[]) => prev.filter(item => item.id !== id));
     };
 
+    if (isStoreNotFound) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-50 text-slate-800" dir="rtl">
+                <div className="text-center space-y-4">
+                    <h1 className="text-4xl font-bold">404</h1>
+                    <p className="text-lg">هذا المتجر غير موجود أو غير مفعل.</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (isStandaloneStorefront) {
+        if (!activeStoreId || isInitialLoad) return <WelcomeLoader userName="" />;
+        
+        return (
+            <Routes>
+                <Route path="/" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+        );
+    }
+
     return (
         <>
             <Routes>
@@ -1553,7 +1758,7 @@ export const AppComponent = () => {
                     <Route path="product-attributes" element={<ComingSoonPage />} />
                     <Route path="withdrawals" element={<ComingSoonPage />} />
                     <Route path="design-templates" element={<ComingSoonPage />} />
-                    <Route path="domain" element={<DomainSettingsPage activeStoreId={activeStoreId} storeData={allStoresData[activeStoreId] || null} settings={pageProps.settings} setSettings={pageProps.setSettings} />} />
+                    <Route path="domain" element={<DomainSettingsPage activeStoreId={activeStoreId} storeData={allStoresData[activeStoreId] || null} settings={pageProps.settings} setSettings={pageProps.setSettings} users={users} />} />
                     <Route path="legal-pages" element={<ComingSoonPage />} />
                     <Route path="apps" element={<AppsPage storeId={activeStoreId} storeData={allStoresData[activeStoreId] || null} onUpdateSettings={pageProps.setSettings} onUpdateOrders={pageProps.setOrders} onRefresh={pageProps.onRefresh} hostUrl={pageProps.settings.customAppDomain || window.location.origin} />} />
                     <Route path="settings/tax" element={<ComingSoonPage />} />
