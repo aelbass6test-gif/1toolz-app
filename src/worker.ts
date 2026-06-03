@@ -24,7 +24,11 @@ app.post("/api/domains/add", async (c) => {
       return c.json({ success: false, error: "النطاق مطلوب" }, 400);
     }
 
-    const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
+    const cleanDomain = domain
+      .replace(/^(https?:\/\/)?(www\.)?/, "")
+      .replace(/\/.*$/, '')
+      .replace(/[^a-zA-Z0-9.-]/g, '')
+      .toLowerCase();
     // Access environment variables securely in Cloudflare Workers using c.env
     const zoneId = c.env.CLOUDFLARE_ZONE_ID;
     const apiToken = c.env.CLOUDFLARE_API_TOKEN;
@@ -102,7 +106,11 @@ app.post("/api/domains/status", async (c) => {
       return c.json({ success: false, error: "النطاق مطلوب" }, 400);
     }
 
-    const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
+    const cleanDomain = domain
+      .replace(/^(https?:\/\/)?(www\.)?/, "")
+      .replace(/\/.*$/, '')
+      .replace(/[^a-zA-Z0-9.-]/g, '')
+      .toLowerCase();
     const zoneId = c.env.CLOUDFLARE_ZONE_ID;
     const apiToken = c.env.CLOUDFLARE_API_TOKEN;
 

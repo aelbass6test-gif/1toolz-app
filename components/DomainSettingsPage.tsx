@@ -47,7 +47,17 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     }
     
     // Simple regex check for domain
-    const cleanDomain = customDomain.replace(/^(https?:\/\/)?(www\.)?/, '').trim();
+    const cleanDomain = customDomain
+      .replace(/^(https?:\/\/)?(www\.)?/, '')
+      .replace(/\/.*$/, '') // Remove any trailing paths
+      .replace(/[^a-zA-Z0-9.-]/g, '') // Remove hidden chars, spaces, and invalid symbols
+      .toLowerCase();
+    
+    if (!cleanDomain) {
+      alert("يرجى إدخال اسم نطاق صحيح");
+      return;
+    }
+    
     setCustomDomain(cleanDomain);
     setIsSaving(true);
     setErrorMessage(null);
@@ -241,7 +251,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       alert("يرجى إدخال اسم نطاق أولاً.");
       return;
     }
-    const cleanDomain = customDomain.replace(/^(https?:\/\/)?(www\.)?/, '').trim();
+    const cleanDomain = customDomain
+      .replace(/^(https?:\/\/)?(www\.)?/, '')
+      .replace(/\/.*$/, '')
+      .replace(/[^a-zA-Z0-9.-]/g, '')
+      .toLowerCase();
     setCustomDomain(cleanDomain);
     
     localStorage.setItem(`custom_domain_${activeStoreId}`, cleanDomain);
