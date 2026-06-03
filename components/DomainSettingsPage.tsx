@@ -44,7 +44,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   users = []
 }) => {
   const [customDomain, setCustomDomain] = useState('');
-  const [domainStatus, setDomainStatus] = useState<'none' | 'pending' | 'verifying' | 'active'>('none');
+  const [domainStatus, setDomainStatus] = useState<'none' | 'pending' | 'verifying' | 'active' | 'pending_validation' | 'error'>('none');
   const [cfDetails, setCfDetails] = useState<any>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -105,6 +105,18 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       setLocalSubdomain('');
     }
   }, [settings.subdomain]);
+
+  useEffect(() => {
+    if (settings.domainDNSRecords) {
+      setCfDetails(settings.domainDNSRecords);
+    }
+    if (settings.domainStatus && settings.domainStatus !== 'none') {
+      setDomainStatus(settings.domainStatus as any);
+    }
+    if (settings.customAppDomain && !customDomain) {
+      setCustomDomain(settings.customAppDomain);
+    }
+  }, [settings.domainDNSRecords, settings.domainStatus, settings.customAppDomain]);
 
   // Load saved domain from localStorage or storeData relative to current store
   useEffect(() => {
@@ -302,6 +314,15 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       const nextStatus = data.simulation ? 'pending' : (data.details?.status || 'pending');
       localStorage.setItem(`custom_domain_status_${activeStoreId}`, nextStatus);
       setDomainStatus(nextStatus as any);
+      
+      // Save conflict state if any
+      if (data.isConflict) {
+        setSettings((prev: any) => ({
+          ...prev,
+          domainConflict: true,
+          domainDNSRecords: data.details
+        }));
+      }
       
       // Save to global setSettings for SaaS configurations
       setSettings((prev: any) => ({
@@ -636,6 +657,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               <p className="text-xs text-slate-500 leading-relaxed">
                 هل اشتريت دوميناً خاصاً بك؟ اكتب العنوان هنا (مثال: <span className="font-semibold text-slate-700 dark:text-slate-350" dir="ltr">mystore.com</span>) للربط التلقائي عبر المنظومة السحابية.
               </p>
+              <div className="p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-lg">
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold leading-relaxed">
+                  ⚠️ تأكد من إضافة <strong>CLOUDFLARE_API_TOKEN</strong> و <strong>CLOUDFLARE_ZONE_ID</strong> في إعدادات التطبيق (Settings) لضمان عمل الربط التلقائي وشهادات الـ SSL.
+                </p>
+              </div>
 
               <div className="flex gap-2">
                 <input 
@@ -650,9 +676,16 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               </div>
 
               {customDomain && isCustomDomainTaken(customDomain) && (
-                <div className="p-3 bg-red-50/50 dark:bg-red-950/20 text-red-650 dark:text-red-400 text-xs font-bold rounded-xl border border-red-200/40 flex items-center gap-1.5">
+                <div className="p-3 bg-red-50/50 dark:bg-red-950/20 text-red-650 dark:text-red-400 text-xs font-bold rounded-xl border border-red-200/40 flex items-center gap-1.5 animate-pulse">
                   <AlertTriangle size={14} />
-                  <span>تحذير: هذا الدومين المخصص محتجز لمتجر آخر على السحابة، لن تتمكن من تشغيله حتى يتم حذفه أو نقله من قبل مالكه الأصلي.</span>
+                  <span>تحذير: هذا الدومين المخصص محتجز لمتجر آخر على النظام. إذا كنت أنت المالك، يرجى حذفه من المتجر الآخر أولاً.</span>
+                </div>
+              )}
+
+              {settings.domainConflict && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl border border-amber-200/40 flex items-center gap-1.5 animate-pulse">
+                  <AlertTriangle size={14} />
+                  <span>تنبيه: هذا النطاق محجوز في حساب Cloudflare آخر. يرجى إضافة سجلات التوثيق أدناه لإثبات ملكيتك ونقله لمتجرك الحالي أوتوماتيكياً.</span>
                 </div>
               )}
 
@@ -712,7 +745,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                 <button 
                   type="button"
                   onClick={handleSaveDomain}
-                  disabled={domainStatus === 'verifying' || isSaving || !customDomain || isCustomDomainTaken(customDomain)}
+                  disabled={domainStatus === 'verifying' || isSaving || !customDomain}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-55"
                 >
                   {isSaving ? (
@@ -743,7 +776,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           </div>
 
           {/* DNS Configuration Table and details */}
-          {domainStatus !== 'none' && (
+          {(domainStatus !== 'none' || cfDetails || settings.domainDNSRecords) && (
             <motion.div 
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -754,17 +787,22 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                     <RefreshCw size={18} />
                   </div>
-                  <span className="font-bold text-lg md:text-xl text-slate-900 dark:text-white" dir="ltr">{customDomain}</span>
+                  <span className="font-bold text-lg md:text-xl text-slate-900 dark:text-white" dir="ltr">{customDomain || settings.customDomain}</span>
                   
-                  {domainStatus === 'active' ? (
+                  {domainStatus === 'active' || (settings.domainStatus === 'active' && !domainStatus) ? (
                     <span className="px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/50 text-xs font-bold flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                       متصل ونشط
                     </span>
+                  ) : domainStatus === 'pending_validation' || domainStatus === 'pending' ? (
+                    <span className="px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-800/50 text-xs font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      بانتظار التوثيق
+                    </span>
                   ) : (
                     <span className="px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/50 text-xs font-bold flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                      لم يتم التحقق
+                      غير متصل
                     </span>
                   )}
                 </div>
@@ -813,7 +851,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">3</span>
-                      <span className="pt-1">احذف أي سجلات قديمة تشير للروت (@) أو الـ (www)، ثم أضف السجلات التالية بالضبط:</span>
+                      <span className="pt-1">احذف أي سجلات قديمة تشير للروت (@) أو الـ (www)، ثم أضف السجلين التاليين من نوع CNAME ليشيروا إلى <code className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">fallback.abdomedi.com</code>:</span>
                     </li>
                   </ul>
                 </div>
@@ -833,10 +871,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
                     <div className="flex items-center justify-center gap-2">
                       <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
-                        {window.location.hostname}
+                        fallback.abdomedi.com
                       </div>
                       <button 
-                        onClick={() => handleCopy(window.location.hostname, 'arecord')}
+                        onClick={() => handleCopy('fallback.abdomedi.com', 'arecord')}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
                       >
                         {copiedText === 'arecord' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
@@ -851,10 +889,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <div className="font-mono text-slate-600 dark:text-slate-400">www</div>
                     <div className="flex items-center justify-center gap-2">
                       <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
-                        {customDomain}
+                        fallback.abdomedi.com
                       </div>
                       <button 
-                        onClick={() => handleCopy(customDomain, 'cname')}
+                        onClick={() => handleCopy('fallback.abdomedi.com', 'cname')}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
                       >
                         {copiedText === 'cname' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
@@ -863,43 +901,53 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
                   </div>
 
-                  {/* Cloudflare TXT Validation Records if needed */}
-                  {cfDetails?.ownership_verification?.name && (
-                    <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
-                      <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">TXT</div>
-                      <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">{cfDetails.ownership_verification.name.replace(`.${customDomain}`, '')}</div>
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
-                          {cfDetails.ownership_verification.value}
+                  {/* TXT Records from Cloudflare */}
+                  {(cfDetails || settings.domainDNSRecords) && (
+                    <>
+                      {/* Record 3: Ownership Verification TXT */}
+                      {(cfDetails?.ownership_verification || settings.domainDNSRecords?.ownership_verification) && (
+                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
+                          <div className="font-mono text-slate-800 dark:text-slate-200 font-medium text-[10px]">TXT (Ownership)</div>
+                          <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
+                            {(cfDetails?.ownership_verification?.name || settings.domainDNSRecords?.ownership_verification?.name || "").replace(`.${customDomain || settings.customDomain}`, '')}
+                          </div>
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
+                              {cfDetails?.ownership_verification?.value || settings.domainDNSRecords?.ownership_verification?.value}
+                            </div>
+                            <button 
+                              onClick={() => handleCopy(cfDetails?.ownership_verification?.value || settings.domainDNSRecords?.ownership_verification?.value, 'txt-own')}
+                              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
+                            >
+                              {copiedText === 'txt-own' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                          <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
                         </div>
-                        <button 
-                          onClick={() => handleCopy(cfDetails.ownership_verification.value, 'txt-own')}
-                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
-                        >
-                          {copiedText === 'txt-own' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                        </button>
-                      </div>
-                      <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
-                    </div>
-                  )}
+                      )}
 
-                  {cfDetails?.ssl?.validation_records?.[0]?.txt_name && (
-                    <div className="grid grid-cols-4 py-5 px-4 text-center items-center bg-pink-50/20 dark:bg-pink-900/10">
-                      <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">TXT</div>
-                      <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">{cfDetails.ssl.validation_records[0].txt_name.replace(`.${customDomain}`, '')}</div>
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
-                          {cfDetails.ssl.validation_records[0].txt_value}
+                      {/* Record 4: SSL Verification TXT */}
+                      {(cfDetails?.ssl?.validation_records?.[0] || settings.domainDNSRecords?.ssl?.validation_records?.[0]) && (
+                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center bg-pink-50/20 dark:bg-pink-900/10">
+                          <div className="font-mono text-slate-800 dark:text-slate-200 font-medium text-[10px]">TXT (SSL)</div>
+                          <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
+                            {(cfDetails?.ssl?.validation_records?.[0]?.txt_name || settings.domainDNSRecords?.ssl?.validation_records?.[0]?.txt_name || "").replace(`.${customDomain || settings.customDomain}`, '')}
+                          </div>
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
+                              {cfDetails?.ssl?.validation_records?.[0]?.txt_value || settings.domainDNSRecords?.ssl?.validation_records?.[0]?.txt_value}
+                            </div>
+                            <button 
+                              onClick={() => handleCopy(cfDetails?.ssl?.validation_records?.[0]?.txt_value || settings.domainDNSRecords?.ssl?.validation_records?.[0]?.txt_value, 'txt-ssl')}
+                              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
+                            >
+                              {copiedText === 'txt-ssl' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                          <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
                         </div>
-                        <button 
-                          onClick={() => handleCopy(cfDetails.ssl.validation_records[0].txt_value, 'txt-ssl')}
-                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
-                        >
-                          {copiedText === 'txt-ssl' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                        </button>
-                      </div>
-                      <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
-                    </div>
+                      )}
+                    </>
                   )}
                 </div>
 

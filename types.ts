@@ -513,6 +513,7 @@ export interface Settings {
   customAppDomain?: string; // <-- New field for SaaS integration
   customDomain?: string; // <-- New field for live store domain mapping
   domainStatus?: 'pending' | 'active' | 'error' | 'pending_validation';
+  domainConflict?: boolean;
   domainDNSRecords?: any; 
   subdomain?: string; // <-- New field for subdomains
   platformConfigs?: Record<string, {
