@@ -49,7 +49,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     setBackendError(null);
 
     try {
-      const response = await fetch('/api/domains/add', {
+      let response = await fetch('/api/domains/add', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -59,6 +59,20 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           storeId: activeStoreId
         })
       });
+
+      // 🔥 Auto-fallback for shared hosting (Hostinger/cPanel) if .htaccess is missing!
+      if (response.status === 405 || response.status === 404) {
+        console.warn(`[API] Endpoint /api/domains/add returned ${response.status}. Attempting direct PHP file execution /api/domains/add/index.php...`);
+        const fallbackResponse = await fetch('/api/domains/add/index.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain: cleanDomain, storeId: activeStoreId })
+        });
+        
+        if (fallbackResponse.ok || fallbackResponse.status === 400 || fallbackResponse.status === 500) {
+            response = fallbackResponse; // Use the PHP response if it executed!
+        }
+      }
 
       if (response.status === 405) {
         throw new Error("405_METHOD_NOT_ALLOWED");
@@ -129,7 +143,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     setBackendError(null);
     
     try {
-      const response = await fetch('/api/domains/status', {
+      let response = await fetch('/api/domains/status', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -138,6 +152,20 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           domain: customDomain
         })
       });
+
+      // 🔥 Auto-fallback for shared hosting (Hostinger/cPanel) if .htaccess is missing!
+      if (response.status === 405 || response.status === 404) {
+        console.warn(`[API] Endpoint /api/domains/status returned ${response.status}. Attempting direct PHP file execution /api/domains/status/index.php...`);
+        const fallbackResponse = await fetch('/api/domains/status/index.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain: customDomain })
+        });
+        
+        if (fallbackResponse.ok || fallbackResponse.status === 400 || fallbackResponse.status === 500) {
+            response = fallbackResponse;
+        }
+      }
 
       if (response.status === 405) {
         throw new Error("405_METHOD_NOT_ALLOWED");

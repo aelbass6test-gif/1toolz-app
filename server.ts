@@ -357,6 +357,12 @@ async function startServer() {
   const PORT = 3000;
   const app = new Hono();
 
+  // Debug middleware to log ALL incoming requests
+  app.use("*", async (c, next) => {
+    console.log(`[HONO INCOMING] ${c.req.method} ${c.req.url}`);
+    await next();
+  });
+
   app.use("/*", cors());
 
   // Load Firebase Config
