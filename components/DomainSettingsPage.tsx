@@ -416,7 +416,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <button
                       type="button"
                       onClick={handleActivateDemoMode}
-                      className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-455 font-black rounded-lg border border-indigo-200/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition text-[10px] cursor-pointer"
+                      className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-450 font-black rounded-lg border border-indigo-200/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition text-[10px] cursor-pointer"
                     >
                       تفعيل الدومين الآن (وضع المحاكاة) ⚡
                     </button>
@@ -463,207 +463,191 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
             <motion.div 
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6"
+              className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm"
             >
-              <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
-                <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-                <span>إعداد سجلات الـ DNS في لوحة تحكم النطاق</span>
-              </h2>
-
-              <div className="space-y-4">
-                <div className="bg-indigo-50/50 dark:bg-indigo-900/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-800/30">
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-3">الإرشادات</h3>
-                  <ul className="space-y-3 text-xs text-slate-600 dark:text-slate-400">
-                    <li className="flex items-start gap-2">
-                      <span className="w-5 h-5 rounded-full border border-indigo-200 bg-white dark:bg-slate-800 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">1</span>
-                      <span>اذهب إلى لوحة التحكم في الموقع الذي يستضيف الدومين الخاص بك.</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="w-5 h-5 rounded-full border border-indigo-200 bg-white dark:bg-slate-800 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">2</span>
-                      <span>انتقل إلى إعدادات إدارة ملفات DNS الخاصة بالدومين.</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="w-5 h-5 rounded-full border border-indigo-200 bg-white dark:bg-slate-800 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">3</span>
-                      <span><strong className="text-red-500">احذف سجلات A</strong> الخاصة بالنطاق (@) وأيضاً <strong className="text-red-500">سجلات AAAA</strong>، ثم أضف سجلات CNAME من الجدول أدناه.</span>
-                    </li>
-                  </ul>
-                </div>
-
-                {/* DNS Records Table */}
-                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-950/30 text-xs">
-                  <div className="grid grid-cols-4 bg-slate-100 dark:bg-slate-800 py-3 px-4 font-black text-slate-700 dark:text-slate-300 text-center border-b border-slate-200 dark:border-slate-700">
-                    <div>النوع (Type)</div>
-                    <div>الاسم (Host/Name)</div>
-                    <div>القيمة المستهدفة (Value/Points to)</div>
-                    <div>نسخ سريع</div>
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
+                {/* Right side: Domain Name & Status */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                    <RefreshCw size={18} />
                   </div>
-
-                  {/* Record 1: CNAME for root (@) */}
-                  <div className="grid grid-cols-4 py-4 px-4 text-center border-b border-slate-200 dark:border-slate-850 items-center">
-                    <div className="font-mono bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-indigo-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME</div>
-                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@</div>
-                    <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-semibold" dir="ltr">
-                      {window.location.hostname}
-                    </div>
-                    <div>
-                      <button 
-                        onClick={() => handleCopy(window.location.hostname, 'arecord')}
-                        className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
-                      >
-                        {copiedText === 'arecord' ? (
-                          <>
-                            <Check size={12} className="text-green-500" />
-                            <span>تم!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>نسخ</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Record 2: CNAME for www */}
-                  <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-slate-200 dark:border-slate-850">
-                    <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME</div>
-                    <div className="font-mono font-bold text-slate-800 dark:text-slate-200">www</div>
-                    <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate shrink px-1" dir="ltr">
-                      {customDomain}
-                    </div>
-                    <div>
-                      <button 
-                        onClick={() => handleCopy(customDomain, 'cname')}
-                        className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
-                      >
-                        {copiedText === 'cname' ? (
-                          <>
-                            <Check size={12} className="text-green-500" />
-                            <span>تم!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>نسخ</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Cloudflare Validation Records */}
-                  {cfDetails?.ownership_verification?.name && (
-                    <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-t border-slate-200 dark:border-slate-850 bg-indigo-50/30 dark:bg-indigo-900/10">
-                      <div className="font-mono bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">TXT (التحقق)</div>
-                      <div className="font-mono font-bold text-slate-800 dark:text-slate-200 select-all text-[11px] truncate px-1" dir="ltr">{cfDetails.ownership_verification.name.replace(`.${customDomain}`, '')}</div>
-                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate px-1" dir="ltr">
-                        {cfDetails.ownership_verification.value}
-                      </div>
-                      <div>
-                        <button 
-                          onClick={() => handleCopy(cfDetails.ownership_verification.value, 'txt-own')}
-                          className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
-                        >
-                          {copiedText === 'txt-own' ? (
-                            <>
-                              <Check size={12} className="text-green-500" />
-                              <span>تم!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy size={12} />
-                              <span>نسخ</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {cfDetails?.ssl?.validation_records?.[0]?.txt_name && (
-                    <div className="grid grid-cols-4 py-4 px-4 text-center items-center border-t border-slate-200 dark:border-slate-850 bg-pink-50/30 dark:bg-pink-900/10">
-                      <div className="font-mono bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">TXT (شهادة SSL)</div>
-                      <div className="font-mono font-bold text-slate-800 dark:text-slate-200 select-all text-[11px] truncate px-1" dir="ltr">{cfDetails.ssl.validation_records[0].txt_name.replace(`.${customDomain}`, '')}</div>
-                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate px-1" dir="ltr">
-                        {cfDetails.ssl.validation_records[0].txt_value}
-                      </div>
-                      <div>
-                        <button 
-                          onClick={() => handleCopy(cfDetails.ssl.validation_records[0].txt_value, 'txt-ssl')}
-                          className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
-                        >
-                          {copiedText === 'txt-ssl' ? (
-                            <>
-                              <Check size={12} className="text-green-500" />
-                              <span>تم!</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy size={12} />
-                              <span>نسخ</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
+                  <span className="font-bold text-lg md:text-xl text-slate-900 dark:text-white" dir="ltr">{customDomain}</span>
+                  
+                  {domainStatus === 'active' ? (
+                    <span className="px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/50 text-xs font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      متصل ونشط
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/50 text-xs font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                      لم يتم التحقق
+                    </span>
                   )}
                 </div>
 
-                <div className="space-y-3 mt-4">
-                  <div className="flex items-center gap-2 mb-2 p-2 px-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg">
-                    <span className="w-5 h-5 rounded-full border border-emerald-200 bg-white dark:bg-slate-800 dark:border-emerald-800 flex items-center justify-center text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">4</span>
-                    <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">تأكد من أنك قمت بإعداده بالشكل المطلوب</p>
-                  </div>
-                  
-                  <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-xl border border-amber-200/50 dark:border-amber-900/30">
-                    <div className="flex gap-2 items-start text-amber-800 dark:text-amber-400">
-                      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                      <div className="space-y-1">
-                        <p className="text-[11px] font-bold">يحتاج الدومين 24 ساعة لربطه ويظهر موقعك أونلاين على مستوى العالم</p>
-                        <p className="text-[10px] leading-relaxed opacity-90">
-                          يحتاج ربط الدومين 24 ساعة، لأن تغييرات DNS تستغرق وقتاً للظهور.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Verify DNS mapping card */}
-                <div className="pt-4 flex items-center justify-end flex-wrap gap-4">
-                  
+                {/* Left side: Action Buttons */}
+                <div className="flex items-center gap-3">
                   <button 
-                    type="button"
                     onClick={handleVerify}
                     disabled={domainStatus === 'verifying'}
-                    className={`px-5 py-2.5 rounded-full text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer transition-all ${
+                    className={`px-6 py-2.5 rounded-full text-sm font-bold shadow-sm flex items-center gap-2 cursor-pointer transition-all ${
                       domainStatus === 'active' 
-                        ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600' 
+                        ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default pointer-events-none' 
                         : 'bg-emerald-600 hover:bg-emerald-700 text-white'
                     }`}
                   >
                     {domainStatus === 'verifying' ? (
                       <>
-                        <RefreshCw size={14} className="animate-spin" />
+                        <RefreshCw size={16} className="animate-spin" />
                         <span>جاري التحقق...</span>
                       </>
                     ) : domainStatus === 'active' ? (
                       <>
-                        <CheckCircle2 size={14} className="text-emerald-600" />
-                        <span>تم الربط بنجاح</span>
+                        <CheckCircle2 size={16} />
+                        <span>تم الربط</span>
                       </>
                     ) : (
                       <>
                         <span>تحقق</span>
-                        <CheckCircle2 size={14} />
+                        <CheckCircle2 size={16} />
                       </>
                     )}
                   </button>
+                  <button 
+                    onClick={handleDisconnect}
+                    disabled={isSaving}
+                    className="px-6 py-2.5 rounded-full border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
                 </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4">الإرشادات</h3>
+                  <ul className="space-y-4 text-xs font-medium text-slate-600 dark:text-slate-400">
+                    <li className="flex items-start gap-3">
+                      <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">1</span>
+                      <span className="pt-1">اذهب إلى لوحة التحكم في الموقع الذي يستضيف الدومين الخاص بك.</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">2</span>
+                      <span className="pt-1">انتقل إلى إعدادات إدارة ملفات DNS الخاصة بالدومين.</span>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">3</span>
+                      <span className="pt-1">احذف سجلات A الخاصة بالنطاق (@)، ثم أضف سجل CNAME من الجدول.</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* DNS Records Table */}
+                <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
+                  <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-100 dark:border-slate-800">
+                    <div>النوع</div>
+                    <div>القيمة</div>
+                    <div>Target</div>
+                    <div>TTL</div>
+                  </div>
+
+                  {/* Record 1: CNAME for root (@) */}
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-100 dark:border-slate-800 items-center">
+                    <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
+                    <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
+                        {window.location.hostname}
+                      </div>
+                      <button 
+                        onClick={() => handleCopy(window.location.hostname, 'arecord')}
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                      >
+                        {copiedText === 'arecord' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <div className="font-mono text-slate-600 dark:text-slate-400">38400</div>
+                  </div>
+
+                  {/* Record 2: CNAME for www */}
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-100 dark:border-slate-800 items-center">
+                    <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
+                    <div className="font-mono text-slate-600 dark:text-slate-400">www</div>
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
+                        {customDomain}
+                      </div>
+                      <button 
+                        onClick={() => handleCopy(customDomain, 'cname')}
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                      >
+                        {copiedText === 'cname' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <div className="font-mono text-slate-600 dark:text-slate-400">38400</div>
+                  </div>
+
+                  {/* Cloudflare TXT Validation Records if needed */}
+                  {cfDetails?.ownership_verification?.name && (
+                    <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
+                      <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">TXT</div>
+                      <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">{cfDetails.ownership_verification.name.replace(`.${customDomain}`, '')}</div>
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
+                          {cfDetails.ownership_verification.value}
+                        </div>
+                        <button 
+                          onClick={() => handleCopy(cfDetails.ownership_verification.value, 'txt-own')}
+                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
+                        >
+                          {copiedText === 'txt-own' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                      <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
+                    </div>
+                  )}
+
+                  {cfDetails?.ssl?.validation_records?.[0]?.txt_name && (
+                    <div className="grid grid-cols-4 py-5 px-4 text-center items-center bg-pink-50/20 dark:bg-pink-900/10">
+                      <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">TXT</div>
+                      <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">{cfDetails.ssl.validation_records[0].txt_name.replace(`.${customDomain}`, '')}</div>
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
+                          {cfDetails.ssl.validation_records[0].txt_value}
+                        </div>
+                        <button 
+                          onClick={() => handleCopy(cfDetails.ssl.validation_records[0].txt_value, 'txt-ssl')}
+                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
+                        >
+                          {copiedText === 'txt-ssl' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                      <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4 pt-4">
+                  <div className="flex items-center gap-3">
+                    <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">4</span>
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200">تأكد من أنك قمت بإعداده بالشكل المطلوب</p>
+                  </div>
+                  
+                  <div className="bg-amber-50/50 dark:bg-amber-950/20 p-5 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                    <div className="flex items-center justify-center gap-2 mb-2 text-amber-700 dark:text-amber-400">
+                      <AlertTriangle size={18} className="shrink-0" />
+                      <p className="text-sm font-bold">يحتاج الدومين 24 ساعة لربطه ويظهر موقعك أونلاين على مستوى العالم</p>
+                    </div>
+                    <p className="text-xs text-center text-amber-600/80 dark:text-amber-500/80 font-medium">
+                      يحتاج ربط الدومين 24 ساعة، لأن تغييرات DNS تستغرق وقتاً للظهور.
+                    </p>
+                  </div>
+                </div>
+
               </div>
             </motion.div>
           )}
-
 
         </div>
 
