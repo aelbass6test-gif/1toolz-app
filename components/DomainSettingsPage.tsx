@@ -202,7 +202,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "فشل التحقق من حالة النطاق.");
+        throw new Error(data.error || data.message || "فشل التحقق من حالة النطاق.");
       }
 
       if (data.status === 'active' && data.ssl_status === 'active') {
@@ -248,6 +248,8 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           type: 'json',
           message: "لم نستطع قراءة رد فحص الدومين لأن السيرفر أرجع صفحة HTML بدلاً من JSON."
         });
+      } else {
+        alert(`❌ حدث خطأ: ${err.message}`);
       }
       alert(`⚠️ خطأ أثناء الفحص: ${err.message}`);
     }
@@ -487,11 +489,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <div className="font-mono bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-indigo-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME</div>
                     <div className="font-mono font-bold text-slate-800 dark:text-slate-200">www (أو أي اسم فرعي)</div>
                     <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all truncate shrink px-1" dir="ltr">
-                      abdomedi.com
+                      {window.location.hostname}
                     </div>
                     <div>
                       <button 
-                        onClick={() => handleCopy('abdomedi.com', 'cname')}
+                        onClick={() => handleCopy(window.location.hostname, 'cname')}
                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
                       >
                         {copiedText === 'cname' ? (
@@ -514,11 +516,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <div className="font-mono bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 py-1 px-2 rounded-lg text-[10px] w-fit mx-auto font-bold">CNAME / A</div>
                     <div className="font-mono font-bold text-slate-800 dark:text-slate-200">@ (النطاق الرئيسي)</div>
                     <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-semibold" dir="ltr">
-                      fallback.abdomedi.com
+                      {window.location.hostname}
                     </div>
                     <div>
                       <button 
-                        onClick={() => handleCopy('fallback.abdomedi.com', 'arecord')}
+                        onClick={() => handleCopy(window.location.hostname, 'arecord')}
                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 justify-center mx-auto cursor-pointer"
                       >
                         {copiedText === 'arecord' ? (

@@ -535,7 +535,7 @@ async function startServer() {
       }
 
       const response = await fetch(
-        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?hostname=${cleanDomain}`,
+        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(cleanDomain)}`,
         {
           method: "GET",
           headers: {
