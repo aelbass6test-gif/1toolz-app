@@ -1,8 +1,19 @@
 import React, { useState } from 'react';
 import { Settings, Supplier, SupplyOrder, Transaction } from '../types';
-import { UserPlus, Truck, Save, Plus, Package, Calendar, DollarSign, User, Trash2, Edit2, Eye, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, ChevronDown, Activity, Briefcase } from 'lucide-react';
+import { 
+  UserPlus, Truck, Save, Plus, Package, Calendar, DollarSign, User, Trash2, 
+  Edit2, Eye, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
+  ChevronDown, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
+  PieChart as LucidePieChart, Download, Printer, Layers, HelpCircle, CheckCircle2,
+  Search
+} from 'lucide-react';
+import { 
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, 
+  PieChart, Pie, Cell, Legend 
+} from 'recharts';
 import { SupplyOrderItem } from '../types';
 import { InventoryAudit } from './InventoryAudit';
+import { getLatestProductCost } from '../utils/financials';
 
 interface SuppliersPageProps {
   settings: Settings;
@@ -15,9 +26,10 @@ interface SuppliersPageProps {
 }
 
 const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wallet, setWallet, treasury, setTreasury, currentUser }) => {
-  const [activeTab, setActiveTab] = useState<'suppliers' | 'orders' | 'audit'>('orders');
+  const [activeTab, setActiveTab] = useState<'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses'>('orders');
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showWarehouseModal, setShowWarehouseModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedSupplierForPayment, setSelectedSupplierForPayment] = useState<Supplier | null>(null);
   const [paymentAmount, setPaymentAmount] = useState(0);
@@ -27,6 +39,11 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   // New Supplier State
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [newSupplier, setNewSupplier] = useState<Partial<Supplier>>({ name: '', phone: '', address: '', notes: '' });
+
+  // Warehouse State
+  const [editingWarehouse, setEditingWarehouse] = useState<any | null>(null);
+  const [newWarehouse, setNewWarehouse] = useState({ name: '', location: '', isDefault: false });
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   
   // New Order State
   const [editingOrder, setEditingOrder] = useState<SupplyOrder | null>(null);
@@ -34,23 +51,41 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [orderReference, setOrderReference] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [orderItems, setOrderItems] = useState<SupplyOrderItem[]>([]);
+  const [shippingFees, setShippingFees] = useState(0);
+  const [otherFees, setOtherFees] = useState(0);
+  const [taxRate, setTaxRate] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury'>('cash');
   const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
   const [selectedPartnerId, setSelectedPartnerId] = useState(''); 
   
-  const totalCost = React.useMemo(() => {
+  // Custom states for central inventory tab
+  const [inventoryQuery, setInventoryQuery] = useState('');
+  const [inventoryStockFilter, setInventoryStockFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
+  const [inventoryCollectionFilter, setInventoryCollectionFilter] = useState<'all' | string>('all');
+  
+  const itemsSubtotal = React.useMemo(() => {
     return orderItems.reduce((sum, item) => {
-        let itemTotal = item.cost * item.quantity;
+        let itemTotal = item.cost * (item.quantity || 0);
         if (item.discountValue) {
             if (item.discountType === 'percentage') {
                 itemTotal -= (itemTotal * (item.discountValue / 100));
             } else {
-                itemTotal -= (item.discountValue * item.quantity);
+                itemTotal -= (item.discountValue * (item.quantity || 0));
             }
         }
         return sum + itemTotal;
     }, 0);
   }, [orderItems]);
+
+  const taxAmount = React.useMemo(() => {
+    return itemsSubtotal * (taxRate / 100);
+  }, [itemsSubtotal, taxRate]);
+
+  const grandTotal = React.useMemo(() => {
+    return itemsSubtotal + taxAmount + shippingFees + otherFees;
+  }, [itemsSubtotal, taxAmount, shippingFees, otherFees]);
+
+  const totalCost = grandTotal; // Keep totalCost variable for compatibility with existing code
 
   // Auto-initialize or keep in sync if only one partner
   React.useEffect(() => {
@@ -104,8 +139,67 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       }));
   };
 
+  const handleAddWarehouse = () => {
+    if (!newWarehouse.name) return;
+
+    setSettings(prev => {
+        const warehouses = prev.warehouses || [];
+        let updatedWarehouses;
+        
+        if (editingWarehouse) {
+            updatedWarehouses = warehouses.map(w => w.id === editingWarehouse.id ? { ...w, ...newWarehouse } : w);
+        } else {
+            updatedWarehouses = [...warehouses, { ...newWarehouse, id: Date.now().toString() }];
+        }
+
+        // If this is set as default, unset others
+        if (newWarehouse.isDefault) {
+            const currentId = editingWarehouse?.id || updatedWarehouses[updatedWarehouses.length - 1].id;
+            updatedWarehouses = updatedWarehouses.map(w => ({
+              ...w,
+              isDefault: w.id === currentId
+            }));
+        }
+
+        return { ...prev, warehouses: updatedWarehouses };
+    });
+
+    setShowWarehouseModal(false);
+    setEditingWarehouse(null);
+    setNewWarehouse({ name: '', location: '', isDefault: false });
+  };
+
+  const startEditWarehouse = (warehouse: any) => {
+    setEditingWarehouse(warehouse);
+    setNewWarehouse({ name: warehouse.name, location: warehouse.location || '', isDefault: !!warehouse.isDefault });
+    setShowWarehouseModal(true);
+  };
+
+  const handleDeleteWarehouse = (id: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا المستودع؟ لن يتم حذف المنتجات ولكن سيتم فقدان معلومات موقعها.')) return;
+    setSettings(prev => ({
+        ...prev,
+        warehouses: (prev.warehouses || []).filter(w => w.id !== id)
+    }));
+  };
+
   const handleAddOrder = () => {
-      if(!selectedSupplierId || orderItems.length === 0) return;
+      if(!selectedSupplierId) {
+          alert('يرجى اختيار المورد أولاً');
+          return;
+      }
+      if(orderItems.length === 0) {
+          alert('يرجى إضافة صنف واحد على الأقل للفاتورة');
+          return;
+      }
+      if(orderItems.some(i => (i.quantity || 0) <= 0 && (i.bonusQuantity || 0) <= 0)) {
+          alert('يرجى التأكد من أن جميع الكميات صحيحة وأكبر من الصفر');
+          return;
+      }
+      if(paymentMethod === 'treasury' && !selectedTreasuryAccountId) {
+          alert('يرجى اختيار حساب الخزينة المراد الخصم منه');
+          return;
+      }
       
       const currentOrderId = editingOrder ? (editingOrder as any).id : Date.now().toString();
       
@@ -137,8 +231,21 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               if (oldSuppIdx > -1 && currentOldOrder.paymentMethod === 'credit') {
                   updatedSuppliers[oldSuppIdx] = {
                       ...updatedSuppliers[oldSuppIdx],
-                      balance: (updatedSuppliers[oldSuppIdx].balance || 0) - currentOldOrder.totalCost
+                      balance: (updatedSuppliers[oldSuppIdx].balance || 0) - (currentOldOrder.grandTotal || currentOldOrder.totalCost)
                   };
+              }
+
+              // Revert Treasury if was treasury funded
+              if (currentOldOrder.paymentMethod === 'treasury' && currentOldOrder.treasuryAccountId) {
+                setTreasury((prev: any) => ({
+                    ...prev,
+                    accounts: prev.accounts.map((acc: any) => 
+                        acc.id === currentOldOrder.treasuryAccountId 
+                        ? { ...acc, balance: acc.balance + (currentOldOrder.grandTotal || currentOldOrder.totalCost) } 
+                        : acc
+                    ),
+                    transactions: prev.transactions.filter((t: any) => !t.id.startsWith(`supply_tx_${currentOldOrder.id}`))
+                }));
               }
 
               // Revert Partner Balance if was partner funded
@@ -160,8 +267,16 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               editingOrder.items.forEach(oldItem => {
                   const product = updatedProducts.find(p => p.id === oldItem.productId);
                   if (product) {
-                      const totalQty = oldItem.quantity + (oldItem.bonusQuantity || 0);
+                      const receivedQty = oldItem.receivedQuantity !== undefined ? oldItem.receivedQuantity : (oldItem.quantity || 0);
+                      const totalQty = receivedQty + (oldItem.bonusQuantity || 0);
                       product.stockQuantity = (product.stockQuantity || 0) - totalQty;
+                      
+                      // Update warehouse stock if order has warehouseId
+                      const oldWhId = (editingOrder as SupplyOrder).warehouseId;
+                      if (oldWhId) {
+                        if (!product.warehouseStock) product.warehouseStock = {};
+                        product.warehouseStock[oldWhId] = (product.warehouseStock[oldWhId] || 0) - totalQty;
+                      }
                   }
               });
           }
@@ -170,13 +285,65 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           orderItems.forEach(newItem => {
               const productIndex = updatedProducts.findIndex(p => p.id === newItem.productId);
               if (productIndex > -1) {
-                  const totalQty = newItem.quantity + (newItem.bonusQuantity || 0);
+                  const receivedQty = newItem.receivedQuantity !== undefined ? newItem.receivedQuantity : newItem.quantity;
+                  const totalQty = receivedQty + (newItem.bonusQuantity || 0);
                   const newQty = (updatedProducts[productIndex].stockQuantity || 0) + totalQty;
+                  
+                  // Update warehouse stock for product
+                  if (selectedWarehouseId) {
+                      if (!updatedProducts[productIndex].warehouseStock) updatedProducts[productIndex].warehouseStock = {};
+                      updatedProducts[productIndex].warehouseStock[selectedWarehouseId] = 
+                        (updatedProducts[productIndex].warehouseStock[selectedWarehouseId] || 0) + totalQty;
+                  }
+                  
+                  // ... rest of the pricing logic ...
+                  // landedCost = (item_cost_after_item_discount + proportional_part_of_fees) / total_units
+                  const itemSubtotal = (newItem.cost * (newItem.quantity || 0)) - (newItem.discountType === 'percentage' ? (newItem.cost * (newItem.quantity || 0) * (newItem.discountValue || 0) / 100) : ((newItem.discountValue || 0) * (newItem.quantity || 0)));
+                  // Distribute tax and fees proportionally based on subtotal
+                  const feesFactor = itemsSubtotal > 0 ? (grandTotal / itemsSubtotal) : 1;
+                  const itemLandedCost = totalQty > 0 ? (itemSubtotal * feesFactor / totalQty) : (newItem.cost * feesFactor);
+
+                  // Get pricing configurations determined in the purchase invoice
+                  const currentProd = updatedProducts[productIndex];
+                  const shouldUpdatePricing = newItem.updateCatalogPrice !== false;
+                  
+                  // Use Landed Cost as the new base cost for pricing if updating
+                  let costPrice = shouldUpdatePricing ? itemLandedCost : currentProd.costPrice;
+                  let price = currentProd.price || 0;
+                  const profitMode = shouldUpdatePricing ? (newItem.profitMode || currentProd.profitMode || 'manual') : (currentProd.profitMode || 'manual');
+                  
+                  if (shouldUpdatePricing) {
+                      if (profitMode === 'manual') {
+                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) {
+                              price = newItem.sellingPrice;
+                          }
+                      } else if (profitMode === 'margin') {
+                          const margin = newItem.profitPercentage ?? currentProd.profitPercentage ?? 0;
+                          if (margin < 100 && margin >= 0) {
+                              price = costPrice / (1 - (margin / 100));
+                          }
+                      } else if (profitMode === 'commission') {
+                          const commission = newItem.commissionPercentage ?? currentProd.commissionPercentage ?? 0;
+                          const basePrice = newItem.basePrice ?? currentProd.basePrice ?? 0;
+                          price = basePrice;
+                          if (commission >= 0 && commission < 100) {
+                              costPrice = basePrice * (1 - (commission / 100));
+                          }
+                      }
+                  }
+
                   updatedProducts[productIndex] = {
-                      ...updatedProducts[productIndex],
+                      ...currentProd,
                       stockQuantity: newQty,
                       inStock: newQty > 0,
-                      costPrice: newItem.cost // Update cost to newest purchase price
+                      ...(shouldUpdatePricing ? {
+                          costPrice: Number(costPrice),
+                          price: Number(price.toFixed(2)),
+                          profitMode: profitMode,
+                          profitPercentage: newItem.profitPercentage !== undefined ? newItem.profitPercentage : currentProd.profitPercentage,
+                          basePrice: newItem.basePrice !== undefined ? newItem.basePrice : currentProd.basePrice,
+                          commissionPercentage: newItem.commissionPercentage !== undefined ? newItem.commissionPercentage : currentProd.commissionPercentage,
+                      } : {})
                   };
               }
           });
@@ -245,8 +412,15 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   referenceNumber: orderReference,
                   notes: orderNotes,
                   items: orderItems,
-                  totalCost,
-                  paymentMethod
+                  totalCost: grandTotal,
+                  grandTotal: grandTotal,
+                  taxRate,
+                  taxAmount,
+                  shippingFees,
+                  otherFees,
+                  paymentMethod,
+                  treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
+                  warehouseId: selectedWarehouseId
               } as any : o);
           } else {
               const newOrder: SupplyOrder = {
@@ -258,9 +432,16 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   referenceNumber: orderReference || `supply_${currentOrderId}`,
                   notes: orderNotes,
                   items: orderItems,
-                  totalCost,
+                  totalCost: grandTotal,
+                  grandTotal: grandTotal,
+                  taxRate,
+                  taxAmount,
+                  shippingFees,
+                  otherFees,
                   status: 'completed',
-                  paymentMethod
+                  paymentMethod,
+                  treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
+                  warehouseId: selectedWarehouseId
               } as SupplyOrder;
               updatedOrders.push(newOrder);
           }
@@ -288,12 +469,12 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               if (editingOrder) {
                   const currentOld = editingOrder as SupplyOrder;
                   if (currentOld.paymentMethod === 'supply_wallet') {
-                      newSupplyBalance += currentOld.totalCost;
+                      newSupplyBalance += (currentOld.grandTotal || currentOld.totalCost);
                   } else if (currentOld.paymentMethod === 'cash') {
-                      newBalance += currentOld.totalCost;
+                      newBalance += (currentOld.grandTotal || currentOld.totalCost);
                   } else if (currentOld.paymentMethod === 'partner') {
                       // Partner funding previously added to supplyBalance
-                      newSupplyBalance -= currentOld.totalCost;
+                      newSupplyBalance -= (currentOld.grandTotal || currentOld.totalCost);
                   }
               }
 
@@ -400,42 +581,62 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setSelectedPartnerId('');
       setOrderReference('');
       setOrderNotes('');
+      setShippingFees(0);
+      setOtherFees(0);
+      setTaxRate(0);
+      setSelectedTreasuryAccountId('');
   };
 
   const startEditOrder = (order: SupplyOrder) => {
       setEditingOrder(order);
       setSelectedSupplierId(order.supplierId);
-      const initialPartnerPayments = order.partnerPayments || (order.partnerId ? [{ partnerId: order.partnerId, amount: order.totalCost }] : []);
+      const initialPartnerPayments = order.partnerPayments || (order.partnerId ? [{ partnerId: order.partnerId, amount: order.totalCost || order.grandTotal || 0 }] : []);
       setPartnerPayments(initialPartnerPayments);
       setSelectedPartnerId(order.partnerId || '');
       setOrderReference(order.referenceNumber || '');
       setOrderNotes(order.notes || '');
-      setOrderItems(order.items);
+      setShippingFees(order.shippingFees || 0);
+      setOtherFees(order.otherFees || 0);
+      setTaxRate(order.taxRate || 0);
+      
+      const itemsHydrated = (order.items || []).map(item => {
+          const product = settings.products.find(p => p.id === item.productId);
+          return {
+              ...item,
+              profitMode: item.profitMode || product?.profitMode || 'manual',
+              profitPercentage: item.profitPercentage ?? product?.profitPercentage ?? 0,
+              basePrice: item.basePrice ?? product?.basePrice ?? 0,
+              commissionPercentage: item.commissionPercentage ?? product?.commissionPercentage ?? 0,
+              sellingPrice: item.sellingPrice ?? product?.price ?? 0
+          };
+      });
+      setOrderItems(itemsHydrated);
       setPaymentMethod(order.paymentMethod as any || 'cash');
+      setSelectedTreasuryAccountId(order.treasuryAccountId || '');
+      setSelectedWarehouseId(order.warehouseId || '');
       setShowOrderModal(true);
   };
 
   const handleDeleteOrder = (order: SupplyOrder) => {
       if (!confirm('هل أنت متأكد من حذف أمر التوريد هذا؟ سيتم استرجاع المخزون وتعديل الحسابات.')) return;
       
-      const currentOrder = order as SupplyOrder;
       setSettings(prev => {
           let updatedSuppliers = [...prev.suppliers];
           let updatedPartners = [...(prev.partners || [])];
           let updatedPartnerTransactions = [...(prev.partnerTransactions || [])];
 
-          if (currentOrder.paymentMethod === 'credit') {
-              const suppIdx = updatedSuppliers.findIndex(s => s.id === currentOrder.supplierId);
+          if (order.paymentMethod === 'credit') {
+              const suppIdx = updatedSuppliers.findIndex(s => s.id === order.supplierId);
               if (suppIdx > -1) {
                   updatedSuppliers[suppIdx] = {
                       ...updatedSuppliers[suppIdx],
-                      balance: (updatedSuppliers[suppIdx].balance || 0) - currentOrder.totalCost
+                      balance: (updatedSuppliers[suppIdx].balance || 0) - (order.grandTotal || order.totalCost)
                   };
               }
           }
 
-          if (currentOrder.paymentMethod === 'partner') {
-              const oldPayments = currentOrder.partnerPayments || (currentOrder.partnerId ? [{ partnerId: currentOrder.partnerId, amount: currentOrder.totalCost }] : []);
+          if (order.paymentMethod === 'partner') {
+              const oldPayments = order.partnerPayments || (order.partnerId ? [{ partnerId: order.partnerId, amount: order.grandTotal || order.totalCost }] : []);
               oldPayments.forEach(op => {
                   const pIdx = updatedPartners.findIndex(p => p.id === op.partnerId);
                   if (pIdx > -1) {
@@ -446,7 +647,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   }
               });
               // Remove partner transactions
-              updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => !pt.id.startsWith(`supply_pt_${currentOrder.id}`));
+              updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => !pt.id.startsWith(`supply_pt_${order.id}`));
           }
 
           return {
@@ -457,9 +658,17 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
             products: prev.products.map(p => {
                 const item = order.items.find(i => i.productId === p.id);
                 if (item) {
-                    const totalQty = item.quantity + (item.bonusQuantity || 0);
+                    const receivedQty = item.receivedQuantity !== undefined ? item.receivedQuantity : (item.quantity || 0);
+                    const totalQty = receivedQty + (item.bonusQuantity || 0);
                     const newQty = (p.stockQuantity || 0) - totalQty;
-                    return { ...p, stockQuantity: newQty, inStock: newQty > 0 };
+                    
+                    // Update warehouse stock if order has warehouseId
+                    let updatedWhStock = p.warehouseStock ? { ...p.warehouseStock } : undefined;
+                    if (order.warehouseId && updatedWhStock) {
+                       updatedWhStock[order.warehouseId] = (updatedWhStock[order.warehouseId] || 0) - totalQty;
+                    }
+
+                    return { ...p, stockQuantity: newQty, inStock: newQty > 0, warehouseStock: updatedWhStock };
                 }
                 return p;
             }),
@@ -472,14 +681,12 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           setWallet((prev: any) => {
               let newBalance = prev.balance || 0;
               let newSupplyBalance = prev.supplyBalance || 0;
+              const orderTotal = order.grandTotal || order.totalCost;
 
               if (order.paymentMethod === 'cash') {
-                  newBalance += order.totalCost;
+                  newBalance += orderTotal;
               } else if (order.paymentMethod === 'supply_wallet') {
-                  newSupplyBalance += order.totalCost;
-              } else if (order.paymentMethod === 'partner') {
-                  // The net impact of partner funding (deposit) followed by purchase (withdrawal) on supplyBalance was 0.
-                  // Reverting both means we stay at 0 change, but we must remove the transactions.
+                  newSupplyBalance += orderTotal;
               }
 
               const filteredTransactions = prev.transactions.filter((t: any) => 
@@ -496,6 +703,18 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   transactions: filteredTransactions
               };
           });
+      }
+
+      if (order.paymentMethod === 'treasury' && order.treasuryAccountId) {
+        setTreasury((prev: any) => ({
+          ...prev,
+          accounts: prev.accounts.map((acc: any) => 
+            acc.id === order.treasuryAccountId 
+            ? { ...acc, balance: acc.balance + (order.grandTotal || order.totalCost) }
+            : acc
+          ),
+          transactions: prev.transactions.filter((t: any) => !t.id.startsWith(`supply_tx_${order.id}`))
+        }));
       }
   };
 
@@ -643,10 +862,18 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
         productId: firstProduct.id, 
         name: firstProduct.name,
         quantity: 1, 
+        orderedQuantity: 1,
+        receivedQuantity: 1,
+        damagedQuantity: 0,
         bonusQuantity: 0,
         cost: firstProduct.costPrice,
         discountValue: 0,
-        discountType: 'amount'
+        discountType: 'amount',
+        profitMode: firstProduct.profitMode || 'manual',
+        profitPercentage: firstProduct.profitPercentage || 0,
+        basePrice: firstProduct.basePrice || 0,
+        commissionPercentage: firstProduct.commissionPercentage || 0,
+        sellingPrice: firstProduct.price || 0
       }]);
     }
   };
@@ -674,8 +901,22 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
   }, [settings.suppliers]);
 
   const totalInventoryWorth = React.useMemo(() => {
-    return (settings.products || []).reduce((sum, p) => sum + ((p.stockQuantity || 0) * (p.costPrice || 0)), 0);
-  }, [settings.products]);
+    let totalCostValue = 0;
+    (settings.products || []).forEach(p => {
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          const qty = v.stockQuantity ?? v.stock ?? 0;
+          const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+          totalCostValue += qty * cost;
+        });
+      } else {
+        const qty = p.stockQuantity ?? p.stock ?? 0;
+        const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+        totalCostValue += qty * cost;
+      }
+    });
+    return totalCostValue;
+  }, [settings.products, settings.supplyOrders]);
 
   const totalSuppliersCount = React.useMemo(() => {
     return (settings.suppliers || []).length;
@@ -684,6 +925,214 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
   const totalOrdersCount = React.useMemo(() => {
     return (settings.supplyOrders || []).length;
   }, [settings.supplyOrders]);
+
+  // 1. Flatten products and nested variants into standard Inventory Item rows
+  const allInventoryItems = React.useMemo(() => {
+    const items: Array<{
+      key: string;
+      productId: string;
+      variantId?: string;
+      name: string;
+      sku: string;
+      stock: number;
+      cost: number;
+      price: number;
+      collectionId?: string;
+      thumbnail?: string;
+      threshold: number;
+    }> = [];
+
+    (settings.products || []).forEach(p => {
+      const threshold = p.stockThreshold || 5;
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          const variantDesc = Object.entries(v.options || {})
+            .map(([k, val]) => `${k}: ${val}`)
+            .join(' | ');
+          const name = `${p.name} (${variantDesc})`;
+          const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+          const price = v.price ?? p.price ?? 0;
+
+          items.push({
+            key: `${p.id}_${v.id}`,
+            productId: p.id,
+            variantId: v.id,
+            name,
+            sku: v.sku || p.sku || '',
+            stock: v.stockQuantity ?? 0,
+            cost,
+            price,
+            collectionId: p.collectionId,
+            thumbnail: p.thumbnail || (p.images && p.images[0]),
+            threshold
+          });
+        });
+      } else {
+        const cost = getLatestProductCost(p.id, settings) || p.costPrice || 0;
+        const price = p.price || 0;
+
+        items.push({
+          key: p.id,
+          productId: p.id,
+          name: p.name,
+          sku: p.sku || '',
+          stock: p.stockQuantity ?? p.stock ?? 0,
+          cost,
+          price,
+          collectionId: p.collectionId,
+          thumbnail: p.thumbnail || (p.images && p.images[0]),
+          threshold
+        });
+      }
+    });
+
+    return items;
+  }, [settings.products, settings.supplyOrders]);
+
+  // 2. Filter flattened Inventory listings based on current search and multi-filters
+  const filteredInventoryItems = React.useMemo(() => {
+    return allInventoryItems.filter(item => {
+      // Name or SKU search matches
+      const matchesSearch = item.name.toLowerCase().includes(inventoryQuery.toLowerCase()) || 
+                            item.sku.toLowerCase().includes(inventoryQuery.toLowerCase());
+      if (!matchesSearch) return false;
+
+      // Group collections filter
+      if (inventoryCollectionFilter !== 'all' && item.collectionId !== inventoryCollectionFilter) {
+        return false;
+      }
+
+      // Stock level status filter check
+      if (inventoryStockFilter === 'out_of_stock') {
+        return item.stock <= 0;
+      } else if (inventoryStockFilter === 'low_stock') {
+        return item.stock > 0 && item.stock <= item.threshold;
+      } else if (inventoryStockFilter === 'in_stock') {
+        return item.stock > item.threshold;
+      }
+
+      return true;
+    });
+  }, [allInventoryItems, inventoryQuery, inventoryStockFilter, inventoryCollectionFilter]);
+
+  // 3. Compute dynamic live stats for the central inventory dashboard
+  const inventoryStats = React.useMemo(() => {
+    let totalUniqueItems = allInventoryItems.length;
+    let totalStockPieces = 0;
+    let totalCapitalAtCost = 0;
+    let totalRetailWorth = 0;
+    let lowStockCount = 0;
+
+    allInventoryItems.forEach(item => {
+      totalStockPieces += item.stock;
+      totalCapitalAtCost += item.stock * item.cost;
+      totalRetailWorth += item.stock * item.price;
+      if (item.stock > 0 && item.stock <= item.threshold) {
+        lowStockCount++;
+      }
+    });
+
+    const potentialProfit = Math.max(0, totalRetailWorth - totalCapitalAtCost);
+    const profitMarginPercentage = totalCapitalAtCost > 0 ? (potentialProfit / totalCapitalAtCost) * 100 : 0;
+
+    return {
+      totalUniqueItems,
+      totalStockPieces,
+      totalCapitalAtCost,
+      totalRetailWorth,
+      potentialProfit,
+      profitMarginPercentage,
+      lowStockCount
+    };
+  }, [allInventoryItems]);
+
+  // 4. Calculate comprehensive Supplier scorecard summaries for analytics page
+  const supplierPerformanceStats = React.useMemo(() => {
+    const suppliers = settings.suppliers || [];
+    const orders = settings.supplyOrders || [];
+
+    return suppliers.map(s => {
+      const suppOrders = orders.filter(o => o.supplierId === s.id && o.status !== 'cancelled');
+      const totalCostAmount = suppOrders.reduce((sum, o) => sum + o.totalCost, 0);
+      const totalPiecesSupplied = suppOrders.reduce((units, o) => {
+        return units + o.items.reduce((acc, item) => acc + item.quantity + (item.bonusQuantity || 0), 0);
+      }, 0);
+      const avgInvoiceValue = suppOrders.length > 0 ? totalCostAmount / suppOrders.length : 0;
+
+      // Find the date of latest order
+      let latestDate = '';
+      if (suppOrders.length > 0) {
+        const sorted = [...suppOrders].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        latestDate = sorted[0].date;
+      }
+
+      return {
+        id: s.id,
+        name: s.name,
+        phone: s.phone,
+        balance: s.balance || 0,
+        ordersCount: suppOrders.length,
+        totalCostAmount,
+        totalPiecesSupplied,
+        avgInvoiceValue,
+        latestDate
+      };
+    }).sort((a, b) => b.totalCostAmount - a.totalCostAmount);
+  }, [settings.suppliers, settings.supplyOrders]);
+
+  // 5. Payment breakdown methods stats
+  const paymentMethodsStats = React.useMemo(() => {
+    const orders = settings.supplyOrders || [];
+    let cash = 0;
+    let credit = 0;
+    let partner = 0;
+    let supply_wallet = 0;
+
+    orders.forEach(o => {
+      if (o.status === 'cancelled') return;
+      if (o.paymentMethod === 'credit') credit += o.totalCost;
+      else if (o.paymentMethod === 'partner') partner += o.totalCost;
+      else if (o.paymentMethod === 'supply_wallet') supply_wallet += o.totalCost;
+      else cash += o.totalCost;
+    });
+
+    return [
+      { name: 'نقدي (كاش)', value: cash, color: '#10b981' },
+      { name: 'آجل مديونية', value: credit, color: '#f43f5e' },
+      { name: 'تمويل شركاء', value: partner, color: '#f59e0b' },
+      { name: 'محفظة توريد', value: supply_wallet, color: '#6366f1' }
+    ].filter(i => i.value > 0);
+  }, [settings.supplyOrders]);
+
+  // 6. Top supplied products by supply frequency & quantities
+  const topSuppliedProductsSummary = React.useMemo(() => {
+    const orders = settings.supplyOrders || [];
+    const productQuantities: Record<string, { name: string, qty: number, spent: number }> = {};
+
+    orders.forEach(o => {
+      if (o.status === 'cancelled') return;
+      o.items.forEach(item => {
+        const pId = item.productId;
+        const totalQty = item.quantity + (item.bonusQuantity || 0);
+        const costAmount = item.cost * item.quantity;
+
+        if (!productQuantities[pId]) {
+          const prod = settings.products.find(p => p.id === pId);
+          productQuantities[pId] = {
+            name: item.name || prod?.name || 'صنف توريد',
+            qty: 0,
+            spent: 0
+          };
+        }
+        productQuantities[pId].qty += totalQty;
+        productQuantities[pId].spent += costAmount;
+      });
+    });
+
+    return Object.values(productQuantities)
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 10);
+  }, [settings.supplyOrders, settings.products]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-16 px-4 sm:px-8" dir="rtl">
@@ -770,12 +1219,12 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
       </div>
 
       {/* Modern Capsule Tab Bar Navigator */}
-      <div className="flex gap-2 bg-slate-100 dark:bg-slate-800/60 p-1.5 rounded-3xl border border-slate-200/40 dark:border-slate-700/40 w-full sm:w-fit overflow-x-auto select-none">
+      <div className="flex gap-2 bg-slate-100 dark:bg-slate-800/60 p-1.5 rounded-3xl border border-slate-200/40 dark:border-slate-700/40 w-full sm:w-fit overflow-x-auto select-none scrollbar-none">
         <button 
           onClick={() => setActiveTab('orders')} 
-          className={`flex-1 sm:flex-none px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
+          className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'orders' 
-              ? 'bg-white dark:bg-slate-755 dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
               : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
@@ -784,9 +1233,9 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
         </button>
         <button 
           onClick={() => setActiveTab('suppliers')} 
-          className={`flex-1 sm:flex-none px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
+          className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'suppliers' 
-              ? 'bg-white dark:bg-slate-755 dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
               : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
@@ -794,15 +1243,48 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           <span>قائمة الموردين المعتمدين</span>
         </button>
         <button 
+          onClick={() => setActiveTab('inventory')} 
+          className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
+            activeTab === 'inventory' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
+              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <Package size={14}/>
+          <span>إدارة المخزون المركزي</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('analytics')} 
+          className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
+            activeTab === 'analytics' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
+              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <BarChart2 size={14}/>
+          <span>التحليلات وتقارير الموردين</span>
+        </button>
+        <button 
           onClick={() => setActiveTab('audit')} 
-          className={`flex-1 sm:flex-none px-6 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
+          className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'audit' 
-              ? 'bg-white dark:bg-slate-755 dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
               : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
           }`}
         >
           <Activity size={14}/>
           <span>مراجعة وجرد المستودع</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('warehouses')} 
+          className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
+            activeTab === 'warehouses' 
+              ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
+              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+          }`}
+        >
+          <Layers size={14}/>
+          <span>المستودعات والفروع</span>
         </button>
       </div>
 
@@ -815,6 +1297,8 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               setOrderReference('');
               setOrderNotes('');
               setOrderItems([]);
+              const defaultWh = settings.warehouses?.find(w => w.isDefault);
+              setSelectedWarehouseId(defaultWh?.id || '');
               setShowOrderModal(true);
             }} 
             className="w-full py-6 border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-[2rem] flex items-center justify-center gap-3 text-slate-600 dark:text-slate-400 hover:text-indigo-600 hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/10 transition-all duration-300 font-black text-sm shadow-sm hover:shadow-md cursor-pointer group"
@@ -904,14 +1388,169 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
 
                       <div className="text-left select-none">
                         <div className="font-black text-xl sm:text-2xl text-emerald-600 dark:text-emerald-555 tracking-tight">
-                          {order.totalCost.toLocaleString()} <span className="text-xs font-bold">ج.م</span>
+                          {(order.grandTotal || order.totalCost).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
                         </div>
-                        <div className="text-[10px] text-slate-400 font-bold block mt-0.5">
-                          {order.items.length} أصناف مدمجة {order.items.reduce((s, i) => s + (i.bonusQuantity || 0), 0) > 0 && `(+ ${order.items.reduce((s, i) => s + (i.bonusQuantity || 0), 0)} بونص)`}
+                        <div className="text-[10px] text-slate-400 font-bold flex flex-col items-start lg:items-end mt-0.5">
+                          <span>
+                            {order.items.length} أصناف {order.items.reduce((s, i) => s + (i.bonusQuantity || 0), 0) > 0 && `(+ ${order.items.reduce((s, i) => s + (i.bonusQuantity || 0), 0)} بونص)`}
+                          </span>
+                          {(order.shippingFees || 0) > 0 && <span className="text-[9px] text-indigo-400">شحن: +{order.shippingFees} ج.م</span>}
+                          {order.items.some(i => (i.damagedQuantity || 0) > 0) && (
+                            <span className="text-[9px] text-rose-500 font-black animate-pulse flex items-center gap-1 mt-0.5">
+                              <AlertCircle size={10} />
+                              يوجد سلع تالفة ({order.items.reduce((s, i) => s + (i.damagedQuantity || 0), 0)})
+                            </span>
+                          )}
                         </div>
                       </div>
 
                       <div className="flex gap-1 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-100/50 dark:border-slate-800/40 shrink-0">
+                        <button 
+                          onClick={() => {
+                            const supplier = settings.suppliers.find(s => s.id === order.supplierId);
+                            const dateStr = new Date(order.date).toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                            
+                            const html = `
+                              <!DOCTYPE html>
+                              <html dir="rtl" lang="ar">
+                              <head>
+                                <meta charset="utf-8">
+                                <title>فاتورة شراء توريد - ${order.referenceNumber || order.id}</title>
+                                <style>
+                                  body { font-family: 'Cairo', system-ui, sans-serif; padding: 30px; color: #1e293b; line-height: 1.6; }
+                                  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 30px; }
+                                  .header-info h1 { font-size: 24px; font-weight: 900; margin: 0; color: #0f172a; }
+                                  .header-info p { margin: 5px 0 0; font-size: 13px; color: #64748b; font-weight: bold; }
+                                  .meta-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 40px; margin-bottom: 30px; }
+                                  .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; }
+                                  .meta-label { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; margin-bottom: 5px; }
+                                  .meta-val { font-size: 14px; font-weight: 800; color: #334155; }
+                                  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                                  th { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 12px; text-align: right; font-size: 12px; font-weight: 900; }
+                                  td { border: 1px solid #f1f5f9; padding: 12px; font-size: 12px; }
+                                  .text-center { text-align: center; }
+                                  .text-left { text-align: left; font-family: monospace; }
+                                  .footer-stats { margin-top: 30px; border-top: 2px solid #0f172a; pt: 20px; }
+                                  .stat-row { display: flex; justify-content: flex-end; gap: 50px; padding: 10px 0; }
+                                  .stat-label { font-weight: bold; color: #64748b; }
+                                  .stat-val { font-weight: 900; color: #0f172a; min-width: 120px; text-align: left; font-family: monospace; font-size: 15px; }
+                                  .grand-total { border-top: 1px dashed #e2e8f0; margin-top: 5px; padding-top: 15px; }
+                                  .grand-total .stat-val { color: #059669; font-size: 20px; }
+                                  @media print { .no-print { display: none; } body { padding: 0; } }
+                                </style>
+                              </head>
+                              <body>
+                                <div class="header">
+                                  <div class="header-info">
+                                    <h1>فاتورة شراء بضائع / إذن استلام مخزني</h1>
+                                    <p>نظام إدارة المخازن والتوريد الذكي</p>
+                                  </div>
+                                  <div style="text-align: left;">
+                                    <div style="font-weight: 900; font-size: 18px; color: #6366f1;"># ${order.referenceNumber || order.id}</div>
+                                    <div style="font-size: 11px; color: #94a3b8; font-weight: bold; margin-top: 4px;">تاريخ التوريد: ${new Date(order.date).toLocaleDateString('ar-EG')}</div>
+                                  </div>
+                                </div>
+
+                                <div class="meta-grid">
+                                  <div class="meta-box">
+                                    <div class="meta-label">بيانات المورد والشريك المالي:</div>
+                                    <div class="meta-val">${supplier?.name || 'مورد عام'}</div>
+                                    <div class="meta-val" style="font-size: 12px; margin-top: 5px; color: #64748b;">${supplier?.phone || '-'}</div>
+                                  </div>
+                                  <div class="meta-box">
+                                    <div class="meta-label">بروتوكول السداد ومصدر التمويل:</div>
+                                    <div class="meta-val">
+                                      ${order.paymentMethod === 'credit' ? 'آجل مديونية معلقة' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'supply_wallet' ? 'تمويل محفظة التوريد' : order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
+                                    </div>
+                                    <div class="meta-val" style="font-size: 11px; margin-top: 5px; color: #64748b;">الحالة: مُعتمدة ومُرحلة للمخازن</div>
+                                  </div>
+                                </div>
+
+                                <table>
+                                  <thead>
+                                    <tr>
+                                      <th>مسلسل</th>
+                                      <th>اسم المنتج / الصنف</th>
+                                      <th class="text-center">الكمية</th>
+                                      <th class="text-center">بونص</th>
+                                      <th class="text-center">سعر التكلفة</th>
+                                      <th class="text-center">الخصم</th>
+                                      <th class="text-left">الإجمالي الصافي</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    ${order.items.map((item, idx) => {
+                                      const lineTotal = (item.cost * (item.quantity || 0)) - (item.discountType === 'percentage' ? (item.cost * (item.quantity || 0) * (item.discountValue || 0) / 100) : ((item.discountValue || 0) * (item.quantity || 0)));
+                                      return `
+                                        <tr>
+                                          <td>${idx + 1}</td>
+                                          <td><strong>${item.name}</strong></td>
+                                          <td class="text-center">${item.quantity} قطعة</td>
+                                          <td class="text-center">${item.bonusQuantity || 0}</td>
+                                          <td class="text-center">${item.cost.toLocaleString()} ج.م</td>
+                                          <td class="text-center">
+                                            ${item.discountValue ? `${item.discountValue}${item.discountType === 'percentage' ? '%' : ' ج.م'}` : '-'}
+                                          </td>
+                                          <td class="text-left">${lineTotal.toLocaleString()} ج.م</td>
+                                        </tr>
+                                      `;
+                                    }).join('')}
+                                  </tbody>
+                                </table>
+
+                                <div class="footer-stats">
+                                  <div class="stat-row">
+                                    <div class="stat-label">إجمالي البضاعة (Subtotal):</div>
+                                    <div class="stat-val">${(order.grandTotal || order.totalCost - (order.shippingFees || 0) - (order.otherFees || 0) - (order.taxAmount || 0)).toLocaleString()} ج.م</div>
+                                  </div>
+                                  ${(order.shippingFees || 0) > 0 ? `
+                                    <div class="stat-row">
+                                      <div class="stat-label">مصاريف الشحن والنقل:</div>
+                                      <div class="stat-val">+ ${order.shippingFees?.toLocaleString()} ج.م</div>
+                                    </div>
+                                  ` : ''}
+                                  ${(order.taxAmount || 0) > 0 ? `
+                                    <div class="stat-row">
+                                      <div class="stat-label">الضرائب المضافة (${order.taxRate}%):</div>
+                                      <div class="stat-val">+ ${order.taxAmount?.toLocaleString()} ج.م</div>
+                                    </div>
+                                  ` : ''}
+                                  <div class="stat-row grand-total">
+                                    <div class="stat-label" style="font-size: 16px; color: #0f172a;">الإجمالي النهائي المستحق:</div>
+                                    <div class="stat-val">${(order.grandTotal || order.totalCost).toLocaleString()} ج.م</div>
+                                  </div>
+                                </div>
+
+                                <div style="margin-top: 80px; display: grid; grid-template-cols: 1fr 1fr; gap: 100px; font-size: 13px; text-align: center;">
+                                  <div>
+                                    <div style="font-weight: bold; margin-bottom: 50px;">توقيع مأمور الاستلام (المخازن)</div>
+                                    <div style="border-top: 1px solid #e2e8f0; width: 200px; margin: 0 auto;"></div>
+                                  </div>
+                                  <div>
+                                    <div style="font-weight: bold; margin-bottom: 50px;">اعتماد المدير المالي / المالك</div>
+                                    <div style="border-top: 1px solid #e2e8f0; width: 200px; margin: 0 auto;"></div>
+                                  </div>
+                                </div>
+
+                                <div style="margin-top: 60px; text-align: center; color: #94a3b8; font-size: 10px; font-weight: bold; border-top: 1px solid #f1f5f9; padding-top: 20px;">
+                                  تم استخراج هذه الفاتورة آلياً بواسطة نظام مدير الأوردرات الذكي بتاريخ ${dateStr}
+                                </div>
+                              </body>
+                              </html>
+                            `;
+                            
+                            const prt = window.open('', '_blank');
+                            if (prt) {
+                              prt.document.write(html);
+                              prt.document.close();
+                              setTimeout(() => prt.print(), 500);
+                            }
+                          }} 
+                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                          title="طباعة هذه الفاتورة"
+                        >
+                          <Printer size={15}/>
+                        </button>
                         <button 
                           onClick={() => startEditOrder(order)} 
                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
@@ -1012,6 +1651,109 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                   <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-850 flex justify-between items-center gap-3">
                     <div className="flex gap-2">
                       <button 
+                        onClick={() => {
+                          const supplierOrders = (settings.supplyOrders || []).filter(o => o.supplierId === supplier.id);
+                          const dateStr = new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                          
+                          const html = `
+                            <!DOCTYPE html>
+                            <html dir="rtl" lang="ar">
+                            <head>
+                              <meta charset="utf-8">
+                              <title>كشف حساب المورد - ${supplier.name}</title>
+                              <style>
+                                body { font-family: 'Cairo', system-ui, sans-serif; padding: 30px; color: #1e293b; line-height: 1.6; }
+                                .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #6366f1; padding-bottom: 20px; margin-bottom: 30px; }
+                                .header h1 { font-size: 24px; font-weight: 900; margin: 0; color: #0f172a; }
+                                .meta-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
+                                .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; }
+                                .meta-label { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; }
+                                .meta-val { font-size: 15px; font-weight: 800; color: #334155; margin-top: 5px; }
+                                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                                th { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 12px; text-align: right; font-size: 12px; font-weight: 900; }
+                                td { border: 1px solid #f1f5f9; padding: 12px; font-size: 12px; }
+                                .text-left { text-align: left; font-family: monospace; }
+                                .footer { margin-top: 40px; border-top: 2px solid #0f172a; padding-top: 20px; display: flex; justify-content: flex-end; }
+                                .balance-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 15px; text-align: center; min-width: 250px; }
+                                .balance-label { font-size: 12px; font-weight: bold; color: #166534; }
+                                .balance-val { font-size: 28px; font-weight: 900; color: #14532d; margin-top: 5px; }
+                                @media print { body { padding: 0; } }
+                              </style>
+                            </head>
+                            <body>
+                              <div class="header">
+                                <div>
+                                  <h1>كشف حساب مورد كلي</h1>
+                                  <p style="color: #64748b; font-size: 13px; font-weight: bold;">تاريخ استخراج التقرير: ${dateStr}</p>
+                                </div>
+                                <div style="text-align: left;">
+                                  <div style="font-weight: 900; font-size: 20px; color: #6366f1;">${supplier.name}</div>
+                                  <div style="font-size: 13px; color: #94a3b8; font-weight: bold;">هاتف: ${supplier.phone || '-'}</div>
+                                </div>
+                              </div>
+
+                              <div class="meta-grid">
+                                <div class="meta-box">
+                                  <div class="meta-label">إجمالي عدد التعاملات الاستيرادية:</div>
+                                  <div class="meta-val">${supplierOrders.length} طلبية شراء</div>
+                                </div>
+                                <div class="meta-box">
+                                  <div class="meta-label">إجمالي قيمة المسحوبات التاريخية (فواتير):</div>
+                                  <div class="meta-val">${supplierOrders.reduce((sum, o) => sum + (o.grandTotal || o.totalCost), 0).toLocaleString()} ج.م</div>
+                                </div>
+                              </div>
+
+                              <h3 style="margin-bottom: 10px;">سجل الفواتير والطلبيات:</h3>
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>التاريخ</th>
+                                    <th>رقم المرجع / الفاتورة</th>
+                                    <th>وسيلة التمويل</th>
+                                    <th style="text-align: center;">الأصناف</th>
+                                    <th class="text-left">قيمة الفاتورة</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${supplierOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(order => `
+                                    <tr>
+                                      <td>${new Date(order.date).toLocaleDateString('ar-EG')}</td>
+                                      <td><strong>${order.referenceNumber || order.id.slice(0, 8)}</strong></td>
+                                      <td>${order.paymentMethod === 'credit' ? 'آجل' : order.paymentMethod === 'cash' ? 'نقدي' : order.paymentMethod === 'treasury' ? 'خزينة' : 'أخرى'}</td>
+                                      <td style="text-align: center;">${order.items.length} قطع</td>
+                                      <td class="text-left">${(order.grandTotal || order.totalCost).toLocaleString()} ج.م</td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                              </table>
+
+                              <div class="footer">
+                                <div class="balance-box">
+                                  <div class="balance-label">صافي إجمالي المديونية الحالية المعلقة:</div>
+                                  <div class="balance-val">${(supplier.balance || 0).toLocaleString()} ج.م</div>
+                                </div>
+                              </div>
+
+                              <div style="margin-top: 100px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 20px;">
+                                يتم مراجعة هذا الكشف وتوقيعه من كلا الطرفين لإبراء الذمة المالية.
+                              </div>
+                            </body>
+                            </html>
+                          `;
+                          
+                          const prt = window.open('', '_blank');
+                          if (prt) {
+                            prt.document.write(html);
+                            prt.document.close();
+                            setTimeout(() => prt.print(), 500);
+                          }
+                        }} 
+                        className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all cursor-pointer" 
+                        title="طباعة كشف حساب المورد"
+                      >
+                        <Printer size={16}/>
+                      </button>
+                      <button 
                         onClick={() => startEditSupplier(supplier)} 
                         className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all cursor-pointer" 
                         title="تعديل بيانات المورد"
@@ -1049,8 +1791,781 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
         </div>
       )}
 
+      {activeTab === 'inventory' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Dynamic Top KPIs Row */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block mb-1">أصناف المخزن فريدة</span>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-lg shrink-0">
+                  <Package size={16}/>
+                </span>
+                <span className="text-base font-black text-slate-850 dark:text-white leading-tight">
+                  {inventoryStats.totalUniqueItems} <span className="text-[10px] text-slate-400 font-bold block">مادة</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block mb-1">إجمالي قطع المخزن</span>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-lg shrink-0">
+                  <Layers size={16}/>
+                </span>
+                <span className="text-base font-black text-slate-850 dark:text-white leading-tight">
+                  {inventoryStats.totalStockPieces.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">قطعة</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block mb-1">رأس مال البضاعة</span>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg shrink-0">
+                  <Coins size={16}/>
+                </span>
+                <span className="text-base font-black text-emerald-600 leading-tight">
+                  {inventoryStats.totalCapitalAtCost.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (تكلفة)</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block mb-1">العائد المتوقع للبيع</span>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 rounded-lg shrink-0">
+                  <TrendingUp size={16}/>
+                </span>
+                <span className="text-base font-black text-teal-600 leading-tight">
+                  {inventoryStats.totalRetailWorth.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (تجزئة)</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-455 dark:text-slate-500 font-bold block mb-1">صافي الجدوى الربحية</span>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
+                  <Percent size={16}/>
+                </span>
+                <span className="text-base font-black text-indigo-600 leading-tight">
+                  {inventoryStats.potentialProfit.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (+{inventoryStats.profitMarginPercentage.toFixed(1)}%)</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
+              <span className="text-[10px] text-slate-455 dark:text-slate-505 font-bold block mb-1">منتجات عجز/حرج الرصيد</span>
+              <div className="flex items-center gap-2">
+                <span className={`p-1.5 rounded-lg shrink-0 ${inventoryStats.lowStockCount > 0 ? 'bg-rose-100 text-rose-600 animate-pulse' : 'bg-rose-50 text-rose-400'}`}>
+                  <AlertCircle size={16}/>
+                </span>
+                <span className={`text-base font-black leading-tight ${inventoryStats.lowStockCount > 0 ? 'text-rose-600' : 'text-slate-655'}`}>
+                  {inventoryStats.lowStockCount} <span className="text-[10px] text-slate-400 font-bold block">تحت عتبة الأمان</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Table Toolbar & Search filter */}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch gap-3 flex-1">
+              <div className="relative flex-1">
+                <span className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
+                  <Search size={16} />
+                </span>
+                <input 
+                  type="text"
+                  value={inventoryQuery}
+                  onChange={e => setInventoryQuery(e.target.value)}
+                  placeholder="بحث عن المنتجات بالاسم، الـ SKU أو تفاصيل الموديل..."
+                  className="w-full pl-4 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-xs font-bold dark:text-white transition-all placeholder-slate-400"
+                />
+              </div>
+
+              {/* Status Select filter */}
+              <select
+                value={inventoryStockFilter}
+                onChange={e => setInventoryStockFilter(e.target.value as any)}
+                className="p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-705 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="all">كل حالات رصيد المخزن</option>
+                <option value="in_stock">متوفر (رصيد آمن)</option>
+                <option value="low_stock">منخفض (رصيد حرج)</option>
+                <option value="out_of_stock">غير متوفر (رصيد صفر)</option>
+              </select>
+
+              {/* Collections filter */}
+              <select
+                value={inventoryCollectionFilter}
+                onChange={e => setInventoryCollectionFilter(e.target.value)}
+                className="p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-705 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="all">كل المجموعات والتصنيفات</option>
+                {(settings.collections || []).map(group => (
+                  <option key={group.id} value={group.id}>مجموعة / {group.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <button 
+              onClick={() => {
+                const dateStr = new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const html = `
+                  <!DOCTYPE html>
+                  <html dir="rtl" lang="ar">
+                  <head>
+                    <meta charset="utf-8">
+                    <title>كشف جرد وتقييم قيمة المخزون المركزي</title>
+                    <style>
+                      body { font-family: 'Cairo', system-ui, sans-serif; padding: 25px; color: #334155; }
+                      .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 25px; }
+                      .title { font-size: 20px; font-weight: bold; color: #1e293b; margin: 0; }
+                      .date { font-size: 11px; color: #64748b; margin-top: 5px; }
+                      .stats-grid { display: grid; grid-template-cols: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
+                      .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; font-size: 12px; }
+                      .stat-val { font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 5px; }
+                      table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
+                      th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px; text-align: right; }
+                      td { border: 1px solid #e2e8f0; padding: 8px; }
+                      tr:nth-child(even) { background: #f8fafc; }
+                      .text-left { text-align: left; font-family: monospace; }
+                      .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; }
+                      .badge-out { background: #fee2e2; color: #b91c1c; }
+                      .badge-low { background: #fef3c7; color: #d97706; }
+                      .badge-ok { background: #dcfce7; color: #15803d; }
+                    </style>
+                  </head>
+                  <body>
+                    <div class="header">
+                      <h1 class="title">كشف وتقييم قيمة المخزون المركزي والمستودع</h1>
+                      <div class="date">تاريخ الاستخراج: ${dateStr}</div>
+                    </div>
+                    <div class="stats-grid">
+                      <div class="stat-card">
+                        <div>إجمالي الأصناف الفريدة</div>
+                        <div class="stat-val">${inventoryStats.totalUniqueItems} صنف</div>
+                      </div>
+                      <div class="stat-card">
+                        <div>إجمالي السلع المادية القائمة</div>
+                        <div class="stat-val">${inventoryStats.totalStockPieces.toLocaleString()} قطعة</div>
+                      </div>
+                      <div class="stat-card">
+                        <div>رأس مال البضاعة بالتكلفة</div>
+                        <div class="stat-val">${inventoryStats.totalCapitalAtCost.toLocaleString()} ج.م</div>
+                      </div>
+                      <div class="stat-card">
+                        <div>العائد المتوقع للبيع بالتجزئة</div>
+                        <div class="stat-val">${inventoryStats.totalRetailWorth.toLocaleString()} ج.م</div>
+                      </div>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>مسلسل</th>
+                          <th>اسم المنتج / الصنف بالتفصيل</th>
+                          <th>الـ SKU</th>
+                          <th>الرصيد المتاح</th>
+                          <th>سعر التكلفة</th>
+                          <th>رأس مال الصنف</th>
+                          <th>سعر المبيع</th>
+                          <th>القيمة المتوقعة</th>
+                          <th>حالة المخزون</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${filteredInventoryItems.map((item, idx) => {
+                          const statusClass = item.stock <= 0 ? 'badge-out' : item.stock <= item.threshold ? 'badge-low' : 'badge-ok';
+                          const statusText = item.stock <= 0 ? 'منفذ' : item.stock <= item.threshold ? 'حرج دنيا' : 'رصيد آمن';
+                          return `
+                            <tr>
+                              <td>${idx + 1}</td>
+                              <td><strong>${item.name}</strong></td>
+                              <td>${item.sku || '-'}</td>
+                              <td>${item.stock} قطعة</td>
+                              <td class="text-left">${item.cost.toLocaleString()} ج.م</td>
+                              <td class="text-left">${(item.stock * item.cost).toLocaleString()} ج.م</td>
+                              <td class="text-left">${item.price.toLocaleString()} ج.م</td>
+                              <td class="text-left">${(item.stock * item.price).toLocaleString()} ج.م</td>
+                              <td><span class="badge ${statusClass}">${statusText}</span></td>
+                            </tr>
+                          `;
+                        }).join('')}
+                      </tbody>
+                    </table>
+                    <div style="margin-top: 60px; text-align: left; display: flex; justify-content: space-between; font-size: 12px;">
+                      <div>توقيع أمين ومأمور المستودع: _____________________</div>
+                      <div>توقيع الإدارة المالية والاعتماد: _____________________</div>
+                    </div>
+                  </body>
+                  </html>
+                `;
+                const prt = window.open('', '_blank');
+                if (prt) {
+                  prt.document.write(html);
+                  prt.document.close();
+                  setTimeout(() => {
+                    prt.print();
+                  }, 500);
+                }
+              }}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-black transition-all cursor-pointer"
+            >
+              <Printer size={15}/>
+              <span>تصدير وطباعة تقرير الجرد المركزي</span>
+            </button>
+          </div>
+
+          {/* Dynamic Table of Inventory Details */}
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 font-black border-b border-secondary">
+                  <tr>
+                    <th className="px-5 py-4">صورة المنتج / الصنف</th>
+                    <th className="px-5 py-4">مسلسل</th>
+                    <th className="px-5 py-4">الصنف والموديل</th>
+                    <th className="px-5 py-4">الـ SKU</th>
+                    <th className="px-5 py-4 text-center">الرصيد الفعلي الحالي</th>
+                    <th className="px-5 py-4 text-center">التكلفة (للقطعة/للإجمالي)</th>
+                    <th className="px-5 py-4 text-center">التجزئة (للقطعة/للإجمالي)</th>
+                    <th className="px-5 py-4 text-center">المستوى وحالة المخزون</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filteredInventoryItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-400">
+                        <Package className="mx-auto block mb-3 opacity-30 text-slate-400" size={40}/>
+                        <p className="font-bold text-slate-600 dark:text-slate-400 text-sm">عذراً! لم يتم العثور على أي منتجات مطابقة لخيارات تصفية المخزون</p>
+                        <p className="text-slate-405 text-xs mt-1">تأكد من كتابة أحرف البحث بشكل صحيح أو تغيير تصفية المخازن المتبعة.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredInventoryItems.map((item, index) => {
+                      const costWorth = item.stock * item.cost;
+                      const retailWorth = item.stock * item.price;
+                      
+                      // Progress width calculation representing safety
+                      const maxSafetyDensity = Math.max(20, item.threshold * 4);
+                      const densityPercentage = Math.min(100, Math.max(0, (item.stock / maxSafetyDensity) * 100));
+
+                      const isOutOfStock = item.stock <= 0;
+                      const isLowStock = item.stock > 0 && item.stock <= item.threshold;
+
+                      return (
+                        <tr key={item.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
+                          <td className="px-5 py-3">
+                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-800">
+                              {item.thumbnail ? (
+                                <img src={item.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                              ) : <Package size={15} className="text-slate-400" />}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 font-mono text-slate-400">#{index + 1}</td>
+                          <td className="px-5 py-3">
+                            <h5 className="font-black text-slate-850 dark:text-white text-xs max-w-sm leading-relaxed">{item.name}</h5>
+                            {item.collectionId && (
+                              <span className="inline-block mt-1 text-[9px] font-bold text-indigo-505 text-indigo-500 bg-indigo-50/65 dark:bg-indigo-950/20 border border-indigo-100/30 px-1.5 py-0.5 rounded ml-1">
+                                {(settings.collections || []).find(c => c.id === item.collectionId)?.name || 'مجموعة مصنفة'}
+                              </span>
+                            )}
+                            
+                            {/* Warehouse Breakdown */}
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {(settings.warehouses || []).map(wh => {
+                                // Find product to get its warehouse stock
+                                const prod = settings.products.find(p => p.id === item.productId);
+                                const vOrig = item.variantId ? prod?.variants.find(v => v.id === item.variantId) : null;
+                                const qtyInWh = item.variantId ? (vOrig?.warehouseStock?.[wh.id] || 0) : (prod?.warehouseStock?.[wh.id] || 0);
+                                
+                                if (qtyInWh <= 0) return null;
+                                
+                                return (
+                                  <span key={wh.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-750 text-[9px] font-bold text-slate-500 dark:text-slate-400 rounded">
+                                    {wh.name}: {qtyInWh}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3 text-slate-500 font-mono font-medium">{item.sku || <span className="opacity-40">-</span>}</td>
+                          <td className="px-5 py-3 text-center">
+                            <span className="font-exrabold text-sm font-mono text-slate-850 dark:text-white">{item.stock}</span> <span className="text-slate-400 text-[10px]">قطعة</span>
+                          </td>
+                          <td className="px-5 py-3 text-center font-mono">
+                            <div className="font-bold text-slate-800 dark:text-slate-205">{item.cost.toLocaleString()} ج.م</div>
+                            <div className="text-[10px] text-slate-400 font-semibold mt-0.5">{costWorth.toLocaleString()} ج.م (كل)</div>
+                          </td>
+                          <td className="px-5 py-3 text-center font-mono">
+                            <div className="font-bold text-slate-800 dark:text-slate-205">{item.price.toLocaleString()} ج.م</div>
+                            <div className="text-[10px] text-slate-404 text-slate-400 font-semibold mt-0.5">{retailWorth.toLocaleString()} ج.م (كل)</div>
+                          </td>
+                          <td className="px-5 py-3 text-center">
+                            {isOutOfStock ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-500 border border-rose-100/30">
+                                رصيد صفر (منفذ)
+                              </span>
+                            ) : isLowStock ? (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border border-amber-100/30">
+                                  رصيد حرج (تحت {item.threshold})
+                                </span>
+                                <div className="w-16 h-1 bg-slate-100 dark:bg-slate-800 rounded-full mx-auto overflow-hidden">
+                                  <div className="h-full bg-amber-500 rounded-full" style={{ width: `${densityPercentage}%` }}></div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border border-emerald-100/30">
+                                  رصيد آمن (جاهز)
+                                </span>
+                                <div className="w-16 h-1 bg-slate-100 dark:bg-slate-800 rounded-full mx-auto overflow-hidden">
+                                  <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${densityPercentage}%` }}></div>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'analytics' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Dynamic Scorecard Totals overview */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+              <span className="text-xs font-bold text-slate-400 block mb-1">الرأس المالي المتدفق للمشتريات</span>
+              <div className="flex items-center gap-3">
+                <span className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl shrink-0">
+                  <Coins size={22}/>
+                </span>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-850 dark:text-white leading-none">
+                    {supplierPerformanceStats.reduce((sum, s) => sum + s.totalCostAmount, 0).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">إجمالي قيمة فواتير الطلبيات وتوريد بضائع مستودعاتك</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+              <span className="text-xs font-bold text-slate-400 block mb-1">إجمالي القطع الواردة المستلمة</span>
+              <div className="flex items-center gap-3">
+                <span className="p-3 bg-emerald-50 dark:bg-emerald-900/10 text-emerald-600 dark:text-emerald-400 rounded-2xl shrink-0">
+                  <Package size={22}/>
+                </span>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-850 dark:text-white leading-none">
+                    {supplierPerformanceStats.reduce((sum, s) => sum + s.totalPiecesSupplied, 0).toLocaleString()} <span className="text-xs font-bold">وحدة</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">مجموع سلع المدخلات والمخازن شاملة كميات البونص الصافي</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+              <span className="text-xs font-bold text-slate-400 block mb-1">المديونية الإجمالية القائمة للموردين</span>
+              <div className="flex items-center gap-3">
+                <span className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-455 rounded-2xl shrink-0">
+                  <TrendingDown size={22}/>
+                </span>
+                <div>
+                  <h3 className="text-2xl font-black text-rose-600 leading-none">
+                    {supplierPerformanceStats.reduce((sum, s) => sum + s.balance, 0).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-1 font-semibold">التزامات مالية مستحقة الدفع حالياً للشركاء والموردين</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Recharts visual layouts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Chart 1: Payments Breakdown Pie */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col">
+              <h4 className="font-extrabold text-slate-800 dark:text-white text-sm mb-4 flex items-center gap-1.5">
+                <LucidePieChart size={16} className="text-indigo-500" />
+                توزيع المشتريات والتوريد حسب طريقة السداد
+              </h4>
+              <div className="h-64 flex-1">
+                {paymentMethodsStats.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400 text-xs">لا توجد سجلات فواتير كافية للتوريد حالياً للرسم الحسابي</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={paymentMethodsStats}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={55}
+                        outerRadius={75}
+                        paddingAngle={4}
+                        dataKey="value"
+                      >
+                        {paymentMethodsStats.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value: any) => `${Number(value).toLocaleString()} ج.م`} />
+                      <Legend layout="horizontal" verticalAlign="bottom" align="center" iconType="circle" wrapperStyle={{ fontSize: 10 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Chart 2: Top Products Bar */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col">
+              <h4 className="font-extrabold text-slate-800 dark:text-white text-sm mb-4 flex items-center gap-1.5">
+                <BarChart2 size={16} className="text-teal-500" />
+                أكثر البضائع سحباً وتوريداً من الموردين (إجمالي الكمية المدخلة)
+              </h4>
+              <div className="h-64 flex-1">
+                {topSuppliedProductsSummary.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400 text-xs">لا توجد فواتير توريد للمصادقة الحسابية</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={topSuppliedProductsSummary} margin={{ top: 10, right: 10, left: -25, bottom: 5 }}>
+                      <XAxis dataKey="name" tick={{ fontSize: 8 }} interval={0} stroke="#94a3b8" />
+                      <YAxis tick={{ fontSize: 9 }} stroke="#94a3b8" />
+                      <RechartsTooltip formatter={(value: any) => `${value} قطعة`} />
+                      <Bar dataKey="qty" fill="#14b8a6" radius={[4, 4, 0, 0]} barSize={25} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed Suppliers Performance scorecard table */}
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
+              <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <span className="w-1 px-0.5 h-4 bg-teal-500 rounded-full"></span>
+                مقياس الكفاءة والذمة المالية لشركاء التوريد الماليين
+              </h4>
+              <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 font-bold px-3 py-1 rounded-xl">
+                إجمالي الموردين: {supplierPerformanceStats.length} جهات معتمدة
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/20 text-slate-500 dark:text-slate-400 font-extrabold border-b border-light">
+                  <tr>
+                    <th className="px-5 py-4">اسم وشريك شركة التوريد</th>
+                    <th className="px-5 py-4 text-center">أوامر التوريد بالتاريخ</th>
+                    <th className="px-5 py-4 text-center">إجمالي المشتريات (ج.م)</th>
+                    <th className="px-5 py-4 text-center">مجموع القطع الموردة</th>
+                    <th className="px-5 py-4 text-center">المديونية المعلقة</th>
+                    <th className="px-5 py-4 text-center">متوسط الفاتورة الصافي</th>
+                    <th className="px-5 py-4 text-center">تاريخ آخر أمر شراء</th>
+                    <th className="px-5 py-4 text-center">الخيار والمطبوعات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-semibold bg-white dark:bg-slate-900">
+                  {supplierPerformanceStats.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-400">لم يتم العثور على أية إحصائيات لموردين ماليين مسجلين بنظامك</td>
+                    </tr>
+                  ) : (
+                    supplierPerformanceStats.map(supp => (
+                      <tr key={supp.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/10 transition-colors">
+                        <td className="px-5 py-3">
+                          <div className="font-black text-slate-850 dark:text-white">{supp.name}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5 font-mono">{supp.phone || 'بلا هاتف'}</div>
+                        </td>
+                        <td className="px-5 py-3 text-center text-slate-600 dark:text-slate-350">{supp.ordersCount} فواتير</td>
+                        <td className="px-5 py-3 text-center font-mono font-bold text-emerald-600">{supp.totalCostAmount.toLocaleString()} ج.م</td>
+                        <td className="px-5 py-3 text-center text-slate-600 dark:text-slate-350">{supp.totalPiecesSupplied} وحدات</td>
+                        <td className="px-5 py-3 text-center">
+                          {supp.balance > 0 ? (
+                            <span className="px-2.5 py-1 text-[10px] font-black bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-full border border-rose-100/30">
+                              {supp.balance.toLocaleString()} ج.م متبقية
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 text-[10px] font-black bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 rounded-full border border-emerald-100/30">
+                              مخلص تماماً
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-center font-mono text-slate-500">{Math.round(supp.avgInvoiceValue).toLocaleString()} ج.م</td>
+                        <td className="px-5 py-3 text-center text-slate-500 font-medium">
+                          {supp.latestDate ? new Date(supp.latestDate).toLocaleDateString('ar-EG') : '-'}
+                        </td>
+                        <td className="px-5 py-3 text-center">
+                          <button
+                            onClick={() => {
+                              const dateStr = new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                              const suppOrders = (settings.supplyOrders || []).filter(o => o.supplierId === supp.id && o.status !== 'cancelled');
+                              
+                              const html = `
+                                <!DOCTYPE html>
+                                <html dir="rtl" lang="ar">
+                                <head>
+                                  <meta charset="utf-8">
+                                  <title>كشف حساب مورد - ${supp.name}</title>
+                                  <style>
+                                    body { font-family: 'Cairo', system-ui, sans-serif; padding: 25px; color: #334155; }
+                                    .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 25px; }
+                                    .title { font-size: 20px; font-weight: bold; color: #1e293b; margin: 0; }
+                                    .date { font-size: 11px; color: #64748b; margin-top: 5px; }
+                                    .stats-grid { display: grid; grid-template-cols: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
+                                    .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
+                                    .stat-val { font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 5px; }
+                                    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
+                                    th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px; text-align: right; }
+                                    td { border: 1px solid #e2e8f0; padding: 8px; }
+                                    tr:nth-child(even) { background: #f8fafc; }
+                                    .text-left { text-align: left; font-family: monospace; }
+                                    .status { font-weight: bold; }
+                                    .debt { color: #dc2626; }
+                                  </style>
+                                </head>
+                                <body>
+                                  <div class="header">
+                                    <h1 class="title">كشف المعاملات المالية الموثقة وحركة التوريد للمستودعات</h1>
+                                    <div style="font-size: 14px; font-weight: bold; margin-top: 5px;">اسم المورد الشريك: <strong>${supp.name}</strong></div>
+                                    <div class="date">تاريخ الاستخراج: ${dateStr}</div>
+                                  </div>
+                                  <div class="stats-grid">
+                                    <div class="stat-card">
+                                      <div>إجمالي الفواتير والصفقات</div>
+                                      <div class="stat-val">${supp.ordersCount} أمر</div>
+                                    </div>
+                                    <div class="stat-card">
+                                      <div>صافي القيمة التوريدية</div>
+                                      <div class="stat-val">${supp.totalCostAmount.toLocaleString()} ج.م</div>
+                                    </div>
+                                    <div class="stat-card">
+                                      <div>إجمالي السلع المستلمة</div>
+                                      <div class="stat-val">${supp.totalPiecesSupplied} قطعة</div>
+                                    </div>
+                                    <div class="stat-card">
+                                      <div style="color: #dc2626; font-weight: bold;">أرصدة آجلة متبقية</div>
+                                      <div class="stat-val debt">${supp.balance.toLocaleString()} ج.م</div>
+                                    </div>
+                                  </div>
+                                  <h3>بيان حركة فواتير استلام وتوريد البضاعة:</h3>
+                                  <table>
+                                    <thead>
+                                      <tr>
+                                        <th>مسلسل</th>
+                                        <th>تاريخ الدخول</th>
+                                        <th>رقم المرجع والفاتورة</th>
+                                        <th>بروتوكول السداد ومصدر التمويل</th>
+                                        <th>البيان والمواد الموردة للمستودع</th>
+                                        <th>إجمالي الفاتورة</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      ${suppOrders.map((order, idx) => {
+                                        const itemsList = order.items.map(it => `${it.name || 'مادة'} (${it.quantity} قطع بسعر تكلفة ${it.cost} ج.م)`).join(' ، ');
+                                        const payMethodText = order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'supply_wallet' ? 'محفظة توريد كاش' : 'نقدي (كاش)';
+                                        return `
+                                          <tr>
+                                            <td>${idx + 1}</td>
+                                            <td>${new Date(order.date).toLocaleDateString('ar-EG')}</td>
+                                            <td>Ref: ${order.referenceNumber || order.id}</td>
+                                            <td><strong>${payMethodText}</strong></td>
+                                            <td>${itemsList}</td>
+                                            <td class="text-left" style="font-weight: bold;">${order.totalCost.toLocaleString()} ج.م</td>
+                                          </tr>
+                                        `;
+                                      }).join('')}
+                                    </tbody>
+                                  </table>
+                                  <div style="margin-top: 60px; text-align: left; display: flex; justify-content: space-between; font-size: 12px;">
+                                    <div>ممثّل ومصادقة جهة التوريد: _____________________</div>
+                                    <div>توقيع أمين الصندوق والمدير المالي والاعتماد: _____________________</div>
+                                  </div>
+                                </body>
+                                </html>
+                              `;
+                              const prt = window.open('', '_blank');
+                              if (prt) {
+                                prt.document.write(html);
+                                prt.document.close();
+                                setTimeout(() => {
+                                  prt.print();
+                                }, 500);
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950/20 text-slate-500 hover:text-indigo-650 rounded-lg text-[10px] font-black transition-all cursor-pointer inline-flex items-center gap-1 border border-slate-200/40"
+                          >
+                            <Printer size={12}/> كشف حساب ملون
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'audit' && (
         <InventoryAudit settings={settings} setSettings={setSettings} currentUser={currentUser} />
+      )}
+
+      {activeTab === 'warehouses' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 dark:border-slate-800">
+            <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
+              <span className="w-1.5 h-6 bg-amber-500 rounded-full"></span>
+              المستودعات ومواقع التخزين
+            </h3>
+            <button 
+              onClick={() => {
+                setEditingWarehouse(null);
+                setNewWarehouse({ name: '', location: '', isDefault: false });
+                setShowWarehouseModal(true);
+              }}
+              className="flex items-center gap-2 px-6 py-3 bg-slate-900 dark:bg-amber-600 text-white rounded-2xl font-black text-xs hover:bg-slate-800 dark:hover:bg-amber-500 shadow-lg shadow-slate-900/10 transition-all cursor-pointer"
+            >
+              <Plus size={16}/>
+              <span>إضافة مستودع / فرع جديد</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {(settings.warehouses || []).length === 0 ? (
+              <div className="col-span-full bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-100 dark:border-slate-800/80">
+                <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6 text-slate-300">
+                  <Layers size={40}/>
+                </div>
+                <h3 className="text-xl font-black text-slate-400 mb-2">لا توجد مستودعات مضافة</h3>
+                <p className="text-slate-400 text-sm font-bold">ابدأ بإضافة المستودع الرئيسي أو الفروع لإدارة المخزون بدقة</p>
+              </div>
+            ) : (
+              settings.warehouses?.map((warehouse: any) => (
+                <div key={warehouse.id} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group overflow-hidden relative">
+                  {warehouse.isDefault && (
+                    <div className="absolute top-0 left-0 px-4 py-1 bg-amber-500 text-white text-[10px] font-black rounded-br-2xl">
+                      المستودع الافتراضي
+                    </div>
+                  )}
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center justify-center text-slate-400">
+                      <Layers size={24}/>
+                    </div>
+                    <div className="flex gap-2">
+                       <button 
+                        onClick={() => startEditWarehouse(warehouse)} 
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all cursor-pointer" 
+                        title="تعديل بيانات المستودع"
+                      >
+                        <Edit2 size={16}/>
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteWarehouse(warehouse.id)} 
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all cursor-pointer" 
+                        title="حذف المستودع"
+                      >
+                        <Trash2 size={16}/>
+                      </button>
+                    </div>
+                  </div>
+                  <h4 className="text-lg font-black text-slate-800 dark:text-white mb-1">{warehouse.name}</h4>
+                  <div className="flex items-center gap-2 text-slate-400 text-xs font-bold mb-4">
+                    <HelpCircle size={12}/>
+                    <span>{warehouse.location || 'لا يوجد عنوان محدد'}</span>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800/40">
+                    <div className="flex justify-between items-center text-xs font-black">
+                      <span className="text-slate-400">إجمالي الأصناف:</span>
+                      <span className="text-slate-900 dark:text-slate-100">
+                        {settings.products.filter(p => (p.warehouseStock?.[warehouse.id] || 0) > 0).length} صنف
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Warehouse Modal Dialog */}
+      {showWarehouseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200">
+            <div className="bg-amber-600 dark:bg-amber-700 p-6 text-white flex justify-between items-center">
+              <h3 className="text-lg font-black">{editingWarehouse ? 'تعديل بيانات المستودع' : 'إضافة مستودع جديد'}</h3>
+              <button 
+                onClick={() => { 
+                  setShowWarehouseModal(false); 
+                  setEditingWarehouse(null); 
+                  setNewWarehouse({name:'', location:'', isDefault:false}); 
+                }} 
+                className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+              >
+                <X size={20}/>
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-right">
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">اسم المستودع / الفرع *</label>
+                <input 
+                  type="text" 
+                  value={newWarehouse.name}
+                  onChange={(e) => setNewWarehouse({...newWarehouse, name: e.target.value})}
+                  placeholder="مثال: المستودع الرئيسي، فرع المهندسين..."
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none text-right"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">الموقع / العنوان</label>
+                <input 
+                  type="text" 
+                  value={newWarehouse.location}
+                  onChange={(e) => setNewWarehouse({...newWarehouse, location: e.target.value})}
+                  placeholder="مثال: القاهرة، حي النزهة..."
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none text-right"
+                />
+              </div>
+              <div className="flex items-center gap-3 py-2">
+                <input 
+                  type="checkbox" 
+                  id="default-wh"
+                  checked={newWarehouse.isDefault}
+                  onChange={(e) => setNewWarehouse({...newWarehouse, isDefault: e.target.checked})}
+                  className="w-5 h-5 accent-amber-500 cursor-pointer"
+                />
+                <label htmlFor="default-wh" className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-pointer">
+                  تعيين كمستودع افتراضي للاستلام والتوريد
+                </label>
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button 
+                  onClick={handleAddWarehouse}
+                  className="flex-1 py-4 bg-amber-600 text-white rounded-2xl font-black text-sm hover:bg-amber-700 shadow-lg shadow-amber-600/10 transition-all cursor-pointer"
+                >
+                  {editingWarehouse ? 'حفظ التعديلات' : 'إضافة المستودع الآن'}
+                </button>
+                <button 
+                  onClick={() => setShowWarehouseModal(false)}
+                  className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-black text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Supplier Modal Dialog */}
@@ -1232,6 +2747,21 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     </button>
                   </div>
                 </div>
+                <div>
+                  <label className="text-xs font-black text-slate-500 mb-1.5 block">مستودع الاستلام (تخزين البضاعة) *</label>
+                  <select 
+                    value={selectedWarehouseId || ''} 
+                    onChange={e => setSelectedWarehouseId(e.target.value)} 
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-250 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white"
+                  >
+                    <option value="">-- اختر مستودع الاستلام --</option>
+                    {(settings.warehouses || []).map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} {w.isDefault ? '(الافتراضي)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Warnings and Additional Fields based on payment method */}
@@ -1396,6 +2926,50 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                 </div>
               </div>
 
+              {/* Fees and Taxes Section */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف الشحن / النقل</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      min="0"
+                      value={shippingFees || ''} 
+                      onChange={e => setShippingFees(Number(e.target.value))} 
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                    />
+                    <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف أخرى / إضافية</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      min="0"
+                      value={otherFees || ''} 
+                      onChange={e => setOtherFees(Number(e.target.value))} 
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                    />
+                    <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 mb-1 block">نسبة الضريبة %</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      min="0"
+                      max="100"
+                      value={taxRate || ''} 
+                      onChange={e => setTaxRate(Number(e.target.value))} 
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                    />
+                    <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">%</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Inventory items allocation */}
               <div className="border-t border-slate-200 dark:border-slate-800 pt-5">
                 <div className="flex justify-between items-center mb-4">
@@ -1425,7 +2999,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     </div>
                   ) : (
                     orderItems.map((item, idx) => (
-                      <div key={idx} className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2.5rem rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                      <div key={idx} className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2.5rem rounded-2xl border border-slate-105 dark:border-slate-800/80">
                         <div className="grid grid-cols-2 md:grid-cols-12 gap-3 items-end">
                           <div className="col-span-2 md:col-span-5 text-right">
                             <label className="text-[10px] font-bold text-slate-400 mb-1 block">تحديد الموديل / المنتج المتاح</label>
@@ -1437,6 +3011,11 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                 newItems[idx].productId = val;
                                 newItems[idx].name = product?.name;
                                 newItems[idx].cost = product?.costPrice || 0;
+                                newItems[idx].profitMode = product?.profitMode || 'manual';
+                                newItems[idx].profitPercentage = product?.profitPercentage || 0;
+                                newItems[idx].basePrice = product?.basePrice || 0;
+                                newItems[idx].commissionPercentage = product?.commissionPercentage || 0;
+                                newItems[idx].sellingPrice = product?.price || 0;
                                 setOrderItems(newItems);
                               }} 
                               products={settings.products}
@@ -1444,14 +3023,17 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                           </div>
 
                           <div className="col-span-1 md:col-span-1">
-                            <label className="text-[10px] font-bold text-slate-400 mb-1 block text-center">الكمية</label>
+                            <label className="text-[10px] font-bold text-slate-400 mb-1 block text-center">الكمية المطلوبة</label>
                             <input 
                               type="number" 
                               min="1" 
-                              value={item.quantity || ''} 
+                              value={item.orderedQuantity || item.quantity || ''} 
                               onChange={e => {
                                 const newItems = [...orderItems];
-                                newItems[idx].quantity = Number(e.target.value);
+                                const val = Number(e.target.value);
+                                newItems[idx].orderedQuantity = val;
+                                newItems[idx].quantity = val;
+                                newItems[idx].receivedQuantity = val;
                                 setOrderItems(newItems);
                               }} 
                               className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white text-center font-black outline-none" 
@@ -1482,6 +3064,14 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                               onChange={e => {
                                 const newItems = [...orderItems];
                                 newItems[idx].cost = Number(e.target.value);
+                                // If margin mode, update suggested selling price accordingly
+                                const profitMode = newItems[idx].profitMode || 'manual';
+                                if (profitMode === 'margin' && newItems[idx].profitPercentage) {
+                                  const margin = newItems[idx].profitPercentage || 0;
+                                  if (margin < 100) {
+                                    newItems[idx].sellingPrice = Number(e.target.value) / (1 - (margin / 100));
+                                  }
+                                }
                                 setOrderItems(newItems);
                               }} 
                               className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-black outline-none" 
@@ -1527,6 +3117,246 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                             </button>
                           </div>
                         </div>
+
+                        {/* Delivery and Stock In Details Drawer */}
+                        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-100/50 dark:bg-slate-900/30 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
+                          <div>
+                            <label className="text-[9px] font-black text-slate-400 mb-1 block">الكمية المستلمة فعلياً</label>
+                            <input 
+                              type="number"
+                              min="0"
+                              value={item.receivedQuantity !== undefined ? item.receivedQuantity : (item.quantity || 0)}
+                              onChange={e => {
+                                const newItems = [...orderItems];
+                                newItems[idx].receivedQuantity = Number(e.target.value);
+                                setOrderItems(newItems);
+                              }}
+                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-900/30 rounded-lg text-xs text-center font-black text-emerald-600 dark:text-emerald-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-slate-400 mb-1 block">الكمية التالفة / المرفوضة</label>
+                            <input 
+                              type="number"
+                              min="0"
+                              value={item.damagedQuantity || 0}
+                              onChange={e => {
+                                const newItems = [...orderItems];
+                                newItems[idx].damagedQuantity = Number(e.target.value);
+                                setOrderItems(newItems);
+                              }}
+                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-rose-100 dark:border-rose-900/30 rounded-lg text-xs text-center font-black text-rose-600 dark:text-rose-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-slate-400 mb-1 block">تاريخ الانتهاء (Expiry)</label>
+                            <input 
+                              type="date"
+                              value={item.expiryDate || ''}
+                              onChange={e => {
+                                const newItems = [...orderItems];
+                                newItems[idx].expiryDate = e.target.value;
+                                setOrderItems(newItems);
+                              }}
+                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] text-center font-bold"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-slate-400 mb-1 block">رقم الدفعة (Batch No.)</label>
+                            <input 
+                              type="text"
+                              placeholder="#"
+                              value={item.batchNumber || ''}
+                              onChange={e => {
+                                const newItems = [...orderItems];
+                                newItems[idx].batchNumber = e.target.value;
+                                setOrderItems(newItems);
+                              }}
+                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] text-center font-bold"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Cost & Calculation Method Configuration Drawer */}
+                        {item.productId && (
+                          <div className="mt-4 pt-4 border-t border-slate-200/50 dark:border-slate-700/50 space-y-3 font-sans select-none" dir="rtl">
+                            <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg">طريقة الحساب للتسعير والربح:</span>
+                                
+                                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newItems = [...orderItems];
+                                      newItems[idx].profitMode = 'manual';
+                                      setOrderItems(newItems);
+                                    }}
+                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                                      (item.profitMode || 'manual') === 'manual'
+                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow'
+                                        : 'text-slate-500'
+                                    }`}
+                                  >
+                                    <Edit2 size={10} />
+                                    <span>يدوي</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newItems = [...orderItems];
+                                      newItems[idx].profitMode = 'margin';
+                                      setOrderItems(newItems);
+                                    }}
+                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                                      item.profitMode === 'margin'
+                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow'
+                                        : 'text-slate-500'
+                                    }`}
+                                  >
+                                    <Percent size={10} />
+                                    <span>هامش ربح</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newItems = [...orderItems];
+                                      newItems[idx].profitMode = 'commission';
+                                      setOrderItems(newItems);
+                                    }}
+                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                                      item.profitMode === 'commission'
+                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow'
+                                        : 'text-slate-500'
+                                    }`}
+                                  >
+                                    <Coins size={10} />
+                                    <span>عمولة</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3 flex-wrap">
+                                {(item.profitMode || 'manual') === 'manual' && (
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">تحديد سعر البيع بالمتجر:</label>
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        value={item.sellingPrice || ''}
+                                        onChange={e => {
+                                          const newItems = [...orderItems];
+                                          newItems[idx].sellingPrice = Number(e.target.value);
+                                          setOrderItems(newItems);
+                                        }}
+                                        className="w-24 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
+                                        placeholder="سعر البيع"
+                                      />
+                                      <span className="absolute left-1.5 top-1.5 text-[9px] text-slate-400 font-bold">ج.م</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {item.profitMode === 'margin' && (
+                                  <div className="flex items-center gap-2">
+                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">نسبة الربح %:</label>
+                                    <div className="relative">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        value={item.profitPercentage || ''}
+                                        onChange={e => {
+                                          const newItems = [...orderItems];
+                                          newItems[idx].profitPercentage = Number(e.target.value);
+                                          const currCost = newItems[idx].cost || 0;
+                                          const currMargin = Number(e.target.value) || 0;
+                                          if (currMargin < 100) {
+                                            newItems[idx].sellingPrice = currCost / (1 - (currMargin / 100));
+                                          }
+                                          setOrderItems(newItems);
+                                        }}
+                                        className="w-16 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
+                                        placeholder="20%"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {item.profitMode === 'commission' && (
+                                  <div className="flex gap-2.5 items-center flex-wrap">
+                                    <div className="flex items-center gap-1.5">
+                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-sans">السعر الأساسي:</label>
+                                      <input
+                                        type="number"
+                                        value={item.basePrice || ''}
+                                        onChange={e => {
+                                          const newItems = [...orderItems];
+                                          newItems[idx].basePrice = Number(e.target.value);
+                                          const comm = newItems[idx].commissionPercentage || 0;
+                                          newItems[idx].cost = Number(e.target.value) * (1 - (comm / 100));
+                                          setOrderItems(newItems);
+                                        }}
+                                        className="w-20 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
+                                        placeholder="أدخل"
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-sans">العمولة %:</label>
+                                      <input
+                                        type="number"
+                                        value={item.commissionPercentage || ''}
+                                        onChange={e => {
+                                          const newItems = [...orderItems];
+                                          newItems[idx].commissionPercentage = Number(e.target.value);
+                                          const bp = newItems[idx].basePrice || 0;
+                                          newItems[idx].cost = bp * (1 - (Number(e.target.value) / 100));
+                                          setOrderItems(newItems);
+                                        }}
+                                        className="w-16 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
+                                        placeholder="10%"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Dynamically simulated live comparison badge for cost changes */}
+                            <div className="bg-slate-100 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-2.5 text-[10.5px]">
+                              <div className="flex flex-wrap justify-between items-center w-full">
+                                <span className="text-slate-500 dark:text-slate-400 font-medium">سلوك المنتج بالمتجر عند تسجيل الفاتورة:</span>
+                                <div className="flex gap-3 text-slate-600 dark:text-slate-300 font-bold">
+                                  <div>التكلفة: <span className="text-slate-800 dark:text-white font-mono font-black">{Number(item.cost || 0).toFixed(2)} ج.م</span></div>
+                                  <div>سعر البيع النهائي بالمتجر: <span className="text-indigo-600 dark:text-indigo-400 font-mono font-black">
+                                    {Number(item.profitMode === 'margin' 
+                                      ? (item.cost && item.profitPercentage ? (item.cost / (1 - (item.profitPercentage / 100))) : (item.sellingPrice || item.cost || 0))
+                                      : item.profitMode === 'commission'
+                                      ? (item.basePrice || 0)
+                                      : (item.sellingPrice || item.cost || 0)
+                                    ).toFixed(2)} ج.م
+                                  </span></div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 pt-1 border-t border-slate-200/40 dark:border-slate-700/40">
+                                <label className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-black cursor-pointer select-none">
+                                  <input 
+                                    type="checkbox"
+                                    checked={item.updateCatalogPrice !== false}
+                                    onChange={e => {
+                                      const newItems = [...orderItems];
+                                      newItems[idx].updateCatalogPrice = e.target.checked;
+                                      setOrderItems(newItems);
+                                    }}
+                                    className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-505/20 accent-indigo-600 cursor-pointer"
+                                  />
+                                  <span>تحديث وتعديل أسعار هذا المنتج ونظام حساب التكلفة الخاص به في الكتالوج العام تلقائياً عند الترحيل</span>
+                                </label>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
@@ -1535,21 +3365,25 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
             </div>
 
             {/* Total Bottom sticky footer */}
-            <div className="p-6 bg-slate-900 dark:bg-black flex flex-col sm:flex-row justify-between items-center gap-5 shrink-0">
-              <div className="text-center sm:text-right select-none">
-                <span className="text-slate-400 text-[11px] block mb-0.5">صافي إجمالي المستحقات النهائية</span>
-                <div className="text-3xl font-black text-emerald-400 tracking-tight">
-                  {orderItems.reduce((sum, item) => {
-                    let itemTotal = item.cost * item.quantity;
-                    if (item.discountValue) {
-                      if (item.discountType === 'percentage') {
-                        itemTotal -= (itemTotal * (item.discountValue / 100));
-                      } else {
-                        itemTotal -= (item.discountValue * item.quantity);
-                      }
-                    }
-                    return sum + itemTotal;
-                  }, 0).toLocaleString()} <span className="text-base font-bold text-white/60">ج.م</span>
+            <div className="p-6 bg-slate-900 dark:bg-black flex flex-col sm:flex-row justify-between items-center gap-5 shrink-0 border-t border-white/5">
+              <div className="flex flex-wrap gap-6 text-right select-none">
+                <div className="hidden sm:block">
+                  <span className="text-slate-500 text-[10px] block mb-0.5">مجموع الأصناف</span>
+                  <div className="text-sm font-bold text-white">
+                    {itemsSubtotal.toLocaleString()} <span className="text-[10px] opacity-60">ج.م</span>
+                  </div>
+                </div>
+                <div className="hidden sm:block">
+                  <span className="text-slate-500 text-[10px] block mb-0.5">الرسوم والضرائب</span>
+                  <div className="text-sm font-bold text-indigo-400">
+                    {(shippingFees + otherFees + taxAmount).toLocaleString()} <span className="text-[10px] opacity-60">ج.م</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] block mb-0.5">صافي إجمالي الفاتورة النهائي</span>
+                  <div className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">
+                    {grandTotal.toLocaleString()} <span className="text-xs sm:text-base font-bold text-white/60">ج.م</span>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-3 w-full sm:w-auto">

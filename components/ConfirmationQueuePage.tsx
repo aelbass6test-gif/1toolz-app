@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Order, User, ConfirmationLog, AuditLog, OrderStatus, Settings, OrderItem, Product, Store } from '../types';
 import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft } from 'lucide-react';
 import EditableField from './EditableField';
@@ -60,6 +60,62 @@ const SENTIMENT_OPTIONS = [
     { value: 'سلبي', label: 'سلبي', color: 'bg-orange-500 text-white' },
     { value: 'غاضب', label: 'غاضب', color: 'bg-red-500 text-white' },
     { value: 'مستعجل', label: 'مستعجل', color: 'bg-purple-500 text-white' },
+];
+
+const OBJECTIONS = [
+    {
+        id: 'price_high',
+        label: 'السعر غالي 💰',
+        rebuttal: 'وضح مميزات وتفاصيل جودة وصناعة المنتج، أو اعرض عليه خصماً خاصاً وفورياً بقيمة 50 ج.م لإتمام الصفقة الآن.',
+        actionLabel: 'خصم خاص 50 ج.م',
+        action: (order: Order) => {
+            const currentDiscount = order.discount || 0;
+            return {
+                ...order,
+                discount: currentDiscount + 50,
+                notes: `${order.notes || ''}\n[مساعد الاعتراضات] تم تطبيق خصم إقناع بقيمة 50 ج.م لشكوى السعر.`.trim()
+            };
+        }
+    },
+    {
+        id: 'shipping_high',
+        label: 'الشحن مرتفع 🚚',
+        rebuttal: 'أكّد له أهمية وصول شحن آمن مع خيار المعاينة قبل الاستلام، أو قدّم له خصماً بقيمة 50% من مصاريف الشحن كمحاولة أخيرة لتجنب الإلغاء.',
+        actionLabel: 'خصم 50% من مصاريف الشحن',
+        action: (order: Order) => {
+            const shippingHalf = Math.round((order.shippingFee || 0) / 2);
+            const currentDiscount = order.discount || 0;
+            return {
+                ...order,
+                discount: currentDiscount + shippingHalf,
+                notes: `${order.notes || ''}\n[مساعد الاعتراضات] تم خفض مصاريف الشحن بنسبة 50% وخصم قيمة (${shippingHalf} ج.م).`.trim()
+            };
+        }
+    },
+    {
+        id: 'not_ready',
+        label: 'غير جاهز الآن ⏳',
+        rebuttal: 'اعرض عليه جدولة عملية التوصيل وتأجيلها للتاريخ الذي يختاره، أو يوم استلام الراتب لتجنب الإرجاع مع شركة الشحن.',
+        actionLabel: 'جدولة وتسجيل نوت التأجيل',
+        action: (order: Order) => {
+            return {
+                ...order,
+                notes: `${order.notes || ''}\n[مساعد الاعتراضات] العميل طلب تأجيل شحن وتسليم الطلب بضعة أيام ليكون جاهزاً للاستلام.`.trim()
+            };
+        }
+    },
+    {
+        id: 'hesitant',
+        label: 'متردد أو قلق 🤔',
+        rebuttal: 'اعرض عليه ميزة الشحن الذكي والتي تتيح فتح الشحنة ومعاينتها بالكامل مجاناً قبل دفع قرش واحد للمندوب، مع إمكانية تجربة مقاسين مختلفين.',
+        actionLabel: 'إضافة "المعاينة قبل الدفع والتجريب"',
+        action: (order: Order) => {
+            return {
+                ...order,
+                notes: `${order.notes || ''}\n[مساعد الاعتراضات] العميل متردد. يرجى كتابة ملاحظة لشركة الشحن "يسمح بفتح الطرد ومعاينته لتجربة المقاس".`.trim()
+            };
+        }
+    }
 ];
 
 interface ConfirmationQueuePageProps {
@@ -190,40 +246,50 @@ const CustomerHistory = ({ allOrders, customerPhone, currentOrderId }: { allOrde
     );
 };
 
-const EmployeePerformance = ({ orders, currentUser, setNotification }: { orders: Order[], currentUser: User | null, setNotification: (n: string | null) => void }) => {
+const EmployeePerformance = ({ orders, currentUser, setNotification, isManager, activeEmployees }: { orders: Order[], currentUser: User | null, setNotification: (n: string | null) => void, isManager: boolean, activeEmployees: any[] }) => {
+    const [showAllStaff, setShowAllStaff] = useState(false);
+
     const stats = useMemo(() => {
-        if (!currentUser) return { confirmed: 0, canceled: 0, total: 0, rank: 0, totalEmployees: 0 };
+        if (!currentUser) return { confirmed: 0, canceled: 0, total: 0, rank: 0, totalEmployees: 0, allStaff: [] };
         const today = new Date().toISOString().split('T')[0];
         
         // Calculate stats for all employees
-        const employeeStats: Record<string, { confirmed: number, canceled: number, total: number }> = {};
+        const employeeStats: Record<string, { confirmed: number, canceled: number, total: number, name: string }> = {};
         
+        // Initialize with active employees to ensure they show up even with 0 stats
+        activeEmployees.forEach(emp => {
+            employeeStats[emp.phone] = { confirmed: 0, canceled: 0, total: 0, name: emp.name };
+        });
+
         orders.forEach(order => {
             const logs = order.confirmationLogs || [];
             logs.forEach(log => {
                 if (log.timestamp.startsWith(today)) {
                     if (!employeeStats[log.userId]) {
-                        employeeStats[log.userId] = { confirmed: 0, canceled: 0, total: 0 };
+                        employeeStats[log.userId] = { confirmed: 0, canceled: 0, total: 0, name: log.userName || 'موظف' };
                     }
                     if (log.action === 'تم التأكيد') employeeStats[log.userId].confirmed++;
-                    if (log.action === 'تم الإلغاء') employeeStats[log.userId].canceled++;
+                    if (log.action === 'الغاء' || log.action === 'مرتجع') employeeStats[log.userId].canceled++;
                     employeeStats[log.userId].total++;
                 }
             });
         });
 
         // Sort employees by confirmed orders
-        const sortedEmployees = Object.entries(employeeStats).sort((a, b) => b[1].confirmed - a[1].confirmed);
-        const myRank = sortedEmployees.findIndex(([id]) => id === currentUser.phone) + 1;
+        const sortedEmployees = Object.entries(employeeStats)
+            .map(([id, s]) => ({ id, ...s }))
+            .sort((a, b) => b.confirmed - a.confirmed);
         
+        const myRank = sortedEmployees.findIndex(e => e.id === currentUser.phone) + 1;
         const myStats = employeeStats[currentUser.phone] || { confirmed: 0, canceled: 0, total: 0 };
         
         return { 
             ...myStats, 
             rank: myRank > 0 ? myRank : (sortedEmployees.length + 1),
-            totalEmployees: Math.max(sortedEmployees.length, 1)
+            totalEmployees: Math.max(sortedEmployees.length, 1),
+            allStaff: sortedEmployees
         };
-    }, [orders, currentUser]);
+    }, [orders, currentUser, activeEmployees]);
 
     const prevRank = useRef<number | null>(null);
     useEffect(() => {
@@ -234,41 +300,78 @@ const EmployeePerformance = ({ orders, currentUser, setNotification }: { orders:
     }, [stats.rank, setNotification]);
 
     return (
-        <div className="bg-indigo-600 text-white p-4 sm:p-5 rounded-2xl shadow-lg mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-6 relative overflow-hidden">
-            <div className="absolute -right-6 -top-6 opacity-10 text-white rotate-12">
-                <Trophy size={120} />
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm mb-6 relative overflow-hidden">
+            <div className="absolute -right-6 -top-6 opacity-5 text-slate-900 dark:text-white rotate-12">
+                <Trophy size={100} />
             </div>
-            <div className="relative z-10 w-full sm:w-auto">
-                <div className="flex items-center gap-2 mb-2">
-                    <h4 className="text-xs sm:text-sm font-bold text-indigo-100 uppercase tracking-wider">إنجازك اليوم</h4>
-                    {stats.rank === 1 && stats.confirmed > 0 && (
-                        <span className="bg-yellow-400 text-yellow-900 text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
-                            <Medal size={10} /> المركز الأول
-                        </span>
-                    )}
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                    <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/10">
-                        <CheckCircle size={16} className="text-emerald-400" />
-                        <span className="font-black text-white text-sm sm:text-base">{stats.confirmed} مؤكد</span>
+            
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 relative z-10">
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                    <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-200 dark:shadow-none">
+                        <Trophy size={24} />
                     </div>
-                    <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/10">
-                        <XCircle size={16} className="text-rose-400" />
-                        <span className="font-black text-white text-sm sm:text-base">{stats.canceled} ملغي</span>
+                    <div>
+                        <h4 className="text-sm font-black text-slate-800 dark:text-white">إنجازك اليوم</h4>
+                        <p className="text-[10px] font-bold text-slate-500">ترتيبك: {stats.rank} من {stats.totalEmployees}</p>
                     </div>
                 </div>
-            </div>
-            <div className="text-center sm:text-right relative z-10 border-t sm:border-t-0 sm:border-r border-white/10 pt-4 sm:pt-0 sm:pr-6 flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto">
-                <div className="flex flex-col sm:mb-1">
-                    <p className="text-2xl sm:text-4xl font-black text-white leading-none">{stats.total}</p>
-                    <p className="text-[8px] sm:text-[10px] font-bold text-indigo-100 uppercase tracking-widest leading-none mt-1">عملية</p>
-                </div>
-                {stats.rank > 0 && stats.confirmed > 0 && (
-                    <div className="text-left sm:text-right">
-                        <p className="text-[10px] sm:text-xs text-white font-bold bg-white/20 px-2 py-1 rounded-lg"># {stats.rank} على الفريق</p>
+
+                <div className="flex items-center gap-8 bg-slate-50 dark:bg-slate-800/50 px-6 py-3 rounded-2xl w-full sm:w-auto justify-center">
+                    <div className="text-center">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">تأكيد</p>
+                        <p className="text-xl font-black text-emerald-600 leading-none mt-1">{stats.confirmed}</p>
                     </div>
+                    <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+                    <div className="text-center">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ملغي</p>
+                        <p className="text-xl font-black text-rose-500 leading-none mt-1">{stats.canceled}</p>
+                    </div>
+                    <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+                    <div className="text-center">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">إجمالي</p>
+                        <p className="text-xl font-black text-indigo-600 leading-none mt-1">{stats.total}</p>
+                    </div>
+                </div>
+
+                {isManager && (
+                    <button 
+                        onClick={() => setShowAllStaff(!showAllStaff)}
+                        className="bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-5 py-2.5 rounded-xl text-xs font-black hover:scale-105 active:scale-95 transition-all shadow-lg flex items-center gap-2 whitespace-nowrap"
+                    >
+                        <Users size={16} />
+                        {showAllStaff ? 'إخفاء الفريق' : 'عرض موظفي التأكيد'}
+                    </button>
                 )}
             </div>
+
+            <AnimatePresence>
+                {showAllStaff && isManager && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                    >
+                        <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                            <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">أداء فريق التأكيد اليوم</h5>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                {stats.allStaff.map((s: any) => (
+                                    <div key={s.id} className={`p-4 rounded-xl border ${s.id === currentUser?.phone ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20 dark:border-indigo-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/40 dark:border-slate-800'} flex items-center justify-between`}>
+                                        <div className="min-w-0 pr-2">
+                                            <p className="text-xs font-black text-slate-800 dark:text-white truncate">{s.name}</p>
+                                            <p className="text-[9px] font-bold text-slate-500 mt-1">{s.total} إجمالي • {s.canceled} ملغي</p>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <p className="text-lg font-black text-emerald-600 leading-none">{s.confirmed}</p>
+                                            <p className="text-[8px] font-bold text-slate-400 uppercase">تأكيد</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
@@ -403,11 +506,21 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
 
     const [autoDistribute, setAutoDistribute] = useState(true);
 
+    const activeEmployees = useMemo(() => {
+        return (settings.employees || []).filter(e => e.status === 'active' || !e.status);
+    }, [settings.employees]);
+
+    const isManager = currentUser?.isAdmin || currentUser?.stores?.some(s => s.id === activeStore?.id);
+
+    // Filtered orders for the store
+    const storeOrders = useMemo(() => {
+        return orders.filter(o => !activeStore || o.warehouseId === activeStore.id || !o.warehouseId);
+    }, [orders, activeStore]);
+
     useEffect(() => {
         if (!autoDistribute) return;
         
         const unassignedOrders = orders.filter(o => !o.assignedTo && o.status === 'في_انتظار_المكالمة');
-        const activeEmployees = settings.employees?.filter(e => e.status === 'active') || [];
         
         if (unassignedOrders.length > 0 && activeEmployees.length > 0) {
             setOrders(currentOrders => {
@@ -573,6 +686,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
         return settings.products.filter(p => !currentProductIds.includes(p.id)).slice(0, 3);
     }, [activeOrder, settings.products]);
     const [whatsappMenuOpen, setWhatsappMenuOpen] = useState(false);
+    const [activeObjection, setActiveObjection] = useState<string | null>(null);
 
 
 
@@ -1156,7 +1270,13 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                     animate={{ height: 'auto', opacity: 1 }}
                     className="px-4 pt-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0"
                 >
-                    <EmployeePerformance orders={orders} currentUser={currentUser} setNotification={(msg) => console.log(msg)} />
+                    <EmployeePerformance 
+                        orders={orders} 
+                        currentUser={currentUser} 
+                        setNotification={setNotification}
+                        isManager={isManager}
+                        activeEmployees={activeEmployees}
+                    />
                 </motion.div>
             )}
 
@@ -1526,7 +1646,15 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                         )}
                                         <div className="flex items-center gap-2 text-sm font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
                                             <PhoneCall size={14} className={callDuration > 0 ? "animate-pulse text-emerald-500" : ""} />
-                                            {formatDuration(callDuration)}
+                                            <span>{formatDuration(callDuration)}</span>
+                                            {callDuration > 0 && (
+                                                <div className="flex items-end gap-[2px] h-3.5 mr-1 overflow-hidden">
+                                                    <span className="w-[2.5px] bg-emerald-500 rounded-full h-2 animate-bounce" style={{ animationDelay: '0.1s', animationDuration: '0.6s' }}/>
+                                                    <span className="w-[2.5px] bg-emerald-500 rounded-full h-3.5 animate-bounce" style={{ animationDelay: '0.3s', animationDuration: '0.5s' }}/>
+                                                    <span className="w-[2.5px] bg-emerald-500 rounded-full h-1.5 animate-bounce" style={{ animationDelay: '0.2s', animationDuration: '0.7s' }}/>
+                                                    <span className="w-[2.5px] bg-emerald-500 rounded-full h-3 animate-bounce" style={{ animationDelay: '0.4s', animationDuration: '0.4s' }}/>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1556,6 +1684,78 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                             </button>
                                         ))}
                                     </div>
+                                </div>
+
+                                {/* مساعد معالجة اعتراضات العملاء التفاعلي */}
+                                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 p-4 rounded-xl space-y-4 shadow-sm">
+                                    <div className="flex justify-between items-center bg-slate-100/50 dark:bg-slate-800/80 -mx-4 -mt-4 px-4 py-2.5 rounded-t-xl border-b border-slate-200/50 dark:border-slate-700/50">
+                                        <h4 className="font-bold text-indigo-800 dark:text-indigo-400 text-xs flex items-center gap-1.5">
+                                            <Trophy className="text-amber-500" size={14} /> ممشى تجاوز اعتراضات العملاء الذكي
+                                        </h4>
+                                        <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2.5 py-0.5 rounded-full font-bold">تكتيكات الإقناع</span>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        {OBJECTIONS.map(obj => {
+                                            const isActive = activeObjection === obj.id;
+                                            return (
+                                                <button
+                                                    key={obj.id}
+                                                    type="button"
+                                                    disabled={isReadOnly}
+                                                    onClick={() => setActiveObjection(isActive ? null : obj.id)}
+                                                    className={`p-2 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-1 text-center h-16 ${
+                                                        isActive
+                                                            ? 'bg-indigo-50 border-indigo-400 text-indigo-800 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300 shadow-sm scale-[1.03]'
+                                                            : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 hover:scale-[1.02]'
+                                                    }`}
+                                                >
+                                                    <span className="truncate max-w-full font-bold">{obj.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {activeObjection && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="bg-amber-50/50 dark:bg-amber-950/20 p-3.5 rounded-xl border border-amber-200/50 dark:border-amber-900/50 space-y-3"
+                                        >
+                                            <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300 font-medium">
+                                                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-500" />
+                                                <p className="leading-relaxed"><span className="font-extrabold text-amber-950 dark:text-amber-100">سيناريو مقترح للرد:</span> {OBJECTIONS.find(o => o.id === activeObjection)?.rebuttal}</p>
+                                            </div>
+                                            
+                                            {!isReadOnly && (
+                                                <div className="flex justify-end pt-1 border-t border-amber-200/30 dark:border-amber-900/30">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const selectedObj = OBJECTIONS.find(o => o.id === activeObjection);
+                                                            if (selectedObj) {
+                                                                const updated = selectedObj.action(activeOrder);
+                                                                logAudit(activeOrder.id, 'notes', activeOrder.notes || '', updated.notes || '');
+                                                                if (updated.discount !== activeOrder.discount) {
+                                                                    logAudit(activeOrder.id, 'discount', activeOrder.discount || 0, updated.discount || 0);
+                                                                }
+                                                                setOrders(current => current.map(o => o.id === activeOrder.id ? { ...o, notes: updated.notes, discount: updated.discount } : o));
+                                                                setNotification(`تم تطبيق إجراء تجاوز اعتراض "${selectedObj.label.split(' ')[0]}" تلقائياً على الطلب!`);
+                                                                setActiveObjection(null);
+                                                                if (navigator.vibrate) {
+                                                                    navigator.vibrate(100);
+                                                                }
+                                                            }
+                                                        }}
+                                                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-1.5 px-3 rounded-lg flex items-center gap-1 shadow-sm transition-all active:scale-95"
+                                                    >
+                                                        <Check size={12} />
+                                                        {OBJECTIONS.find(o => o.id === activeObjection)?.actionLabel}
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    )}
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

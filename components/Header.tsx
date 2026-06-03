@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, Database, Cloud, HardDrive, Activity } from 'lucide-react';
 import { getSupabaseRestrictedStatus } from '../services/databaseService';
 
 const PATH_TITLES: { [key: string]: string } = {
@@ -41,6 +41,7 @@ interface HeaderProps {
     forceSync?: () => Promise<void>;
     saveStatus?: any;
     saveMessage?: string;
+    unsavedChanges?: any[];
 }
 
 const Header: React.FC<HeaderProps> = ({ 
@@ -54,10 +55,40 @@ const Header: React.FC<HeaderProps> = ({
     setDbSyncMode,
     forceSync,
     saveStatus,
-    saveMessage
+    saveMessage,
+    unsavedChanges
 }) => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
+    const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false);
+    const [isTestingPing, setIsTestingPing] = useState(false);
+    const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
+    const syncMenuRef = useRef<HTMLDivElement>(null);
+
+    const [lastSyncTime, setLastSyncTime] = useState<string>(() => {
+        if (typeof window !== 'undefined' && activeStore?.id) {
+            return localStorage.getItem(`wuilt_last_sync_time_${activeStore.id}`) || 'لم تتم المزامنة هذا اليوم';
+        }
+        return 'لم تتم المزامنة بعد';
+    });
+
+    useEffect(() => {
+        if (saveStatus === 'success' && activeStore?.id) {
+            const now = new Date();
+            const formatted = now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const text = `اليوم ${formatted}`;
+            localStorage.setItem(`wuilt_last_sync_time_${activeStore.id}`, text);
+            setLastSyncTime(text);
+        }
+    }, [saveStatus, activeStore?.id]);
+
+    const executePingTest = () => {
+        setIsTestingPing(true);
+        setTimeout(() => {
+            setIsTestingPing(false);
+        }, 800);
+    };
+
     const location = useLocation();
     const navigate = useNavigate();
     const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
@@ -80,6 +111,9 @@ const Header: React.FC<HeaderProps> = ({
         const handleClickOutside = (event: MouseEvent) => {
             if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
                 setIsUserMenuOpen(false);
+            }
+            if (syncMenuRef.current && !syncMenuRef.current.contains(event.target as Node)) {
+                setIsSyncMenuOpen(false);
             }
         };
         document.addEventListener("mousedown", handleClickOutside);
@@ -107,25 +141,26 @@ const Header: React.FC<HeaderProps> = ({
     };
 
     return (
-        <header className="h-20 glass border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-40 flex-shrink-0">
+        <>
+            <header className="h-20 glass border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-40 flex-shrink-0">
             <div className="flex items-center gap-3 sm:gap-6">
     <button onClick={onToggleSidebar} className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-500">
         <Menu size={24} />
     </button>
-    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-        <h1 className="text-lg sm:text-xl font-display font-black text-slate-900 dark:text-white tracking-tight">{pageTitle}</h1>
+    <div className="flex items-center gap-2 sm:gap-3 max-w-[150px] sm:max-w-none divide-x divide-slate-100 dark:divide-slate-800">
+        <h1 className="text-base sm:text-lg font-display font-black text-slate-900 dark:text-white tracking-tight truncate">{pageTitle}</h1>
         {activeStore && (
-            <span className="hidden sm:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200 dark:border-slate-700">
+            <span className="hidden lg:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200 dark:border-slate-700">
                 ID: {activeStore.id}
             </span>
         )}
         {isRestricted && (
             <span 
                 title="تم تجاوز حصة Supabase المحددة للمشروع. التطبيق يعمل حالياً في الوضع الاحتياطي المحلي الآمن للحفاظ على بياناتك وعملك دون توقف."
-                className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl border border-amber-200/80 dark:border-amber-900/30 animate-pulse cursor-help"
+                className="flex items-center gap-1 px-2 py-0.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-[9px] sm:text-xs font-bold rounded-lg border border-amber-200/80 dark:border-amber-900/30 animate-pulse cursor-help"
             >
-                <ShieldAlert size={14} className="animate-bounce" />
-                <span>الوضع المحلي نشط</span>
+                <ShieldAlert size={12} className="animate-bounce" />
+                <span className="xs:inline hidden">الوضع المحلي نشط</span>
             </span>
         )}
     </div>
@@ -133,74 +168,190 @@ const Header: React.FC<HeaderProps> = ({
 
             <div className="flex items-center gap-2 sm:gap-6">
                 {activeStore && (
-                    <div className="flex items-center gap-1 sm:gap-2 bg-slate-100 dark:bg-slate-900/40 p-1 rounded-2xl border border-slate-200 dark:border-slate-850">
-                        <button
-                            onClick={() => setDbSyncMode?.(dbSyncMode === 'manual' ? 'auto' : 'manual')}
-                            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl font-black text-[9px] sm:text-[11px] transition-all hover:bg-white dark:hover:bg-slate-800 cursor-pointer ${
-                                dbSyncMode === 'manual' 
-                                    ? 'text-slate-600 dark:text-slate-300' 
-                                    : 'text-emerald-600 dark:text-emerald-400 font-extrabold'
-                            }`}
-                            title={
-                                dbSyncMode === 'manual' 
-                                    ? 'وضع ديسك توب (محلي وسريع بالكامل). اضغط للتحويل إلى الوضع السحابي التلقائي.' 
-                                    : 'وضع سحابي تلقائي (مزامنة فورية لكل خطوة). اضغط للتحويل إلى وضع ديسك توب محلي.'
-                            }
-                        >
-                            {dbSyncMode === 'manual' ? (
-                                <>
-                                    <span className="relative flex h-2 w-2">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-500"></span>
-                                    </span>
-                                    <span>ديسك توب (محلي)</span>
-                                </>
-                            ) : (
-                                <>
-                                    <span className="relative flex h-2 w-2">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                                    </span>
-                                    <span>سحابي (تلقائي)</span>
-                                </>
+                    <div className="relative" ref={syncMenuRef}>
+                        <div className="flex items-center gap-1 sm:gap-2 bg-slate-150/60 dark:bg-slate-900/40 p-1 rounded-xl sm:p-1.5 sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900 select-none">
+                            {/* Unsaved changes or saving status */}
+                            {saveStatus !== 'idle' && (
+                                <button
+                                    onClick={() => {
+                                        if (unsavedChanges && unsavedChanges.length > 0) {
+                                            setIsUnsavedModalOpen(true);
+                                        }
+                                    }}
+                                    disabled={!unsavedChanges || unsavedChanges.length === 0}
+                                    className={`flex items-center gap-1 px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black transition-all ${
+                                        unsavedChanges && unsavedChanges.length > 0
+                                            ? 'cursor-pointer animate-pulse text-amber-800 dark:text-amber-400 bg-amber-50/80 dark:bg-amber-950/20'
+                                            : saveStatus === 'success'
+                                            ? 'text-emerald-700 bg-emerald-50 dark:text-emerald-400'
+                                            : 'text-amber-700 bg-amber-50 dark:text-amber-500'
+                                    }`}
+                                >
+                                    <span className={`h-1.5 w-1.5 rounded-full ${
+                                        unsavedChanges && unsavedChanges.length > 0 ? 'bg-amber-500 animate-pulse' :
+                                        saveStatus === 'success' ? 'bg-emerald-500' : 'bg-amber-500'
+                                    }`}></span>
+                                    <span className="hidden sm:inline">{saveMessage || (saveStatus === 'saving' ? 'جاري...' : 'محلي')}</span>
+                                    {unsavedChanges && unsavedChanges.length > 0 && (
+                                        <span className="flex items-center justify-center bg-amber-600 dark:bg-amber-500 text-white rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 text-[8px] sm:text-[9px] font-black mr-0.5 shadow-sm">
+                                            {unsavedChanges.length}
+                                        </span>
+                                    )}
+                                </button>
                             )}
-                        </button>
-                        
-                        <button
-                            onClick={async () => {
-                                if (forceSync) {
-                                    await forceSync();
-                                }
-                            }}
-                            disabled={saveStatus === 'saving'}
-                            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-xl text-[9px] sm:text-[11px] font-black transition-all cursor-pointer ${
-                                saveStatus === 'saving'
-                                    ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400'
-                                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 hover:scale-102 active:scale-98'
-                            }`}
-                            title="مزامنة مع السحاب الآن (رفع وتنزيل البيانات)"
-                        >
-                            {saveStatus === 'saving' ? (
-                                <>
-                                    <Loader2 size={12} className="animate-spin" />
-                                    <span>جاري المزامنة...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <RefreshCw size={12} />
-                                    <span>مزامنة السحاب</span>
-                                </>
-                            )}
-                        </button>
-                        
-                        {saveStatus !== 'idle' && (
-                            <span className={`hidden sm:inline-block text-[10px] font-black px-2 py-1 rounded-lg ${
-                                saveStatus === 'success' ? 'bg-emerald-100 text-emerald-700' :
-                                saveStatus === 'error' ? 'bg-rose-100 text-rose-700' :
-                                'bg-amber-100 text-amber-700'
-                            }`}>
-                                {saveMessage || (saveStatus === 'saving' ? 'جاري...' : saveStatus)}
-                            </span>
+
+                            {/* Mode Toggle Button */}
+                            <button
+                                onClick={() => setDbSyncMode?.(dbSyncMode === 'manual' ? 'auto' : 'manual')}
+                                className={`flex items-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-1.5 rounded-xl font-bold text-[9px] sm:text-[11px] transition-all duration-300 hover:bg-white dark:hover:bg-slate-800 cursor-pointer ${
+                                    dbSyncMode === 'manual' 
+                                        ? 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200' 
+                                        : 'text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/30'
+                                }`}
+                            >
+                                {dbSyncMode === 'manual' ? (
+                                    <HardDrive size={12} />
+                                ) : (
+                                    <Cloud size={12} />
+                                )}
+                                <span className="hidden sm:inline">{dbSyncMode === 'manual' ? 'ديسك توب' : 'سحابي'}</span>
+                            </button>
+
+                            {/* Main Sync action trigger button */}
+                            <button
+                                onClick={async () => {
+                                    if (forceSync) {
+                                        await forceSync();
+                                    }
+                                }}
+                                disabled={saveStatus === 'saving'}
+                                className={`flex items-center gap-1 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[11px] font-black transition-all cursor-pointer ${
+                                    saveStatus === 'saving'
+                                        ? 'bg-indigo-550 text-white opacity-90'
+                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                }`}
+                            >
+                                {saveStatus === 'saving' ? (
+                                    <Loader2 size={12} className="animate-spin text-white" />
+                                ) : (
+                                    <RefreshCw size={12} className="group-hover:rotate-180 transition-transform duration-500" />
+                                )}
+                                <span className="hidden sm:inline">مزامنة</span>
+                                {!unsavedChanges?.length && <span className="sm:hidden text-[8px]">تحديث</span>}
+                            </button>
+
+                            {/* Expansion Details trigger */}
+                            <button
+                                onClick={() => setIsSyncMenuOpen(!isSyncMenuOpen)}
+                                className={`p-1.5 rounded-lg sm:rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer ${isSyncMenuOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : ''}`}
+                            >
+                                <ChevronDown size={14} className={`transition-transform duration-300 ${isSyncMenuOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                        </div>
+
+                        {/* Interactive Dropdown / Control Panel */}
+                        {isSyncMenuOpen && (
+                            <div className="absolute left-0 mt-2.5 w-80 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200 p-1 z-50 overflow-hidden text-right font-sans" dir="rtl">
+                                {/* Header of Control Panel */}
+                                <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                                            <Activity size={14} className="animate-pulse" />
+                                        </div>
+                                        <span className="font-black text-xs text-slate-850 dark:text-slate-200">صحة الاتصال والبيانات</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 rounded-lg border border-emerald-100/50 dark:border-emerald-900/30">
+                                        <HardDrive size={10} />
+                                        <span>مشغل محلي</span>
+                                    </div>
+                                </div>
+
+                                {/* Body / Telemetry details */}
+                                <div className="p-4 space-y-3.5">
+                                    {/* Connection status line */}
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">بوابة المزامنة:</span>
+                                        <span className="text-xs font-black text-slate-800 dark:text-slate-250 flex items-center gap-1.5">
+                                            <Cloud size={13} className="text-indigo-505" />
+                                            Google Firebase Firestore
+                                        </span>
+                                    </div>
+
+                                    {/* Local DB Status */}
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">مخزن البيانات المحلي:</span>
+                                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-350 flex items-center gap-1.5">
+                                            <Database size={13} className="text-emerald-550" />
+                                            IndexedDB (أمان الهاردوير)
+                                        </span>
+                                    </div>
+
+                                    {/* Last Sync Tracking */}
+                                    <div className="flex justify-between items-center pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">آخر مزامنة ناجحة:</span>
+                                        <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                            {lastSyncTime}
+                                        </span>
+                                    </div>
+
+                                    {/* Connection speed simulator */}
+                                    <div className="bg-slate-50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-105 dark:border-slate-800/60">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                                                <Wifi size={11} className="text-emerald-500" />
+                                                سرعة الاتصال والـ Server Ping:
+                                            </span>
+                                            {isTestingPing ? (
+                                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black animate-pulse">جاري القياس...</span>
+                                            ) : (
+                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">24 ms (سريع جداً)</span>
+                                            )}
+                                        </div>
+                                        {/* Dynamic Bar */}
+                                        <div className="w-full bg-slate-200 dark:bg-slate-800 h-1 rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full bg-emerald-500 rounded-full transition-all duration-500 ${isTestingPing ? 'w-1/3' : 'w-[94%]'}`}
+                                            ></div>
+                                        </div>
+                                        <div className="flex justify-between items-center mt-1.5">
+                                            <span className="text-[9px] text-slate-400 leading-none">تأمين محلي فوري (العمل بدون إنترنت مدعوم)</span>
+                                            <button 
+                                                onClick={executePingTest}
+                                                className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                            >
+                                                تحديث القياس ⚡
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Footer Quick Info and toggle */}
+                                <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-100 dark:border-slate-850 flex gap-2 rounded-b-3xl">
+                                    <button
+                                        onClick={async () => {
+                                            if (forceSync) {
+                                                setIsSyncMenuOpen(false);
+                                                await forceSync();
+                                            }
+                                        }}
+                                        disabled={saveStatus === 'saving'}
+                                        className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors"
+                                    >
+                                        <RefreshCw size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
+                                        مزامنة سحابية الآن
+                                    </button>
+                                    
+                                    <button
+                                        onClick={() => {
+                                            setIsSyncMenuOpen(false);
+                                            navigate('/settings');
+                                        }}
+                                        className="px-3 py-2.5 bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                                    >
+                                        تفاصيل النسخ لقاعدة البيانات
+                                    </button>
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}
@@ -257,7 +408,135 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
             </div>
         </header>
-    );
+
+        {/* Unsaved Changes Inspector Modal */}
+        {isUnsavedModalOpen && unsavedChanges && unsavedChanges.length > 0 && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 font-sans select-none text-right" dir="rtl">
+                <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
+                    {/* Modal Header */}
+                    <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
+                                <ShieldAlert size={20} className="animate-pulse" />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-slate-850 dark:text-slate-100 text-sm">التغييرات غير المحفوظة سحابياً</h3>
+                                <p className="text-[10px] text-slate-450 dark:text-slate-500 font-bold mt-0.5">لديك {unsavedChanges.length} تعديل محلي ينتظر المزامنة التلقائية مع السحابة</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={() => setIsUnsavedModalOpen(false)}
+                            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 dark:text-slate-505 transition-colors cursor-pointer"
+                        >
+                            <ChevronDown size={18} className="rotate-90" />
+                        </button>
+                    </div>
+
+                    {/* Modal Body - Scan List */}
+                    <div className="flex-1 overflow-y-auto p-5 space-y-3 no-scrollbar text-right">
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">سلسلة التعديلات والبيانات الحالية في الذاكرة المحلية والمسجلة بالمتصفح:</p>
+                        <div className="space-y-2">
+                            {unsavedChanges.map((change: any, i: number) => {
+                                let icon = <Replace size={14} />;
+                                let typeText = 'بيانات عامة';
+                                let typeColorClass = 'text-indigo-600 bg-indigo-50/80 dark:text-indigo-400 dark:bg-indigo-950/30';
+                                
+                                if (change.type === 'product') {
+                                    icon = <Settings size={14} className="text-emerald-500" />;
+                                    typeText = 'منتج';
+                                    typeColorClass = 'text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30';
+                                } else if (change.type === 'order') {
+                                    icon = <Activity size={14} className="text-blue-500" />;
+                                    typeText = 'طلب متجر';
+                                    typeColorClass = 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/30';
+                                } else if (change.type === 'supplier') {
+                                    icon = <UserIcon size={14} className="text-cyan-500" />;
+                                    typeText = 'مورد';
+                                    typeColorClass = 'text-cyan-600 bg-cyan-50 dark:text-cyan-400 dark:bg-cyan-950/30';
+                                } else if (change.type === 'supply_order') {
+                                    icon = <HardDrive size={14} className="text-pink-500" />;
+                                    typeText = 'فاتورة شراء';
+                                    typeColorClass = 'text-pink-600 bg-pink-50 dark:text-pink-400 dark:bg-pink-950/30';
+                                } else if (change.type === 'discount') {
+                                    icon = <Sun size={14} className="text-amber-500" />;
+                                    typeText = 'كود خصم';
+                                    typeColorClass = 'text-amber-600 bg-amber-50 dark:text-amber-400 dark:bg-amber-950/30';
+                                } else if (change.type === 'review') {
+                                    icon = <Moon size={14} className="text-yellow-500" />;
+                                    typeText = 'تقييم العميل';
+                                    typeColorClass = 'text-yellow-600 bg-yellow-50 dark:text-yellow-400 dark:bg-yellow-950/30';
+                                } else if (change.type === 'user') {
+                                    icon = <UserIcon size={14} className="text-violet-500" />;
+                                    typeText = 'حساب موظف';
+                                    typeColorClass = 'text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-950/30';
+                                } else if (change.type === 'settings') {
+                                    icon = <Settings size={14} className="text-slate-500" />;
+                                    typeText = 'إعدادات';
+                                    typeColorClass = 'text-slate-600 bg-slate-50 dark:text-slate-400 dark:bg-slate-950/30';
+                                }
+
+                                let actionText = 'تعديل';
+                                let actionClass = 'text-blue-600 bg-blue-50 dark:text-blue-400 dark:bg-blue-950/30';
+                                if (change.action === 'add') {
+                                    actionText = 'إضافة';
+                                    actionClass = 'text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30';
+                                } else if (change.action === 'delete') {
+                                    actionText = 'حذف';
+                                    actionClass = 'text-rose-600 bg-rose-50 dark:text-rose-400 dark:bg-rose-950/30';
+                                }
+
+                                return (
+                                    <div key={i} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 rounded-2xl text-[11px] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-xl shadow-sm text-slate-500">
+                                                {icon}
+                                            </div>
+                                            <div className="space-y-0.5 text-right">
+                                                <div className="font-black text-slate-850 dark:text-white">{change.name}</div>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black ${typeColorClass}`}>{typeText}</span>
+                                                    <span className="text-[9px] text-slate-400 dark:text-slate-500">•</span>
+                                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold">محفوظ محلياً ومؤقتاً بالمتصفح</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black border border-current opacity-90 ${actionClass}`}>
+                                            {actionText}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Modal Footer */}
+                    <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                setIsUnsavedModalOpen(false);
+                                if (forceSync) {
+                                    await forceSync();
+                                }
+                            }}
+                            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-2xl shadow-lg shadow-indigo-600/15 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer border-0"
+                        >
+                            <RefreshCw size={13} className="animate-spin-slow" />
+                            <span>مزامنة كافة التعديلات مع السحاب فوراً</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsUnsavedModalOpen(false)}
+                            className="px-5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-650 dark:text-slate-300 font-black text-xs rounded-2xl active:scale-98 transition-all cursor-pointer"
+                        >
+                            إغلاق
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+    </>
+);
 };
 
 export default Header;

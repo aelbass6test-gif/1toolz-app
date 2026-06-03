@@ -537,6 +537,20 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                         {activeCompanies.map(c => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                  </div>
+                                 {(settings.warehouses || []).length > 0 && (
+                                     <div>
+                                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">مستودع الشحن (المصدر)</label>
+                                        <select 
+                                            required 
+                                            value={orderData.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id || ''} 
+                                            onChange={e => handleFieldChange('warehouseId', e.target.value)} 
+                                            className="w-full p-4.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all dark:text-white font-black cursor-pointer"
+                                        >
+                                            <option value="">-- اختر مستودع الشحن --</option>
+                                            {settings.warehouses?.map(w => <option key={w.id} value={w.id}>{w.name} {w.isDefault ? '(الافتراضي)' : ''}</option>)}
+                                        </select>
+                                     </div>
+                                 )}
                                  <div className="grid grid-cols-2 gap-4">
                                      <div>
                                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">المحافظة</label>

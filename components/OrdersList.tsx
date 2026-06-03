@@ -794,9 +794,21 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         (order.items || []).forEach(orderItem => {
             const pIdx = updatedProducts.findIndex(p => p.id === orderItem.productId);
             if (pIdx > -1) {
+                const prod = updatedProducts[pIdx];
+                const newQty = (prod.stockQuantity || 0) - orderItem.quantity;
+                
+                // Deduct from warehouse stock
+                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : undefined;
+                const whId = order.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id;
+                
+                if (whId && updatedWhStock) {
+                    updatedWhStock[whId] = (updatedWhStock[whId] || 0) - orderItem.quantity;
+                }
+
                 updatedProducts[pIdx] = {
-                    ...updatedProducts[pIdx],
-                    stockQuantity: (updatedProducts[pIdx].stockQuantity || 0) - orderItem.quantity
+                    ...prod,
+                    stockQuantity: newQty,
+                    warehouseStock: updatedWhStock
                 };
             }
         });
@@ -805,9 +817,21 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         (order.items || []).forEach(orderItem => {
             const pIdx = updatedProducts.findIndex(p => p.id === orderItem.productId);
             if (pIdx > -1) {
+                const prod = updatedProducts[pIdx];
+                const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+
+                // Return to warehouse stock
+                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : undefined;
+                const whId = order.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id;
+                
+                if (whId && updatedWhStock) {
+                    updatedWhStock[whId] = (updatedWhStock[whId] || 0) + orderItem.quantity;
+                }
+
                 updatedProducts[pIdx] = {
-                    ...updatedProducts[pIdx],
-                    stockQuantity: (updatedProducts[pIdx].stockQuantity || 0) + orderItem.quantity
+                    ...prod,
+                    stockQuantity: newQty,
+                    warehouseStock: updatedWhStock
                 };
             }
         });
@@ -1345,7 +1369,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   };
 
   const handleAutoAssign = () => {
-    const activeEmployees = settings.employees?.filter(e => e.status === 'active') || [];
+    const activeEmployees = settings.employees?.filter(e => e.status === 'active' || !e.status) || [];
     if (activeEmployees.length === 0) {
       confirmAction({
          title: "تنبيه",

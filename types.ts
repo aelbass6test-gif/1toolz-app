@@ -62,6 +62,13 @@ export interface ShippingCarrierIntegration {
   isConnected: boolean;
 }
 
+export interface Warehouse {
+  id: string;
+  name: string;
+  location?: string;
+  isDefault?: boolean;
+}
+
 export interface ProductVariant {
   id: string;
   sku: string;
@@ -70,6 +77,7 @@ export interface ProductVariant {
   weight?: number;
   stock?: number;
   stockQuantity: number | null;
+  warehouseStock?: Record<string, number>; // New field for multi-warehouse stock
   options: { [optionName: string]: string };
 }
 
@@ -86,6 +94,7 @@ export interface Product {
   inStock?: boolean;
   stock?: number;
   stockQuantity: number | null;
+  warehouseStock?: Record<string, number>; // New field for multi-warehouse stock
   collectionId?: string; 
   hasVariants: boolean;
   options: string[];
@@ -185,15 +194,45 @@ export interface CompanyFees {
 }
 
 export const PERMISSIONS = {
+  // 1. Dashboard & Reports
   DASHBOARD_VIEW: 'DASHBOARD_VIEW',
+  REPORTS_VIEW: 'REPORTS_VIEW',
+  
+  // 2. Orders & Returns
   ORDERS_VIEW: 'ORDERS_VIEW',
   ORDERS_MANAGE: 'ORDERS_MANAGE',
+  RETURNS_MANAGE: 'RETURNS_MANAGE',
+  
+  // 3. POS
+  POS_VIEW: 'POS_VIEW',
+  POS_MANAGE: 'POS_MANAGE',
+  
+  // 4. Products & Inventory
   PRODUCTS_VIEW: 'PRODUCTS_VIEW',
   PRODUCTS_MANAGE: 'PRODUCTS_MANAGE',
+  INVENTORY_MANAGE: 'INVENTORY_MANAGE',
+  COLLECTIONS_MANAGE: 'COLLECTIONS_MANAGE',
+  
+  // 5. Customers & Marketing
+  CUSTOMERS_VIEW: 'CUSTOMERS_VIEW',
+  CUSTOMERS_MANAGE: 'CUSTOMERS_MANAGE',
+  MARKETING_MANAGE: 'MARKETING_MANAGE',
+  DISCOUNTS_MANAGE: 'DISCOUNTS_MANAGE',
+  REVIEWS_MANAGE: 'REVIEWS_MANAGE',
+
+  // 6. Finances & Treasury
   WALLET_VIEW: 'WALLET_VIEW',
   WALLET_MANAGE: 'WALLET_MANAGE',
+  CASH_MANAGE: 'CASH_MANAGE',
+  EXPENSES_MANAGE: 'EXPENSES_MANAGE',
+  
+  // 7. Store Settings & Team
   SETTINGS_VIEW: 'SETTINGS_VIEW',
   SETTINGS_MANAGE: 'SETTINGS_MANAGE',
+  APPS_MANAGE: 'APPS_MANAGE',
+  STOREFRONT_MANAGE: 'STOREFRONT_MANAGE',
+  TEAM_VIEW: 'TEAM_VIEW',
+  TEAM_MANAGE: 'TEAM_MANAGE'
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -330,6 +369,18 @@ export interface SupplyOrderItem {
   cost: number;
   discountValue?: number;
   discountType?: 'amount' | 'percentage';
+  profitMode?: 'manual' | 'margin' | 'commission';
+  profitPercentage?: number;
+  basePrice?: number;
+  commissionPercentage?: number;
+  sellingPrice?: number;
+  updateCatalogPrice?: boolean;
+  orderedQuantity?: number;
+  receivedQuantity?: number;
+  damagedQuantity?: number;
+  expiryDate?: string;
+  batchNumber?: string;
+  landedCost?: number;
 }
 
 export interface PartnerPayment {
@@ -349,7 +400,15 @@ export interface SupplyOrder {
   partnerId?: string;
   partnerPayments?: PartnerPayment[]; // New field for multiple partners
   notes?: string;
-  paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet';
+  paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury';
+  shippingFees?: number;
+  otherFees?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  grandTotal?: number;
+  attachmentUrl?: string;
+  treasuryAccountId?: string;
+  warehouseId?: string; // New field for warehouse allocation
 }
 
 export interface ActivityLog {
@@ -479,9 +538,11 @@ export interface Settings {
   whatsappTemplates?: WhatsAppTemplate[];
   callScripts?: CallScript[];
   employeeDashboardSettings?: EmployeeDashboardSettings;
+  isPosEnabled?: boolean;
   partners?: Partner[];
   partnerTransactions?: PartnerTransaction[];
   expenseCategories?: string[]; // Added expense categories
+  warehouses?: Warehouse[]; // New field for stores/warehouses
   
   // Wallet & Payment Fees
   depositFeePercent?: number;
@@ -494,6 +555,125 @@ export interface Settings {
   minWithdrawalFee?: number;
   feeApplicableMethods?: string[]; // e.g. ['card', 'instapay', 'wallet']
   inventoryAudits?: InventoryAuditSession[];
+  stockTransfers?: StockTransfer[];
+  orderReturns?: OrderReturn[];
+  purchaseReturns?: PurchaseReturn[];
+  posSales?: POSSale[];
+  cashHolders?: CashHolder[];
+  cashHandovers?: CashHandover[];
+}
+
+export interface CashHolder {
+  userId: string;
+  userName: string;
+  currentBalance: number;
+  lastUpdated: string;
+}
+
+export interface CashHandover {
+  id: string;
+  fromUserId: string;
+  fromUserName: string;
+  toUserId: string;
+  toUserName: string;
+  amount: number;
+  date: string;
+  notes?: string;
+  status: 'completed' | 'cancelled';
+}
+
+export interface POSSaleItem {
+  productId: string;
+  variantId?: string;
+  name: string;
+  quantity: number;
+  price: number;
+  cost: number;
+}
+
+export interface POSSale {
+  id: string;
+  saleNumber: string;
+  date: string;
+  items: POSSaleItem[];
+  totalAmount: number;
+  paymentMethod: 'cash' | 'card' | 'wallet';
+  warehouseId: string;
+  customerPhone?: string;
+  customerName?: string;
+  customerAddress?: string;
+  performedBy: string;
+  cashHolderId?: string;
+  cashHolderName?: string;
+  notes?: string;
+}
+
+export interface PurchaseReturnItem {
+  productId: string;
+  variantId?: string;
+  name: string;
+  sku: string;
+  quantity: number;
+  costPrice: number;
+}
+
+export interface PurchaseReturn {
+  id: string;
+  returnNumber: string;
+  supplierId: string;
+  supplierName: string;
+  date: string;
+  items: PurchaseReturnItem[];
+  totalRefundAmount: number;
+  warehouseId: string;
+  status: 'completed' | 'cancelled';
+  notes?: string;
+  performedBy: string;
+}
+
+export interface StockTransferItem {
+  productId: string;
+  variantId?: string;
+  name: string;
+  sku: string;
+  quantity: number;
+}
+
+export interface StockTransfer {
+  id: string;
+  transferNumber: string;
+  date: string;
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
+  items: StockTransferItem[];
+  status: 'completed' | 'draft' | 'cancelled';
+  notes?: string;
+  performedBy: string;
+}
+
+export interface OrderReturnItem {
+  productId: string;
+  variantId?: string;
+  name: string;
+  quantity: number;
+  price: number;
+  cost: number;
+}
+
+export interface OrderReturn {
+  id: string;
+  returnNumber: string;
+  orderId: string;
+  orderNumber: string;
+  date: string;
+  items: OrderReturnItem[];
+  totalRefund: number;
+  reason: string;
+  warehouseId: string;
+  restockItems: boolean;
+  status: 'completed' | 'cancelled';
+  performedBy: string;
+  notes?: string;
 }
 
 export interface InventoryAuditItemDiscrepancy {
@@ -657,6 +837,9 @@ export interface Order {
   enableFlexShip?: boolean;
   flexShipFee?: number;
   flexShipFeePaidByCustomer?: boolean;
+  warehouseId?: string; // New field for sales order fulfillment
+  channel?: 'website' | 'pos';
+  createdBy?: string;
 }
 
 export interface TreasuryAccount {
@@ -741,6 +924,7 @@ export interface User {
   isAdmin?: boolean; 
   isBanned?: boolean; 
   joinDate?: string;
+  permissions?: Permission[];
 }
 
 export interface Invitation {

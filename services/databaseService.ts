@@ -301,7 +301,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 reviews: reviews,
                 abandonedCarts: abandonedCarts,
                 activityLogs: activityLogs,
-                employees: employees,
+                employees: employees.length > 0 ? employees : (storeSettings.employees || []),
                 discountCodes: discountCodes,
                 collections: collectionsList,
                 customPages: customPages,
@@ -364,10 +364,15 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const existingDbDocs = snap.docs.map(doc => ({ _ref: doc.ref, id: doc.id, ...doc.data() }) as any);
                 const existingDocsMap = new Map(existingDbDocs.map(doc => [doc.id, doc]));
 
-                const activeIds = new Set(stateItems.map(item => String(item[idField] || `${store.id}_${item.phone || item.id}`)));
+                const activeIds = new Set(stateItems.map(item => {
+                    const baseId = String(item[idField] || item.phone || item.id);
+                    // Ensure doc ID includes store.id to prevent cross-store overwriting
+                    return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
+                }));
 
                 const upsertPromises = stateItems.map(async (item) => {
-                    const docId = String(item[idField] || `${store.id}_${item.phone || item.id}`);
+                    const baseId = String(item[idField] || item.phone || item.id);
+                    const docId = baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
                     const docRef = doc(firebaseDb, collectionName, docId);
                     
                     const existingDoc = existingDocsMap.get(docId);
@@ -551,18 +556,79 @@ export const clearStoreData = async (storeId: string, targets: string[]): Promis
                 case 'customers': return ['customers'];
                 case 'wallet': return ['transactions'];
                 case 'activity': return ['activity_logs'];
+                case 'coupons': return ['discount_codes'];
+                case 'reviews': return ['reviews'];
+                case 'abandoned_carts': return ['abandoned_carts'];
+                case 'shipping': return ['shipping_integrations'];
+                case 'pages': return ['custom_pages'];
+                case 'suppliers': return ['suppliers'];
+                case 'supply_orders': return ['supply_orders'];
+                case 'global_options': return ['global_options'];
+                case 'payment_methods': return ['payment_methods'];
+                case 'collections': return ['collections'];
+                case 'employees': return ['employees'];
+                case 'partner_withdrawals': return ['treasury_transactions'];
+                case 'partners': return ['partners'];
                 default: return [];
             }
         }).flat();
 
         const clearPromises = collectionsToClear.map(async (colName) => {
+            // Try storeId
+            let q = query(collection(firebaseDb, colName), where('storeId', '==', storeId));
+            let snap = await getDocs(q);
+            let deleteDocs = snap.docs.map(doc => deleteDoc(doc.ref));
+            
+            // Try store_id fallback
+            let q_snake = query(collection(firebaseDb, colName), where('store_id', '==', storeId));
+            let snap_snake = await getDocs(q_snake);
+            let deleteDocs_snake = snap_snake.docs.map(doc => deleteDoc(doc.ref));
+            
+            await Promise.all([...deleteDocs, ...deleteDocs_snake]);
+        });
+
+        await Promise.all(clearPromises);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+};
+
+export const deleteStoreCompletely = async (storeId: string): Promise<{ success: boolean, error?: string }> => {
+    try {
+        // Collections to delete
+        const collections = [
+            'orders', 'products', 'transactions', 'treasury_accounts', 'treasury_transactions', 
+            'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs', 
+            'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods', 
+            'customers', 'global_options', 'shipping_integrations', 'partners'
+        ];
+
+        // Delete all documents in those collections for this store
+        for (const colName of collections) {
             const q = query(collection(firebaseDb, colName), where('storeId', '==', storeId));
             const snap = await getDocs(q);
             const deleteDocs = snap.docs.map(doc => deleteDoc(doc.ref));
             await Promise.all(deleteDocs);
-        });
+        }
 
-        await Promise.all(clearPromises);
+        // Delete the store document itself
+        const storeRef = doc(firebaseDb, 'stores_data', storeId);
+        await deleteDoc(storeRef);
+
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+};
+
+export const deleteUserCompletely = async (user: User): Promise<{ success: boolean, error?: string }> => {
+    try {
+        if (user.stores) {
+            for (const store of user.stores) {
+                await deleteStoreCompletely(store.id);
+            }
+        }
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };

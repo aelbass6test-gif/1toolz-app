@@ -5,18 +5,20 @@ import {
     LayoutDashboard, ShoppingCart, Eye, PhoneForwarded, Plus,
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
     Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, 
-    AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign 
+    AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake
 } from 'lucide-react';
-import { Store as StoreType } from '../types';
+import { Store as StoreType, Settings } from '../types';
 
 interface SidebarProps {
   activeStore: StoreType | undefined;
+  settings?: Settings;
   isOpen?: boolean;
   onClose?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeStore, isOpen, onClose }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClose }) => {
     const location = useLocation();
+    const isPosEnabled = settings?.isPosEnabled !== false;
     const prevPathnameRef = useRef(location.pathname);
     
     // Close sidebar on route change (for mobile)
@@ -44,9 +46,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, isOpen, onClose }) => {
             type: 'group',
             title: 'إدارة الطلبات',
             links: [
+                ...(isPosEnabled ? [{ to: '/pos', label: 'نقطة البيع (POS)', icon: <Monitor size={20} /> }] : []),
                 { to: '/create-order', label: 'طلب جديد ＋', icon: <Plus size={20} /> },
                 { to: '/confirmation-queue', label: 'تأكيد الطلبات', icon: <PhoneForwarded size={20} /> },
                 { to: '/orders', label: 'الطلبات', icon: <ShoppingCart size={20} /> },
+                { to: '/returns', label: 'المرتجعات', icon: <RotateCcw size={20} /> },
+                { to: '/cash-management', label: 'إدارة العهد النقدية', icon: <Handshake size={20} /> },
                 { to: '/abandoned-carts', label: 'السلات المتروكة', icon: <Archive size={20} /> },
             ]
         },
@@ -55,6 +60,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, isOpen, onClose }) => {
             title: 'المنتجات والمخزون',
             links: [
                 { to: '/products', label: 'المنتجات', icon: <Package size={20} /> },
+                { to: '/inventory-transfers', label: 'نقل المخزون', icon: <ArrowRightLeft size={20} /> },
+                { to: '/purchase-returns', label: 'مرتجعات المشتريات', icon: <RotateCw size={20} /> },
                 { to: '/suppliers', label: 'الموردين والمخزون', icon: <UserCog size={20} /> },
                 { to: '/product-options', label: 'خيارات المنتجات', icon: <ClipboardList size={20} /> },
                 { to: '/product-attributes', label: 'خصائص المنتجات', icon: <ListOrdered size={20} /> },
@@ -80,6 +87,15 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, isOpen, onClose }) => {
                 { to: '/team-chat', label: 'دردشة الفريق', icon: <Users2 size={20} /> },
                 { to: '/shipping', label: 'الشحن', icon: <Truck size={20} /> },
                 { to: '/shipping', label: 'متجر التغليف', icon: <Package size={20} /> },
+            ]
+        },
+        {
+            type: 'group',
+            title: 'إدارة الفريق',
+            links: [
+                { to: '/settings/employees', label: 'الموظفين وخدمة العملاء', icon: <Users2 size={20} /> },
+                { to: '/team-chat', label: 'دردشة الفريق', icon: <MessageSquare size={20} /> },
+                { to: '/activity-logs', label: 'سجل النشاط العام', icon: <History size={20} /> },
             ]
         },
         {
@@ -140,7 +156,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, isOpen, onClose }) => {
         {activeStore?.name || 'متجري'}
     </h2>
     <div className="flex flex-col gap-0.5">
-        <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">المسؤول</p>
+        <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">إدارة النظام</p>
         <p className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">كود المتجر: {activeStore?.id}</p>
     </div>
 </div>

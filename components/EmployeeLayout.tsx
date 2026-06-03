@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { User, Store, StoreData } from '../types';
+import { getRoleName } from '../utils/roles';
 import { Wind, LogOut, Settings, User as UserIcon, Sun, Moon, Monitor, Replace, ChevronDown, Check, LayoutDashboard, PhoneForwarded, Download, MessageSquare, History } from 'lucide-react';
 import FloatingChat, { FloatingChatHandles } from './FloatingChat';
 import IosInstallPrompt from './IosInstallPrompt';
@@ -83,7 +84,7 @@ const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({ currentUser, onLogout, 
         const stores: Store[] = [];
         for (const storeId in allStoresData) {
             const storeData = allStoresData[storeId];
-            if (storeData.settings.employees.some(e => e.id === currentUser.phone && e.status === 'active')) {
+            if (storeData.settings.employees.some(e => e.id === currentUser.phone && (e.status === 'active' || !e.status))) {
                 const owner = users.find(u => u.stores?.some(s => s.id === storeId));
                 const storeInfo = owner?.stores?.find(s => s.id === storeId);
                 if (storeInfo) {
@@ -179,7 +180,9 @@ const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({ currentUser, onLogout, 
                     <div className="flex items-center gap-4">
                         <div className="text-right hidden sm:block">
                             <div className="font-bold text-sm text-slate-800 dark:text-white">{currentUser?.fullName}</div>
-                            <div className="text-xs text-slate-500">موظف تأكيد طلبات</div>
+                            <div className="text-xs text-slate-500 font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full w-fit mt-1">
+                                {currentUser ? getRoleName(currentUser.permissions || []) : ''}
+                            </div>
                         </div>
                         <div className="relative" ref={userMenuRef}>
                             <button onClick={() => setIsUserMenuOpen(prev => !prev)} className="flex items-center gap-2">

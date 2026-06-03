@@ -3,6 +3,7 @@ import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barco
 import { Settings, Product, ProductVariant } from '../types';
 import { motion, Variants } from 'framer-motion';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
+import { getLatestProductCost } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -71,7 +72,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       if (p.hasVariants && p.variants && p.variants.length > 0) {
         p.variants.forEach(v => {
           const qty = v.stockQuantity ?? v.stock ?? 0;
-          const cost = v.costPrice ?? p.costPrice ?? 0;
+          const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
           const price = v.price ?? p.price ?? 0;
           
           totalStock += qty;
@@ -80,7 +81,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         });
       } else {
         const qty = p.stockQuantity ?? p.stock ?? 0;
-        const cost = p.costPrice ?? 0;
+        const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
         const price = p.price ?? 0;
 
         totalStock += qty;
@@ -99,7 +100,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       potentialProfit,
       marginPercent
     };
-  }, [settings.products]);
+  }, [settings.products, settings.supplyOrders]);
 
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -397,10 +398,14 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             
             const headerMap: { [key: string]: number } = {};
             const fieldMap: { [csvHeader: string]: string } = {
-                'productname': 'name', 'name': 'name',
-                'price': 'price',
+                'productname': 'name', 'name': 'name', 'product_name': 'name',
+                'price': 'price', 'productprice': 'price', 'product_price': 'price',
+                'sku': 'sku', 'productsku': 'sku', 'product_sku': 'sku',
+                'costprice': 'costPrice', 'cost_price': 'costPrice', 'cost': 'costPrice',
+                'stockquantity': 'stockQuantity', 'stock_quantity': 'stockQuantity', 'quantity': 'stockQuantity', 'stock': 'stockQuantity',
+                'weight': 'weight', 'product_weight': 'weight',
                 'description': 'description',
-                'imageurl': 'image_url', 'images': 'image_url'
+                'imageurl': 'image_url', 'images': 'image_url', 'image_url': 'image_url'
             };
 
             headerRow.forEach((h, index) => {
@@ -424,6 +429,29 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     const price = parseFloat(priceStr);
                     if (isNaN(price)) { errors.push(`الصف ${i + 1}: السعر غير صالح.`); continue; }
 
+                    let sku = `SKU-${Date.now()}-${i}`;
+                    if (headerMap.sku !== undefined && cells[headerMap.sku]?.trim()) {
+                        sku = cells[headerMap.sku].trim();
+                    }
+
+                    let costPrice = 0;
+                    if (headerMap.costPrice !== undefined && cells[headerMap.costPrice]?.trim()) {
+                        const parsedCost = parseFloat(cells[headerMap.costPrice]);
+                        if (!isNaN(parsedCost)) costPrice = parsedCost;
+                    }
+
+                    let stockQuantity: number | null = 100;
+                    if (headerMap.stockQuantity !== undefined && cells[headerMap.stockQuantity]?.trim()) {
+                        const parsedStock = parseFloat(cells[headerMap.stockQuantity]);
+                        if (!isNaN(parsedStock)) stockQuantity = parsedStock;
+                    }
+
+                    let weight = 1;
+                    if (headerMap.weight !== undefined && cells[headerMap.weight]?.trim()) {
+                        const parsedWeight = parseFloat(cells[headerMap.weight]);
+                        if (!isNaN(parsedWeight)) weight = parsedWeight;
+                    }
+
                     let thumbnail = '';
                     let images: string[] = [];
                     const imageUrlIndex = headerMap['image_url'];
@@ -442,11 +470,11 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         description: headerMap.description !== undefined ? cells[headerMap.description] || '' : '',
                         thumbnail,
                         images,
-                        sku: `SKU-${Date.now()}-${i}`,
-                        costPrice: 0,
-                        stockQuantity: 100, // Default stock
-                        weight: 1, // Default weight
-                        hasVariants: false, options: [], variants: [], inStock: true,
+                        sku,
+                        costPrice,
+                        stockQuantity,
+                        weight,
+                        hasVariants: false, options: [], variants: [], inStock: (stockQuantity === null || stockQuantity > 0),
                     });
                 }
             }
@@ -483,7 +511,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   };
   
   const handleDownloadTemplate = () => {
-    const headers = ['product_name', 'price', 'description', 'image_url'];
+    const headers = ['name', 'sku', 'price', 'costPrice', 'stockQuantity', 'weight', 'description', 'image_url'];
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers.join(",");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -1249,6 +1277,34 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                         placeholder="اتركه فارغاً للمتاح دائماً"
                                     />
                                 </div>
+
+                                {/* Warehouse Stock Breakdown */}
+                                {!productData.hasVariants && (settings.warehouses || []).length > 0 && (
+                                    <div className="p-4 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-xl space-y-3">
+                                        <h5 className="text-[11px] font-black text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                                            <Layers size={14}/>
+                                            توزيع المخزون على المستودعات (يدوي)
+                                        </h5>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                            {(settings.warehouses || []).map(wh => (
+                                                <div key={wh.id} className="space-y-1">
+                                                    <label className="text-[10px] font-bold text-slate-500 block truncate">{wh.name}</label>
+                                                    <input 
+                                                        type="number" 
+                                                        value={productData.warehouseStock?.[wh.id] ?? ''} 
+                                                        onChange={(e) => {
+                                                            const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                                            const currentStock = productData.warehouseStock || {};
+                                                            updateField('warehouseStock', { ...currentStock, [wh.id]: val });
+                                                        }}
+                                                        className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500/20"
+                                                        placeholder="0"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1325,9 +1381,12 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
         setProductData((prev: Product) => ({ ...prev, variants: newVariants }));
     };
 
-    const updateVariant = (variantId: string, field: keyof ProductVariant, value: string | number) => {
+    const updateVariant = (variantId: string, field: keyof ProductVariant | 'warehouseStock', value: any) => {
         const updatedVariants = productData.variants.map((v: ProductVariant) => {
             if (v.id === variantId) {
+                if (field === 'warehouseStock') {
+                    return { ...v, warehouseStock: value };
+                }
                 return { ...v, [field]: value };
             }
             return v;
@@ -1357,11 +1416,34 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
                     <div className="space-y-2 max-h-64 overflow-y-auto">
                          <label className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-2 block">3. أدخل بيانات المتغيرات</label>
                         {productData.variants.map((variant: ProductVariant) => (
-                            <div key={variant.id} className="grid grid-cols-4 gap-2 items-center bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-                                <div className="text-sm font-bold truncate">{Object.values(variant.options).join(' / ')}</div>
-                                <input type="text" value={variant.sku} onChange={e => updateVariant(variant.id, 'sku', e.target.value)} placeholder="SKU" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded"/>
-                                <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, 'price', Number(e.target.value))} placeholder="السعر" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded"/>
-                                <input type="number" value={variant.stockQuantity === null || variant.stockQuantity === undefined ? '' : variant.stockQuantity} onChange={e => updateVariant(variant.id, 'stockQuantity', e.target.value === '' ? null : Number(e.target.value))} placeholder="الكمية" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded"/>
+                            <div key={variant.id} className="space-y-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                                <div className="grid grid-cols-4 gap-2 items-center">
+                                    <div className="text-sm font-bold truncate">{Object.values(variant.options).join(' / ')}</div>
+                                    <input type="text" value={variant.sku} onChange={e => updateVariant(variant.id, 'sku', e.target.value)} placeholder="SKU" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
+                                    <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, 'price', Number(e.target.value))} placeholder="السعر" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
+                                    <input type="number" value={variant.stockQuantity === null || variant.stockQuantity === undefined ? '' : variant.stockQuantity} onChange={e => updateVariant(variant.id, 'stockQuantity', e.target.value === '' ? null : Number(e.target.value))} placeholder="الكمية" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
+                                </div>
+                                
+                                {(settings.warehouses || []).length > 0 && (
+                                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-50 dark:border-slate-700">
+                                        {(settings.warehouses || []).map(wh => (
+                                            <div key={wh.id} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-md">
+                                                <span className="text-[9px] font-bold text-slate-500 truncate max-w-[60px]">{wh.name}:</span>
+                                                <input 
+                                                    type="number" 
+                                                    value={variant.warehouseStock?.[wh.id] ?? ''} 
+                                                    onChange={(e) => {
+                                                        const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                                        const currentStock = variant.warehouseStock || {};
+                                                        updateVariant(variant.id, 'warehouseStock', { ...currentStock, [wh.id]: val });
+                                                    }}
+                                                    className="w-10 bg-transparent text-[10px] font-black border-none outline-none p-0 h-auto text-center"
+                                                    placeholder="0"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

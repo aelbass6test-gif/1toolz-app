@@ -22,35 +22,19 @@ const itemVariants = {
 };
 
 const PERMISSION_GROUPS: { title: string; permissions: { key: Permission, label: string }[] }[] = [
-  { title: 'الأوردرات والتحكم', permissions: [ { key: 'ORDERS_VIEW', label: 'عرض الأوردرات فقط' }, { key: 'ORDERS_MANAGE', label: 'إدارة كاملة للأوردرات (إضافة، تعديل، حذف)' } ] },
-  { title: 'المنتجات والمخزون', permissions: [ { key: 'PRODUCTS_VIEW', label: 'عرض المنتجات فقط' }, { key: 'PRODUCTS_MANAGE', label: 'إدارة كاملة للمنتجات' } ] },
-  { title: 'البيانات المالية', permissions: [ { key: 'DASHBOARD_VIEW', label: 'عرض لوحة التحكم والإحصائيات' }, { key: 'WALLET_VIEW', label: 'عرض المحفظة والعمليات' }, { key: 'WALLET_MANAGE', label: 'إجراء عمليات يدوية بالمحفظة' } ] },
-  { title: 'إعدادات المتجر', permissions: [ { key: 'SETTINGS_VIEW', label: 'عرض الإعدادات فقط' }, { key: 'SETTINGS_MANAGE', label: 'تعديل كافة إعدادات المتجر' } ] },
+  { title: 'الإحصائيات والتقارير', permissions: [ { key: 'DASHBOARD_VIEW', label: 'عرض لوحة التحكم الرئيسية' }, { key: 'REPORTS_VIEW', label: 'الاطلاع على التقارير المتقدمة' } ] },
+  { title: 'الطلبات والعمليات', permissions: [ { key: 'ORDERS_VIEW', label: 'عرض الطلبات ومتابعتها' }, { key: 'ORDERS_MANAGE', label: 'إدارة الطلبات بالكامل' }, { key: 'RETURNS_MANAGE', label: 'إدارة المرتجعات' } ] },
+  { title: 'نقاط البيع (POS)', permissions: [ { key: 'POS_VIEW', label: 'الاطلاع على نقاط البيع' }, { key: 'POS_MANAGE', label: 'إنشاء طلبات نقطة البيع' } ] },
+  { title: 'المنتجات والمخزون', permissions: [ { key: 'PRODUCTS_VIEW', label: 'عرض المنتجات وتفاصيلها' }, { key: 'PRODUCTS_MANAGE', label: 'إضافة وتعديل المنتجات' }, { key: 'INVENTORY_MANAGE', label: 'إدارة المخزون والتحويلات' }, { key: 'COLLECTIONS_MANAGE', label: 'إدارة التصنيفات (الأقسام)' } ] },
+  { title: 'العملاء والتسويق', permissions: [ { key: 'CUSTOMERS_VIEW', label: 'الاطلاع على بيانات العملاء' }, { key: 'CUSTOMERS_MANAGE', label: 'إدارة وتعديل بيانات العملاء' }, { key: 'MARKETING_MANAGE', label: 'إدارة التسويق والحملات' }, { key: 'DISCOUNTS_MANAGE', label: 'إدارة كوبونات الخصم' }, { key: 'REVIEWS_MANAGE', label: 'إدارة التقييمات' } ] },
+  { title: 'المالية والخزينة', permissions: [ { key: 'WALLET_VIEW', label: 'عرض المحفظة والحسابات' }, { key: 'WALLET_MANAGE', label: 'إدارة السحوبات والتحويلات المالية' }, { key: 'CASH_MANAGE', label: 'إدارة الخزينة والعهدة' }, { key: 'EXPENSES_MANAGE', label: 'إدارة المصروفات' } ] },
+  { title: 'الاعدادات والتطبيقات', permissions: [ { key: 'SETTINGS_VIEW', label: 'الاطلاع على الإعدادات العامة' }, { key: 'SETTINGS_MANAGE', label: 'تعديل سياسات وإعدادات المتجر' }, { key: 'STOREFRONT_MANAGE', label: 'تخصيص واجهة المتجر' }, { key: 'APPS_MANAGE', label: 'إدارة التطبيقات والربط' } ] },
+  { title: 'فريق العمل والصلاحيات', permissions: [ { key: 'TEAM_VIEW', label: 'عرض فريق العمل والموظفين' }, { key: 'TEAM_MANAGE', label: 'إدارة الموظفين والصلاحيات (للمدير)' } ] },
 ];
 
-const ROLES: Record<string, { name: string; permissions: Permission[] }> = {
-  CONFIRMATION: { name: 'مسؤول تأكيد', permissions: ['ORDERS_VIEW', 'PRODUCTS_VIEW'] },
-  ORDER_MANAGER: { name: 'مدير طلبات', permissions: ['ORDERS_VIEW', 'ORDERS_MANAGE', 'PRODUCTS_VIEW'] },
-  ACCOUNTANT: { name: 'محاسب', permissions: ['DASHBOARD_VIEW', 'WALLET_VIEW', 'WALLET_MANAGE'] },
-  FULL_MANAGER: { name: 'مدير كامل', permissions: ['DASHBOARD_VIEW', 'ORDERS_VIEW', 'ORDERS_MANAGE', 'PRODUCTS_VIEW', 'PRODUCTS_MANAGE', 'WALLET_VIEW', 'WALLET_MANAGE', 'SETTINGS_VIEW'] },
-};
+import { ROLES, getRoleName } from '../utils/roles';
 
-const getRoleName = (permissions: Permission[]): string => {
-    if (!permissions) return 'بدون صلاحيات';
-    const totalPermissions = Object.keys(PERMISSIONS).length;
-    if (permissions.length === totalPermissions) return 'صلاحيات كاملة';
-
-    const currentPermissions = new Set(permissions);
-    for (const roleKey in ROLES) {
-        const rolePermissions = new Set(ROLES[roleKey].permissions);
-        if (currentPermissions.size === rolePermissions.size && [...currentPermissions].every(p => rolePermissions.has(p))) {
-            return ROLES[roleKey].name;
-        }
-    }
-    
-    if (permissions.length === 0) return 'بدون صلاحيات';
-    return `${permissions.length} صلاحيات مخصصة`;
-};
+// Replaced local ROLES and getRoleName with imports
 
 
 interface EmployeesPageProps {
@@ -184,11 +168,12 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
       <motion.div variants={itemVariants}>
         <PermissionsCard 
             employees={settings.employees || []}
+            partners={settings.partners || []}
             onAdd={() => setIsAddEmployeeModalOpen(true)}
             onEdit={(emp) => { setEditingEmployee(emp); setIsEmployeeModalOpen(true); }}
             onDelete={(emp) => setEmployeeToDelete(emp)}
             onRequestAction={handleRequestAction}
-            ownerId={owner?.phone}
+            owner={owner}
             loggedInUser={currentUser}
         />
       </motion.div>
@@ -223,13 +208,80 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
   );
 };
 
-const PermissionsCard: React.FC<{ employees: Employee[], onAdd: () => void, onEdit: (emp: Employee) => void, onDelete: (emp: Employee) => void, onRequestAction: (id: string, action: 'accept' | 'decline') => void, ownerId?: string, loggedInUser: User | null }> = ({ employees, onAdd, onEdit, onDelete, onRequestAction, ownerId, loggedInUser }) => {
-  const pendingEmployees = employees.filter(e => e.status === 'pending');
-  const activeAndInvited = employees.filter(e => e.status !== 'pending');
+const PermissionsCard: React.FC<{ 
+  employees: Employee[], 
+  partners?: any[],
+  onAdd: () => void, 
+  onEdit: (emp: Employee) => void, 
+  onDelete: (emp: Employee) => void, 
+  onRequestAction: (id: string, action: 'accept' | 'decline') => void, 
+  owner: User | undefined, 
+  loggedInUser: User | null 
+}> = ({ employees, partners = [], onAdd, onEdit, onDelete, onRequestAction, owner, loggedInUser }) => {
+  // Consolidate everyone for display
+  const employeesToDisplay = useMemo(() => {
+    let list: any[] = [];
+    
+    // 1. Add Owner
+    if (owner) {
+      list.push({
+        id: owner.phone,
+        name: owner.fullName,
+        email: owner.email,
+        phone: owner.phone,
+        permissions: ['DASHBOARD_VIEW', 'ORDERS_VIEW', 'ORDERS_MANAGE', 'PRODUCTS_VIEW', 'PRODUCTS_MANAGE', 'WALLET_VIEW', 'WALLET_MANAGE', 'SETTINGS_VIEW', 'SETTINGS_MANAGE'],
+        status: 'active',
+        role: 'owner'
+      });
+    }
+
+    // 2. Add Partners
+    partners.forEach(p => {
+      if (!list.some(e => e.id === p.id)) {
+        list.push({
+          ...p,
+          email: p.phone || 'N/A',
+          permissions: ['DASHBOARD_VIEW', 'ORDERS_VIEW', 'PRODUCTS_VIEW', 'WALLET_VIEW'],
+          status: 'active',
+          role: 'partner'
+        });
+      }
+    });
+
+    // 3. Add Employees
+    employees.forEach(e => {
+      if (!list.some(item => item.id === e.id)) {
+        list.push({ ...e, role: 'staff' });
+      }
+    });
+    
+    return list;
+  }, [employees, partners, owner]);
+
+  const [filterRole, setFilterRole] = useState<string>('الكل');
+
+  const pendingEmployees = employeesToDisplay.filter(e => e.status === 'pending');
+  let activeAndInvitedArr = employeesToDisplay.filter(e => e.status !== 'pending');
+
+  const uniqueRoles = Array.from(new Set(activeAndInvitedArr.map(emp => {
+      if (emp.role === 'owner') return 'المالك';
+      if (emp.role === 'partner') return 'شريك';
+      if (emp.status === 'invited') return 'دعوة معلقة';
+      return getRoleName(emp.permissions);
+  })));
+
+  if (filterRole !== 'الكل') {
+      activeAndInvitedArr = activeAndInvitedArr.filter(emp => {
+          if (emp.role === 'owner') return filterRole === 'المالك';
+          if (emp.role === 'partner') return filterRole === 'شريك';
+          if (emp.status === 'invited') return filterRole === 'دعوة معلقة';
+          return getRoleName(emp.permissions) === filterRole;
+      });
+  }
 
   return (
     <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-      <div className="flex items-center justify-between mb-8 border-b border-slate-200 dark:border-slate-800 pb-6">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 border-b border-slate-200 dark:border-slate-800 pb-6 gap-4">
         <div className="flex items-center gap-3 text-purple-600 dark:text-purple-400">
           <div className="p-2 bg-purple-50 dark:bg-purple-900/30 rounded-lg"><Users size={24}/></div>
           <div>
@@ -240,6 +292,24 @@ const PermissionsCard: React.FC<{ employees: Employee[], onAdd: () => void, onEd
         <button onClick={onAdd} className="flex items-center gap-2 bg-purple-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-purple-100 dark:shadow-none hover:bg-purple-700 active:scale-95 transition-all">
           <UserPlus size={20} /> إضافة موظف
         </button>
+      </div>
+
+      <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2 scrollbar-none">
+          <button 
+              onClick={() => setFilterRole('الكل')}
+              className={`px-4 py-2 rounded-full font-bold text-sm whitespace-nowrap transition-colors ${filterRole === 'الكل' ? 'bg-purple-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+          >
+              الكل
+          </button>
+          {uniqueRoles.map(roleName => (
+              <button 
+                  key={roleName}
+                  onClick={() => setFilterRole(roleName)}
+                  className={`px-4 py-2 rounded-full font-bold text-sm whitespace-nowrap transition-colors ${filterRole === roleName ? 'bg-purple-600 text-white shadow-md' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                  {roleName}
+              </button>
+          ))}
       </div>
       
       {pendingEmployees.length > 0 && (
@@ -272,20 +342,37 @@ const PermissionsCard: React.FC<{ employees: Employee[], onAdd: () => void, onEd
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {activeAndInvited.map(emp => {
-                const isOwner = emp.id === ownerId;
+            {activeAndInvitedArr.map(emp => {
+                const isOwner = emp.role === 'owner';
+                const isPartner = emp.role === 'partner';
                 const isInvited = emp.status === 'invited';
 
                 return (
                 <tr key={emp.id} className="group">
                     <td className="px-6 py-4">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</div>
-                        <div className="text-xs text-slate-500 font-mono">{emp.email}</div>
+                        <div className="flex items-center gap-2">
+                             <div className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</div>
+                             {isOwner && (
+                                 <span className="text-[10px] font-black bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded uppercase">المالك</span>
+                             )}
+                             {isPartner && (
+                                 <span className="text-[10px] font-black bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase">شريك</span>
+                             )}
+                        </div>
+                        <div className="text-xs text-slate-500 font-mono" dir="ltr">{emp.id || emp.email}</div>
                     </td>
                     <td className="px-6 py-4">
                         {isOwner ? <span className="text-xs font-bold text-amber-600 bg-amber-100 dark:bg-amber-900/50 px-2 py-1 rounded-full">المالك (صلاحيات كاملة)</span>
-                        : isInvited ? <span className="flex items-center gap-2 text-xs font-bold text-sky-700 bg-sky-100 dark:text-sky-300 dark:bg-sky-900/50 px-2 py-1 rounded-full w-fit"><Clock size={14}/> في انتظار القبول</span>
-                        : <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-full">{getRoleName(emp.permissions)}</span>
+                        : isPartner ? <span className="text-xs font-bold text-blue-600 bg-blue-100 dark:bg-blue-900/50 px-2 py-1 rounded-full">شريك (شريك أرباح)</span>
+                        : isInvited ? <span className="flex items-center gap-2 text-xs font-bold text-sky-700 bg-sky-100 dark:text-sky-300 dark:bg-sky-900/50 px-2 py-1 rounded-full w-fit"><Clock size={14}/> دعوتك بانتظار القبول</span>
+                        : (
+                            <div className="flex flex-col gap-1">
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full w-fit ${getRoleName(emp.permissions).includes('تأكيد') ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30' : 'bg-slate-100 text-slate-600 dark:bg-slate-800'}`}>
+                                    {getRoleName(emp.permissions)}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-bold px-1">{emp.permissions?.length || 0} صلاحيات مفعلة</span>
+                            </div>
+                        )
                         }
                     </td>
                     <td className="px-6 py-4">
@@ -295,6 +382,8 @@ const PermissionsCard: React.FC<{ employees: Employee[], onAdd: () => void, onEd
                                     <button onClick={() => onEdit(emp)} className="p-2 text-slate-400 hover:text-blue-500 rounded-lg transition-colors" title="تعديل صلاحيات المالك (خاص بالمدير)"><UserCog size={18} /></button>
                                     : <span className="text-xs font-bold text-slate-400 italic">لا يمكن التعديل</span>
                                 )
+                            : isPartner ?
+                                <span className="text-xs font-bold text-slate-400 italic">يتم إدارته من الشركاء</span>
                             : isInvited ? (
                                 <>
                                     <button onClick={() => onRequestAction(emp.id, 'accept')} className="flex items-center gap-1.5 text-xs font-bold bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg hover:bg-emerald-200"><Check size={16}/> قبول الدعوة</button>
@@ -403,26 +492,75 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
               )}
           </div>
           <div>
-              <h4 className="text-lg font-bold dark:text-white mb-4 flex items-center gap-2"><UserCog size={20}/> اختر دوراً سريعاً</h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {Object.entries(ROLES).map(([key, role]) => ( <button key={key} type="button" onClick={() => handleRoleSelect(key)} className={`p-4 rounded-xl border-2 text-center font-bold transition-all ${ activeRole === key ? 'bg-purple-100 dark:bg-purple-900/40 border-purple-500 text-purple-700 dark:text-purple-300' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 hover:border-purple-400' }`}> {role.name} </button> ))}
+              <h4 className="text-lg font-bold dark:text-white mb-4 flex items-center gap-2"><UserCog size={20}/> اختر دوراً سريعاً (قوالب جاهزة)</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {Object.entries(ROLES).map(([key, role]) => ( 
+                      <button key={key} type="button" onClick={() => handleRoleSelect(key)} 
+                              className={`p-4 rounded-xl border-2 text-center transition-all flex flex-col items-center gap-2 ${ activeRole === key ? 'bg-purple-100 dark:bg-purple-900/40 border-purple-500 text-purple-700 dark:text-purple-300' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent text-slate-700 dark:text-slate-300 hover:border-purple-300 dark:hover:border-purple-700' }`}> 
+                          <span className="text-2xl">{role.icon}</span>
+                          <span className="font-bold text-sm">{role.name}</span>
+                      </button> 
+                  ))}
               </div>
           </div>
           <div>
-            <div className="flex justify-between items-center pb-4 border-b dark:border-slate-800 mb-4">
-               <h4 className="text-lg font-bold dark:text-white flex items-center gap-2"><KeyRound/> تحديد الصلاحيات</h4>
-               <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-                  <input type="checkbox" checked={allPermissionsSelected} onChange={e => handleSelectAll(e.target.checked)} className="rounded text-purple-600 focus:ring-purple-500"/>
-                  <span className="text-sm font-bold">صلاحيات كاملة</span>
+            <div className="flex justify-between items-center pb-6 border-b border-slate-200 dark:border-slate-800 mb-6">
+               <div>
+                   <h4 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2"><KeyRound className="text-purple-600"/> تخصيص الصلاحيات بدقة</h4>
+                   <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">قم بتحديد أو إزالة الصلاحيات لكل قسم على حدة</p>
+               </div>
+               <label className="flex items-center gap-2 cursor-pointer p-3 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-xl hover:bg-purple-100 transition-colors">
+                  <input type="checkbox" checked={allPermissionsSelected} onChange={e => handleSelectAll(e.target.checked)} className="rounded text-purple-600 focus:ring-purple-500 w-5 h-5"/>
+                  <span className="font-bold text-sm">منح كافة الصلاحيات</span>
                </label>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-              {PERMISSION_GROUPS.map(group => (
-                <div key={group.title} className="space-y-3">
-                  <h5 className="font-black text-purple-800 dark:text-purple-400">{group.title}</h5>
-                  {group.permissions.map(perm => ( <label key={perm.key} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border dark:border-slate-800 cursor-pointer"> <input type="checkbox" checked={formData.permissions.includes(perm.key)} onChange={e => handlePermissionChange(perm.key, e.target.checked)} className="rounded text-purple-600 focus:ring-purple-500"/> <span className="font-bold text-sm text-slate-700 dark:text-slate-300">{perm.label}</span> </label> ))}
-                </div>
-              ))}
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6">
+              {PERMISSION_GROUPS.map(group => {
+                const groupPermissionKeys = group.permissions.map(p => p.key);
+                const isAllGroupSelected = groupPermissionKeys.every(k => formData.permissions.includes(k));
+                const isPartialGroupSelected = groupPermissionKeys.some(k => formData.permissions.includes(k)) && !isAllGroupSelected;
+
+                const handleGroupToggle = (checked: boolean) => {
+                    setFormData(prev => {
+                        const newPerms = new Set(prev.permissions);
+                        if (checked) {
+                            groupPermissionKeys.forEach(k => newPerms.add(k));
+                        } else {
+                            groupPermissionKeys.forEach(k => newPerms.delete(k));
+                        }
+                        return { ...prev, permissions: Array.from(newPerms) };
+                    });
+                };
+
+                return (
+                 <div key={group.title} className={`bg-white dark:bg-slate-800/80 rounded-2xl border transition-colors ${isPartialGroupSelected || isAllGroupSelected ? 'border-purple-300 dark:border-purple-500/50 shadow-sm' : 'border-slate-200 dark:border-slate-700'}`}>
+                   <div className={`p-4 flex justify-between items-center border-b ${isPartialGroupSelected || isAllGroupSelected ? 'border-purple-100 dark:border-purple-900/30 bg-purple-50/50 dark:bg-purple-900/10 rounded-t-2xl' : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 rounded-t-2xl'}`}>
+                     <h5 className="font-black text-slate-800 dark:text-white flex items-center gap-2">{group.title}</h5>
+                     <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" 
+                            checked={isAllGroupSelected} 
+                            ref={(input) => { if (input) input.indeterminate = isPartialGroupSelected; }}
+                            onChange={e => handleGroupToggle(e.target.checked)} 
+                            className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                        />
+                        <span className="text-xs font-bold text-slate-500">الكل</span>
+                     </label>
+                   </div>
+                   <div className="p-4 space-y-3">
+                     {group.permissions.map(perm => ( 
+                         <label key={perm.key} className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 cursor-pointer hover:border-purple-300 dark:hover:border-purple-500/50 transition-colors group"> 
+                             <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${formData.permissions.includes(perm.key) ? 'bg-purple-600 border-purple-600' : 'border-2 border-slate-300 dark:border-slate-600 group-hover:border-purple-400'}`}>
+                                 {formData.permissions.includes(perm.key) && <Check size={14} className="text-white" />}
+                             </div>
+                             <input type="checkbox" className="hidden" checked={formData.permissions.includes(perm.key)} onChange={e => handlePermissionChange(perm.key, e.target.checked)}/> 
+                             <span className="font-bold text-sm text-slate-700 dark:text-slate-300 group-hover:text-purple-700 dark:group-hover:text-purple-400 transition-colors">{perm.label}</span> 
+                         </label> 
+                     ))}
+                   </div>
+                 </div>
+                );
+              })}
             </div>
           </div>
           {error && <div className="p-3 bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded-lg text-center font-bold text-sm">{error}</div>}

@@ -573,8 +573,24 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => startEditPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all"><Edit2 size={16}/></button>
-                    <button onClick={() => deletePartner(partner.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"><Trash2 size={16}/></button>
+                    <button onClick={() => startEditPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="تعديل"><Edit2 size={16}/></button>
+                    <button onClick={() => {
+                        setDialog({
+                            isOpen: true,
+                            title: 'تأكيد تصفية الحساب',
+                            message: 'سيتم حذف جميع المعاملات المالية لهذا الشريك وتصفير رصيده (لا يمكن التراجع عن هذا الإجراء). هل أنت متأكد؟',
+                            onConfirm: () => {
+                                updateSettings({
+                                    ...settings,
+                                    partners: partners.map(p => p.id === partner.id ? {...p, balance: 0} : p),
+                                    partnerTransactions: transactions.filter(t => t.partnerId !== partner.id)
+                                });
+                                setDialog(null);
+                                showToast('تم تصفية حساب الشريك بنجاح، يمكنك الآن حذفه.');
+                            }
+                        });
+                    }} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition-all" title="تصفية الحساب"><Coins size={16}/></button>
+                    <button onClick={() => deletePartner(partner.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all" title="حذف"><Trash2 size={16}/></button>
                 </div>
               </div>
               

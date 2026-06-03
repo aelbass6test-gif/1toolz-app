@@ -58,6 +58,11 @@ import GlobalLoader from './components/GlobalLoader';
 import EmployeesPage from './components/EmployeesPage';
 import ReportsPage from './components/ReportsPage';
 import { TreasuryPage } from './components/TreasuryPage';
+import InventoryTransfers from './components/InventoryTransfers';
+import OrderReturnsPage from './components/OrderReturnsPage';
+import PurchaseReturnsPage from './components/PurchaseReturnsPage';
+import POSPage from './components/POSPage';
+import CashManagement from './components/CashManagement';
 import CreateOrderPage from './components/CreateOrderPage';
 import EditOrderPage from './components/EditOrderPage';
 import ChatBot from './components/ChatBot';
@@ -77,19 +82,23 @@ interface EmployeeRegisterRequestData {
   email: string;
 }
 
+import MobileNavigation from './components/MobileNavigation';
+
 const MainLayout = ({ 
     currentUser, 
     handleLogout, 
     isSidebarOpen, 
     setSidebarOpen, 
     activeStore, 
+    settings,
     theme, 
     setTheme,
     dbSyncMode,
     setDbSyncMode,
     forceSync,
     saveStatus,
-    saveMessage
+    saveMessage,
+    unsavedChanges
 }: any) => {
     return (
         <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50" dir="rtl">
@@ -105,12 +114,14 @@ const MainLayout = ({
         forceSync={forceSync}
         saveStatus={saveStatus}
         saveMessage={saveMessage}
+        unsavedChanges={unsavedChanges}
     />
-    <div className="flex flex-1 overflow-hidden">
-        <Sidebar activeStore={activeStore} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar">
+    <div className="flex flex-1 overflow-hidden relative">
+        <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar">
             <Outlet />
         </main>
+        <MobileNavigation />
     </div>
 </div>
     );
@@ -185,13 +196,15 @@ const OwnerLayoutWrapper = ({
     isSidebarOpen,
     setIsSidebarOpen,
     activeStore,
+    settings,
     theme,
     setTheme,
     dbSyncMode,
     setDbSyncMode,
     forceSync,
     saveStatus,
-    saveMessage
+    saveMessage,
+    unsavedChanges
 }: any) => {
     const location = useLocation();
 
@@ -238,6 +251,7 @@ const OwnerLayoutWrapper = ({
             isSidebarOpen={isSidebarOpen} 
             setSidebarOpen={setIsSidebarOpen} 
             activeStore={activeStore} 
+            settings={settings}
             theme={theme} 
             setTheme={setTheme} 
             dbSyncMode={dbSyncMode}
@@ -245,6 +259,7 @@ const OwnerLayoutWrapper = ({
             forceSync={forceSync}
             saveStatus={saveStatus}
             saveMessage={saveMessage}
+            unsavedChanges={unsavedChanges}
         />
     );
 };
@@ -264,6 +279,7 @@ export const AppComponent = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [activeStoreId, setActiveStoreId] = useState<string | null>(null);
     const [isInitialLoad, setIsInitialLoad] = useState<boolean>(true);
+    const [syncedSnapshot, setSyncedSnapshot] = useState<{ users: User[]; allStoresData: Record<string, StoreData>; } | null>(null);
     const [authChecked, setAuthChecked] = useState<boolean>(false);
     const [cart, setCart] = useState<OrderItem[]>([]);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -326,6 +342,194 @@ export const AppComponent = () => {
         const owner = users.find(u => u.stores?.some(s => s.id === activeStoreId));
         return owner?.stores?.find(s => s.id === activeStoreId);
     }, [activeStoreId, users]);
+
+    // Capture/update synced snapshot
+    useEffect(() => {
+        if (isInitialLoad) return;
+        
+        // When initial load is done, set the initial snapshot
+        if (!syncedSnapshot && users.length > 0) {
+            setSyncedSnapshot({
+                users: JSON.parse(JSON.stringify(users)),
+                allStoresData: JSON.parse(JSON.stringify(allStoresData))
+            });
+        }
+    }, [isInitialLoad, users, allStoresData, syncedSnapshot]);
+
+    useEffect(() => {
+        if (saveStatus === 'success') {
+            setSyncedSnapshot({
+                users: JSON.parse(JSON.stringify(users)),
+                allStoresData: JSON.parse(JSON.stringify(allStoresData))
+            });
+        }
+    }, [saveStatus, users, allStoresData]);
+
+    const getUnsavedChanges = (): any[] => {
+        if (!syncedSnapshot || !activeStoreId) return [];
+
+        const currentStore = allStoresData[activeStoreId];
+        const snapStore = syncedSnapshot.allStoresData[activeStoreId];
+
+        if (!currentStore) return [];
+
+        const changes: any[] = [];
+
+        const oldProducts = snapStore?.settings?.products || [];
+        const newProducts = currentStore.settings?.products || [];
+
+        const oldOrders = snapStore?.orders || [];
+        const newOrders = currentStore.orders || [];
+
+        const oldSuppliers = snapStore?.settings?.suppliers || [];
+        const newSuppliers = currentStore.settings?.suppliers || [];
+
+        const oldSupplyOrders = snapStore?.settings?.supplyOrders || [];
+        const newSupplyOrders = currentStore.settings?.supplyOrders || [];
+
+        const oldDiscountCodes = snapStore?.settings?.discountCodes || [];
+        const newDiscountCodes = currentStore.settings?.discountCodes || [];
+
+        const oldReviews = snapStore?.settings?.reviews || [];
+        const newReviews = currentStore.settings?.reviews || [];
+
+        const oldUsers = syncedSnapshot.users || [];
+        const newUsers = users || [];
+
+        // Products comparison
+        newProducts.forEach(p => {
+            const oldP = oldProducts.find(o => o.id === p.id);
+            if (!oldP) {
+                changes.push({ type: 'product', action: 'add', name: p.name });
+            } else {
+                if (oldP.name !== p.name || oldP.price !== p.price || oldP.costPrice !== p.costPrice || oldP.stockQuantity !== p.stockQuantity) {
+                    changes.push({ type: 'product', action: 'modify', name: p.name });
+                }
+            }
+        });
+        oldProducts.forEach(p => {
+            if (!newProducts.some(n => n.id === p.id)) {
+                changes.push({ type: 'product', action: 'delete', name: p.name });
+            }
+        });
+
+        // Orders comparison
+        newOrders.forEach(o => {
+            const oldO = oldOrders.find(oldItem => oldItem.id === o.id);
+            if (!oldO) {
+                changes.push({ type: 'order', action: 'add', name: `طلب #${o.id.slice(-6)}` });
+            } else {
+                if (oldO.status !== o.status || oldO.totalPrice !== o.totalPrice || (oldO.items || []).length !== (o.items || []).length) {
+                    changes.push({ type: 'order', action: 'modify', name: `طلب #${o.id.slice(-6)}` });
+                }
+            }
+        });
+        oldOrders.forEach(o => {
+            if (!newOrders.some(n => n.id === o.id)) {
+                changes.push({ type: 'order', action: 'delete', name: `طلب #${o.id.slice(-6)}` });
+            }
+        });
+
+        // Suppliers comparison
+        newSuppliers.forEach(s => {
+            const oldS = oldSuppliers.find(o => o.id === s.id);
+            if (!oldS) {
+                changes.push({ type: 'supplier', action: 'add', name: s.name });
+            } else {
+                if (oldS.name !== s.name || oldS.balance !== s.balance || oldS.phone !== s.phone) {
+                    changes.push({ type: 'supplier', action: 'modify', name: s.name });
+                }
+            }
+        });
+        oldSuppliers.forEach(s => {
+            if (!newSuppliers.some(n => n.id === s.id)) {
+                changes.push({ type: 'supplier', action: 'delete', name: s.name });
+            }
+        });
+
+        // Supply Orders comparison
+        newSupplyOrders.forEach(so => {
+            const oldSo = oldSupplyOrders.find(o => o.id === so.id);
+            if (!oldSo) {
+                changes.push({ type: 'supply_order', action: 'add', name: `فاتورة شراء #${so.orderNumber || so.id.slice(-6)}` });
+            } else {
+                if (oldSo.status !== so.status || oldSo.totalCost !== so.totalCost) {
+                    changes.push({ type: 'supply_order', action: 'modify', name: `فاتورة شراء #${so.orderNumber || so.id.slice(-6)}` });
+                }
+            }
+        });
+        oldSupplyOrders.forEach(so => {
+            if (!newSupplyOrders.some(n => n.id === so.id)) {
+                changes.push({ type: 'supply_order', action: 'delete', name: `فاتورة شراء #${so.orderNumber || so.id.slice(-6)}` });
+            }
+        });
+
+        // Discount Codes comparison
+        newDiscountCodes.forEach(d => {
+            const oldD = oldDiscountCodes.find(o => o.id === d.id);
+            if (!oldD) {
+                changes.push({ type: 'discount', action: 'add', name: d.code });
+            } else {
+                if (oldD.code !== d.code || oldD.value !== d.value || oldD.active !== d.active) {
+                    changes.push({ type: 'discount', action: 'modify', name: d.code });
+                }
+            }
+        });
+        oldDiscountCodes.forEach(d => {
+            if (!newDiscountCodes.some(n => n.id === d.id)) {
+                changes.push({ type: 'discount', action: 'delete', name: d.code });
+            }
+        });
+
+        // Reviews comparison
+        newReviews.forEach(r => {
+            const oldR = oldReviews.find(o => o.id === r.id);
+            if (!oldR) {
+                changes.push({ type: 'review', action: 'add', name: r.comment || `تقييم العميل ${r.customerName}` });
+            } else {
+                if (oldR.status !== r.status || oldR.rating !== r.rating) {
+                    changes.push({ type: 'review', action: 'modify', name: r.comment || `تقييم العميل ${r.customerName}` });
+                }
+            }
+        });
+        oldReviews.forEach(r => {
+            if (!newReviews.some(n => n.id === r.id)) {
+                changes.push({ type: 'review', action: 'delete', name: r.comment || `تقييم العميل ${r.customerName}` });
+            }
+        });
+
+        // Users comparison
+        newUsers.forEach(u => {
+            const oldU = oldUsers.find(o => o.phone === u.phone);
+            if (!oldU) {
+                changes.push({ type: 'user', action: 'add', name: u.fullName });
+            } else {
+                if (oldU.fullName !== u.fullName || oldU.email !== u.email || oldU.isAdmin !== u.isAdmin || JSON.stringify(oldU.stores) !== JSON.stringify(u.stores)) {
+                    changes.push({ type: 'user', action: 'modify', name: u.fullName });
+                }
+            }
+        });
+        oldUsers.forEach(u => {
+            if (!newUsers.some(n => n.phone === u.phone)) {
+                changes.push({ type: 'user', action: 'delete', name: u.fullName });
+            }
+        });
+
+        // Settings comparison
+        if (snapStore) {
+            const keysToCompare = [
+                'store_name', 'phone', 'address', 'currency', 'taxNumber', 'commercialRegister', 'shippingVatRate',
+                'enableInsurance', 'enableInspection', 'enableReturnShipping', 'enableFlexShip', 'flexShipFee',
+                'enableReturnAfterPrice', 'enableExchangePrice', 'enableGlobalCod', 'insuranceFeePercent'
+            ];
+            const settingsChanged = keysToCompare.some(k => currentStore.settings?.[k as keyof Settings] !== snapStore.settings?.[k as keyof Settings]);
+            if (settingsChanged) {
+                changes.push({ type: 'settings', action: 'modify', name: 'الإعدادات العامة للمتجر' });
+            }
+        }
+
+        return changes;
+    };
 
     // --- Aggressive Auto-Save Logic ---
     // 1. Instant local persistence to IndexedDB
@@ -481,20 +685,9 @@ export const AppComponent = () => {
             const globalData = await db.getGlobalData();
             let loadedUsers: User[] = globalData?.users || [];
 
-            const hasAdmin = loadedUsers.some(u => u.isAdmin || u.phone === 'admin');
-            if (!hasAdmin) {
-                const adminUser: User = { 
-                    fullName: 'المدير العام', 
-                    phone: 'admin', 
-                    password: 'admin', 
-                    email: 'admin@example.com', 
-                    stores: [], 
-                    joinDate: new Date().toISOString(),
-                    isAdmin: true 
-                };
-                loadedUsers = [adminUser, ...loadedUsers];
-            }
-
+            const hasAdmin = loadedUsers.some(u => u.isAdmin);
+            // No more auto-generating admin user
+            
             setUsers(loadedUsers);
             
             const savedUserPhone = localStorage.getItem('currentUserPhone');
@@ -511,7 +704,8 @@ export const AppComponent = () => {
                     const storeId = savedStoreId || user.stores?.[0]?.id;
                     if (storeId) {
                         setActiveStoreId(storeId);
-                        const storeData = await db.getStoreData(storeId) as StoreData | null;
+                        // Force a remote fetch for the active store during boot to ensure fresh cloud data
+                        const storeData = await db.getStoreData(storeId, true) as StoreData | null;
                         if (storeData) {
                             const sanitizedStoreData = sanitizeData(storeData);
                             setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
@@ -880,6 +1074,16 @@ export const AppComponent = () => {
                 }
             });
             unsubscribers.push(unsubOrders);
+
+            // Listen for changes on employees
+            const qEmployees = query(collection(firebaseDb, 'employees'), where('storeId', '==', activeStoreId));
+            const unsubEmployees = onSnapshot(qEmployees, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    console.log('[REALTIME] Employees change detected via Firestore snapshot');
+                    refreshStoreDataRef.current(activeStoreId);
+                }
+            });
+            unsubscribers.push(unsubEmployees);
         }
 
         // Listen for user collections change
@@ -996,6 +1200,42 @@ export const AppComponent = () => {
         }
     };
 
+    const forcePullFromCloud = async () => {
+        if (!activeStoreId || !activeStore) {
+            return { success: false, error: 'لم يتم اختيار متجر نشط' };
+        }
+        setSaveStatus('saving');
+        setSaveMessage('جاري سحب البيانات كلياً من السحاب للمحلي...');
+        try {
+            isSavingRef.current = true;
+            // Force pull remote data directly from Firestore bypassing local cache
+            const remoteData = await db.getStoreData(activeStoreId, true);
+            if (remoteData) {
+                setAllStoresData(prev => ({
+                    ...prev,
+                    [activeStoreId]: remoteData
+                }));
+                // Save immediately to IndexedDB
+                await db.saveLocal(activeStoreId, remoteData);
+                
+                setSaveStatus('success');
+                setSaveMessage('تم سحب وتزامن البيانات المحلية بنجاح!');
+                setTimeout(() => setSaveStatus('idle'), 3000);
+                return { success: true };
+            } else {
+                throw new Error('فشل استيراد البيانات: لم يتم العثور على أي سجلات في السحابة لهذا المتجر');
+            }
+        } catch (e: any) {
+            console.error('[CLOUD-PULL] cloud pull failed:', e);
+            setSaveStatus('error');
+            setSaveMessage('فشل سحب البيانات: ' + (e.message || String(e)));
+            setTimeout(() => setSaveStatus('idle'), 4000);
+            return { success: false, error: e.message || String(e) };
+        } finally {
+            isSavingRef.current = false;
+        }
+    };
+
     const pageProps = {
         users, setUsers, allStoresData, setAllStoresData, currentUser, activeStore, activeStoreId,
         orders: activeStoreId ? allStoresData[activeStoreId]?.orders || [] : [],
@@ -1005,6 +1245,7 @@ export const AppComponent = () => {
         treasury: activeStoreId ? allStoresData[activeStoreId]?.treasury || { accounts: [{ id: '1', name: 'الخزينة الرئيسية', type: 'safe', balance: 0, currency: 'EGP' }, { id: '2', name: 'فودافون كاش', type: 'wallet', balance: 0, currency: 'EGP' }, { id: '3', name: 'الحساب البنكي', type: 'bank', balance: 0, currency: 'EGP' }], transactions: [] } : undefined,
         cart,
         forceSync,
+        forcePullFromCloud,
         dbSyncMode,
         setDbSyncMode,
         saveStatus,
@@ -1235,6 +1476,7 @@ export const AppComponent = () => {
                         isSidebarOpen={isSidebarOpen}
                         setIsSidebarOpen={setIsSidebarOpen}
                         activeStore={activeStore}
+                        settings={pageProps.settings}
                         theme={theme}
                         setTheme={setTheme}
                         dbSyncMode={dbSyncMode}
@@ -1242,15 +1484,21 @@ export const AppComponent = () => {
                         forceSync={forceSync}
                         saveStatus={saveStatus}
                         saveMessage={saveMessage}
+                        unsavedChanges={getUnsavedChanges()}
                     />
                 }>
                     <Route index element={<Dashboard {...pageProps} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
+                    <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
+                    <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
+                    <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
+                    <Route path="purchase-returns" element={<PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
                     <Route path="create-order" element={<Navigate to="/orders/new" replace />} />
                     <Route path="products" element={<ProductsPage {...pageProps} />} />
+                    <Route path="inventory-transfers" element={<InventoryTransfers settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />

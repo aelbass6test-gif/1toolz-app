@@ -1,11 +1,11 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign } from 'lucide-react';
+import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2 } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store } from '../types';
 import { Link } from 'react-router-dom';
 import { motion, Variants } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
-import { calculateOrderProfitLoss, getOrderProductCost } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -222,6 +222,11 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
     let actualCollection = 0;
     let expectedCollection = 0;
 
+    let posSalesCount = 0;
+    let websiteSalesCount = 0;
+    let posRevenue = 0;
+    let websiteRevenue = 0;
+
     let counts: Record<string, number> = {
       'في_انتظار_المكالمة': 0,
       'جاري_المراجعة': 0, 'قيد_التنفيذ': 0, 'تم_الارسال': 0, 'قيد_الشحن': 0,
@@ -232,6 +237,17 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
     (orders || []).forEach((o: Order) => {
       if (counts[o.status] !== undefined) counts[o.status]++;
       
+      const isPos = o.channel === 'pos' || o.id.startsWith('POS-');
+      const orderRevenue = (o.totalPrice || (o.productPrice + o.shippingFee));
+
+      if (isPos) {
+          posSalesCount++;
+          posRevenue += orderRevenue;
+      } else {
+          websiteSalesCount++;
+          websiteRevenue += orderRevenue;
+      }
+
       const { profit, loss } = calculateOrderProfitLoss(o, settings);
       totalProfit += profit;
       totalLoss += loss;
@@ -265,6 +281,11 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       }
     });
 
+    const cancelledCount = counts['ملغي'] || 0;
+    const returnedCount = (counts['مرتجع'] || 0) + (counts['مرتجع_جزئي'] || 0) + (counts['تمت_الاعادة_لشركة_الشحن'] || 0);
+    const failedCount = counts['فشل_التوصيل'] || 0;
+    const delayedCount = (counts['مؤجل'] || 0) + (counts['مجدول'] || 0);
+
     // Logical fallback for "Awaiting Pickup" based on custom preparation status if available
     awaitingPickupCount = (orders || []).filter(o => o.status === 'قيد_التنفيذ' && (o as any).preparationStatus === 'بانتظار التجهيز').length;
 
@@ -273,12 +294,12 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       if (p.hasVariants && p.variants && p.variants.length > 0) {
         return acc + p.variants.reduce((vAcc, v) => {
           const stock = v.stockQuantity ?? v.stock ?? 0;
-          const cost = v.costPrice ?? p.costPrice ?? 0;
+          const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
           return vAcc + (stock * cost);
         }, 0);
       } else {
         const stock = p.stockQuantity ?? p.stock ?? 0;
-        const cost = p.costPrice ?? 0;
+        const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
         return acc + (stock * cost);
       }
     }, 0);
@@ -310,9 +331,22 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       totalShippingPaid,
       totalReturnedExpenses,
       totalInventoryValue,
-      workingCapital
+      workingCapital,
+      posSalesCount,
+      websiteSalesCount,
+      posRevenue,
+      websiteRevenue,
+      cancelledCount,
+      returnedCount,
+      failedCount,
+      delayedCount
     };
   }, [orders, settings, wallet]);
+
+  const channelData = [
+    { name: 'مبيعات الكاشير (POS)', value: stats.posRevenue, color: '#6366f1' },
+    { name: 'مبيعات الأونلاين', value: stats.websiteRevenue, color: '#10b981' }
+  ].filter(d => d.value > 0);
 
   const chartData = [
     { name: 'بانتظار مكالمة', value: stats.counts['في_انتظار_المكالمة'] || 0, color: '#06b6d4' },
@@ -365,27 +399,27 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
         </motion.div>
       )}
       {/* Header Section */}
-      <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <motion.div variants={itemVariants} className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-none mb-3">
+          <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight mb-2 sm:mb-3">
             أهلاً بك، {currentUser?.fullName.split(' ')[0]} 👋
           </h1>
-          <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400 font-medium">
-            <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/50 px-3 py-1 rounded-full text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              متجرك نشط الآن
+          <div className="flex items-center gap-2 sm:gap-3 text-slate-500 dark:text-slate-400 font-medium">
+            <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/50 px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs">
+              <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              متجرك نشط
             </span>
-            <span className="text-sm">آخر تحديث: منذ دقيقتين</span>
+            <span className="text-[10px] sm:text-sm">تحديث: منذ دقيقتين</span>
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
-          <Link to="/store-preview" className="glass-card px-5 py-2.5 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-white/10 transition-all flex items-center gap-2">
-            <PlayCircle size={18} className="text-primary" />
-            معاينة المتجر
+        <div className="grid grid-cols-2 md:flex items-center gap-3">
+          <Link to="/store-preview" className="glass-card px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+            <PlayCircle size={16} className="text-primary" />
+            <span>معاينة</span>
           </Link>
-          <button className="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
-            إضافة منتج جديد
+          <button className="bg-primary text-white px-4 sm:px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">
+            إضافة منتج
           </button>
         </div>
       </motion.div>
@@ -405,19 +439,42 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
         <DashboardStatusCard 
           title="الأوردرات الناجحة" 
           value={`${stats.successfulOrdersCount} / ${stats.total}`} 
-          color="text-slate-700"
+          color="text-emerald-600"
         />
         <DashboardStatusCard 
           title="متجه للعميل" 
           value={stats.outForDeliveryCount} 
-          color="text-slate-700"
+          color="text-blue-600"
         />
         <DashboardStatusCard 
           title="قيد التنفيذ" 
           value={stats.processingCount} 
-          color="text-slate-700"
+          color="text-purple-600"
         />
         
+        {/* Additional Stats Row */}
+        <DashboardStatusCard 
+          title="المرتجعات" 
+          value={stats.returnedCount} 
+          color="text-rose-600"
+        />
+        <DashboardStatusCard 
+          title="ملغي" 
+          value={stats.cancelledCount} 
+          color="text-slate-500"
+        />
+        <DashboardStatusCard 
+          title="فشل التوصيل" 
+          value={stats.failedCount} 
+          color="text-red-500"
+        />
+        <DashboardStatusCard 
+          title="مؤجل ومجدول" 
+          value={stats.delayedCount} 
+          color="text-amber-500"
+        />
+
+        {/* Financial collection and pickups */}
         <DashboardStatusCard 
           title="التحصيل الفعلي" 
           value={`${stats.actualCollection.toLocaleString()} ج.م`} 
@@ -558,7 +615,7 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
         {/* Analytics Chart - Bento Card */}
         <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl min-h-[400px]">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">توزيع المبيعات</h3>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">توزيع المبيعات (حالات)</h3>
             <ChartIcon size={20} className="text-slate-400" />
           </div>
           <div className="h-[280px] w-full">
@@ -568,8 +625,8 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
                   data={chartData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={80}
-                  outerRadius={110}
+                  innerRadius={70}
+                  outerRadius={100}
                   paddingAngle={8}
                   dataKey="value"
                 >
@@ -591,111 +648,220 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
           </div>
         </motion.div>
 
-        {/* Financial Alerts Feed */}
-        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl flex flex-col justify-between">
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-              <h3 className="text-lg font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                <WalletIcon className="text-primary" size={20} />
-                إشعارات السحب والإيداع
-              </h3>
-              
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold font-sans self-start">
-                <button
-                  onClick={() => setFinancialFilter('all')}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${financialFilter === 'all' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  الكل
-                </button>
-                <button
-                  onClick={() => setFinancialFilter('with')}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${financialFilter === 'with' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  السحوبات
-                </button>
-                <button
-                  onClick={() => setFinancialFilter('dep')}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${financialFilter === 'dep' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-800'}`}
-                >
-                  الودائع
-                </button>
+        {/* Channel Breakdown - ONLY SHOW IF POS DATA EXISTS */}
+        {channelData.length > 1 && (
+          <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl min-h-[400px]">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">تحليل قنوات البيع (Online vs POS)</h3>
+              <Monitor size={20} className="text-indigo-500" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 h-full items-center">
+              <div className="h-[200px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={channelData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {channelData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-4">
+                {channelData.map(item => (
+                  <div key={item.name} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span className="text-xs font-bold text-slate-500">{item.name}</span>
+                    </div>
+                    <p className="text-xl font-black text-slate-800 dark:text-white">{item.value.toLocaleString()} ج.م</p>
+                    <p className="text-[10px] text-slate-400 font-bold">
+                      {item.name.includes('POS') ? `${stats.posSalesCount} فاتورة` : `${stats.websiteSalesCount} طلب`}
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
+          </motion.div>
+        )}
 
-            {filteredNotifications.length > 0 ? (
-              <div className="space-y-4 max-h-[280px] overflow-y-auto pr-1">
-                {filteredNotifications.slice(0, 5).map(n => {
-                  let alertBg = 'bg-slate-50 dark:bg-slate-800/40 border-slate-100';
-                  let iconColor = 'text-slate-400';
-                  let statusText = '';
-                  let statusBg = 'bg-slate-100 text-slate-600';
+        {/* Financial Alerts & Team Performance */}
+        <motion.div variants={itemVariants} className="md:col-span-12 glass-card p-8 rounded-3xl">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-7">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <h3 className="text-lg font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <WalletIcon className="text-primary" size={20} />
+                    إشعارات القسم المالي
+                  </h3>
+                  
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold font-sans self-start">
+                    <button
+                      onClick={() => setFinancialFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${financialFilter === 'all' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      الكل
+                    </button>
+                    <button
+                      onClick={() => setFinancialFilter('with')}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${financialFilter === 'with' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      سحب
+                    </button>
+                    <button
+                      onClick={() => setFinancialFilter('dep')}
+                      className={`px-3 py-1.5 rounded-lg transition-all ${financialFilter === 'dep' ? 'bg-white dark:bg-slate-700 shadow-sm text-slate-800 dark:text-white' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      إيداع
+                    </button>
+                  </div>
+                </div>
 
-                  if (n.status === 'accepted' || n.status === 'completed') {
-                    alertBg = 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-100/50 dark:border-emerald-900/40';
-                    iconColor = 'text-emerald-500';
-                    statusText = 'مقبول';
-                    statusBg = 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300';
-                  } else if (n.status === 'rejected' || n.status === 'cancelled') {
-                    alertBg = 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-100/50 dark:border-rose-900/40';
-                    iconColor = 'text-rose-500';
-                    statusText = 'مرفوض';
-                    statusBg = 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300';
-                  } else if (n.status === 'pending') {
-                    alertBg = 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-100/50 dark:border-amber-900/40';
-                    iconColor = 'text-amber-500 animate-pulse';
-                    statusText = 'قيد المراجعة';
-                    statusBg = 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300';
-                  } else if (n.status === 'processing') {
-                    alertBg = 'bg-blue-50/40 dark:bg-blue-950/20 border-blue-100/50 dark:border-blue-900/40';
-                    iconColor = 'text-blue-500 animate-pulse';
-                    statusText = 'جاري التحويل';
-                    statusBg = 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300';
-                  }
+                {filteredNotifications.length > 0 ? (
+                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+                    {filteredNotifications.slice(0, 5).map(n => {
+                      let alertBg = 'bg-slate-50 dark:bg-slate-800/40 border-slate-100';
+                      let iconColor = 'text-slate-400';
+                      let statusText = '';
+                      let statusBg = 'bg-slate-100 text-slate-600';
 
-                  return (
-                    <div key={n.id} className={`flex items-start gap-3 p-4 rounded-2xl border transition-all hover:bg-white dark:hover:bg-slate-800 ${alertBg}`}>
-                      <div className="mt-0.5">
-                        {n.status === 'accepted' || n.status === 'completed' ? (
-                          <CheckCircle2 size={18} className={iconColor} />
-                        ) : n.status === 'rejected' || n.status === 'cancelled' ? (
-                          <AlertCircle size={18} className={iconColor} />
-                        ) : (
-                          <Clock size={18} className={iconColor} />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 mb-1">
-                          <span className="text-xs font-black text-slate-705 dark:text-slate-200">{n.title}</span>
-                          <span className="text-[10px] font-mono text-slate-400">
-                            {new Date(n.date).toLocaleDateString('ar-EG', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                      if (n.status === 'accepted' || n.status === 'completed') {
+                        alertBg = 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-100/50 dark:border-emerald-900/40';
+                        iconColor = 'text-emerald-500';
+                        statusText = 'مقبول';
+                        statusBg = 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300';
+                      } else if (n.status === 'rejected' || n.status === 'cancelled') {
+                        alertBg = 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-100/50 dark:border-rose-900/40';
+                        iconColor = 'text-rose-500';
+                        statusText = 'مرفوض';
+                        statusBg = 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300';
+                      } else if (n.status === 'pending') {
+                        alertBg = 'bg-amber-50/40 dark:bg-amber-950/20 border-amber-100/50 dark:border-amber-900/40';
+                        iconColor = 'text-amber-500 animate-pulse';
+                        statusText = 'مراجعة';
+                        statusBg = 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300';
+                      }
+
+                      return (
+                        <div key={n.id} className={`flex items-start gap-3 p-3.5 rounded-2xl border transition-all hover:bg-white dark:hover:bg-slate-800 ${alertBg}`}>
+                          <div className="mt-0.5">
+                            {n.status === 'accepted' || n.status === 'completed' ? (
+                              <CheckCircle2 size={16} className={iconColor} />
+                            ) : n.status === 'rejected' || n.status === 'cancelled' ? (
+                              <AlertCircle size={16} className={iconColor} />
+                            ) : (
+                              <Clock size={16} className={iconColor} />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-black text-slate-800 dark:text-slate-200 truncate">{n.title}</span>
+                              <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                {new Date(n.date).toLocaleDateString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-1">{n.body}</p>
+                            <div className="flex items-center justify-between mt-2">
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-lg ${statusBg}`}>
+                                {statusText}
+                              </span>
+                              <span className="text-[11px] font-black text-slate-900 dark:text-slate-100 tabular-nums">
+                                {n.amount.toLocaleString()} ج.م
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-semibold">{n.body}</p>
-                        <div className="flex items-center justify-between mt-2.5">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>
-                            {statusText}
-                          </span>
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-100 tabular-nums">
-                            {n.amount.toLocaleString()} ج.م
-                          </span>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-slate-400 py-12">
+                    <WalletIcon size={40} className="stroke-1 opacity-25 mb-3" />
+                    <p className="text-sm font-bold">لا توجد حركات مالية مسجلة حالياً.</p>
+                  </div>
+                )}
+                
+                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+                    <Link to="/wallet" className="text-[10px] font-black text-primary hover:underline flex items-center gap-1">
+                      عرض كافة العمليات المالية من المحفظة <ArrowLeft size={12} />
+                    </Link>
+                </div>
+            </div>
+
+            <div className="lg:col-span-5 border-r lg:border-r-0 lg:border-right border-slate-100 dark:border-slate-800 lg:pr-8">
+                <h3 className="text-lg font-black text-slate-800 dark:text-slate-200 flex items-center gap-2 mb-6">
+                    <TrendingUp className="text-emerald-500" size={20} />
+                    أعلى الموظفين إنجازاً (اليوم)
+                </h3>
+                
+                <div className="space-y-3">
+                  {(() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const statsMap: Record<string, { name: string; confirmed: number; total: number }> = {};
+                    
+                    (settings.employees || []).filter(e => e.status === 'active' || !e.status).forEach(emp => {
+                        statsMap[emp.phone] = { name: emp.name, confirmed: 0, total: 0 };
+                    });
+
+                    orders.forEach(o => {
+                        (o.confirmationLogs || []).forEach(log => {
+                            if (log.timestamp.startsWith(today)) {
+                                if (!statsMap[log.userId]) {
+                                    statsMap[log.userId] = { name: log.userName || 'موظف', confirmed: 0, total: 0 };
+                                }
+                                statsMap[log.userId].total++;
+                                if (log.action === 'تم التأكيد') statsMap[log.userId].confirmed++;
+                            }
+                        });
+                    });
+
+                    const sortedStats = Object.entries(statsMap)
+                        .filter(([_, info]) => info.total > 0)
+                        .sort((a,b) => b[1].confirmed - a[1].confirmed)
+                        .slice(0, 5);
+
+                    if (sortedStats.length === 0) {
+                        return (
+                            <div className="bg-slate-50 dark:bg-slate-800/40 p-12 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-slate-400">
+                                <Users2 size={32} className="opacity-20 mb-2" />
+                                <p className="text-xs font-bold">لا يوجد نشاط للفريق حتى الآن</p>
+                            </div>
+                        );
+                    }
+
+                    return sortedStats.map(([id, info], idx) => (
+                      <div key={id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 transition-hover hover:border-indigo-200">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-white dark:bg-slate-700 text-slate-500'}`}>
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-slate-800 dark:text-white truncate max-w-[100px]">{info.name}</p>
+                            <p className="text-[9px] font-bold text-slate-400 capitalize">{Math.round((info.confirmed/info.total)*100)}% معدل تأكيد</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-emerald-600 tabular-nums">{info.confirmed}</p>
+                          <p className="text-[8px] font-bold text-slate-400 uppercase">مؤكد</p>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center text-slate-400 py-12">
-                <WalletIcon size={40} className="stroke-1 opacity-25 mb-3" />
-                <p className="text-sm font-bold">لا توجد حركات مالية مسجلة حالياً.</p>
-              </div>
-            )}
-          </div>
-          
-          <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/60 text-center">
-            <Link to="/wallet" className="text-xs font-black text-primary hover:underline">
-              عرض تفاصيل المحفظة والعمليات الكاملة ←
-            </Link>
+                    ));
+                  })()}
+                </div>
+
+                <Link to="/confirmation-queue" className="mt-6 w-full flex items-center justify-center gap-2 p-3 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-black hover:bg-indigo-50 transition-colors">
+                    غرفة تأكيد الطلبات <Monitor size={14} />
+                </Link>
+            </div>
           </div>
         </motion.div>
 
@@ -764,14 +930,14 @@ const StatusItem = ({ label, value, color }: { label: string, value: number, col
 );
 
 const DashboardStatusCard = ({ title, value, color, badge }: { title: string, value: string | number, color: string, badge?: string }) => (
-  <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col items-end justify-center min-h-[100px] group hover:border-primary/30 transition-all">
-      <div className="absolute top-3 left-3 opacity-30 group-hover:opacity-100 transition-opacity">
-           <Clock size={16} className="text-slate-400 dark:text-slate-500" />
+  <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col items-end justify-center min-h-[80px] sm:min-h-[100px] group hover:border-primary/30 transition-all">
+      <div className="absolute top-2 sm:top-3 left-2 sm:left-3 opacity-20 group-hover:opacity-100 transition-opacity">
+           <Clock size={12} className="text-slate-400 dark:text-slate-500" />
       </div>
-      <div className="text-slate-500 dark:text-slate-400 text-xs font-black mb-1.5">{title}</div>
-      <div className={`text-2xl font-black ${color} flex items-center gap-2 tabular-nums`}>
+      <div className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-xs font-black mb-1 sm:mb-1.5">{title}</div>
+      <div className={`text-base sm:text-2xl font-black ${color} flex items-center gap-1 sm:gap-2 tabular-nums`}>
           {badge && (
-              <span className="text-[10px] bg-cyan-50 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-300 px-1.5 py-0.5 rounded-full font-black">
+              <span className="text-[8px] sm:text-[10px] bg-cyan-50 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-300 px-1 sm:px-1.5 py-0.5 rounded-full font-black">
                   {badge}
               </span>
           )}

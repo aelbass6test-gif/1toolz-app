@@ -6,7 +6,7 @@ import {
     Lock, Unlock, LayoutDashboard, TrendingUp, MessageSquare, Send, UserPlus, Clock, 
     UserCog, XCircle, KeyRound, Check, X, Settings as SettingsIcon, ShoppingCart, 
     Package, Wallet, Tag, AlertTriangle, Trash2, ShoppingBasket, Grid, Copy, Plus, 
-    ArrowLeftRight, AlertCircle, RefreshCw
+    ArrowLeftRight, AlertCircle, RefreshCw, UserMinus
 } from 'lucide-react';
 import * as db from '../services/databaseService';
 import { clearStoreData } from '../services/databaseService';
@@ -575,6 +575,25 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
     );
   }, [users, searchTerm]);
 
+  const handleDeleteUser = async (user: User) => {
+    if (!window.confirm(`هل أنت متأكد من حذف المستخدم ${user.fullName} وجميع متاجره؟ هذا الإجراء لا يمكن التراجع عنه.`)) return;
+
+    try {
+        await db.deleteUserCompletely(user);
+        
+        // Remove from local state
+        const updatedUsers = users.filter(u => u.phone !== user.phone);
+        setUsers(updatedUsers);
+        
+        // Update global users list in Firebase
+        await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
+        
+        alert(`تم حذف المستخدم ${user.fullName} وجميع متاجره بنجاح.`);
+    } catch (e: any) {
+        alert(`خطأ أثناء حذف المستخدم: ${e.message}`);
+    }
+  };
+  
   const toggleUserBan = async (phone: string) => {
     if(!window.confirm("هل أنت متأكد من تغيير حالة حظر هذا المستخدم؟")) return;
     const updated = users.map(u => u.phone === phone ? { ...u, isBanned: !u.isBanned } : u);
@@ -820,7 +839,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                   </span>
                 )}
             </h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-1.5 font-bold">مرحباً بك، المشرف العام {currentUser.fullName}</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1.5 font-bold">مرحباً بك، المشرف العام {currentUser?.fullName || ''}</p>
         </div>
       </div>
 
@@ -862,11 +881,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                             <p className="text-xs font-black text-slate-700 dark:text-slate-300">السحب العادي (مدة معالجة ٢٤-٤٨ ساعة)</p>
                             <div className="flex p-0.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-250 dark:border-slate-800">
                                 <button 
-                                    onClick={() => setSettings(prev => ({ ...prev, withdrawalFeeType: 'flat' }))}
+                                    onClick={() => setAllStoresData(prev => {
+                                        const next = { ...prev };
+                                        for(const sid in next) {
+                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, withdrawalFeeType: 'flat' } };
+                                        }
+                                        return next;
+                                    })}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.withdrawalFeeType === 'flat' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >مبلغ ثابت</button>
                                 <button 
-                                    onClick={() => setSettings(prev => ({ ...prev, withdrawalFeeType: 'percent' }))}
+                                    onClick={() => setAllStoresData(prev => {
+                                        const next = { ...prev };
+                                        for(const sid in next) {
+                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, withdrawalFeeType: 'percent' } };
+                                        }
+                                        return next;
+                                    })}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.withdrawalFeeType === 'percent' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >نسبة مئوية %</button>
                             </div>
@@ -877,8 +908,19 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                 value={settings.withdrawalFeeType === 'percent' ? (settings.withdrawalFeePercent || 0) : (settings.withdrawalFlatFee || 0)}
                                 onChange={e => {
                                     const val = parseFloat(e.target.value) || 0;
-                                    if (settings.withdrawalFeeType === 'percent') setSettings(prev => ({ ...prev, withdrawalFeePercent: val }));
-                                    else setSettings(prev => ({ ...prev, withdrawalFlatFee: val }));
+                                    setAllStoresData(prev => {
+                                        const next = { ...prev };
+                                        for(const sid in next) {
+                                            next[sid] = {
+                                                ...next[sid],
+                                                settings: {
+                                                    ...next[sid].settings,
+                                                    [settings.withdrawalFeeType === 'percent' ? 'withdrawalFeePercent' : 'withdrawalFlatFee']: val
+                                                }
+                                            };
+                                        }
+                                        return next;
+                                    });
                                 }}
                                 className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-2xl px-4 py-3 text-right text-sm font-black outline-none focus:ring-4 focus:ring-indigo-500/15"
                                 placeholder={settings.withdrawalFeeType === 'percent' ? "أدخل النسبة المئوية" : "أدخل المبلغ الثابت للتسوية ج.م"}
@@ -894,11 +936,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                             </div>
                             <div className="flex p-0.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-250 dark:border-slate-800">
                                 <button 
-                                    onClick={() => setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'flat' }))}
+                                    onClick={() => setAllStoresData(prev => {
+                                        const next = { ...prev };
+                                        for(const sid in next) {
+                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, sameDayWithdrawalFeeType: 'flat' } };
+                                        }
+                                        return next;
+                                    })}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.sameDayWithdrawalFeeType === 'flat' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >مبلغ ثابت</button>
                                 <button 
-                                    onClick={() => setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'percent' }))}
+                                    onClick={() => setAllStoresData(prev => {
+                                        const next = { ...prev };
+                                        for(const sid in next) {
+                                            next[sid] = { ...next[sid], settings: { ...next[sid].settings, sameDayWithdrawalFeeType: 'percent' } };
+                                        }
+                                        return next;
+                                    })}
                                     className={`px-3 py-1 text-[10px] font-black rounded-lg transition-all ${settings.sameDayWithdrawalFeeType === 'percent' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                                 >نسبة مئوية %</button>
                             </div>
@@ -909,8 +963,19 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                 value={settings.sameDayWithdrawalFeeType === 'flat' ? (settings.sameDayWithdrawalFlatFee || 0) : (settings.sameDayWithdrawalFeePercent || 0)}
                                 onChange={e => {
                                     const val = parseFloat(e.target.value) || 0;
-                                    if (settings.sameDayWithdrawalFeeType === 'flat') setSettings(prev => ({ ...prev, sameDayWithdrawalFlatFee: val }));
-                                    else setSettings(prev => ({ ...prev, sameDayWithdrawalFeePercent: val }));
+                                    setAllStoresData(prev => {
+                                        const next = { ...prev };
+                                        for(const sid in next) {
+                                            next[sid] = {
+                                                ...next[sid],
+                                                settings: {
+                                                    ...next[sid].settings,
+                                                    [settings.sameDayWithdrawalFeeType === 'flat' ? 'sameDayWithdrawalFlatFee' : 'sameDayWithdrawalFeePercent']: val
+                                                }
+                                            };
+                                        }
+                                        return next;
+                                    });
                                 }}
                                 className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-2xl px-4 py-3 text-right text-sm font-black outline-none focus:ring-4 focus:ring-indigo-500/15"
                                 placeholder={settings.sameDayWithdrawalFeeType === 'percent' ? "أدخل النسبة المئوية" : "أدخل المبلغ الثابت للجلسة ج.م"}
@@ -1569,6 +1634,8 @@ const DangerZone = ({ stores }: { stores: Store[] }) => {
         { id: 'collections', label: 'التصنيفات', icon: <Grid size={16}/> },
         { id: 'employees', label: 'الموظفين', icon: <UserCog size={16}/> },
         { id: 'partner_withdrawals', label: 'سحوبات الشركاء والمحفظة', icon: <Wallet size={16}/> },
+        { id: 'partners', label: 'الشركاء', icon: <UserMinus size={16}/> },
+        { id: 'full_store_deletion', label: 'حذف المتجر بالكامل نهائياً', icon: <Trash2 size={24} className="text-red-600"/> },
     ];
 
     const toggleTarget = (id: string) => {
@@ -1588,8 +1655,7 @@ const DangerZone = ({ stores }: { stores: Store[] }) => {
             setError('اسم المتجر غير متطابق للتحقق الأمني.');
             return;
         }
-        
-        if (selectedTargets.length === 0) {
+        if (selectedTargets.length === 0 && !selectedTargets.includes('full_store_deletion')) {
             setError('يجب اختيار عنصر واحد على الأقل للحذف.');
             return;
         }
@@ -1597,16 +1663,23 @@ const DangerZone = ({ stores }: { stores: Store[] }) => {
         setIsDeleting(true);
         const storeId = selectedStore.id;
         
-        if (storeId) {
-            const result = await clearStoreData(storeId, selectedTargets);
-            if (result.success) {
-                alert('تم حذف وتصفير بيانات المتجر ومكوناته المحددة بنجاح تامة.');
-                setShowConfirm(false);
-                setIsDeleting(false);
+        try {
+            if (selectedTargets.includes('full_store_deletion')) {
+                await db.deleteStoreCompletely(storeId);
+                alert('تم حذف المتجر وكافة بياناته نهائياً.');
             } else {
-                setError(result.error || 'حدث خطأ أثناء المسح');
-                setIsDeleting(false);
+                await db.clearStoreData(storeId, selectedTargets);
+                alert('تم مسح البيانات المختارة بنجاح.');
             }
+            
+            setIsDeleting(false);
+            setConfirmationText('');
+            setSelectedTargets([]);
+            setShowConfirm(false);
+        } catch (err: any) {
+            setError(`فشل في مسح البيانات: ${err.message}`);
+        } finally {
+            setIsDeleting(false);
         }
     };
 

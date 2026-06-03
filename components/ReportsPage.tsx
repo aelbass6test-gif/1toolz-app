@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Order, Settings, Wallet, Store } from '../types';
-import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, Coins } from 'lucide-react';
+import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, Coins, Monitor, ShoppingBasket } from 'lucide-react';
 import { AccountingReports } from './AccountingReports';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML } from '../utils/reportGenerator';
@@ -2728,8 +2728,155 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
     );
 };
 
+const POSSalesReport: React.FC<{ orders: Order[], settings: Settings }> = ({ orders, settings }) => {
+    const stats = useMemo(() => {
+        const posOrders = orders.filter(o => o.channel === 'pos' || o.id.startsWith('POS-'));
+        
+        let totalRevenue = 0;
+        let totalItems = 0;
+        let totalProfit = 0;
+        let totalDiscount = 0;
+
+        const productMelt: Record<string, { label: string, quantity: number, revenue: number }> = {};
+        const cashierPerformance: Record<string, { label: string, count: number, revenue: number }> = {};
+
+        posOrders.forEach(o => {
+            const revenue = (o.totalPrice || (o.productPrice + o.shippingFee));
+            totalRevenue += revenue;
+            totalDiscount += (o.discount || 0);
+            
+            const { profit } = calculateOrderProfitLoss(o, settings);
+            totalProfit += profit;
+
+            (o.items || []).forEach(item => {
+                totalItems += item.quantity;
+                if (!productMelt[item.productId]) {
+                    productMelt[item.productId] = { label: item.name, quantity: 0, revenue: 0 };
+                }
+                productMelt[item.productId].quantity += item.quantity;
+                productMelt[item.productId].revenue += (item.price * item.quantity);
+            });
+
+            const cashierId = o.createdBy || 'Unknown';
+            if (!cashierPerformance[cashierId]) {
+                cashierPerformance[cashierId] = { label: o.customerName || 'كاشير مجهول', count: 0, revenue: 0 };
+            }
+            cashierPerformance[cashierId].count += 1;
+            cashierPerformance[cashierId].revenue += revenue;
+        });
+
+        const bestProducts = Object.values(productMelt).sort((a,b) => b.revenue - a.revenue).slice(0, 5);
+
+        return {
+            totalRevenue,
+            totalItems,
+            totalProfit,
+            totalDiscount,
+            count: posOrders.length,
+            bestProducts,
+            cashierPerformance: Object.values(cashierPerformance)
+        };
+    }, [orders, settings]);
+
+    if (stats.count === 0) {
+        return (
+            <div className="bg-white dark:bg-slate-900 p-12 rounded-3xl border border-slate-200 dark:border-slate-800 text-center flex flex-col items-center justify-center space-y-4">
+                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-full text-slate-300">
+                    <Monitor size={48} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-700 dark:text-slate-300">لا توجد مبيعات كاشير (POS) حالياً</h3>
+                <p className="text-slate-400 text-sm max-w-sm">بمجرد إجراء عمليات بيع من خلال نقطة البيع، ستظهر التحليلات هنا بالتفصيل.</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6 animate-in fade-in-5 duration-300">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 flex items-center gap-1.5 uppercase">
+                        <ShoppingBasket size={12} className="text-indigo-500" />
+                        إجمالي مبيعات الـ POS
+                    </p>
+                    <h4 className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">
+                        {stats.totalRevenue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                    </h4>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase">عدد الفواتير</p>
+                    <h4 className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">{stats.count}</h4>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase text-emerald-500">الربح الصافي</p>
+                    <h4 className="text-3xl font-black text-emerald-600 tabular-nums">
+                        {stats.totalProfit.toLocaleString()} <span className="text-xs font-bold text-emerald-400">ج.م</span>
+                    </h4>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase text-red-500">إجمالي الخصم الممنوح</p>
+                    <h4 className="text-3xl font-black text-red-500 tabular-nums">
+                        {stats.totalDiscount.toLocaleString()} <span className="text-xs font-bold text-red-400">ج.م</span>
+                    </h4>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2 font-black">
+                        <Package className="text-indigo-500" />
+                        المنتجات الأكثر مبيعاً في الكاشير
+                    </h3>
+                    <div className="space-y-4">
+                        {stats.bestProducts.map((p, idx) => {
+                            const percentage = (p.revenue / stats.totalRevenue) * 100;
+                            return (
+                                <div key={idx}>
+                                    <div className="flex justify-between items-center mb-1 text-xs font-bold">
+                                        <span className="text-slate-600 dark:text-slate-300">{p.label}</span>
+                                        <span>{p.revenue.toLocaleString()} ج.م ({p.quantity} قطعة)</span>
+                                    </div>
+                                    <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${percentage}%` }}></div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm font-sans">
+                    <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2 font-black">
+                        <Monitor className="text-blue-500" />
+                        أداء بائعي الكاشير
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-right">
+                            <thead>
+                                <tr className="text-slate-400 text-xs border-b border-slate-100 dark:border-slate-800">
+                                    <th className="pb-3 px-2">اسم البائع</th>
+                                    <th className="pb-3 px-2">العمليات</th>
+                                    <th className="pb-3 px-2 text-left">إجمالي التحصيل</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
+                                {stats.cashierPerformance.map((c, idx) => (
+                                    <tr key={idx}>
+                                        <td className="py-3 px-2 text-sm font-bold text-slate-700 dark:text-slate-200">{c.label}</td>
+                                        <td className="py-3 px-2 text-sm">{c.count}</td>
+                                        <td className="py-3 px-2 text-sm text-left font-black text-indigo-600">{c.revenue.toLocaleString()} ج.م</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore, setSettings, setWallet }) => {
-    const [activeTab, setActiveTab] = useState<'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting'>('summary');
+    const [activeTab, setActiveTab] = useState<'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting' | 'pos'>('summary');
     const [dateRangeType, setDateRangeType] = useState<string>('all');
     const [customStartDate, setCustomStartDate] = useState<string>('');
     const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -2902,6 +3049,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
             <div className="flex gap-2 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar scroll-smooth w-full sm:w-fit">
                 <button onClick={() => setActiveTab('summary')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'summary' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>ملخص المبيعات</button>
                 <button onClick={() => setActiveTab('losses')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'losses' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الخسائر</button>
+                <button onClick={() => setActiveTab('pos')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'pos' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الكاشير (POS)</button>
                 <button onClick={() => setActiveTab('comprehensive')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'comprehensive' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>التقرير الشامل</button>
                 <button onClick={() => setActiveTab('final')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'final' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>التقرير الختامي الشامل</button>
                 <button onClick={() => setActiveTab('partners')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الشركاء</button>
@@ -2911,6 +3059,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
             <div className="relative min-h-[calc(100vh-200px)] mt-6 animate-in fade-in-5 duration-300">
                 {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} />}
                 {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={settings} />}
                 {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} dateRangeText={dateRangeText} />}
