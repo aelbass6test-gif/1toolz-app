@@ -1,9 +1,12 @@
-import express from "express";
-import cors from "cors";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { getRequestListener } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { createServer } from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, deleteDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
@@ -351,19 +354,10 @@ async function getCachedStore(db: any, storeId: string) {
 }
 
 async function startServer() {
-  const app = express();
   const PORT = 3000;
+  const app = new Hono();
 
-  app.use(cors());
-  app.use(express.json());
-
-  // Conditional logging middleware for sync debugging
-  app.use((req, res, next) => {
-    if (req.url.startsWith("/api/sync")) {
-      console.log(`[SYNC-DEBUG] ${req.method} ${req.url}`);
-    }
-    next();
-  });
+  app.use("/*", cors());
 
   // Load Firebase Config
   let firebaseConfig = {};
@@ -383,61 +377,65 @@ async function startServer() {
 
   // --- API ROUTES ---
   
-  app.post("/api/gemini", async (req, res) => {
-    const { model, prompt, config, service } = req.body;
+  app.post("/api/gemini", async (c) => {
     try {
+        const { model, prompt, config, service } = await c.req.json();
         const response = await ai.models.generateContent({
             model: model || "gemini-3.5-flash",
             contents: prompt,
             config: config
         });
-        res.json({ text: response.text });
+        return c.json({ text: response.text });
     } catch (error: any) {
         console.error("Gemini API Error:", error);
-        res.status(500).json({ error: error.message });
+        return c.json({ error: error.message }, 500);
     }
   });
 
   // OTP Verification API for Firebase
-  app.post("/api/verify-otp", (req, res) => {
-    const { email, otp } = req.body;
-    if (otp && /^\d{6}$/.test(otp)) {
-      return res.json({ valid: true });
+  app.post("/api/verify-otp", async (c) => {
+    try {
+      const { email, otp } = await c.req.json();
+      if (otp && /^\d{6}$/.test(otp)) {
+        return c.json({ valid: true });
+      }
+      return c.json({ valid: false, message: "رمز التحقق غير صحيح." }, 400);
+    } catch (e) {
+      return c.json({ valid: false, message: "خطأ في البيانات" }, 400);
     }
-    return res.status(400).json({ valid: false, message: "رمز التحقق غير صحيح." });
   });
 
   // Cloudflare SaaS Domain Automation API
-  app.post("/api/domains/add", async (req, res) => {
-    const { domain, storeId } = req.body;
-    
-    if (!domain) {
-      return res.status(400).json({ success: false, error: "النطاق مطلوب" });
-    }
-
-    const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
-    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-
-    console.log(`[DOMAIN-AUTOMATION] Registering custom domain: ${cleanDomain} for store: ${storeId}`);
-
-    // If Cloudflare is not fully configured, provide simulation with clear guidance
-    if (!zoneId || !apiToken) {
-      console.log("[DOMAIN-AUTOMATION] Cloudflare API token or Zone ID is missing. Simulating successful automated connection.");
-      return res.json({
-        success: true,
-        simulation: true,
-        message: "تم حفظ النطاق بنجاح ومحاكاة التفعيل. يرجى توجيه الـ DNS كما هو موضح بالدليل.",
-        domain: cleanDomain,
-        details: {
-          hostname: cleanDomain,
-          status: "pending",
-          ssl_status: "initializing"
-        }
-      });
-    }
-
+  app.post("/api/domains/add", async (c) => {
     try {
+      const { domain, storeId } = await c.req.json();
+      
+      if (!domain) {
+        return c.json({ success: false, error: "النطاق مطلوب" }, 400);
+      }
+
+      const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
+      const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+      const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+      console.log(`[DOMAIN-AUTOMATION] Registering custom domain: ${cleanDomain} for store: ${storeId}`);
+
+      // If Cloudflare is not fully configured, provide simulation
+      if (!zoneId || !apiToken) {
+        console.log("[DOMAIN-AUTOMATION] Cloudflare API token or Zone ID is missing. Simulating successful automated connection.");
+        return c.json({
+          success: true,
+          simulation: true,
+          message: "تم حفظ النطاق بنجاح ومحاكاة التفعيل. يرجى توجيه الـ DNS كما هو موضح بالدليل.",
+          domain: cleanDomain,
+          details: {
+            hostname: cleanDomain,
+            status: "pending",
+            ssl_status: "initializing"
+          }
+        });
+      }
+
       const response = await fetch(
         `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames`,
         {
@@ -461,12 +459,11 @@ async function startServer() {
       if (!response.ok || !data.success) {
         console.error("[DOMAIN-AUTOMATION-ERROR] Cloudflare responded with error:", data);
         
-        // If domain is already registered, still treat as success for front-end
         const errors = data.errors || [];
         const isDuplicate = errors.some((err: any) => err.code === 1406 || (err.message && err.message.includes("already exists")));
         
         if (isDuplicate) {
-          return res.json({
+          return c.json({
             success: true,
             message: "هذا النطاق مسجل بالفعل في حساب Cloudflare.",
             domain: cleanDomain,
@@ -478,15 +475,15 @@ async function startServer() {
           });
         }
 
-        return res.status(400).json({
+        return c.json({
           success: false,
           error: data.errors?.[0]?.message || "فشلت عملية إضافة النطاق في Cloudflare",
           details: data.errors
-        });
+        }, 400);
       }
 
       console.log("[DOMAIN-AUTOMATION] Cloudflare registered custom hostname successfully:", data.result);
-      return res.json({
+      return c.json({
         success: true,
         message: "تم تفعيل وتسجيل النطاق بنجاح وتوليد شهادة الـ SSL تلقائياً عبر Cloudflare API!",
         domain: cleanDomain,
@@ -494,35 +491,35 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error("[DOMAIN-AUTOMATION-EXCEPTION] Error in registration process:", err);
-      return res.status(500).json({
+      return c.json({
         success: false,
         error: "حدث خطأ أثناء معالجة طلب تسجيل النطاق: " + err.message
-      });
+      }, 500);
     }
   });
 
   // Cloudflare Custom Hostname Status API
-  app.post("/api/domains/status", async (req, res) => {
-    const { domain } = req.body;
-    if (!domain) {
-      return res.status(400).json({ success: false, error: "النطاق مطلوب" });
-    }
-
-    const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
-    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-
-    if (!zoneId || !apiToken) {
-      return res.json({
-        success: true,
-        simulation: true,
-        status: "active",
-        ssl_status: "active",
-        message: "محاكاة: حالة النطاق نشط والـ SSL مفعل"
-      });
-    }
-
+  app.post("/api/domains/status", async (c) => {
     try {
+      const { domain } = await c.req.json();
+      if (!domain) {
+        return c.json({ success: false, error: "النطاق مطلوب" }, 400);
+      }
+
+      const cleanDomain = domain.replace(/^(https?:\/\/)?(www\.)?/, "").trim();
+      const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+      const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+      if (!zoneId || !apiToken) {
+        return c.json({
+          success: true,
+          simulation: true,
+          status: "active",
+          ssl_status: "active",
+          message: "محاكاة: حالة النطاق نشط والـ SSL مفعل"
+        });
+      }
+
       const response = await fetch(
         `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?hostname=${cleanDomain}`,
         {
@@ -536,22 +533,22 @@ async function startServer() {
 
       const data: any = await response.json();
       if (!response.ok || !data.success) {
-        return res.status(400).json({
+        return c.json({
           success: false,
           error: data.errors?.[0]?.message || "فشلت عملية التحقق في Cloudflare"
-        });
+        }, 400);
       }
 
       const hostnameInfo = data.result?.[0];
       if (!hostnameInfo) {
-        return res.json({
+        return c.json({
           success: false,
           status: "none",
           message: "النطاق غير مسجل في الحساب بـ Cloudflare"
         });
       }
 
-      return res.json({
+      return c.json({
         success: true,
         status: hostnameInfo.status, // e.g. "active" or "pending"
         ssl_status: hostnameInfo.ssl?.status, // e.g. "active" or "pending_validation"
@@ -561,20 +558,20 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error("[DOMAIN-STATUS-EXCEPTION]", err);
-      return res.status(500).json({
+      return c.json({
         success: false,
         error: err.message
-      });
+      }, 500);
     }
   });
 
   // Health check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+  app.get("/api/health", (c) => {
+    return c.json({ status: "ok" });
   });
 
   // Temporary Introspection
-  app.get("/api/introspect", async (req, res) => {
+  app.get("/api/introspect", async (c) => {
     try {
         const query = `
           query IntrospectionQuery {
@@ -592,36 +589,35 @@ async function startServer() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query })
         });
-        const json = await response.json();
+        const json: any = await response.json();
         if (json.data?.__schema?.mutationType) {
             const mutationTypeName = json.data.__schema.mutationType.name;
             const mutationType = json.data.__schema.types.find((t: any) => t.name === mutationTypeName);
             const orderMutations = mutationType.fields.filter((f: any) => f.name.toLowerCase().includes("order"));
-            res.json(orderMutations.map((m: any) => ({ name: m.name, args: m.args.map((a: any) => a.name) })));
+            return c.json(orderMutations.map((m: any) => ({ name: m.name, args: m.args.map((a: any) => a.name) })));
         } else {
-            res.json(json);
+            return c.json(json);
         }
-    } catch (e: any) { res.json({ error: e.message }); }
+    } catch (e: any) { return c.json({ error: e.message }); }
   });
 
   // Webhook Listener
-  const handleWebhook = async (req: express.Request, res: express.Response) => {
-    const platform = req.params.platform as string;
-    const storeId = req.params.storeId as string;
-    const payload = req.body;
+  app.all("/api/webhook/platform/:platform/:storeId", async (c) => {
+    const platform = c.req.param("platform");
+    const storeId = c.req.param("storeId");
     
-    // Log minimal info for every hit to help debugging
-    console.log(`[WEBHOOK] ${req.method} from ${platform} for Store: ${storeId}`);
+    console.log(`[WEBHOOK] ${c.req.method} from ${platform} for Store: ${storeId}`);
 
-    if (req.method === "GET") {
-        return res.status(200).json({ message: "Webhook endpoint is active" });
+    if (c.req.method === "GET") {
+        return c.json({ message: "Webhook endpoint is active" }, 200);
     }
 
     try {
+        const payload = await c.req.json();
         const storeRow = await getCachedStore(db, storeId);
         if (!storeRow) {
             console.warn(`[WEBHOOK] Warning: Store ${storeId} not found in database. Still returning 200 for platform compatibility.`);
-            return res.status(200).json({ message: "Store not found, but webhook received" });
+            return c.json({ message: "Store not found, but webhook received" }, 200);
         }
 
         const settings = storeRow.settings || {};
@@ -629,9 +625,8 @@ async function startServer() {
         if (platform === "wuilt") {
             const { event, payload: wuiltPayload } = payload;
             
-            // Handle Wuilt test events if they have any
             if (event === "TEST" || !event) {
-                return res.status(200).json({ message: "Test webhook received" });
+                return c.json({ message: "Test webhook received" }, 200);
             }
 
             if ((event === "ORDER_PLACED" || event === "ORDER_UPDATED") && wuiltPayload?.order ) {
@@ -660,34 +655,37 @@ async function startServer() {
                 }
             }
         }
-        return res.status(200).json({ message: "Webhook processed" });
+        return c.json({ message: "Webhook processed" }, 200);
     } catch (error: any) {
         console.error(`[WEBHOOK-ERROR]`, error);
-        return res.status(200).json({ error: error.message, note: "Returning 200 to prevent platform disabling webhook" });
+        return c.json({ error: error.message, note: "Returning 200 to prevent platform disabling webhook" }, 200);
     }
-  };
-
-  app.all("/api/webhook/platform/:platform/:storeId", handleWebhook);
+  });
 
   // Preview Endpoint
-  const handlePreview = async (req: express.Request, res: express.Response) => {
-    const platform = req.params.platform as string;
-    const storeId = req.params.storeId as string;
-    const type = (req.query.type as string) || "products";
+  app.all("/api/sync/platform/:platform/:storeId/preview", async (c) => {
+    const platform = c.req.param("platform");
+    const storeId = c.req.param("storeId");
     
+    // Check if query exists before accessing
+    const url = new URL(c.req.url);
+    const type = url.searchParams.get("type") || "products";
+    
+    console.log(`[SYNC-DEBUG] ${c.req.method} /api/sync/platform/${platform}/${storeId}/preview`);
+
     try {
         const storeRow = await getCachedStore(db, storeId);
-        if (!storeRow) return res.status(404).json({ error: "Store not found" });
+        if (!storeRow) return c.json({ error: "Store not found" }, 404);
         const config = storeRow.settings?.platformConfigs?.[platform];
-        if (!config || !config.apiKey) return res.status(400).json({ error: "API Key not configured" });
+        if (!config || !config.apiKey) return c.json({ error: "API Key not configured" }, 400);
 
-        let rawItems = [];
+        let rawItems: any[] = [];
         if (platform === "wuilt") {
-            const rawStoreId = (config.shopId || config.shopUrl || "").trim();
+            const rawConfigStoreId = (config.shopId || config.shopUrl || "").trim();
             const apiKey = (config.apiKey || "").trim();
-            let wuiltStoreId = rawStoreId;
-            if (rawStoreId.includes("/store/")) {
-                const parts = rawStoreId.split("/store/");
+            let wuiltStoreId = rawConfigStoreId;
+            if (rawConfigStoreId.includes("/store/")) {
+                const parts = rawConfigStoreId.split("/store/");
                 if (parts[1]) wuiltStoreId = parts[1].split("/")[0];
             }
 
@@ -695,7 +693,7 @@ async function startServer() {
                 query: `query List { products(connection: {first: 50}, locale: "ar", filter: {storeIds: ["${wuiltStoreId}"]}) { nodes { id title handle type status images { src } variants(first: 10) { nodes { id price { amount } cost { amount } sku quantity } } } } }`
             } : null;
 
-            if (!graphqlQuery) return res.status(400).json({ error: "Preview only for products" });
+            if (!graphqlQuery) return c.json({ error: "Preview only for products" }, 400);
 
             const response = await fetch("https://graphql.wuilt.com", {
                 method: "POST",
@@ -707,32 +705,32 @@ async function startServer() {
         }
 
         const mappedItems = rawItems.map(item => mapWuiltProduct(item, storeId)).filter(Boolean);
-        res.json({ success: true, items: mappedItems });
+        return c.json({ success: true, items: mappedItems });
     } catch (error: any) { 
         if (error.code === 'resource-exhausted') {
-            return res.status(429).json({ 
+            return c.json({ 
                 error: "تم تجاوز حصة العمليات المجانية في قاعدة البيانات (Quota Exceeded)." 
-            });
+            }, 429);
         }
-        res.status(500).json({ error: error.message }); 
+        return c.json({ error: error.message }, 500); 
     }
-  };
-
-  app.get("/api/sync/platform/:platform/:storeId/preview", handlePreview);
-  app.post("/api/sync/platform/:platform/:storeId/preview", handlePreview);
+  });
 
   // Sync Endpoint
-  app.post("/api/sync/platform/:platform/:storeId", async (req, res) => {
-    const platform = req.params.platform as string;
-    const storeId = req.params.storeId as string;
-    const type = (req.query.type as string) || "orders";
+  app.post("/api/sync/platform/:platform/:storeId", async (c) => {
+    const platform = c.req.param("platform");
+    const storeId = c.req.param("storeId");
+    const url = new URL(c.req.url);
+    const type = url.searchParams.get("type") || "orders";
     
+    console.log(`[SYNC-DEBUG] ${c.req.method} /api/sync/platform/${platform}/${storeId}`);
+
     try {
         const storeRow = await getCachedStore(db, storeId);
-        if (!storeRow) return res.status(404).json({ error: "Store not found" });
+        if (!storeRow) return c.json({ error: "Store not found" }, 404);
         const settings = storeRow.settings || {};
         const config = settings.platformConfigs?.[platform];
-        if (!config || !config.apiKey) return res.status(400).json({ error: "API Key not configured" });
+        if (!config || !config.apiKey) return c.json({ error: "API Key not configured" }, 400);
 
         let itemsToProcess = [];
         if (platform === "wuilt") {
@@ -762,15 +760,12 @@ async function startServer() {
 
         const table = type === "products" ? "products" : "orders";
         const mapper = type === "products" ? mapWuiltProduct : (item: any) => mapWuiltOrder(item, storeId, settings);
-        const mappedItems = itemsToProcess.map(item => mapper(item, storeId)).filter(Boolean);
+        const mappedItems = itemsToProcess.map((item: any) => mapper(item, storeId)).filter(Boolean);
         
-        // OPTIMIZATION: Fetch all existing items for this store in one go
         const q = query(collection(db, table), where('store_id', '==', storeId));
         const existingSnap = await getDocs(q);
         const existingDataMap = new Map();
         existingSnap.docs.forEach(docSnap => {
-            existingDataMap.set(docSnap.id, docSnap.id); // Or store the whole data if hasChanged needs it
-            // Actually, we need the data for hasChanged
             existingDataMap.set(docSnap.id, docSnap.data());
         });
 
@@ -784,30 +779,56 @@ async function startServer() {
             }
         }
 
-        res.json({ success: true, processed: mappedItems.length, actualWrites: updatedCount });
+        return c.json({ success: true, processed: mappedItems.length, actualWrites: updatedCount });
     } catch (error: any) {
         console.error(`[SYNC-ERROR]`, error);
         if (error.code === 'resource-exhausted') {
-            return res.status(429).json({ 
+            return c.json({ 
                 error: "تم تجاوز حصة العمليات المجانية في قاعدة البيانات (Quota Exceeded). سيتم تصفير الحصة خلال 24 ساعة. يرجى مراجعة إعدادات Firebase." 
-            });
+            }, 429);
         }
-        res.status(500).json({ error: error.message }); 
+        return c.json({ error: error.message }, 500); 
     }
   });
 
-  // --- VITE / STATIC SERVING ---
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*all", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+  // Provide fallback static files for production Hono server
+  if (process.env.NODE_ENV === "production") {
+    app.get(
+      "/*",
+      serveStatic({
+        root: "dist",
+        rewriteRequestPath: (path) => {
+          if (fs.existsSync(`./dist${path}`)) return path;
+          return "/index.html"; // SPA Fallback
+        },
+      })
+    );
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  // Support Vite Dev Server
+  let vite: any;
+  if (process.env.NODE_ENV !== "production") {
+    vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+  }
+
+  const honoListener = getRequestListener(app.fetch);
+
+  const server = createServer((req, res) => {
+    if (process.env.NODE_ENV !== "production" && vite) {
+      if (req.url && req.url.startsWith("/api/")) {
+        honoListener(req, res);
+      } else {
+        vite.middlewares(req, res, () => {
+          honoListener(req, res);
+        });
+      }
+    } else {
+      honoListener(req, res);
+    }
+  });
+
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Hono Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
