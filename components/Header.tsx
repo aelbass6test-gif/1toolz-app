@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, Database, Cloud, HardDrive, Activity } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, Database, Cloud, HardDrive, Activity, CheckCircle } from 'lucide-react';
 import { getSupabaseRestrictedStatus } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 
@@ -300,13 +300,13 @@ const Header: React.FC<HeaderProps> = ({
                                 <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
                                     <div className="flex items-center gap-2">
                                         <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                                            <Activity size={14} className="animate-pulse" />
+                                            <Cloud size={14} className="animate-pulse" />
                                         </div>
-                                        <span className="font-black text-xs text-slate-850 dark:text-slate-200">صحة الاتصال والبيانات</span>
+                                        <span className="font-black text-xs text-slate-850 dark:text-slate-200">حالة الربط والذكاء الاصطناعي</span>
                                     </div>
                                     <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 rounded-lg border border-emerald-100/50 dark:border-emerald-900/30">
-                                        <HardDrive size={10} />
-                                        <span>مشغل محلي</span>
+                                        <CheckCircle size={10} />
+                                        <span>مزامنة سحابية نشطة</span>
                                     </div>
                                 </div>
 

@@ -29,7 +29,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
 
   // Check unique key in localStorage so we show active pulsing badge if unseen
   const STORAGE_KEY = isAdminView ? 'wuilt_merchant_updates_seen_v2' : 'wuilt_client_updates_seen_v2';
-  const LATEST_VERSION = '2.4';
+  const LATEST_VERSION = '2.5';
 
   useEffect(() => {
     const lastSeen = localStorage.getItem(STORAGE_KEY);
@@ -152,6 +152,14 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
 
   // 📦 Merchant System Features
   const merchantUpdates: UpdateItem[] = [
+    {
+      id: 'live-cloud-sync-verified',
+      title: 'الربط السحابي المباشر (Firebase Verified) ✅',
+      category: 'system',
+      categoryLabel: 'ربط أونلاين',
+      colorClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+      desc: 'تم التأكد من ربط لوحة التحكم والبيانات بالسحابة العالمية لـ Google Cloud و Firebase. بياناتك الآن مشفرة ومحفوظة أونلاين بشكل لحظي لضمان عدم فقدان أي أوردر حتى لو غيرت جهازك.',
+    },
     {
       id: 'instant-subdomains',
       title: 'ربط النطاقات الاحترافية الفوري 🌐',
