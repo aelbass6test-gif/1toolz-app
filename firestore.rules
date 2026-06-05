@@ -1,116 +1,15 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper functions
-    function isValidId(id) { 
-      return id is string && id.size() <= 128; 
-    }
-    
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    // Default deny
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if true;
     }
-
-    // Since the app currently doesn't use Firebase Auth, 
-    // we allow public access to these collections for now.
-    // WARNING: This is INSECURE for production. 
-    // It is highly recommended to integrate Firebase Auth.
-    
     match /users/{userId} {
-      allow read, write: if isValidId(userId);
+      allow read, write: if true;
     }
-
     match /stores_data/{storeId} {
-      allow read, write: if isValidId(storeId);
-    }
-
-    match /products/{productId} {
-      allow read, write: if isValidId(productId);
-    }
-
-    match /orders/{orderId} {
-      allow read, write: if isValidId(orderId);
-    }
-
-    match /transactions/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /treasury_accounts/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /treasury_transactions/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /suppliers/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /supply_orders/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /reviews/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /abandoned_carts/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /activity_logs/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /employees/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /discount_codes/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /collections/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /custom_pages/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /payment_methods/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /customers/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /global_options/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /shipping_integrations/{id} {
-      allow read, write: if isValidId(id);
-    }
-
-    match /partners/{id} {
-      allow read, write: if isValidId(id);
-    }
-    
-    match /presence/{id} {
-      allow read, write: if isValidId(id);
-    }
-    
-    match /chat_messages/{id} {
-      allow read, write: if isValidId(id);
+      allow read, write: if true;
     }
   }
 }
+

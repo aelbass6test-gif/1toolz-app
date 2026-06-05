@@ -35,7 +35,19 @@ import {
     ShippingCarrierIntegration,
     Treasury,
     TreasuryAccount,
-    TreasuryTransaction
+    TreasuryTransaction,
+    Partner,
+    PartnerTransaction,
+    Warehouse,
+    InventoryAuditSession,
+    StockTransfer,
+    OrderReturn,
+    PurchaseReturn,
+    POSSale,
+    CashHolder,
+    CashHandover,
+    WhatsAppTemplate,
+    CallScript
 } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 
@@ -325,14 +337,23 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         try {
             const fetchTable = async (table: string) => {
                 const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
-                if (error) throw error;
+                if (error) {
+                    if (error.code === 'PGRST205' || error.code === 'PGRST116') {
+                        console.warn(`Table ${table} not found in Supabase schema. Skipping fetch.`);
+                        return [];
+                    }
+                    throw error;
+                }
                 return data || [];
             };
 
             const [
                 products, orders, transactions, treasuryAccounts, treasuryTransactions, suppliers, supplyOrders, reviews, abandonedCarts, 
                 activityLogs, employees, discountCodes, collectionsList, customPages, 
-                paymentMethods, customers, globalOptions, shippingIntegrations, partners, partnerTransactions, chatMessages
+                paymentMethods, customers, globalOptions, shippingIntegrations, partners, partnerTransactions, chatMessages,
+                warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales, cashHolders, cashHandovers,
+                whatsappTemplates, callScripts,
+                storeRowResult
             ] = await Promise.all([
                 fetchTable('products'),
                 fetchTable('orders'),
@@ -354,15 +375,41 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 fetchTable('shipping_integrations'),
                 fetchTable('partners'),
                 fetchTable('partner_transactions'),
-                fetchTable('chat_messages')
+                fetchTable('chat_messages'),
+                fetchTable('warehouses'),
+                fetchTable('inventory_audits'),
+                fetchTable('stock_transfers'),
+                fetchTable('order_returns'),
+                fetchTable('purchase_returns'),
+                fetchTable('pos_sales'),
+                fetchTable('cash_holders'),
+                fetchTable('cash_handovers'),
+                fetchTable('whatsapp_templates'),
+                fetchTable('call_scripts'),
+                supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
             ]);
+
+            const storeRow = storeRowResult?.data;
+            const storeSettings = storeRow?.settings || {};
+
+            const customization = {
+                ...(INITIAL_SETTINGS.customization || {}),
+                ...(storeSettings.customization || {})
+            };
+            if (!customization.pageSections || customization.pageSections.length === 0) {
+                customization.pageSections = INITIAL_SETTINGS.customization.pageSections;
+            }
 
             const fullData: StoreData = {
                 settings: {
                     ...INITIAL_SETTINGS,
+                    ...storeSettings,
+                    customization,
                     products, suppliers, supplyOrders, reviews, abandonedCarts, activityLogs, employees, discountCodes,
                     collections: collectionsList, customPages, paymentMethods, globalOptions, shippingIntegrations,
-                    partners, partnerTransactions
+                    partners, partnerTransactions,
+                    warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales, cashHolders, cashHandovers,
+                    whatsappTemplates, callScripts
                 },
                 orders,
                 wallet: { balance: 0, transactions },
@@ -423,7 +470,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         const [
             products, orders, transactions, treasuryAccounts, treasuryTransactions, suppliers, supplyOrders, reviews, abandonedCarts, 
             activityLogs, employees, discountCodes, collectionsList, customPages, 
-            paymentMethods, customers, globalOptions, shippingIntegrations
+            paymentMethods, customers, globalOptions, shippingIntegrations,
+            partners, partnerTransactions, warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales, cashHolders, cashHandovers,
+            whatsappTemplates, callScripts
         ] = await Promise.all([
             fetchCollection<Product>('products', local?.settings?.products || []),
             fetchCollection<Order>('orders', local?.orders || []),
@@ -442,7 +491,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             fetchCollection<PaymentMethod>('payment_methods', local?.settings?.paymentMethods || []),
             fetchCollection<CustomerProfile>('customers', local?.customers || []),
             fetchCollection<GlobalOption>('global_options', local?.settings?.globalOptions || []),
-            fetchCollection<ShippingCarrierIntegration>('shipping_integrations', local?.settings?.shippingIntegrations || [])
+            fetchCollection<ShippingCarrierIntegration>('shipping_integrations', local?.settings?.shippingIntegrations || []),
+            fetchCollection<Partner>('partners', local?.settings?.partners || []),
+            fetchCollection<PartnerTransaction>('partner_transactions', local?.settings?.partnerTransactions || []),
+            fetchCollection<Warehouse>('warehouses', local?.settings?.warehouses || []),
+            fetchCollection<InventoryAuditSession>('inventory_audits', local?.settings?.inventoryAudits || []),
+            fetchCollection<StockTransfer>('stock_transfers', local?.settings?.stockTransfers || []),
+            fetchCollection<OrderReturn>('order_returns', local?.settings?.orderReturns || []),
+            fetchCollection<PurchaseReturn>('purchase_returns', local?.settings?.purchaseReturns || []),
+            fetchCollection<POSSale>('pos_sales', local?.settings?.posSales || []),
+            fetchCollection<CashHolder>('cash_holders', local?.settings?.cashHolders || []),
+            fetchCollection<CashHandover>('cash_handovers', local?.settings?.cashHandovers || []),
+            fetchCollection<WhatsAppTemplate>('whatsapp_templates', local?.settings?.whatsappTemplates || []),
+            fetchCollection<CallScript>('call_scripts', local?.settings?.callScripts || [])
         ]);
 
         const storeSnapData = storeSnap.exists() ? storeSnap.data() : {};
@@ -496,7 +557,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 customPages: customPages,
                 paymentMethods: paymentMethods,
                 globalOptions: globalOptions,
-                shippingIntegrations: shippingIntegrations
+                shippingIntegrations: shippingIntegrations,
+                partners: partners,
+                partnerTransactions: partnerTransactions,
+                warehouses: warehouses,
+                inventoryAudits: inventoryAudits,
+                stockTransfers: stockTransfers,
+                orderReturns: orderReturns,
+                purchaseReturns: purchaseReturns,
+                posSales: posSales,
+                cashHolders: cashHolders,
+                cashHandovers: cashHandovers,
+                whatsappTemplates: whatsappTemplates,
+                callScripts: callScripts
             },
             orders: orders,
             wallet: { 
@@ -526,6 +599,34 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
 export const saveStoreData = async (store: Store, data: StoreData): Promise<{ success: boolean, error?: string }> => {
     await saveLocal(store.id, data);
 
+    // Destructure items to sync relationally
+    const { 
+        products = [], suppliers = [], supplyOrders = [], reviews = [], abandonedCarts = [], activityLogs = [],
+        employees = [], discountCodes = [], collections = [], customPages = [], paymentMethods = [],
+        globalOptions = [], shippingIntegrations = [], partners = [], partnerTransactions = [],
+        warehouses = [], inventoryAudits = [], stockTransfers = [], orderReturns = [], purchaseReturns = [],
+        posSales = [], cashHolders = [], cashHandovers = [], whatsappTemplates = [], callScripts = [],
+        ...cleanSettings 
+    } = data.settings;
+    
+    const { orders = [], wallet = { balance: 0, transactions: [] }, treasury = { accounts: [], transactions: [] }, customers = [] } = data;
+
+    // SAFEGUARD: Keep products/collections in main document if they are few (Hybrid redundancy)
+    // This ensures storefront always works even if sub-collection fetch fails
+    const redundantSettings: any = {};
+    if (products.length < 150) redundantSettings.products = products;
+    if (collections.length < 50) redundantSettings.collections = collections;
+    if (customPages.length < 50) redundantSettings.customPages = customPages;
+
+    const cleanSettingsFinal = cleanUndefined({
+        ...cleanSettings,
+        ...redundantSettings,
+        wallet_settings: wallet.settings || null,
+        withdraw_requests: wallet.withdrawRequests || [],
+        supply_balance: wallet.supplyBalance || 0,
+        wallet_balance: wallet.balance || 0
+    });
+
     // --- Custom Supabase Save Logic ---
     const supabase = getSupabaseClient();
     if (supabase) {
@@ -534,21 +635,71 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             await supabase.from('stores_data').upsert({
                 id: store.id,
                 name: store.name,
-                settings: {} // You can add actual settings here if needed
+                settings: cleanSettingsFinal
             });
+
+            // Synchronize Users to Supabase first to ensure employee and user relations are valid
+            const localGlobal = await getLocal('global');
+            const usersList = localGlobal?.users || [];
+            
+            // Map users to relational format
+            const mappedUsersList = usersList.map((user: any) => ({
+                phone: user.phone || '',
+                full_name: user.fullName || '',
+                password: user.password || '',
+                email: user.email || null,
+                is_admin: user.isAdmin || false,
+                is_banned: user.isBanned || false,
+                join_date: user.joinDate || null,
+                stores: user.stores || [],
+                sites: user.sites || []
+            })).filter((u: any) => !!u.phone);
+
+            if (mappedUsersList.length > 0) {
+                const { error: usersError } = await supabase.from('users').upsert(mappedUsersList);
+                if (usersError) {
+                    console.warn('Upserting users during saveStoreData failed:', usersError);
+                }
+            }
+
+            // Collect any employee phones about to be synced and ensure they are present in 'users' table
+            const employeePhones = (data.settings.employees || [])
+                .map((emp: any) => emp.phone)
+                .filter(Boolean);
+                
+            const placeholderUsers = [];
+            for (const phone of employeePhones) {
+                const alreadySyncedCheck = mappedUsersList.some((u: any) => u.phone === phone);
+                if (!alreadySyncedCheck) {
+                    placeholderUsers.push({
+                        phone,
+                        full_name: `موظف ${phone}`,
+                        password: 'no_password_stub',
+                        email: null,
+                        is_admin: false,
+                        is_banned: false,
+                        join_date: new Date().toISOString()
+                    });
+                }
+            }
+            if (placeholderUsers.length > 0) {
+                const { error: stubError } = await supabase.from('users').upsert(placeholderUsers);
+                if (stubError) {
+                    console.warn('Upserting placeholderUsers failed:', stubError);
+                }
+            }
 
             const syncTable = async (table: string, items: any[], omitFields: string[] = []) => {
                 if (!items || items.length === 0) return;
                 const itemsFiltered = items.map(item => {
                     const cleanItem = { ...item };
                     omitFields.forEach(field => delete cleanItem[field]);
-                    
-                    // Fix for employees sync specifically
-                    if (table === 'employees' && !cleanItem.phone) {
-                        cleanItem.phone = '00000000000';
-                    }
-
                     return { ...cleanItem, store_id: store.id };
+                }).filter(item => {
+                    if (table === 'employees' && !item.phone) {
+                        return false; // Skip invalid employee records without phone
+                    }
+                    return true;
                 });
 
                 // Deduplicate by the table's specific unique/primary key to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
@@ -570,7 +721,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const uniqueItems = Array.from(map.values());
                 
                 const { error } = await supabase.from(table).upsert(uniqueItems);
-                if (error) throw error;
+                if (error) {
+                    if (error.code === 'PGRST205' || error.code === 'PGRST116') {
+                        console.warn(`Table ${table} not found in Supabase schema. Skipping sync.`);
+                        return;
+                    }
+                    throw error;
+                }
             };
 
             await Promise.all([
@@ -584,7 +741,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 syncTable('reviews', data.settings.reviews),
                 syncTable('abandoned_carts', data.settings.abandonedCarts),
                 syncTable('activity_logs', data.settings.activityLogs || []),
-                syncTable('employees', data.settings.employees, ['email', 'id', 'name', 'updatedAt', 'phone']),
+                syncTable('employees', data.settings.employees, ['email', 'id', 'name', 'updatedAt']),
                 syncTable('discount_codes', data.settings.discountCodes),
                 syncTable('collections', data.settings.collections),
                 syncTable('custom_pages', data.settings.customPages, ['isActive', 'updatedAt']),
@@ -594,6 +751,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 syncTable('shipping_integrations', data.settings.shippingIntegrations),
                 syncTable('partners', data.settings.partners || []),
                 syncTable('partner_transactions', data.settings.partnerTransactions || []),
+                syncTable('warehouses', data.settings.warehouses || []),
+                syncTable('inventory_audits', data.settings.inventoryAudits || []),
+                syncTable('stock_transfers', data.settings.stockTransfers || []),
+                syncTable('order_returns', data.settings.orderReturns || []),
+                syncTable('purchase_returns', data.settings.purchaseReturns || []),
+                syncTable('pos_sales', data.settings.posSales || []),
+                syncTable('cash_holders', data.settings.cashHolders || []),
+                syncTable('cash_handovers', data.settings.cashHandovers || []),
+                syncTable('whatsapp_templates', data.settings.whatsappTemplates || []),
+                syncTable('call_scripts', data.settings.callScripts || []),
                 syncTable('chat_messages', []) // Assuming chat messages handled separately or just not available here
             ]);
 
@@ -606,32 +773,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
     try {
         await ensureStoreRecordExists(store.id, store.name);
-
-        // Destructure items to sync relationally
-        const { 
-            products = [], suppliers = [], supplyOrders = [], reviews = [], abandonedCarts = [], activityLogs = [],
-            employees = [], discountCodes = [], collections = [], customPages = [], paymentMethods = [],
-            globalOptions = [], shippingIntegrations = [],
-            ...cleanSettings 
-        } = data.settings;
-        
-        const { orders = [], wallet = { balance: 0, transactions: [] }, treasury = { accounts: [], transactions: [] }, customers = [] } = data;
-
-        // SAFEGUARD: Keep products/collections in main document if they are few (Hybrid redundancy)
-        // This ensures storefront always works even if sub-collection fetch fails
-        const redundantSettings: any = {};
-        if (products.length < 150) redundantSettings.products = products;
-        if (collections.length < 50) redundantSettings.collections = collections;
-        if (customPages.length < 50) redundantSettings.customPages = customPages;
-
-        const cleanSettingsFinal = cleanUndefined({
-            ...cleanSettings,
-            ...redundantSettings,
-            wallet_settings: wallet.settings || null,
-            withdraw_requests: wallet.withdrawRequests || [],
-            supply_balance: wallet.supplyBalance || 0,
-            wallet_balance: wallet.balance || 0
-        });
 
         const syncCollection = async (collectionName: string, stateItems: any[], idField = 'id') => {
             try {
@@ -762,7 +903,19 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             syncCollection('payment_methods', paymentMethods),
             syncCollection('customers', customers),
             syncCollection('global_options', globalOptions),
-            syncCollection('shipping_integrations', shippingIntegrations)
+            syncCollection('shipping_integrations', shippingIntegrations),
+            syncCollection('partners', partners),
+            syncCollection('partner_transactions', partnerTransactions),
+            syncCollection('warehouses', warehouses),
+            syncCollection('inventory_audits', inventoryAudits),
+            syncCollection('stock_transfers', stockTransfers),
+            syncCollection('order_returns', orderReturns),
+            syncCollection('purchase_returns', purchaseReturns),
+            syncCollection('pos_sales', posSales),
+            syncCollection('cash_holders', cashHolders),
+            syncCollection('cash_handovers', cashHandovers),
+            syncCollection('whatsapp_templates', whatsappTemplates),
+            syncCollection('call_scripts', callScripts)
         ]);
 
         const storeRef = doc(firebaseDb, 'stores_data', store.id);

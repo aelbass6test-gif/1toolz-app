@@ -137,6 +137,50 @@
     "/partners/{id}": {
       "schema": "object",
       "description": "Partners"
+    },
+    "/partner_transactions/{id}": {
+      "schema": "object",
+      "description": "Partner transactions"
+    },
+    "/warehouses/{id}": {
+      "schema": "object",
+      "description": "Warehouses"
+    },
+    "/inventory_audits/{id}": {
+      "schema": "object",
+      "description": "Inventory Audits"
+    },
+    "/stock_transfers/{id}": {
+      "schema": "object",
+      "description": "Stock Transfers"
+    },
+    "/order_returns/{id}": {
+      "schema": "object",
+      "description": "Order Returns"
+    },
+    "/purchase_returns/{id}": {
+      "schema": "object",
+      "description": "Purchase Returns"
+    },
+    "/pos_sales/{id}": {
+      "schema": "object",
+      "description": "POS Sales"
+    },
+    "/cash_holders/{id}": {
+      "schema": "object",
+      "description": "Cash Holders"
+    },
+    "/cash_handovers/{id}": {
+      "schema": "object",
+      "description": "Cash Handovers"
+    },
+    "/whatsapp_templates/{id}": {
+      "schema": "object",
+      "description": "WhatsApp Templates"
+    },
+    "/call_scripts/{id}": {
+      "schema": "object",
+      "description": "Call Scripts"
     }
   }
 }

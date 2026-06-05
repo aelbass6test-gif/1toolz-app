@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { audioSynth } from '../utils/audioSynth';
 import { 
   Globe, 
   RefreshCw, 
@@ -54,6 +55,15 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     message: string;
   } | null>(null);
 
+  // In-app Custom alarm / alert system and sound play
+  const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
+    try {
+      audioSynth.playTone(type);
+    } catch (e) {
+      console.error("Audio beep failed:", e);
+    }
+  };
+
   // Custom Modal State
   const [modal, setModal] = useState<{
     show: boolean;
@@ -71,6 +81,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   });
 
   const showAlert = (title: string, message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') => {
+    playAlarmSound(type);
     setModal({
       show: true,
       title,
@@ -82,6 +93,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   };
 
   const showConfirm = (title: string, message: string, onConfirm: () => void, type: 'warning' | 'error' = 'warning') => {
+    playAlarmSound(type);
     setModal({
       show: true,
       title,
@@ -1091,60 +1103,109 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       </div>
 
       {/* Custom Modal Prompt */}
-      {modal.show && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-2xl max-w-sm w-full overflow-hidden"
-          >
-            <div className={`p-8 text-center space-y-4`}>
-              <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center ${
-                modal.type === 'success' ? 'bg-green-100 text-green-600' :
-                modal.type === 'error' ? 'bg-red-100 text-red-600' :
-                modal.type === 'warning' ? 'bg-amber-100 text-amber-600' :
-                'bg-indigo-100 text-indigo-600'
-              }`}>
-                {modal.type === 'success' && <CheckCircle2 size={32} />}
-                {modal.type === 'error' && <AlertTriangle size={32} />}
-                {modal.type === 'warning' && <AlertTriangle size={32} />}
-                {modal.type === 'info' && <Info size={32} />}
-              </div>
+      <AnimatePresence>
+        {modal.show && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!modal.isConfirm) setModal(prev => ({ ...prev, show: false }));
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            
+            {/* Alarm Dialog Card */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", duration: 0.5, bounce: 0.3 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-[32px] p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden text-right font-sans"
+            >
+              {/* Sound Ring Pulse Decorator with Premium Adaptive Gradient */}
+              <div className={`absolute top-0 right-0 left-0 h-2 bg-gradient-to-r ${
+                modal.type === 'success' ? 'from-emerald-400 via-teal-500 to-indigo-500' :
+                modal.type === 'error' ? 'from-rose-400 via-red-500 to-amber-500' :
+                modal.type === 'warning' ? 'from-amber-400 via-orange-500 to-red-500' :
+                'from-sky-400 via-blue-500 to-indigo-500'
+              }`} />
               
-              <div className="space-y-2">
-                <h3 className="text-xl font-black text-slate-900 dark:text-white">{modal.title}</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              <div className="flex flex-col items-center text-center mt-3">
+                {/* Visual Icon based on Alarm TYPE */}
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-lg ${
+                  modal.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                  modal.type === 'error' ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400' :
+                  modal.type === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 font-bold' :
+                  'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
+                }`}>
+                  {modal.type === 'success' && <CheckCircle2 size={32} />}
+                  {modal.type === 'error' && <AlertTriangle size={32} />}
+                  {modal.type === 'warning' && <AlertTriangle size={32} />}
+                  {modal.type === 'info' && <Info size={32} />}
+                </div>
+
+                {/* Alarm Ringing Animation Indicator with Custom Sprung Bell */}
+                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-100 dark:border-slate-800 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                  <span>تنبيه داخلي نشط</span>
+                  <motion.span
+                    animate={{ rotate: [0, -18, 15, -12, 10, -5, 0] }}
+                    transition={{
+                      repeat: Infinity,
+                      repeatDelay: 1.2,
+                      duration: 0.85,
+                      type: "tween",
+                      ease: "easeInOut"
+                    }}
+                    className="inline-block origin-top"
+                  >
+                    🔔
+                  </motion.span>
+                </div>
+
+                <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1 leading-tight">
+                  {modal.title}
+                </h3>
+                
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-3 leading-relaxed whitespace-pre-line text-center px-2">
                   {modal.message}
                 </p>
               </div>
-            </div>
 
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 flex gap-3">
-              {modal.isConfirm && (
+              {/* Confirm / Cancel Actions */}
+              <div className="flex gap-3 mt-6">
+                {modal.isConfirm && (
+                  <button
+                    onClick={() => setModal(prev => ({ ...prev, show: false }))}
+                    className="flex-1 px-5 py-3 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                )}
+                
                 <button
-                  onClick={() => setModal(prev => ({ ...prev, show: false }))}
-                  className="flex-1 px-6 py-3 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 transition duration-200"
+                  onClick={() => {
+                    const onConf = modal.onConfirm;
+                    setModal(prev => ({ ...prev, show: false }));
+                    if (onConf) onConf();
+                  }}
+                  className={`flex-1 px-5 py-3 rounded-2xl text-xs font-black text-white hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md cursor-pointer ${
+                    modal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10' :
+                    modal.type === 'error' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/10' :
+                    modal.type === 'warning' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/10' :
+                    'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/10'
+                  }`}
                 >
-                  إلغاء
+                  {modal.buttonText}
                 </button>
-              )}
-              <button
-                onClick={() => {
-                  if (modal.onConfirm) modal.onConfirm();
-                  setModal(prev => ({ ...prev, show: false }));
-                }}
-                className={`flex-1 px-6 py-3 rounded-2xl font-black text-white shadow-lg transition duration-200 ${
-                  modal.type === 'error' ? 'bg-red-600 hover:bg-red-700' :
-                  modal.type === 'warning' ? 'bg-amber-500 hover:bg-amber-600' :
-                  'bg-indigo-600 hover:bg-indigo-700'
-                }`}
-              >
-                {modal.buttonText}
-              </button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

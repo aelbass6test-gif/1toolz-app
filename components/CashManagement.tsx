@@ -47,8 +47,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   // Combine currentUser and employees for selection
   const allPossibleHolders = [
     { id: 'admin', name: 'المدير (أنت)', role: 'admin' },
-    ...employees.map(e => ({ id: e.id, name: e.name, role: 'employee' })),
-    ...(settings.partners || []).map(p => ({ id: p.id, name: p.name, role: 'partner' }))
+    ...employees.map(e => ({ id: `emp_${e.id}`, name: e.name, role: 'employee' })),
+    ...(settings.partners || []).map(p => ({ id: `part_${p.id}`, name: p.name, role: 'partner' }))
   ];
 
   const handleExecuteHandover = () => {

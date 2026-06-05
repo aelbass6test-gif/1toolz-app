@@ -179,6 +179,7 @@ export const INITIAL_SETTINGS: Settings = {
   enableDefaultPrice: true,
   sku: 'XP-LZ5-160',
   products: [],
+  warehouses: [],
   shippingOptions: {
     'شحن داخلي': generateEgyptShippingOptions()
   },

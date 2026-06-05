@@ -1965,7 +1965,7 @@ export const AppComponent = () => {
 };
 
 export const AppWrapper = () => (
-    <HashRouter future={{ v7_relativeSplatPath: true }}>
+    <HashRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
         <AppComponent />
     </HashRouter>
 );

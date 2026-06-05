@@ -5,7 +5,7 @@ import {
   Edit2, Eye, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
   ChevronDown, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
   PieChart as LucidePieChart, Download, Printer, Layers, HelpCircle, CheckCircle2,
-  Search
+  Search, Info
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, 
@@ -14,6 +14,8 @@ import {
 import { SupplyOrderItem } from '../types';
 import { InventoryAudit } from './InventoryAudit';
 import { getLatestProductCost } from '../utils/financials';
+import { audioSynth } from '../utils/audioSynth';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface SuppliersPageProps {
   settings: Settings;
@@ -57,6 +59,106 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury'>('cash');
   const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
   const [selectedPartnerId, setSelectedPartnerId] = useState(''); 
+
+  // Custom Alarm Dialog Modal
+  const [modal, setModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'warning' | 'error' | 'info';
+    buttonText: string;
+    isConfirm: boolean;
+    onConfirm: (() => void) | null;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    type: 'info',
+    buttonText: 'حسناً',
+    isConfirm: false,
+    onConfirm: null
+  });
+
+  const showAlert = (title: string, message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') => {
+    try { audioSynth.playTone(type); } catch(e) {}
+    setModal({
+      show: true,
+      title,
+      message,
+      type,
+      buttonText: 'حسناً',
+      isConfirm: false,
+      onConfirm: null
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, type: 'warning' | 'error' = 'warning') => {
+    try { audioSynth.playTone(type); } catch(e) {}
+    setModal({
+      show: true,
+      title,
+      message,
+      type,
+      buttonText: 'تأكيد الإجراء',
+      isConfirm: true,
+      onConfirm
+    });
+  };
+
+  const syncItemPricing = React.useCallback((item: SupplyOrderItem, fieldChanged: 'cost' | 'profitMode' | 'profitPercentage' | 'basePrice' | 'commissionPercentage' | 'sellingPrice', value: any) => {
+    const updated = { ...item };
+    
+    if (fieldChanged === 'cost') updated.cost = Number(value);
+    else if (fieldChanged === 'profitMode') updated.profitMode = value;
+    else if (fieldChanged === 'profitPercentage') updated.profitPercentage = Number(value);
+    else if (fieldChanged === 'basePrice') updated.basePrice = Number(value);
+    else if (fieldChanged === 'commissionPercentage') updated.commissionPercentage = Number(value);
+    else if (fieldChanged === 'sellingPrice') updated.sellingPrice = Number(value);
+
+    const mode = updated.profitMode || 'manual';
+
+    if (mode === 'manual') {
+      if (fieldChanged === 'cost' && (!updated.sellingPrice || updated.sellingPrice === 0)) {
+        updated.sellingPrice = updated.cost;
+      }
+    } else if (mode === 'margin') {
+      const cost = updated.cost || 0;
+      const margin = updated.profitPercentage || 0;
+      if (fieldChanged === 'cost' || fieldChanged === 'profitPercentage' || fieldChanged === 'profitMode') {
+        if (margin < 100 && margin >= 0) {
+          updated.sellingPrice = cost / (1 - (margin / 100));
+        } else {
+          updated.sellingPrice = cost;
+        }
+      } else if (fieldChanged === 'sellingPrice') {
+        const sPrice = updated.sellingPrice || 0;
+        if (sPrice > cost) {
+          updated.profitPercentage = Number(((sPrice - cost) / sPrice * 100).toFixed(2));
+        }
+      }
+    } else if (mode === 'commission') {
+      const comm = updated.commissionPercentage || 0;
+      if (fieldChanged === 'cost' || fieldChanged === 'commissionPercentage' || fieldChanged === 'profitMode') {
+        const cost = updated.cost || 0;
+        if (comm < 100 && comm >= 0) {
+          updated.basePrice = cost / (1 - (comm / 100));
+        } else {
+          updated.basePrice = cost;
+        }
+        updated.sellingPrice = updated.basePrice;
+      } else if (fieldChanged === 'basePrice') {
+        const base = updated.basePrice || 0;
+        if (comm < 100 && comm >= 0) {
+          updated.cost = base * (1 - (comm / 100));
+        } else {
+          updated.cost = base;
+        }
+        updated.sellingPrice = base;
+      }
+    }
+
+    return updated;
+  }, []);
   
   // Custom states for central inventory tab
   const [inventoryQuery, setInventoryQuery] = useState('');
@@ -105,11 +207,24 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
 
   const handleAddSupplier = () => {
       if(!newSupplier.name) return;
+      
+      const normalizedNewName = newSupplier.name.trim().toLowerCase().replace(/\s+/g, '');
+      const isDuplicate = (settings.suppliers || []).some(s => 
+          s.name.trim().toLowerCase().replace(/\s+/g, '') === normalizedNewName && 
+          (!editingSupplier || s.id !== editingSupplier.id)
+      );
+
+      if (isDuplicate) {
+          showAlert("مورد مكرر", "عفواً، اسم هذا المورد مسجل بالفعل. يرجى اختيار اسم فريد ومميز لتجنب التكرار.", "warning");
+          return;
+      }
+
       if (editingSupplier) {
           setSettings(prev => ({
               ...prev,
               suppliers: prev.suppliers.map(s => s.id === editingSupplier.id ? { ...editingSupplier, ...newSupplier } as Supplier : s)
           }));
+          audioSynth.announce("تم تحديث بيانات المورد بنجاح", "success");
           setEditingSupplier(null);
       } else {
         const supplier: Supplier = {
@@ -120,6 +235,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
             notes: newSupplier.notes || ''
         };
         setSettings(prev => ({...prev, suppliers: [...(prev.suppliers || []), supplier]}));
+        audioSynth.announce("تم تسجيل شريك التوريد الجديد بنجاح", "success");
       }
       setShowSupplierModal(false);
       setNewSupplier({ name: '', phone: '', address: '', notes: '' });
@@ -132,11 +248,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   };
 
   const handleDeleteSupplier = (id: string) => {
-      if (!confirm('هل أنت متأكد من حذف هذا المورد؟')) return;
-      setSettings(prev => ({
-          ...prev,
-          suppliers: prev.suppliers.filter(s => s.id !== id)
-      }));
+      showConfirm("تأكيد الحذف", "هل أنت متأكد من حذف هذا المورد؟ لا يمكن التراجع عن هذا الإجراء.", () => {
+          setSettings(prev => ({
+              ...prev,
+              suppliers: prev.suppliers.filter(s => s.id !== id)
+          }));
+          audioSynth.announce("تم حذف المورد بنجاح", "success");
+      });
   };
 
   const handleAddWarehouse = () => {
@@ -164,6 +282,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
         return { ...prev, warehouses: updatedWarehouses };
     });
 
+    audioSynth.announce(editingWarehouse ? "تم تحديث بيانات المستودع" : "تم إعداد وإضافة المستودع الجديد بنجاح", "success");
     setShowWarehouseModal(false);
     setEditingWarehouse(null);
     setNewWarehouse({ name: '', location: '', isDefault: false });
@@ -176,28 +295,47 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   };
 
   const handleDeleteWarehouse = (id: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذا المستودع؟ لن يتم حذف المنتجات ولكن سيتم فقدان معلومات موقعها.')) return;
-    setSettings(prev => ({
-        ...prev,
-        warehouses: (prev.warehouses || []).filter(w => w.id !== id)
-    }));
+    // 1. Check if the warehouse holds any products stock
+    const productsWithStock = (settings.products || []).filter(p => {
+        const stock = p.warehouseStock?.[id] || 0;
+        if (stock > 0) return true;
+        const variantStock = (p.variants || []).some(v => (v.warehouseStock?.[id] || 0) > 0);
+        return variantStock;
+    });
+
+    // 2. Check if any supply orders are assigned to this warehouse
+    const supplyOrdersWithWh = (settings.supplyOrders || []).filter(o => o.warehouseId === id);
+
+    if (productsWithStock.length > 0 || supplyOrdersWithWh.length > 0) {
+        const alertMsg = `ممنوع حذف هذا المستودع! المستودع مرتبط بعمليات تخزين حالية (يحتوي على مخزون لـ ${productsWithStock.length} منتجات ومسجل به ${supplyOrdersWithWh.length} أمر توريد دائن). يرجى تصفير الكميات والتسجيلات أولاً.`;
+        showAlert("تحذير", alertMsg, "error");
+        return;
+    }
+
+    showConfirm("تأكيد حذف المستودع", "هل أنت متأكد من حذف هذا المستودع؟ لن يتم حذف المنتجات ولكن سيتم فقدان معلومات موقعها.", () => {
+        setSettings(prev => ({
+            ...prev,
+            warehouses: (prev.warehouses || []).filter(w => w.id !== id)
+        }));
+        audioSynth.announce("تم إزالة المستودع بنجاح", "success");
+    });
   };
 
   const handleAddOrder = () => {
       if(!selectedSupplierId) {
-          alert('يرجى اختيار المورد أولاً');
+          showAlert("خطأ", "يرجى اختيار المورد أولاً", "error");
           return;
       }
       if(orderItems.length === 0) {
-          alert('يرجى إضافة صنف واحد على الأقل للفاتورة');
+          showAlert("خطأ", "يرجى إضافة صنف واحد على الأقل للفاتورة", "error");
           return;
       }
       if(orderItems.some(i => (i.quantity || 0) <= 0 && (i.bonusQuantity || 0) <= 0)) {
-          alert('يرجى التأكد من أن جميع الكميات صحيحة وأكبر من الصفر');
+          showAlert("خطأ", "يرجى التأكد من أن جميع الكميات صحيحة وأكبر من الصفر", "error");
           return;
       }
       if(paymentMethod === 'treasury' && !selectedTreasuryAccountId) {
-          alert('يرجى اختيار حساب الخزينة المراد الخصم منه');
+          showAlert("خطأ", "يرجى اختيار حساب الخزينة المراد الخصم منه", "error");
           return;
       }
       
@@ -206,11 +344,11 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       if (paymentMethod === 'partner') {
           const distributedTotal = partnerPayments.reduce((s, p) => s + p.amount, 0);
           if (Math.abs(distributedTotal - totalCost) > 0.01) {
-              alert('عذراً، يجب أن يكون مجموع تمويل الشركاء مساوياً لإجمالي الفاتورة: ' + totalCost.toLocaleString() + ' ج.م');
+              showAlert("خطأ", 'عذراً، يجب أن يكون مجموع تمويل الشركاء مساوياً لإجمالي الفاتورة: ' + totalCost.toLocaleString() + ' ج.م', "error");
               return;
           }
           if (partnerPayments.some(p => !p.partnerId)) {
-              alert('يرجى التأكد من اختيار الشركاء بشكل صحيح');
+              showAlert("خطأ", "يرجى التأكد من اختيار الشركاء بشكل صحيح", "error");
               return;
           }
       }
@@ -321,10 +459,15 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                           const margin = newItem.profitPercentage ?? currentProd.profitPercentage ?? 0;
                           if (margin < 100 && margin >= 0) {
                               price = costPrice / (1 - (margin / 100));
+                          } else {
+                              price = costPrice;
                           }
                       } else if (profitMode === 'commission') {
                           const commission = newItem.commissionPercentage ?? currentProd.commissionPercentage ?? 0;
-                          const basePrice = newItem.basePrice ?? currentProd.basePrice ?? 0;
+                          let basePrice = newItem.basePrice || currentProd.basePrice || 0;
+                          if (basePrice === 0 && costPrice > 0 && commission < 100) {
+                              basePrice = costPrice / (1 - (commission / 100));
+                          }
                           price = basePrice;
                           if (commission >= 0 && commission < 100) {
                               costPrice = basePrice * (1 - (commission / 100));
@@ -1220,7 +1363,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
       {/* Modern Capsule Tab Bar Navigator */}
       <div className="flex gap-2 bg-slate-100 dark:bg-slate-800/60 p-1.5 rounded-3xl border border-slate-200/40 dark:border-slate-700/40 w-full sm:w-fit overflow-x-auto select-none scrollbar-none">
         <button 
-          onClick={() => setActiveTab('orders')} 
+          onClick={() => { audioSynth.playTone('click'); setActiveTab('orders'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'orders' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
@@ -1231,7 +1374,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           <span>فواتير وأوامر الشراء</span>
         </button>
         <button 
-          onClick={() => setActiveTab('suppliers')} 
+          onClick={() => { audioSynth.playTone('click'); setActiveTab('suppliers'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'suppliers' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
@@ -1242,7 +1385,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           <span>قائمة الموردين المعتمدين</span>
         </button>
         <button 
-          onClick={() => setActiveTab('inventory')} 
+          onClick={() => { audioSynth.playTone('click'); setActiveTab('inventory'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'inventory' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
@@ -1253,7 +1396,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           <span>إدارة المخزون المركزي</span>
         </button>
         <button 
-          onClick={() => setActiveTab('analytics')} 
+          onClick={() => { audioSynth.playTone('click'); setActiveTab('analytics'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'analytics' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
@@ -1264,7 +1407,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           <span>التحليلات وتقارير الموردين</span>
         </button>
         <button 
-          onClick={() => setActiveTab('audit')} 
+          onClick={() => { audioSynth.playTone('click'); setActiveTab('audit'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'audit' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
@@ -1275,7 +1418,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           <span>مراجعة وجرد المستودع</span>
         </button>
         <button 
-          onClick={() => setActiveTab('warehouses')} 
+          onClick={() => { audioSynth.playTone('click'); setActiveTab('warehouses'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
             activeTab === 'warehouses' 
               ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' 
@@ -1288,7 +1431,12 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
       </div>
 
       {activeTab === 'orders' && (
-        <div className="space-y-6">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.99, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 290, damping: 25 }}
+          className="space-y-6"
+        >
           <button 
             onClick={() => {
               setEditingOrder(null);
@@ -1571,11 +1719,16 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               })
             )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {activeTab === 'suppliers' && (
-        <div className="space-y-6">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.99, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 290, damping: 25 }}
+          className="space-y-6"
+        >
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 dark:border-slate-800">
             <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
               <span className="w-1.5 h-6 bg-indigo-500 rounded-full"></span>
@@ -1787,11 +1940,16 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               ))}
             </div>
           )}
-        </div>
+        </motion.div>
       )}
 
       {activeTab === 'inventory' && (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.99, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 290, damping: 25 }}
+          className="space-y-6"
+        >
           {/* Dynamic Top KPIs Row */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
@@ -2134,11 +2292,16 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               </table>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {activeTab === 'analytics' && (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.99, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 290, damping: 25 }}
+          className="space-y-6"
+        >
           {/* Dynamic Scorecard Totals overview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
@@ -2411,15 +2574,26 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               </table>
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {activeTab === 'audit' && (
-        <InventoryAudit settings={settings} setSettings={setSettings} currentUser={currentUser} />
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.99, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 290, damping: 25 }}
+        >
+          <InventoryAudit settings={settings} setSettings={setSettings} currentUser={currentUser} />
+        </motion.div>
       )}
 
       {activeTab === 'warehouses' && (
-        <div className="space-y-6">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.99, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 290, damping: 25 }}
+          className="space-y-6"
+        >
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 dark:border-slate-800">
             <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
               <span className="w-1.5 h-6 bg-amber-500 rounded-full"></span>
@@ -2494,7 +2668,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               ))
             )}
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* Warehouse Modal Dialog */}
@@ -3007,14 +3181,27 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                               onChange={val => {
                                 const newItems = [...orderItems];
                                 const product = settings.products.find(p => p.id === val);
-                                newItems[idx].productId = val;
-                                newItems[idx].name = product?.name;
-                                newItems[idx].cost = product?.costPrice || 0;
-                                newItems[idx].profitMode = product?.profitMode || 'manual';
-                                newItems[idx].profitPercentage = product?.profitPercentage || 0;
-                                newItems[idx].basePrice = product?.basePrice || 0;
-                                newItems[idx].commissionPercentage = product?.commissionPercentage || 0;
-                                newItems[idx].sellingPrice = product?.price || 0;
+                                if (product) {
+                                  let updatedItem = {
+                                    ...newItems[idx],
+                                    productId: val,
+                                    name: product.name,
+                                    cost: product.costPrice || 0,
+                                    profitMode: product.profitMode || 'manual',
+                                    profitPercentage: product.profitPercentage || 0,
+                                    basePrice: product.basePrice || 0,
+                                    commissionPercentage: product.commissionPercentage || 0,
+                                    sellingPrice: product.price || 0
+                                  };
+                                  if (updatedItem.profitMode === 'commission' && (!updatedItem.basePrice || updatedItem.basePrice === 0)) {
+                                    const comm = updatedItem.commissionPercentage || 0;
+                                    if (comm < 100) {
+                                      updatedItem.basePrice = updatedItem.cost / (1 - (comm / 100));
+                                      updatedItem.sellingPrice = updatedItem.basePrice;
+                                    }
+                                  }
+                                  newItems[idx] = updatedItem;
+                                }
                                 setOrderItems(newItems);
                               }} 
                               products={settings.products}
@@ -3062,15 +3249,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                               value={item.cost || ''} 
                               onChange={e => {
                                 const newItems = [...orderItems];
-                                newItems[idx].cost = Number(e.target.value);
-                                // If margin mode, update suggested selling price accordingly
-                                const profitMode = newItems[idx].profitMode || 'manual';
-                                if (profitMode === 'margin' && newItems[idx].profitPercentage) {
-                                  const margin = newItems[idx].profitPercentage || 0;
-                                  if (margin < 100) {
-                                    newItems[idx].sellingPrice = Number(e.target.value) / (1 - (margin / 100));
-                                  }
-                                }
+                                newItems[idx] = syncItemPricing(newItems[idx], 'cost', e.target.value);
                                 setOrderItems(newItems);
                               }} 
                               className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-black outline-none" 
@@ -3188,7 +3367,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                     type="button"
                                     onClick={() => {
                                       const newItems = [...orderItems];
-                                      newItems[idx].profitMode = 'manual';
+                                      newItems[idx] = syncItemPricing(newItems[idx], 'profitMode', 'manual');
                                       setOrderItems(newItems);
                                     }}
                                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
@@ -3204,7 +3383,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                     type="button"
                                     onClick={() => {
                                       const newItems = [...orderItems];
-                                      newItems[idx].profitMode = 'margin';
+                                      newItems[idx] = syncItemPricing(newItems[idx], 'profitMode', 'margin');
                                       setOrderItems(newItems);
                                     }}
                                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
@@ -3220,7 +3399,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                     type="button"
                                     onClick={() => {
                                       const newItems = [...orderItems];
-                                      newItems[idx].profitMode = 'commission';
+                                      newItems[idx] = syncItemPricing(newItems[idx], 'profitMode', 'commission');
                                       setOrderItems(newItems);
                                     }}
                                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
@@ -3246,7 +3425,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                         value={item.sellingPrice || ''}
                                         onChange={e => {
                                           const newItems = [...orderItems];
-                                          newItems[idx].sellingPrice = Number(e.target.value);
+                                          newItems[idx] = syncItemPricing(newItems[idx], 'sellingPrice', e.target.value);
                                           setOrderItems(newItems);
                                         }}
                                         className="w-24 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
@@ -3268,12 +3447,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                         value={item.profitPercentage || ''}
                                         onChange={e => {
                                           const newItems = [...orderItems];
-                                          newItems[idx].profitPercentage = Number(e.target.value);
-                                          const currCost = newItems[idx].cost || 0;
-                                          const currMargin = Number(e.target.value) || 0;
-                                          if (currMargin < 100) {
-                                            newItems[idx].sellingPrice = currCost / (1 - (currMargin / 100));
-                                          }
+                                          newItems[idx] = syncItemPricing(newItems[idx], 'profitPercentage', e.target.value);
                                           setOrderItems(newItems);
                                         }}
                                         className="w-16 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
@@ -3292,9 +3466,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                         value={item.basePrice || ''}
                                         onChange={e => {
                                           const newItems = [...orderItems];
-                                          newItems[idx].basePrice = Number(e.target.value);
-                                          const comm = newItems[idx].commissionPercentage || 0;
-                                          newItems[idx].cost = Number(e.target.value) * (1 - (comm / 100));
+                                          newItems[idx] = syncItemPricing(newItems[idx], 'basePrice', e.target.value);
                                           setOrderItems(newItems);
                                         }}
                                         className="w-20 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
@@ -3308,9 +3480,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                         value={item.commissionPercentage || ''}
                                         onChange={e => {
                                           const newItems = [...orderItems];
-                                          newItems[idx].commissionPercentage = Number(e.target.value);
-                                          const bp = newItems[idx].basePrice || 0;
-                                          newItems[idx].cost = bp * (1 - (Number(e.target.value) / 100));
+                                          newItems[idx] = syncItemPricing(newItems[idx], 'commissionPercentage', e.target.value);
                                           setOrderItems(newItems);
                                         }}
                                         className="w-16 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
@@ -3323,37 +3493,103 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                             </div>
 
                             {/* Dynamically simulated live comparison badge for cost changes */}
-                            <div className="bg-slate-100 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-2.5 text-[10.5px]">
-                              <div className="flex flex-wrap justify-between items-center w-full">
-                                <span className="text-slate-500 dark:text-slate-400 font-medium">سلوك المنتج بالمتجر عند تسجيل الفاتورة:</span>
-                                <div className="flex gap-3 text-slate-600 dark:text-slate-300 font-bold">
-                                  <div>التكلفة: <span className="text-slate-800 dark:text-white font-mono font-black">{Number(item.cost || 0).toFixed(2)} ج.م</span></div>
-                                  <div>سعر البيع النهائي بالمتجر: <span className="text-indigo-600 dark:text-indigo-400 font-mono font-black">
-                                    {Number(item.profitMode === 'margin' 
-                                      ? (item.cost && item.profitPercentage ? (item.cost / (1 - (item.profitPercentage / 100))) : (item.sellingPrice || item.cost || 0))
-                                      : item.profitMode === 'commission'
-                                      ? (item.basePrice || 0)
-                                      : (item.sellingPrice || item.cost || 0)
-                                    ).toFixed(2)} ج.م
-                                  </span></div>
+                            {(() => {
+                              const itemLiveCost = Number(item.cost || 0);
+                              const itemLiveQty = Number(item.orderedQuantity || item.quantity || 0);
+                              const itemLiveDiscount = Number(item.discountValue || 0);
+                              const itemLiveBonus = Number(item.bonusQuantity || 0);
+                              const itemLiveReceived = Number(item.receivedQuantity !== undefined ? item.receivedQuantity : itemLiveQty);
+                              const itemLiveTotalUnits = itemLiveReceived + itemLiveBonus;
+
+                              const itemGrossSubtotal = itemLiveCost * itemLiveQty;
+                              let itemNetSubtotal = itemGrossSubtotal;
+                              if (itemLiveDiscount > 0) {
+                                if (item.discountType === 'percentage') {
+                                  itemNetSubtotal -= itemGrossSubtotal * (itemLiveDiscount / 100);
+                                } else {
+                                  itemNetSubtotal -= itemLiveDiscount * itemLiveQty;
+                                }
+                              }
+                              const itemNetUnitCost = itemLiveQty > 0 ? (itemNetSubtotal / itemLiveQty) : itemLiveCost;
+
+                              const currentItemsSubtotal = itemsSubtotal || 0;
+                              const currentGrandTotal = grandTotal || 0;
+                              const liveFeesFactor = currentItemsSubtotal > 0 ? (currentGrandTotal / currentItemsSubtotal) : 1;
+
+                              // Landed cost is calculated using our exact catalog formula
+                              const itemLiveLandedCost = itemLiveTotalUnits > 0 
+                                ? (itemNetSubtotal * liveFeesFactor / itemLiveTotalUnits) 
+                                : (itemLiveCost * liveFeesFactor);
+
+                              let itemCalculatedSellingPrice = 0;
+                              const itemProfitMode = item.profitMode || 'manual';
+                              if (itemProfitMode === 'manual') {
+                                itemCalculatedSellingPrice = Number(item.sellingPrice || item.cost || 0);
+                              } else if (itemProfitMode === 'margin') {
+                                const margin = Number(item.profitPercentage || 0);
+                                if (margin < 100 && margin >= 0) {
+                                  itemCalculatedSellingPrice = itemLiveLandedCost / (1 - (margin / 100));
+                                } else {
+                                  itemCalculatedSellingPrice = itemLiveLandedCost;
+                                }
+                              } else if (itemProfitMode === 'commission') {
+                                itemCalculatedSellingPrice = Number(item.basePrice || 0);
+                              }
+                              
+                              return (
+                                <div className="bg-slate-100 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-3 text-xs">
+                                  <div className="flex flex-wrap justify-between items-center w-full pb-2 border-b border-slate-200/40 dark:border-slate-700/40">
+                                    <span className="text-slate-500 dark:text-slate-400 font-extrabold text-[11px] flex items-center gap-1.5">
+                                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
+                                      تفاصيل احتساب التكلفة والتسعير لهذا الصنف للكتالوج:
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-right">
+                                    <div>
+                                      <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">شراء الحبة الأساسي</span>
+                                      <div className="text-slate-700 dark:text-slate-300 font-mono font-black">{itemLiveCost.toFixed(2)} ج.م</div>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">الشراء الصافي (بعد بند الخصم)</span>
+                                      <div className="text-slate-700 dark:text-slate-300 font-mono font-black">
+                                        {itemNetUnitCost.toFixed(2)} ج.m
+                                        {itemLiveDiscount > 0 && <span className="text-[9px] text-emerald-500 font-bold block"> (خصم {itemLiveDiscount}{item.discountType === 'percentage' ? '%' : ' ج.م'})</span>}
+                                      </div>
+                                    </div>
+                                    <div className="bg-indigo-50/40 dark:bg-indigo-950/20 p-2 rounded-lg border border-indigo-100/30 dark:border-indigo-900/10">
+                                      <span className="text-indigo-600 dark:text-indigo-400 text-[10px] block mb-0.5 font-black">تكلفة الحبة المحمّلة (Landed)</span>
+                                      <div className="text-indigo-700 dark:text-indigo-300 font-mono font-black">
+                                        {itemLiveLandedCost.toFixed(2)} ج.م
+                                        {liveFeesFactor > 1.0001 && <span className="text-[9px] text-slate-400 font-bold block"> (+ {((liveFeesFactor - 1) * 105).toFixed(1)}% مصاريف نقل/ضريبة)</span>}
+                                        {itemLiveBonus > 0 && <span className="text-[9px] text-emerald-500 font-bold block"> (مُخفّض بالبونص {itemLiveBonus} قطع)</span>}
+                                      </div>
+                                    </div>
+                                    <div className="bg-amber-50/40 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-100/30 dark:border-amber-900/10">
+                                      <span className="text-amber-600 dark:text-amber-400 text-[10px] block mb-0.5 font-black">سعر البيع النهائي بالمتجر</span>
+                                      <div className="text-amber-700 dark:text-amber-300 font-mono font-black">
+                                        {itemCalculatedSellingPrice.toFixed(2)} ج.م
+                                        <span className="text-[9px] text-slate-400 font-bold block">{itemProfitMode === 'margin' ? `(هامش ربح ${item.profitPercentage || 0}%)` : itemProfitMode === 'commission' ? `(نظام عمولة ${item.commissionPercentage || 0}%)` : '(تسعير يدوي)'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 pt-2 border-t border-slate-200/40 dark:border-slate-700/40">
+                                    <label className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-black cursor-pointer select-none">
+                                      <input 
+                                        type="checkbox"
+                                        checked={item.updateCatalogPrice !== false}
+                                        onChange={e => {
+                                          const newItems = [...orderItems];
+                                          newItems[idx].updateCatalogPrice = e.target.checked;
+                                          setOrderItems(newItems);
+                                        }}
+                                        className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-505/20 accent-indigo-600 cursor-pointer"
+                                      />
+                                      <span>تحديث وتعديل أسعار هذا المنتج ونظام حساب التكلفة الخاص به في الكتالوج العام تلقائياً عند الترحيل</span>
+                                    </label>
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="flex items-center gap-2 pt-1 border-t border-slate-200/40 dark:border-slate-700/40">
-                                <label className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-black cursor-pointer select-none">
-                                  <input 
-                                    type="checkbox"
-                                    checked={item.updateCatalogPrice !== false}
-                                    onChange={e => {
-                                      const newItems = [...orderItems];
-                                      newItems[idx].updateCatalogPrice = e.target.checked;
-                                      setOrderItems(newItems);
-                                    }}
-                                    className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-505/20 accent-indigo-600 cursor-pointer"
-                                  />
-                                  <span>تحديث وتعديل أسعار هذا المنتج ونظام حساب التكلفة الخاص به في الكتالوج العام تلقائياً عند الترحيل</span>
-                                </label>
-                              </div>
-                            </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
@@ -3529,6 +3765,111 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           </div>
         </div>
       )}
+
+      {/* Custom Alarm / Prompt Sound Alert Modal */}
+      <AnimatePresence>
+        {modal && modal.show && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!modal.isConfirm) setModal(prev => ({ ...prev, show: false }));
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            
+            {/* Alarm Dialog Card */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", duration: 0.5, bounce: 0.3 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-[32px] p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden text-right font-sans"
+            >
+              {/* Sound Ring Pulse Decorator with Premium Adaptive Gradient */}
+              <div className={`absolute top-0 right-0 left-0 h-2 bg-gradient-to-r ${
+                modal.type === 'success' ? 'from-emerald-400 via-teal-500 to-indigo-500' :
+                modal.type === 'error' ? 'from-rose-400 via-red-500 to-amber-500' :
+                modal.type === 'warning' ? 'from-amber-400 via-orange-500 to-red-500' :
+                'from-sky-400 via-blue-500 to-indigo-500'
+              }`} />
+              
+              <div className="flex flex-col items-center text-center mt-3">
+                {/* Visual Icon based on Alarm TYPE */}
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-lg ${
+                  modal.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                  modal.type === 'error' ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400' :
+                  modal.type === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 font-bold' :
+                  'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
+                }`}>
+                  {modal.type === 'success' && <CheckCircle2 size={32} />}
+                  {modal.type === 'error' && <AlertCircle size={32} />}
+                  {modal.type === 'warning' && <AlertCircle size={32} />}
+                  {modal.type === 'info' && <Info size={32} />}
+                </div>
+
+                {/* Alarm Ringing Animation Indicator with Custom Sprung Bell */}
+                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-100 dark:border-slate-800 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                  <span>تنبيه داخلي نشط</span>
+                  <motion.span
+                    animate={{ rotate: [0, -18, 15, -12, 10, -5, 0] }}
+                    transition={{
+                      repeat: Infinity,
+                      repeatDelay: 1.2,
+                      duration: 0.85,
+                      type: "tween",
+                      ease: "easeInOut"
+                    }}
+                    className="inline-block origin-top"
+                  >
+                    🔔
+                  </motion.span>
+                </div>
+
+                <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1 leading-tight">
+                  {modal.title}
+                </h3>
+                
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-3 leading-relaxed whitespace-pre-line text-center px-2">
+                  {modal.message}
+                </p>
+              </div>
+
+              {/* Confirm / Cancel Actions */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    const onConf = modal.onConfirm;
+                    setModal(prev => ({ ...prev, show: false }));
+                    if (onConf) onConf();
+                  }}
+                  className={`flex-1 px-5 py-3 rounded-2xl text-xs font-black text-white hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md cursor-pointer ${
+                    modal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10' :
+                    modal.type === 'error' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/10' :
+                    modal.type === 'warning' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/10' :
+                    'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/10'
+                  }`}
+                >
+                  {modal.buttonText}
+                </button>
+                
+                {modal.isConfirm && (
+                  <button
+                    onClick={() => setModal(prev => ({ ...prev, show: false }))}
+                    className="flex-1 px-5 py-3 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

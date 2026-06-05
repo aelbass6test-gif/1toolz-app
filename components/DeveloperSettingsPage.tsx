@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
 import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive } from '../services/databaseService';
@@ -618,60 +619,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
 
   const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
     try {
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) return;
-      const ctx = new AudioContext();
-      const now = ctx.currentTime;
-      
-      if (type === 'success') {
-        const osc1 = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(587.33, now); // D5
-        osc1.frequency.setValueAtTime(880, now + 0.1); // A5
-        gain.gain.setValueAtTime(0.1, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
-        osc1.connect(gain);
-        gain.connect(ctx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.45);
-      } else if (type === 'error') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        // A low buzzing warning horn sound (pulsing)
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.setValueAtTime(150, now + 0.15);
-        gain.gain.setValueAtTime(0.2, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.5);
-      } else if (type === 'warning') {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(440, now);
-        osc.frequency.setValueAtTime(349.23, now + 0.12); // F4
-        gain.gain.setValueAtTime(0.12, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.35);
-      } else {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(523.25, now); // C5
-        gain.gain.setValueAtTime(0.08, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.25);
-      }
+      audioSynth.playTone(type);
     } catch (e) {
       console.error("Audio beep failed:", e);
     }
@@ -1356,7 +1304,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                            <input 
                              type="text" 
                              readOnly
-                             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono outline-none text-right"
+                             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-450 font-mono outline-none text-right"
                              value={integration.secretKey}
                            />
                          </div>
@@ -1386,13 +1334,13 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
              <h3 className="font-bold text-slate-800 dark:text-white text-md mb-2 flex items-center gap-2">
                منصة ويلت (Wuilt)
              </h3>
-             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed max-w-2xl">
+             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed max-w-2xl text-right">
                قم بنسخ الرابط التالي وإضافته في إعدادات متجرك على ويلت (قسم Webhooks) لاختيار الأحداث مثل (Order Created) لكي تنزل الطلبات تلقائياً هنا.
              </p>
 
-             <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Webhook size={14} /> رابط Webhook Cloud Function المشفر</label>
-                <div className="flex gap-2 items-center">
+             <div className="space-y-1.5 font-sans text-right">
+                <label className="text-xs font-bold text-slate-500 flex items-center gap-1 justify-end"><Webhook size={14} /> رابط Webhook Cloud Function المشفر</label>
+                <div className="flex gap-2 items-center font-sans">
                   <input 
                     type="text" 
                     readOnly
@@ -1412,10 +1360,10 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
           </div>
 
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 relative bg-slate-50/50 dark:bg-slate-800/20 opacity-70">
-             <h3 className="font-bold text-slate-800 dark:text-white text-md mb-2 flex items-center gap-2">
+             <h3 className="font-bold text-slate-800 dark:text-white text-md mb-2 flex items-center gap-2 justify-end">
                منصات أخرى قريباً (Salla, Zid, Shopify)
              </h3>
-             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed max-w-2xl text-right">
+             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 leading-relaxed max-w-2xl text-right">
                سيتم إضافة تكاملات مخصصة لهذه المنصات في المستقبل القريب لضمان أعلى سرعة في المزامنة وأمان لبياناتك.
              </p>
           </div>

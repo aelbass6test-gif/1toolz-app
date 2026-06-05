@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAuditItemDiscrepancy } from '../types';
 import { printHTMLDirectly } from '../utils/printHelper';
+import { audioSynth } from '../utils/audioSynth';
 
 interface InventoryAuditProps {
     settings: Settings;
@@ -187,6 +188,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
 
         setWorksheet(initialWorksheet);
         setActiveSessionStarted(true);
+        audioSynth.announce("تم بدء جلسة جرد المستودعات الجديدة بنجاح. يرجى مراجعة وتعديل المقادير الفعلية وسجل الفروقات بدقة.", "info");
     };
 
     // Update specific SKU quantity
@@ -402,6 +404,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         setAuditTitle('');
         setAuditScope('all');
         setSubTab('history');
+        audioSynth.announce("تم ترحيل وحفظ جلسة الجرد بنجاح، وتعديل كميات المخزن بالكامل وتسوية الفروقات بميزانية النشاط.", "success");
         alert('تم ترحيل الجرد وحفظ التسوية بنجاح، وتعديل كميات المخزن بالكامل!');
     };
 

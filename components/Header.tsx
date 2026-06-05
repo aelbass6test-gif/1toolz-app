@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, Database, Cloud, HardDrive, Activity, CheckCircle } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 
@@ -84,8 +84,21 @@ const Header: React.FC<HeaderProps> = ({
     }, [saveStatus, activeStore?.id]);
 
     // 📦 Rich Database Status (Item 2 & 4 Upgrade)
-    const [localCounts, setLocalCounts] = useState<{ orders: number, customers: number }>({ orders: 0, customers: 0 });
+    const [localCounts, setLocalCounts] = useState<{ orders: number, customers: number, products: number }>({ orders: 0, customers: 0, products: 0 });
     const [pingMs, setPingMs] = useState<number | null>(null);
+    const [isOnline, setIsOnline] = useState<boolean>(typeof window !== 'undefined' ? window.navigator.onLine : true);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
     useEffect(() => {
         if (activeStore?.id) {
@@ -93,7 +106,12 @@ const Header: React.FC<HeaderProps> = ({
                 try {
                     const ordersCount = await localDb.orders.where('store_id').equals(activeStore.id).count();
                     const customersCount = await localDb.customers.where('store_id').equals(activeStore.id).count();
-                    setLocalCounts({ orders: ordersCount, customers: customersCount });
+                    
+                    // Fetch products count from local IndexedDB settings record
+                    const storeSettings = await localDb.settings.get(activeStore.id) as any;
+                    const productsCount = storeSettings?.data?.products?.length || 0;
+                    
+                    setLocalCounts({ orders: ordersCount, customers: customersCount, products: productsCount });
                 } catch (e) {
                     console.error("Failed to fetch local IndexedDB counts", e);
                 }
@@ -103,6 +121,10 @@ const Header: React.FC<HeaderProps> = ({
     }, [activeStore?.id, saveStatus, isSyncMenuOpen]);
 
     const executePingTest = async () => {
+        if (typeof window !== 'undefined' && !window.navigator.onLine) {
+            setPingMs(null);
+            return;
+        }
         setIsTestingPing(true);
         const startTime = performance.now();
         try {
@@ -125,13 +147,14 @@ const Header: React.FC<HeaderProps> = ({
     }, [isSyncMenuOpen]);
 
     const pingText = useMemo(() => {
+        if (!isOnline) return 'غير متصل بالشبكة (الوضع المحلي نشط) 📡';
         if (isTestingPing) return 'جاري قياس السرعة...';
-        if (pingMs === null) return 'غير متصل (العمل المحلي نشط) 🛡️';
-        if (pingMs < 45) return `${pingMs} ms (سريع جداً ⚡)`;
-        if (pingMs < 120) return `${pingMs} ms (ممتاز 🟢)`;
-        if (pingMs < 255) return `${pingMs} ms (مقبول 🟡)`;
-        return `${pingMs} ms (بطيء أو غير مستقر 🔴)`;
-    }, [pingMs, isTestingPing]);
+        if (pingMs === null) return 'غير قادر على قياس Ping (تأمين محلي) 🛡️';
+        if (pingMs < 45) return `${pingMs} ms (فائق السرعة ⚡)`;
+        if (pingMs < 120) return `${pingMs} ms (سرعة ممتازة 🟢)`;
+        if (pingMs < 255) return `${pingMs} ms (سرعة مستقرة 🟡)`;
+        return `${pingMs} ms (بطيء أو متذبذب 🔴)`;
+    }, [pingMs, isTestingPing, isOnline]);
 
     const location = useLocation();
     const navigate = useNavigate();
@@ -303,16 +326,21 @@ const Header: React.FC<HeaderProps> = ({
 
                         {/* Interactive Dropdown / Control Panel */}
                         {isSyncMenuOpen && (
-                            <div className="absolute left-0 mt-2.5 w-80 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200 p-1 z-50 overflow-hidden text-right font-sans" dir="rtl">
+                            <div className="absolute left-0 mt-2.5 w-85 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200 p-1 z-50 overflow-hidden text-right font-sans" dir="rtl" style={{ minWidth: '340px' }}>
                                 {/* Header of Control Panel */}
                                 <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
                                     <div className="flex items-center gap-2">
                                         <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
                                             <Cloud size={14} className={dbSyncMode === 'auto' ? "animate-pulse" : ""} />
                                         </div>
-                                        <span className="font-black text-xs text-slate-850 dark:text-slate-200">
-                                            {dbSyncMode === 'auto' ? "حالة الربط والذكاء الاصطناعي" : "العمل بدون اتصال (محلي)"}
-                                        </span>
+                                        <div>
+                                            <span className="font-black text-xs block text-slate-850 dark:text-slate-200">
+                                                {dbSyncMode === 'auto' ? "حالة الربط والذكاء الاصطناعي" : "العمل بدون اتصال (محلي)"}
+                                            </span>
+                                            <span className="text-[9px] font-bold text-slate-400 block mt-0.5">
+                                                {isOnline ? "متصل بالإنترنت 🟢" : "أوفلاين (حفظ محلي آمن) 📡"}
+                                            </span>
+                                        </div>
                                     </div>
                                     <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-lg border ${
                                         dbSyncMode === 'auto' 
@@ -341,16 +369,25 @@ const Header: React.FC<HeaderProps> = ({
                                         </span>
                                     </div>
 
+                                    {/* Network status line (New Addition!) */}
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">اتصال الإنترنت:</span>
+                                        <span className={`text-[11px] font-black flex items-center gap-1.5 ${isOnline ? 'text-emerald-600 dark:text-emerald-350' : 'text-rose-500'}`}>
+                                            {isOnline ? <Wifi size={13} className="text-emerald-500 animate-pulse" /> : <WifiOff size={13} className="text-rose-500" />}
+                                            {isOnline ? 'متصل بالشبكة (مستقر)' : 'لا يوجد اتصال إنترنت'}
+                                        </span>
+                                    </div>
+
                                     {/* Local DB Status */}
                                     <div className="flex justify-between items-center">
                                         <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">مخزن البيانات المحلي:</span>
                                         <div className="text-left flex flex-col items-end">
-                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-355 flex items-center gap-1">
+                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                                 <Database size={13} className="text-emerald-500" />
                                                 IndexedDB (أمان الهاردوير)
                                             </span>
                                             <span className="text-[10px] text-slate-400 font-medium">
-                                                ({localCounts.orders} طلب • {localCounts.customers} عميل) محفوظ محلياً
+                                                ({localCounts.products} منتجات • {localCounts.orders} طلب • {localCounts.customers} عميل) محفوظ محلياً
                                             </span>
                                         </div>
                                     </div>
@@ -363,36 +400,74 @@ const Header: React.FC<HeaderProps> = ({
                                         </span>
                                     </div>
 
+                                    {/* Work Mode Toggle (New Interactive Control Addition!) */}
+                                    <div className="bg-slate-50/70 dark:bg-slate-950/20 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+                                        <div className="text-[10px] font-bold text-slate-400">نمط العمل والربط الفعلي:</div>
+                                        <div className="grid grid-cols-2 gap-1 bg-slate-100/75 dark:bg-slate-800 p-1 rounded-xl">
+                                             <button
+                                                 onClick={() => setDbSyncMode?.('auto')}
+                                                 className={`py-1.5 px-2 text-center rounded-lg text-[10px] font-black transition-all cursor-pointer ${dbSyncMode === 'auto' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                                             >
+                                                 سحابي (تلقائي) ☁️
+                                             </button>
+                                             <button
+                                                 onClick={() => setDbSyncMode?.('manual')}
+                                                 className={`py-1.5 px-2 text-center rounded-lg text-[10px] font-black transition-all cursor-pointer ${dbSyncMode === 'manual' ? 'bg-indigo-600 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                                             >
+                                                 ديسك توب (يدوي) 💾
+                                             </button>
+                                        </div>
+                                    </div>
+
                                     {/* Connection speed simulator */}
                                     <div className="bg-slate-50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-105 dark:border-slate-800/60">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                                        <div className="flex flex-col gap-1 mb-2">
+                                            <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 flex-wrap">
                                                 <Wifi size={11} className="text-indigo-500" />
                                                 سرعة الاتصال والـ Server Ping:
                                             </span>
-                                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">{pingText}</span>
+                                            <span className={`text-[11px] font-black tracking-tight ${
+                                                !isOnline 
+                                                    ? 'text-rose-500' 
+                                                    : isTestingPing
+                                                    ? 'text-indigo-500 animate-pulse'
+                                                    : pingMs !== null && pingMs < 100
+                                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                                    : pingMs !== null && pingMs < 250
+                                                    ? 'text-teal-600 dark:text-teal-400'
+                                                    : 'text-amber-600 dark:text-amber-450'
+                                            }`}>{pingText}</span>
                                         </div>
                                         {/* Dynamic Bar */}
                                         <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                                             <div 
-                                                className={`h-full rounded-full transition-all duration-500 ${
-                                                    isTestingPing 
-                                                        ? 'w-1/3 bg-indigo-500 animate-pulse' 
-                                                        : pingMs !== null && pingMs < 100 
-                                                        ? 'w-[94%] bg-emerald-500' 
-                                                        : pingMs !== null && pingMs < 250 
-                                                        ? 'w-2/3 bg-amber-500' 
-                                                        : pingMs !== null 
-                                                        ? 'w-1/3 bg-rose-500' 
-                                                        : 'w-0 bg-slate-300'
-                                                }`}
+                                                className={`h-full rounded-full transition-all duration-500`}
+                                                style={{
+                                                    width: `${
+                                                        !isOnline ? 0 :
+                                                        isTestingPing ? 35 :
+                                                        pingMs === null ? 0 :
+                                                        pingMs < 45 ? 96 :
+                                                        pingMs < 120 ? 84 :
+                                                        pingMs < 255 ? 60 : 30
+                                                    }%`,
+                                                    backgroundColor: `${
+                                                        !isOnline ? '#ef4444' :
+                                                        isTestingPing ? '#6366f1' :
+                                                        pingMs === null ? '#94a3b8' :
+                                                        pingMs < 45 ? '#10b981' :
+                                                        pingMs < 140 ? '#14b8a6' :
+                                                        pingMs < 255 ? '#f59e0b' : '#ef4444'
+                                                    }`
+                                                }}
                                             ></div>
                                         </div>
-                                        <div className="flex justify-between items-center mt-1.5">
-                                            <span className="text-[9px] text-slate-400 leading-none">تأمين محلي فوري (العمل بدون إنترنت مدعوم)</span>
+                                        <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-100/50 dark:border-slate-800/50">
+                                            <span className="text-[9px] text-slate-400 leading-none">تأمين محلي فوري والعمل المباشر مدعوم</span>
                                             <button 
                                                 onClick={executePingTest}
-                                                className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                                disabled={isTestingPing || !isOnline}
+                                                className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50"
                                             >
                                                 تحديث القياس ⚡
                                             </button>

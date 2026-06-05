@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info } from 'lucide-react';
 import { Settings, Product, ProductVariant } from '../types';
-import { motion, Variants } from 'framer-motion';
+import { motion, Variants, AnimatePresence } from 'framer-motion';
+import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
 import { getLatestProductCost } from '../utils/financials';
 
@@ -33,6 +34,64 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const [searchTerm, setSearchTerm] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  
+  // Custom states for warehouse tracking & modern enhancements
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
+  const [filterWarehouseId, setFilterWarehouseId] = useState<string>('');
+
+  // Audio synthezier alarm / notify system
+  const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
+    try {
+      audioSynth.playTone(type);
+    } catch (e) {
+      console.error("Audio beep failed:", e);
+    }
+  };
+
+  // Custom Alarm Dialog Modal
+  const [modal, setModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'warning' | 'error' | 'info';
+    buttonText: string;
+    isConfirm: boolean;
+    onConfirm: (() => void) | null;
+  }>({
+    show: false,
+    title: '',
+    message: '',
+    type: 'info',
+    buttonText: 'حسناً',
+    isConfirm: false,
+    onConfirm: null
+  });
+
+  const showAlert = (title: string, message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') => {
+    playAlarmSound(type);
+    setModal({
+      show: true,
+      title,
+      message,
+      type,
+      buttonText: 'حسناً',
+      isConfirm: false,
+      onConfirm: null
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, type: 'warning' | 'error' = 'warning') => {
+    playAlarmSound(type);
+    setModal({
+      show: true,
+      title,
+      message,
+      type,
+      buttonText: 'تأكيد الإجراء',
+      isConfirm: true,
+      onConfirm
+    });
+  };
   const [newProduct, setNewProduct] = useState<Partial<Product>>({ sku: '', name: '', price: 0, weight: 1, costPrice: 0, stockQuantity: 10, collectionId: '', description: '', images: [], thumbnail: '', hasVariants: false, options: [], variants: [], profitMode: 'manual', profitPercentage: 0, basePrice: 0, commissionPercentage: 0 });
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -58,10 +117,20 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
   const isPlatformConnected = settings.integration?.platform !== 'none' || Object.values(settings.platformConfigs || {}).some((c: any) => c.isActive);
 
-  const filteredProducts = settings.products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    p.sku.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = settings.products.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          p.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (filterWarehouseId) {
+      if (p.hasVariants && p.variants) {
+        return p.variants.some(v => (v.warehouseStock?.[filterWarehouseId] ?? 0) > 0);
+      } else {
+        return (p.warehouseStock?.[filterWarehouseId] ?? 0) > 0;
+      }
+    }
+    return true;
+  });
 
   const inventoryFinancials = useMemo(() => {
     let totalStock = 0;
@@ -107,8 +176,20 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     const productData = editingProduct || newProduct;
 
     if (!productData.name || (!productData.hasVariants && !productData.price)) {
-        alert("يرجى إدخال اسم المنتج وسعره على الأقل.");
+        showAlert("بيانات غير مكتملة", "يرجى إدخال اسم المنتج وسعره على الأقل.", "error");
         return;
+    }
+
+    // Duplicate Check
+    const normalizedName = productData.name.trim().toLowerCase().replace(/\s+/g, ' ');
+    const isDuplicate = settings.products.some(p => 
+      p.name.trim().toLowerCase().replace(/\s+/g, ' ') === normalizedName && 
+      (!editingProduct || p.id !== editingProduct.id)
+    );
+
+    if (isDuplicate) {
+      showAlert("تكرار المنتج", "يوجد منتج بنفس الاسم بالفعل. يرجى تعديل الاسم أو استخدام المنتج الحالي.", "warning");
+      return;
     }
 
     let finalStock = productData.stockQuantity === undefined ? null : productData.stockQuantity;
@@ -144,9 +225,11 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     if (editingProduct) {
         setSettings({ ...settings, products: settings.products.map(p => p.id === editingProduct.id ? productToSave : p) });
         setEditingProduct(null);
+        showAlert("تم التحديث", "تم تحديث بيانات المنتج بنجاح!", "success");
     } else {
         setSettings({ ...settings, products: [...settings.products, productToSave] });
         setIsAdding(false);
+        showAlert("تمت الإضافية", "تم إضافة المنتج الجديد إلى القائمة بنجاح!", "success");
     }
   };
 
@@ -163,7 +246,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const handleGenerateDescription = async (isEdit: boolean) => {
       const targetProduct = isEdit ? editingProduct : newProduct;
       if (!targetProduct?.name || !targetProduct?.price) {
-          alert("يرجى إدخال اسم المنتج وسعره أولاً.");
+          showAlert("بيانات غير مكتملة", "يرجى إدخال اسم المنتج وسعره أولاً لتتمكن من توليد الوصف بالذكاء الاصطناعي.", "warning");
           return;
       }
       setIsGenerating(true);
@@ -243,7 +326,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     const wuiltConfig = settings.platformConfigs?.['wuilt'] || (settings.integration?.platform === 'wuilt' ? { ...settings.integration, isActive: true } : null);
 
     if (!wuiltConfig || !wuiltConfig.apiKey || wuiltConfig.isActive === false) {
-      alert('يرجى ضبط وتفعيل إعدادات الربط مع Wuilt أولاً من صفحة التطبيقات.');
+      showAlert('تعديل الربط مطلوب', 'يرجى ضبط وتفعيل إعدادات الربط مع Wuilt أولاً من صفحة التطبيقات.', 'warning');
       return;
     }
 
@@ -265,7 +348,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       if (!response.ok) throw new Error(result.error || 'فشل جلب المنتجات');
       setSelectableProducts(result.items || []);
     } catch (error: any) {
-      alert(error.message);
+      showAlert('فشل الاتصال', error.message, 'error');
       setShowSelectiveSyncModal(false);
     } finally {
       setIsFetchingSelectable(false);
@@ -274,7 +357,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
   const handleImportSelected = async () => {
     if (selectedProductIds.size === 0) {
-      alert('يرجى اختيار منتج واحد على الأقل.');
+      showAlert('تنبيه التحديد', 'يرجى اختيار منتج واحد على الأقل للاستيراد.', 'warning');
       return;
     }
 
@@ -678,17 +761,33 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <p className="text-sm text-slate-500">قد يستغرق هذا بضع لحظات</p>
             </div>
         )}
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
-          <div className="relative max-w-md">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex flex-col sm:flex-row gap-3 justify-between items-center">
+          <div className="relative w-full sm:max-w-md">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
               type="text"
               placeholder="بحث بالاسم أو SKU..."
-              className="w-full pr-10 pl-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all dark:text-white"
+              className="w-full pr-10 pl-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition-all dark:text-white font-medium text-sm text-right"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+
+          {(settings.warehouses || []).length > 0 && (
+            <div className="w-full sm:w-auto flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">تصفية حسب المخزن:</span>
+              <select
+                value={filterWarehouseId}
+                onChange={(e) => setFilterWarehouseId(e.target.value)}
+                className="w-full sm:w-48 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 font-bold text-xs text-slate-700 dark:text-slate-200 select-none cursor-pointer"
+              >
+                <option value="">عرض مخازن الكل 🏢</option>
+                {(settings.warehouses || []).map(wh => (
+                  <option key={wh.id} value={wh.id}>{wh.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Table for desktop */}
@@ -700,7 +799,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <th className="px-6 py-4">المنتج</th>
                 <th className="px-6 py-4">القسم</th>
                 <th className="px-6 py-4">SKU</th>
-                <th className="px-6 py-4">المخزون</th>
+                <th className="px-6 py-4">المخزون (الإجمالي)</th>
                 <th className="px-6 py-4">سعر البيع</th>
                 <th className="px-6 py-4 text-left">الإجراءات</th>
               </tr>
@@ -710,85 +809,196 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-slate-600">
                     <div className="flex flex-col items-center gap-2">
-                      <Package size={40} className="text-slate-200 dark:text-slate-700" />
-                      <p>لا توجد منتجات. قم بإضافتها يدوياً أو قم بالمزامنة من منصة متصلة.</p>
+                      <Package size={40} className="text-slate-205 dark:text-slate-700" />
+                      <p>لا توجد منتجات تطابق شروط التصفية الحالية.</p>
                     </div>
                   </td>
                 </tr>
               ) : (
                 filteredProducts.map(product => {
                   const collection = settings.collections.find(c => c.id === product.collectionId);
+                  const isExpanded = expandedProductId === product.id;
+                  
+                  // Calculate distributed stock vs total
+                  const distributedStock = Object.values(product.warehouseStock || {}).reduce((sum, val) => sum + (val || 0), 0);
+                  
                   return (
-                  <tr key={product.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
-                    <td className="px-6 py-2">
-                      {product.thumbnail ? (
-                        <img src={product.thumbnail} alt={product.name} className="w-12 h-12 rounded-lg object-cover border-2 border-slate-100 dark:border-slate-700" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
-                          <ImageIcon size={20} />
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">{product.name}</div>
-                        {product.id.startsWith('wuilt-') && (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-md font-bold flex items-center gap-1">
-                            <img src="https://wuilt.com/favicon.ico" className="w-2.5 h-2.5" referrerPolicy="no-referrer" />
-                            ويلت
-                          </span>
+                  <React.Fragment key={product.id}>
+                    <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${isExpanded ? 'bg-indigo-50/20 dark:bg-indigo-900/10' : ''}`}>
+                      <td className="px-6 py-2">
+                        {product.thumbnail ? (
+                          <img src={product.thumbnail} alt={product.name} className="w-12 h-12 rounded-lg object-cover border-2 border-slate-100 dark:border-slate-700" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
+                            <ImageIcon size={20} />
+                          </div>
                         )}
-                      </div>
-                      {product.hasVariants && <div className="text-xs text-slate-400">{product.variants.length} متغيرات</div>}
-                    </td>
-                    <td className="px-6 py-4">
-                      {collection ? (
-                          <span className="text-xs font-bold px-2 py-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-lg">{collection.name}</span>
-                      ) : (
-                          <span className="text-xs text-slate-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-sm font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 w-fit px-2 py-1 rounded">
-                        <Barcode size={14} />
-                        {product.sku}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {product.stockQuantity === null || product.stockQuantity === undefined ? (
-                         <span className="px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/50 rounded-full border border-emerald-200 dark:border-emerald-800">متاح دائماً</span>
-                      ) : product.stockQuantity > 0 ? (
-                         <div className="flex items-center gap-2">
-                             <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{product.stockQuantity}</span>
-                             {product.stockQuantity < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
-                         </div>
-                      ) : (
-                         <span className="px-2 py-1 text-xs font-bold text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/50 rounded-full border border-red-200 dark:border-red-800">نفذ</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-indigo-600 dark:text-indigo-400 font-bold">{product.price.toLocaleString()} ج.م</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className={`flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity`}>
-                        <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all" title="إنشاء منشور تسويقي">
-                          <Wand2 size={18} />
-                        </button>
-                        <button 
-                          onClick={() => openEditModal(product)}
-                          className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all"
-                        >
-                          <Edit3 size={18} />
-                        </button>
-                        <button 
-                          onClick={() => setProductToDelete(product)}
-                          className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="font-bold text-slate-800 dark:text-slate-200">{product.name}</div>
+                          {product.id.startsWith('wuilt-') && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-md font-bold flex items-center gap-1">
+                              <img src="https://wuilt.com/favicon.ico" className="w-2.5 h-2.5" referrerPolicy="no-referrer" />
+                              ويلت
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          {product.hasVariants && <span className="text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 px-1.5 py-0.5 rounded font-bold">{product.variants.length} متغيرات</span>}
+                          <button 
+                            type="button"
+                            onClick={() => setExpandedProductId(isExpanded ? null : product.id)}
+                            className={`text-[10px] flex items-center gap-1 px-2 py-0.5 rounded font-extrabold transition-all border ${isExpanded ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-400 dark:border-indigo-900/50 dark:hover:bg-indigo-900'}`}
+                          >
+                            🏢 مخازن المنتج ({distributedStock})
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {collection ? (
+                            <span className="text-xs font-bold px-2 py-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-lg">{collection.name}</span>
+                        ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 text-sm font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 w-fit px-2 py-1 rounded">
+                          <Barcode size={14} />
+                          {product.sku}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {product.stockQuantity === null || product.stockQuantity === undefined ? (
+                           <span className="px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/50 rounded-full border border-emerald-200 dark:border-emerald-800">متاح دائماً</span>
+                        ) : product.stockQuantity > 0 ? (
+                           <div className="flex items-center gap-2">
+                               <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{product.stockQuantity}</span>
+                               {product.stockQuantity < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
+                           </div>
+                        ) : (
+                           <span className="px-2 py-1 text-xs font-bold text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/50 rounded-full border border-red-200 dark:border-red-800">نفذ</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-indigo-600 dark:text-indigo-400 font-bold">{product.price.toLocaleString()} ج.م</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className={`flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity`}>
+                          <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all" title="إنشاء منشور تسويقي">
+                            <Wand2 size={18} />
+                          </button>
+                          <button 
+                            onClick={() => openEditModal(product)}
+                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all"
+                          >
+                            <Edit3 size={18} />
+                          </button>
+                          <button 
+                            onClick={() => setProductToDelete(product)}
+                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    
+                    {/* Warehouse detail expansion */}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-4 bg-slate-50/70 dark:bg-slate-900/30 border-t border-b border-slate-100 dark:border-slate-800 text-right">
+                          <motion.div 
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="space-y-4"
+                          >
+                            <div className="flex items-center justify-between border-b pb-2 border-slate-200 dark:border-slate-800">
+                              <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                <span className="bg-indigo-600 w-1.5 h-3 rounded"></span>
+                                <span>توزيع مخزون المنتج: {product.name} ({product.sku})</span>
+                              </div>
+                              <button 
+                                type="button"
+                                onClick={() => openEditModal(product)}
+                                className="text-xs bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-400 px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 border border-indigo-100/50 dark:border-indigo-900/50"
+                              >
+                                ✏️ تعديل تفصيلي في المستودعات
+                              </button>
+                            </div>
+
+                            {(!settings.warehouses || settings.warehouses.length === 0) ? (
+                              <div className="text-center py-4 text-slate-400 dark:text-slate-500">
+                                <p className="text-sm font-bold">⚠️ لم يتم إضافة مستودعات إضافية بعد.</p>
+                                <p className="text-xs mt-1">يرجى تسجيل مستودعاتك في صفحة “الموردين والمستودعات” لتتمكن من تعيين مخزون مخصص لكل مستودع.</p>
+                              </div>
+                            ) : (
+                              <div>
+                                {!product.hasVariants ? (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                    {settings.warehouses.map(wh => {
+                                      const stock = product.warehouseStock?.[wh.id] ?? 0;
+                                      return (
+                                        <div key={wh.id} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between gap-4">
+                                          <div className="min-w-0">
+                                            <p className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate">{wh.name}</p>
+                                            <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{wh.location || 'بدون تفاصيل عنوان'}</p>
+                                          </div>
+                                          <div className={`px-2.5 py-1 rounded-lg text-xs font-extrabold ${stock > 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-900/30' : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-600'}`}>
+                                            {stock} {stock > 0 ? 'قطعة' : 'فارغ'}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">تفاصيل المتغيرات والألوان والمقاسات حسب كل مستودع:</p>
+                                    <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-850">
+                                      <table className="w-full text-xs text-right">
+                                        <thead className="bg-slate-100/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                          <tr>
+                                            <th className="p-2.5 font-extrabold">المتغير</th>
+                                            {settings.warehouses.map(wh => (
+                                              <th key={wh.id} className="p-2.5 font-extrabold text-center">{wh.name}</th>
+                                            ))}
+                                            <th className="p-2.5 font-extrabold text-center bg-indigo-50/50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400">إجمالي كمية المتغير</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                          {(product.variants || []).map((v, idx) => (
+                                            <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                                              <td className="p-2.5 font-bold text-slate-700 dark:text-slate-300">
+                                                {Object.values(v.options || {}).join(' / ') || v.sku}
+                                              </td>
+                                              {settings.warehouses.map(wh => {
+                                                const stock = v.warehouseStock?.[wh.id] ?? 0;
+                                                return (
+                                                  <td key={wh.id} className="p-2.5 text-center">
+                                                    <span className={`inline-block px-2.5 py-0.5 rounded-md font-extrabold text-xs ${stock > 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'text-slate-300 dark:text-slate-700'}`}>
+                                                      {stock}
+                                                    </span>
+                                                  </td>
+                                                );
+                                              })}
+                                              <td className="p-2.5 text-center font-black text-slate-800 dark:text-slate-200 bg-indigo-50/20 dark:bg-indigo-900/5">
+                                                {v.stockQuantity}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </motion.div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 )})
               )}
             </tbody>
@@ -807,8 +1017,12 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
           ) : (
             filteredProducts.map(product => {
               const collection = settings.collections.find(c => c.id === product.collectionId);
+              const isExpanded = expandedProductId === product.id;
+              
+              // Calculate distributed stock vs total
+              const distributedStock = Object.values(product.warehouseStock || {}).reduce((sum, val) => sum + (val || 0), 0);
               return (
-                <div key={product.id} className="bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm">
+                <div key={product.id} className="bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right" dir="rtl">
                   <div className="flex gap-3">
                      <div className="relative flex-shrink-0">
                         {product.thumbnail ? (
@@ -826,7 +1040,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                      </div>
                     <div className="flex-1 min-w-0">
                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm line-clamp-2 leading-tight">{product.name}</h3>
-                       <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                       <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                           {collection && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-md truncate">{collection.name}</span>}
                           <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 truncate bg-slate-50 dark:bg-slate-800 px-1 rounded">#{product.sku}</span>
                        </div>
@@ -851,10 +1065,66 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     </div>
                   </div>
 
+                  {/* Mobile warehouse stock overview */}
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="pt-2 border-t border-slate-100 dark:border-slate-800/50 space-y-2 text-right overflow-hidden"
+                      >
+                        <div className="text-xs font-bold text-slate-700 dark:text-slate-300">مخزون المستودعات ({distributedStock}):</div>
+                        {(!settings.warehouses || settings.warehouses.length === 0) ? (
+                          <p className="text-[10px] text-slate-400">⚠️ لم يتم إضافة مستودعات إضافية بعد.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {!product.hasVariants ? (
+                              settings.warehouses.map(wh => {
+                                const stock = product.warehouseStock?.[wh.id] ?? 0;
+                                return (
+                                  <div key={wh.id} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 px-2 py-1.5 rounded-lg text-xs border border-slate-100 dark:border-slate-700">
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400">{wh.name}</span>
+                                    <span className={`font-black ${stock > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>{stock} قطعة</span>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              (product.variants || []).map((v, idx) => (
+                                <div key={idx} className="bg-slate-50/70 dark:bg-slate-800/40 p-2 rounded-lg text-xs space-y-1 border border-slate-100 dark:border-slate-700">
+                                  <div className="font-black text-slate-700 dark:text-slate-300 border-b border-dashed border-slate-200 dark:border-slate-700/50 pb-0.5 text-right">
+                                    {Object.values(v.options || {}).join(' / ') || v.sku}
+                                  </div>
+                                  {settings.warehouses.map(wh => {
+                                    const stock = v.warehouseStock?.[wh.id] ?? 0;
+                                    return (
+                                      <div key={wh.id} className="flex justify-between items-center text-[10px] pr-2">
+                                        <span className="text-slate-500">{wh.name}</span>
+                                        <span className={`font-bold ${stock > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>{stock} قطعة</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   <div className="flex items-center justify-between pt-1">
                     <div className="flex gap-1">
-                       <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all">
+                       <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all" title="منشور تسويقي">
                         <Wand2 size={16} />
+                       </button>
+                       <button 
+                         type="button"
+                         onClick={() => setExpandedProductId(isExpanded ? null : product.id)}
+                         className={`p-2 rounded-lg transition-all flex items-center gap-1 text-xs font-bold ${isExpanded ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/40'}`}
+                         title="توزيع المستودعات"
+                       >
+                         🏢 المخازن
                        </button>
                     </div>
                     <div className="flex gap-2">
@@ -940,6 +1210,111 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             isSyncing={isSyncing}
         />
       )}
+
+      {/* Custom Alarm / Prompt Sound Alert Modal */}
+      <AnimatePresence>
+        {modal && modal.show && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!modal.isConfirm) setModal(prev => ({ ...prev, show: false }));
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            
+            {/* Alarm Dialog Card */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", duration: 0.5, bounce: 0.3 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-[32px] p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden text-right font-sans"
+            >
+              {/* Sound Ring Pulse Decorator with Premium Adaptive Gradient */}
+              <div className={`absolute top-0 right-0 left-0 h-2 bg-gradient-to-r ${
+                modal.type === 'success' ? 'from-emerald-400 via-teal-500 to-indigo-500' :
+                modal.type === 'error' ? 'from-rose-400 via-red-500 to-amber-500' :
+                modal.type === 'warning' ? 'from-amber-400 via-orange-500 to-red-500' :
+                'from-sky-400 via-blue-500 to-indigo-500'
+              }`} />
+              
+              <div className="flex flex-col items-center text-center mt-3">
+                {/* Visual Icon based on Alarm TYPE */}
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-lg ${
+                  modal.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                  modal.type === 'error' ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400' :
+                  modal.type === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 font-bold' :
+                  'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
+                }`}>
+                  {modal.type === 'success' && <CheckCircle size={32} />}
+                  {modal.type === 'error' && <AlertCircle size={32} />}
+                  {modal.type === 'warning' && <AlertCircle size={32} />}
+                  {modal.type === 'info' && <Info size={32} />}
+                </div>
+
+                {/* Alarm Ringing Animation Indicator with Custom Sprung Bell */}
+                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-100 dark:border-slate-800 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                  <span>تنبيه داخلي نشط</span>
+                  <motion.span
+                    animate={{ rotate: [0, -18, 15, -12, 10, -5, 0] }}
+                    transition={{
+                      repeat: Infinity,
+                      repeatDelay: 1.2,
+                      duration: 0.85,
+                      type: "tween",
+                      ease: "easeInOut"
+                    }}
+                    className="inline-block origin-top"
+                  >
+                    🔔
+                  </motion.span>
+                </div>
+
+                <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1 leading-tight">
+                  {modal.title}
+                </h3>
+                
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-3 leading-relaxed whitespace-pre-line text-center px-2">
+                  {modal.message}
+                </p>
+              </div>
+
+              {/* Confirm / Cancel Actions */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    const onConf = modal.onConfirm;
+                    setModal(prev => ({ ...prev, show: false }));
+                    if (onConf) onConf();
+                  }}
+                  className={`flex-1 px-5 py-3 rounded-2xl text-xs font-black text-white hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md cursor-pointer ${
+                    modal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10' :
+                    modal.type === 'error' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/10' :
+                    modal.type === 'warning' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/10' :
+                    'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/10'
+                  }`}
+                >
+                  {modal.buttonText}
+                </button>
+                
+                {modal.isConfirm && (
+                  <button
+                    onClick={() => setModal(prev => ({ ...prev, show: false }))}
+                    className="flex-1 px-5 py-3 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 });
