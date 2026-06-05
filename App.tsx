@@ -397,6 +397,12 @@ export const AppComponent = () => {
         const oldReviews = snapStore?.settings?.reviews || [];
         const newReviews = currentStore.settings?.reviews || [];
 
+        const oldTreasury = snapStore?.treasury?.accounts || [];
+        const newTreasury = currentStore.treasury?.accounts || [];
+
+        const oldPartners = snapStore?.settings?.partners || [];
+        const newPartners = currentStore.settings?.partners || [];
+
         const oldUsers = syncedSnapshot.users || [];
         const newUsers = users || [];
 
@@ -502,6 +508,26 @@ export const AppComponent = () => {
             }
         });
 
+        // Treasury comparison
+        newTreasury.forEach(a => {
+            const oldA = oldTreasury.find(o => o.id === a.id);
+            if (!oldA) {
+                changes.push({ type: 'treasury', action: 'add', name: a.name });
+            } else if (oldA.balance !== a.balance) {
+                changes.push({ type: 'treasury', action: 'modify', name: a.name });
+            }
+        });
+
+        // Partners comparison
+        newPartners.forEach(p => {
+            const oldP = oldPartners.find(o => o.id === p.id);
+            if (!oldP) {
+                changes.push({ type: 'partner', action: 'add', name: p.name });
+            } else if (oldP.balance !== p.balance) {
+                changes.push({ type: 'partner', action: 'modify', name: p.name });
+            }
+        });
+
         // Users comparison
         newUsers.forEach(u => {
             const oldU = oldUsers.find(o => o.phone === u.phone);
@@ -570,62 +596,63 @@ export const AppComponent = () => {
     useEffect(() => {
         if (isInitialLoad || isRefreshing.current) return;
 
-        setUsers(prevUsers => {
-            let changed = false;
-            const newUsers = prevUsers.map(user => {
-                if (!user.stores) return user;
-                
-                let storesChanged = false;
-                const newStores = user.stores.map(store => {
-                    // Try to get data from settings if loaded
-                    const storeData = allStoresData[store.id];
+        const updateTimeout = setTimeout(() => {
+            setUsers(prevUsers => {
+                let changed = false;
+                const newUsers = prevUsers.map(user => {
+                    if (!user.stores) return user;
                     
-                    let currentCustomDomain = store.customDomain;
-                    let currentSubdomain = store.subdomain;
-                    
-                    if (storeData && storeData.settings) {
-                        currentCustomDomain = storeData.settings.customAppDomain || currentCustomDomain;
-                        currentSubdomain = storeData.settings.subdomain || currentSubdomain;
-                    }
+                    let storesChanged = false;
+                    const newStores = user.stores.map(store => {
+                        const storeData = allStoresData[store.id];
+                        
+                        let currentCustomDomain = store.customDomain;
+                        let currentSubdomain = store.subdomain;
+                        
+                        if (storeData && storeData.settings) {
+                            currentCustomDomain = storeData.settings.customAppDomain || currentCustomDomain;
+                            currentSubdomain = storeData.settings.subdomain || currentSubdomain;
+                        }
 
-                    // Proactive fallback for missing subdomain or bad URL
-                    if (!currentSubdomain && (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
-                        const base = store.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
-                        const random = Math.floor(1000 + Math.random() * 9000).toString();
-                        currentSubdomain = `${base || 'store'}-${random}`;
-                    }
-                    
-                    // Determine the best URL
-                    let bestUrl = store.url;
-                    if (currentCustomDomain) {
-                        bestUrl = currentCustomDomain;
-                    } else if (currentSubdomain) {
-                        bestUrl = `${currentSubdomain}.abdomedi.com`;
-                    }
+                        if (!currentSubdomain && (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
+                            const base = store.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
+                            const random = Math.floor(1000 + Math.random() * 9000).toString();
+                            currentSubdomain = `${base || 'store'}-${random}`;
+                        }
+                        
+                        let bestUrl = store.url;
+                        if (currentCustomDomain) {
+                            bestUrl = currentCustomDomain;
+                        } else if (currentSubdomain) {
+                            bestUrl = `${currentSubdomain}.abdomedi.com`;
+                        }
 
-                    if (
-                        store.customDomain !== currentCustomDomain || 
-                        store.subdomain !== currentSubdomain ||
-                        store.url !== bestUrl
-                    ) {
-                        changed = true;
-                        storesChanged = true;
-                        return { 
-                            ...store, 
-                            customDomain: currentCustomDomain, 
-                            subdomain: currentSubdomain,
-                            url: bestUrl
-                        };
-                    }
-                    return store;
+                        if (
+                            store.customDomain !== currentCustomDomain || 
+                            store.subdomain !== currentSubdomain ||
+                            store.url !== bestUrl
+                        ) {
+                            changed = true;
+                            storesChanged = true;
+                            return { 
+                                ...store, 
+                                customDomain: currentCustomDomain, 
+                                subdomain: currentSubdomain,
+                                url: bestUrl
+                            };
+                        }
+                        return store;
+                    });
+                    
+                    if (storesChanged) return { ...user, stores: newStores };
+                    return user;
                 });
                 
-                if (storesChanged) return { ...user, stores: newStores };
-                return user;
+                return changed ? newUsers : prevUsers;
             });
-            
-            return changed ? newUsers : prevUsers;
-        });
+        }, 1000);
+
+        return () => clearTimeout(updateTimeout);
     }, [allStoresData, isInitialLoad]);
 
     // --- Aggressive Auto-Save Logic ---

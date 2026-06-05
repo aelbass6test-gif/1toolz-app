@@ -300,13 +300,19 @@ const Header: React.FC<HeaderProps> = ({
                                 <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
                                     <div className="flex items-center gap-2">
                                         <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                                            <Cloud size={14} className="animate-pulse" />
+                                            <Cloud size={14} className={dbSyncMode === 'auto' ? "animate-pulse" : ""} />
                                         </div>
-                                        <span className="font-black text-xs text-slate-850 dark:text-slate-200">حالة الربط والذكاء الاصطناعي</span>
+                                        <span className="font-black text-xs text-slate-850 dark:text-slate-200">
+                                            {dbSyncMode === 'auto' ? "حالة الربط والذكاء الاصطناعي" : "العمل بدون اتصال (محلي)"}
+                                        </span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/30 px-2.5 py-0.5 rounded-lg border border-emerald-100/50 dark:border-emerald-900/30">
-                                        <CheckCircle size={10} />
-                                        <span>مزامنة سحابية نشطة</span>
+                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-lg border ${
+                                        dbSyncMode === 'auto' 
+                                            ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border-emerald-100/50 dark:border-emerald-900/30"
+                                            : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-amber-100/50 dark:border-amber-900/30"
+                                    }`}>
+                                        {dbSyncMode === 'auto' ? <CheckCircle size={10} /> : <Database size={10} />}
+                                        <span>{dbSyncMode === 'auto' ? "مزامنة سحابية نشطة" : "تخزين محلي فقط"}</span>
                                     </div>
                                 </div>
 

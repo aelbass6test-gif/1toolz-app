@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Settings, WebhookIntegration } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers } from 'lucide-react';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted } from '../services/databaseService';
 
 const SQL_SCHEMA_SCRIPT = `-- 1. STORES_DATA (قاعدة بيانات المتاجر)
@@ -397,8 +397,8 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   
   // Custom Database Credentials States
-  const [customSupabaseUrl, setCustomSupabaseUrl] = useState(localStorage.getItem('custom_supabase_url') || '');
-  const [customSupabaseAnonKey, setCustomSupabaseAnonKey] = useState(localStorage.getItem('custom_supabase_anon_key') || '');
+  const [customCloudUrl, setCustomCloudUrl] = useState(localStorage.getItem('custom_cloud_url') || '');
+  const [customCloudAnonKey, setCustomCloudAnonKey] = useState(localStorage.getItem('custom_cloud_anon_key') || '');
   const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
   const [showSqlSchema, setShowSqlSchema] = useState(false);
 
@@ -448,34 +448,34 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   };
 
   const handleSaveDatabaseCredentials = () => {
-    if (customSupabaseUrl.trim() && !customSupabaseUrl.startsWith('http')) {
-      alert("يرجى إدخال رابط Supabase URL صحيح يبدأ بـ http:// أو https://");
+    if (customCloudUrl.trim() && !customCloudUrl.startsWith('http')) {
+      alert("يرجى إدخال رابط Cloud URL صحيح يبدأ بـ http:// أو https://");
       return;
     }
 
-    if (customSupabaseUrl.trim() && customSupabaseAnonKey.trim()) {
-      localStorage.setItem('custom_supabase_url', customSupabaseUrl.trim());
-      localStorage.setItem('custom_supabase_anon_key', customSupabaseAnonKey.trim());
+    if (customCloudUrl.trim() && customCloudAnonKey.trim()) {
+      localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
+      localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
       
       // Since they supplied a new fresh DB, let's auto-reactivate cloud connection
       setSupabaseRestricted(false);
       setIsRestricted(false);
       alert("تم حفظ إعدادات قاعدة البيانات المخصصة بنجاح! سيتم إعادة تحميل التطبيق تلقائياً للاتصال بقاعدة بياناتك الجديدة.");
       window.location.reload();
-    } else if (!customSupabaseUrl.trim() && !customSupabaseAnonKey.trim()) {
+    } else if (!customCloudUrl.trim() && !customCloudAnonKey.trim()) {
       handleRestoreDefaultDatabase();
     } else {
-      alert("يرجى ملء كلا الحقلين (الرابط ومفتاح Api Anon) أو تركهما فارغين لاستعادة الافتراضي.");
+      alert("يرجى ملء كلا الحقلين (الرابط ومفتاح Api Key) أو تركهما فارغين لاستعادة الافتراضي.");
     }
   };
 
   const handleRestoreDefaultDatabase = () => {
-    localStorage.removeItem('custom_supabase_url');
-    localStorage.removeItem('custom_supabase_anon_key');
+    localStorage.removeItem('custom_cloud_url');
+    localStorage.removeItem('custom_cloud_anon_key');
     setSupabaseRestricted(false);
     setIsRestricted(false);
-    setCustomSupabaseUrl('');
-    setCustomSupabaseAnonKey('');
+    setCustomCloudUrl('');
+    setCustomCloudAnonKey('');
     alert("تمت استعادة قاعدة البيانات السحابية الافتراضية بنجاح! سيتم إعادة تحميل الصفحة لتطبيق التغييرات.");
     window.location.reload();
   };
@@ -486,7 +486,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
     alert("تم تنشيط الاتصال السحابي وإلغاء وضع الطوارئ المحلي. سيقوم النظام الآن بمحاولة المزامنة مع خوادم قاعدة البيانات.");
     window.location.reload();
   };
-
 
   const addIntegration = () => {
     setIntegrations([...integrations, {
@@ -527,7 +526,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
           </button>
       </div>
 
-      {/* 🌐 إعدادات قاعدة البيانات المخصصة للحسابات المجانية (Supabase Free Tier Support) */}
       <div id="custom-database-settings" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -536,27 +534,26 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                  <Database size={20} />
               </div>
               <div className="text-right">
-                <h2 className="text-lg font-bold text-slate-800 dark:text-white">قاعدة بياناتك الخاصة والآمنة (مجانية بالكامل)</h2>
-                <p className="text-sm text-slate-500">تمتع بحرية تامة ومساحة تخزين سحابية كاملة من خلال ربط حساب Supabase المجاني الخاص بك.</p>
+                <h2 className="text-lg font-bold text-slate-800 dark:text-white">إعدادات الربط السحابي وقاعدة البيانات</h2>
+                <p className="text-sm text-slate-500">تمتع بحرية تامة وتزامن سحابي كامل من خلال إعدادات الربط المخصصة.</p>
               </div>
             </div>
             
-            {/* حالة الاتصال والربط */}
             <div className="flex items-center gap-2">
               {isRestricted ? (
                 <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl border border-amber-200/50 dark:border-amber-900/40 animate-pulse">
                   <AlertCircle size={14} />
                   <span>وضع الطوارئ (تخزين محلي فقط)</span>
                 </span>
-              ) : localStorage.getItem('custom_supabase_url') ? (
+              ) : localStorage.getItem('custom_cloud_url') ? (
                 <span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400 text-xs font-bold rounded-xl border border-green-200/50 dark:border-green-900/30">
                   <Check size={14} />
-                  <span>قاعدة بياناتك المخصصة متصلة</span>
+                  <span>ربط مخصص متصل</span>
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-blue-200/50 dark:border-blue-900/30">
                   <Check size={14} />
-                  <span>قاعدة البيانات الافتراضية متصلة</span>
+                  <span>قاعدة البيانات الافتراضية (Firebase) متصلة</span>
                 </span>
               )}
             </div>
@@ -566,39 +563,34 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
         <div className="p-6 space-y-6 text-right">
           <div className="bg-blue-50/50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/30 rounded-xl p-4 text-sm text-slate-600 dark:text-slate-300 space-y-3 leading-relaxed">
             <h3 className="font-bold text-blue-900 dark:text-blue-400 flex items-center gap-2 justify-start">
-              <Shield size={16} /> <span>خطوات الحصول على قاعدة بيانات سحابية مجانية ودائمة 🌐</span>
+              <Shield size={16} /> <span>دليل هيكلية البيانات والمزامنة الشاملة 🌐</span>
             </h3>
-            <ol className="list-decimal list-inside space-y-1.5 text-xs mr-1 text-slate-700 dark:text-slate-300">
-              <li>قم بزيارة موقع <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-bold inline-flex items-center gap-0.5">Supabase <ExternalLink size={12} /></a> وسجل حساباً مجانياً مدى الحياة.</li>
-              <li>أنشئ مشروعاً جديداً <strong>New Project</strong>، واختر كلمة مرور آمنة.</li>
-              <li>اذهب لصفحة الإعدادات <strong>Settings</strong> (أيقونة الترس)، ثم اضغط على تفرّع مخصص باسم <strong>API</strong>.</li>
-              <li>انسخ كلاً من رابط المشروع <code>Project URL</code> ومفتاح الرمز <code>anon public API Key</code> وضعهما بالأسفل.</li>
-              <li><strong>الخطوة الأهم:</strong> انسخ كود الـ SQL من الصندوق القابل للطي في الأسفل، وافتح <strong>SQL Editor</strong> في لوحة تحكم Supabase، ثم الصقه واضغط على <strong>Run</strong> لإنشاء وتجهيز جميع الجداول في ثوانٍ معدودة!</li>
-            </ol>
+            <p className="text-xs text-slate-700 dark:text-slate-300">
+                يعتمد النظام على هندسة برمجية متطورة تضمن توافق البيانات بين الأجهزة المختلفة محلياً وسحابياً. يمكنك استخدام كود الـ SQL بالأسفل لإعادة بناء هيكل البيانات إذا كنت ترغب في تصدير مشروعك لمنظومة خارجية أو لإجراء عمليات فحص تقنية متقدمة.
+            </p>
           </div>
 
-          {/* مدخلات الرابط والمفتاح */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5 text-right">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">رابط Supabase URL الخاص بك</label>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">رابط Cloud Endpoint / URL المخصص</label>
               <input 
                 type="text" 
-                placeholder="https://your-project-id.supabase.co"
+                placeholder="https://your-custom-endpoint.com"
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
-                value={customSupabaseUrl}
-                onChange={(e) => setCustomSupabaseUrl(e.target.value)}
+                value={customCloudUrl}
+                onChange={(e) => setCustomCloudUrl(e.target.value)}
                 dir="ltr"
               />
             </div>
             
             <div className="space-y-1.5 text-right">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">رمز API Anon Key الخاص بك</label>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">مفتاح API Key الخاص بالربط</label>
               <input 
                 type="text" 
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5c..."
+                placeholder="PRO-KEY-..."
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
-                value={customSupabaseAnonKey}
-                onChange={(e) => setCustomSupabaseAnonKey(e.target.value)}
+                value={customCloudAnonKey}
+                onChange={(e) => setCustomCloudAnonKey(e.target.value)}
                 dir="ltr"
               />
             </div>
@@ -614,7 +606,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                 حفظ وتشغيل الاتصال السحابي الخاص
               </button>
 
-              {(localStorage.getItem('custom_supabase_url') || localStorage.getItem('custom_supabase_anon_key')) && (
+              {(localStorage.getItem('custom_cloud_url') || localStorage.getItem('custom_cloud_anon_key')) && (
                 <button 
                   onClick={handleRestoreDefaultDatabase}
                   className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition"
@@ -635,7 +627,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
             )}
           </div>
 
-          {/* 💻 قسم SQL Schema (قابل للطي) */}
           <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden text-right">
             <button 
               type="button"
@@ -678,7 +669,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
         </div>
       </div>
 
-      {/* 🔐 قسم أمان حماية وتزامن البيانات وعلاج التعارض */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mb-8">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3 text-right">
@@ -693,13 +683,11 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
         </div>
 
         <div className="p-6 space-y-6 text-right">
-          {/* شرح مبسط */}
           <div className="p-4 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/30 rounded-xl text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
             💬 يواجه أصحاب المتاجر أحياناً مشكلة تداخل البيانات وتضاربها إذا قام الكاشير بالاقتصاص بدون إنترنت ثم حدث تعديل لطلب من هاتف المدير سحابياً. يقوم هذا النظام المتكامل بمقارنة الحقول تلقائياً وتطبيق استراتيجيات دقيقة جداً مع ميزة 
             <strong className="text-indigo-600 dark:text-indigo-400 mx-1">مزامنة CDC الرقمية</strong> لحماية أرباحك وتجنب أي تعويضات أو ضياع للعمليات المالية.
           </div>
 
-          {/* اختيار سياسة حل التعارض */}
           <div className="space-y-3">
             <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5 justify-start">
               <Layers size={16} className="text-indigo-500" />
@@ -707,7 +695,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* خيار 1: الأحدث فوزا */}
               <div 
                 onClick={() => handleSaveConflictStrategy('last_write_wins')}
                 className={`border rounded-xl p-4 cursor-pointer transition-all duration-200 relative ${
@@ -732,7 +719,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                 </p>
               </div>
 
-              {/* خيار 2: المحلي يفوز */}
               <div 
                 onClick={() => handleSaveConflictStrategy('local_wins')}
                 className={`border rounded-xl p-4 cursor-pointer transition-all duration-200 relative ${
@@ -757,7 +743,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                 </p>
               </div>
 
-              {/* خيار 3: السحابي يفوز */}
               <div 
                 onClick={() => handleSaveConflictStrategy('cloud_wins')}
                 className={`border rounded-xl p-4 cursor-pointer transition-all duration-200 relative ${
@@ -784,7 +769,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
             </div>
           </div>
 
-          {/* لوحة تحكم التزامن الفوري */}
           <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
             <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5 justify-start mb-4">
               <History size={16} className="text-indigo-500" />
@@ -792,7 +776,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* مؤشر 1 */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50 flex items-center justify-between">
                 <div className="text-right">
                   <p className="text-xs text-slate-500">حالة الاتصال والبيئة</p>
@@ -825,7 +808,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                 </button>
               </div>
 
-              {/* مؤشر 2 */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50">
                 <p className="text-xs text-slate-500">حماية وسلامة العمليات المالية</p>
                 <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1">
@@ -835,7 +817,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                 <p className="text-[10px] text-slate-400 mt-0.5">يقوم خادم CDC المدمج والمنفذ بحرص بمراجعة كل المعاملات.</p>
               </div>
 
-              {/* أزرار الإجراءات */}
               <div className="flex flex-col gap-2 justify-center">
                 <button 
                   onClick={triggerManualSync}
@@ -857,7 +838,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
               </div>
             </div>
 
-            {/* حالة المزامنة اللحظية */}
             {(saveStatus === 'saving' || saveStatus === 'success' || saveStatus === 'error') && (
               <div className={`mt-3 p-3 rounded-lg text-xs font-bold text-center flex items-center justify-center gap-2 transition ${
                 saveStatus === 'saving' ? 'bg-indigo-50 text-indigo-600' :
@@ -917,7 +897,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                          <input 
                            type="text" 
                            placeholder="https://other-store.com"
-                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white"
+                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-right"
                            value={integration.storeUrl}
                            onChange={(e) => updateIntegration(integration.id, 'storeUrl', e.target.value)}
                          />
@@ -927,7 +907,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                          <input 
                            type="text" 
                            placeholder="https://.../api/webhook/orders"
-                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white"
+                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-right"
                            value={integration.webhookUrl}
                            onChange={(e) => updateIntegration(integration.id, 'webhookUrl', e.target.value)}
                          />
@@ -938,22 +918,10 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                            <input 
                              type="text" 
                              readOnly
-                             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono outline-none"
+                             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono outline-none text-right"
                              value={integration.secretKey}
                            />
                          </div>
-                      </div>
-                   </div>
-                   <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
-                      إذا كان المتجر الآخر سيقوم بإنشاء طلبات في متجرك، قدم له <strong>رابط متجرك</strong>، ويجب عليه أن يرسل طلب من نوع <code>POST</code> إلى:
-                      <br/> 
-                      <div className="flex items-center gap-2 mt-1">
-                        <code className="bg-slate-100 dark:bg-black text-primary px-1.5 py-0.5 rounded font-mono inline-block w-full overflow-x-auto whitespace-nowrap" dir="ltr">
-                          https://keqmlcqymkohxzcouxfi.supabase.co/functions/v1/webhook?storeId={activeStoreId || 'YOUR_STORE_ID'}
-                        </code>
-                        <button onClick={() => handleCopy(`https://keqmlcqymkohxzcouxfi.supabase.co/functions/v1/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}`)} className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
-                           {copiedLink === `https://keqmlcqymkohxzcouxfi.supabase.co/functions/v1/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}` ? <CheckCircle2 size={16} className="text-green-500" /> : <Copy size={16} />}
-                        </button>
                       </div>
                    </div>
                 </div>
@@ -962,7 +930,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
         </div>
       </div>
 
-      {/* E-commerce Platforms Integrations */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mt-8">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
@@ -986,20 +953,21 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
              </p>
 
              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Webhook size={14} /> رابط Webhook Edge Function المشفر</label>
+                <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Webhook size={14} /> رابط Webhook Cloud Function المشفر</label>
                 <div className="flex gap-2 items-center">
                   <input 
                     type="text" 
                     readOnly
-                    className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono outline-none"
-                    value={`https://keqmlcqymkohxzcouxfi.supabase.co/functions/v1/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}&platform=wuilt`}
+                    className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-400 font-mono outline-none text-left"
+                    value={`https://cloud-functions.abdomedi.com/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}&platform=wuilt`}
+                    dir="ltr"
                   />
                   <button 
-                    onClick={() => handleCopy(`https://keqmlcqymkohxzcouxfi.supabase.co/functions/v1/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}&platform=wuilt`)} 
+                    onClick={() => handleCopy(`https://cloud-functions.abdomedi.com/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}&platform=wuilt`)} 
                     className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 p-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition"
                     title="نسخ الرابط"
                   >
-                     {copiedLink === `https://keqmlcqymkohxzcouxfi.supabase.co/functions/v1/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}&platform=wuilt` ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
+                     {copiedLink === `https://cloud-functions.abdomedi.com/webhook?storeId=${activeStoreId || 'YOUR_STORE_ID'}&platform=wuilt` ? <CheckCircle2 size={18} className="text-green-500" /> : <Copy size={18} />}
                   </button>
                 </div>
              </div>
@@ -1009,8 +977,8 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
              <h3 className="font-bold text-slate-800 dark:text-white text-md mb-2 flex items-center gap-2">
                منصات أخرى قريباً (Salla, Zid, Shopify)
              </h3>
-             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed max-w-2xl">
-               سيتم إضافة تكاملات مخصصة لهذه المنصات في المستقبل القريب. تستخدم Edge Functions لضمان أعلى سرعة في المزامنة وأمان لبياناتك.
+             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed max-w-2xl text-right">
+               سيتم إضافة تكاملات مخصصة لهذه المنصات في المستقبل القريب لضمان أعلى سرعة في المزامنة وأمان لبياناتك.
              </p>
           </div>
         </div>

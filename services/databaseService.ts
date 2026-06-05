@@ -418,7 +418,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const hashKey = `${store.id}_${collectionName}`;
                 const currentHash = getCollectionHash(stateItems);
                 if (LAST_SYNCED_HASHES[hashKey] === currentHash) {
-                    console.log(`[SYNC-OPTIMIZATION] Skipping unchanged collection "${collectionName}" to conserve reads/writes`);
                     return;
                 }
 

@@ -140,7 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: '/settings/employees', label: 'سجل صلاحيات طاقم العمل والـ CRM', icon: <Users2 size={18} /> },
                 { 
                     to: '/settings/developer', 
-                    label: 'أدوات المطورين والربط السحابي (Supabase)', 
+                    label: 'أدوات المطورين والربط السحابي (Cloud Sync)', 
                     icon: <Code size={18} />,
                     badge: { text: "مطور 🛠️", color: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/10 text-[9px] font-medium" }
                 },
