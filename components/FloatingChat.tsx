@@ -17,6 +17,8 @@ export interface FloatingChatHandles {
     toggle: () => void;
 }
 
+import { isSupabaseActive } from '../services/databaseService';
+
 const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({ currentUser, storeOwner, activeStoreId, employees, onlineUsers }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
     const [activeChat, setActiveChat] = useState<{ id: string, name: string, icon: React.ReactElement } | null>(null);
@@ -76,7 +78,7 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
     }, []);
 
     useEffect(() => {
-        if (!activeChat || !currentUser || !activeStoreId) {
+        if (!activeChat || !currentUser || !activeStoreId || isSupabaseActive()) {
             setMessages([]);
             return;
         }

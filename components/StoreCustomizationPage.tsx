@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Settings, StoreCustomization, Store, StoreSection, Banner } from '../types';
 import { 
@@ -568,6 +568,14 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
     return PRESET_TEMPLATES.filter(tpl => tpl.category === selectedCategory);
   }, [selectedCategory]);
 
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
   const startTemplateInstallation = (tpl: PresetTemplate) => {
     setInstallingTemplateId(tpl.id);
     setInstallProgress(0);
@@ -575,17 +583,19 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
     const intervalTime = 30; // ms
     const duration = 1500; // 1.5s installation simulation
     const step = (intervalTime / duration) * 100;
+    let currentProgress = 0;
     
-    const timer = setInterval(() => {
-      setInstallProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(timer);
-          applyTemplate(tpl);
-          setInstallingTemplateId(null);
-          return 100;
-        }
-        return prev + step;
-      });
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      currentProgress += step;
+      if (currentProgress >= 100) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        applyTemplate(tpl);
+        setInstallingTemplateId(null);
+        setInstallProgress(100);
+      } else {
+        setInstallProgress(currentProgress);
+      }
     }, intervalTime);
   };
 
@@ -938,24 +948,34 @@ const ColorsSection: React.FC<SectionComponentProps> = ({ customization, setCust
     const [installingPaletteName, setInstallingPaletteName] = useState<string | null>(null);
     const [installProgressPalette, setInstallProgressPalette] = useState<number>(0);
 
-    const startPaletteInstallation = (p: typeof PRESET_PALETTES[0]) => {
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const startPaletteInstallation = (p: typeof PRESET_PALETTES[0]) => {
         setInstallingPaletteName(p.name);
         setInstallProgressPalette(0);
         
         const intervalTime = 30; // ms
         const duration = 1200; // 1.2s color palette setup simulation
         const step = (intervalTime / duration) * 100;
+        let currentProgress = 0;
         
-        const timer = setInterval(() => {
-          setInstallProgressPalette(prev => {
-            if (prev >= 100) {
-              clearInterval(timer);
-              applyPalette(p);
-              setInstallingPaletteName(null);
-              return 100;
-            }
-            return prev + step;
-          });
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => {
+          currentProgress += step;
+          if (currentProgress >= 100) {
+            if (timerRef.current) clearInterval(timerRef.current);
+            applyPalette(p);
+            setInstallingPaletteName(null);
+            setInstallProgressPalette(100);
+          } else {
+            setInstallProgressPalette(currentProgress);
+          }
         }, intervalTime);
     };
 
@@ -1365,7 +1385,7 @@ const HomepageSectionsSection: React.FC<SectionComponentProps> = ({ customizatio
         setCustomization(p => ({ ...p, pageSections: sectionsList }));
     };
 
-    const handleAddSection = (type: 'hero' | 'products') => {
+    const handleAddSection = (type: 'hero' | 'products' | 'about_us') => {
         const sectionsList = [...(customization.pageSections || [])];
         const newSec: StoreSection = {
             id: `sec_${type}_${Date.now()}`,
@@ -1388,8 +1408,8 @@ const HomepageSectionsSection: React.FC<SectionComponentProps> = ({ customizatio
                 {/* Sections Builder Lists */}
                 <div className="space-y-3">
                     {(customization.pageSections || []).map((sect, idx) => {
-                        const sectionName = sect.type === 'hero' ? 'بانر السلايدر الترويجي (الافتتاحية)' : 'شبكة المنتجات وتصنيفات الشراء';
-                        const sectionDesc = sect.type === 'hero' ? 'يعرض العروض الدوارة والصور الكبيرة المحفزة للشراء' : 'العمود الفقري لعرض الفئات وبطاقات الطلب السريع';
+                        const sectionName = sect.type === 'hero' ? 'بانر السلايدر الترويجي (الافتتاحية)' : sect.type === 'products' ? 'شبكة المنتجات وتصنيفات الشراء' : 'قسم من نحن';
+                        const sectionDesc = sect.type === 'hero' ? 'يعرض العروض الدوارة والصور الكبيرة المحفزة للشراء' : sect.type === 'products' ? 'العمود الفقري لعرض الفئات وبطاقات الطلب السريع' : 'نبذة تعريفية عن المتجر والقصة';
                         return (
                             <div key={sect.id || sect.type} className={`p-4 rounded-2xl border transition-all duration-300 flex items-center justify-between text-right ${sect.enabled ? 'bg-slate-50/50 dark:bg-slate-900 border-slate-202 dark:border-slate-800' : 'bg-slate-100/50 dark:bg-slate-900/40 border-slate-150 border-dashed opacity-50'} flex-row-reverse`}>
                                 <div className="flex items-center gap-3 flex-row-reverse">
@@ -1458,7 +1478,7 @@ const HomepageSectionsSection: React.FC<SectionComponentProps> = ({ customizatio
                 <div className="border-t border-slate-100 dark:border-slate-800 my-4"></div>
                 
                 <h3 className="font-black text-xs text-slate-705 dark:text-slate-355 mb-3">+ إضافة قسم جديد بتنسيق فوري:</h3>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <button
                         type="button"
                         onClick={() => handleAddSection('hero')}
@@ -1472,6 +1492,13 @@ const HomepageSectionsSection: React.FC<SectionComponentProps> = ({ customizatio
                         className="p-3 text-center bg-indigo-50/50 hover:bg-indigo-100/70 border border-indigo-100 rounded-2xl font-black text-xs text-indigo-705 transition-all flex items-center justify-center gap-1.5"
                     >
                         <Plus size={14}/> قسم شبكة المنتجات
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleAddSection('about_us')}
+                        className="p-3 text-center bg-indigo-50/50 hover:bg-indigo-100/70 border border-indigo-100 rounded-2xl font-black text-xs text-indigo-705 transition-all flex items-center justify-center gap-1.5"
+                    >
+                        <Plus size={14}/> قسم من نحن
                     </button>
                 </div>
             </CustomizationSection>

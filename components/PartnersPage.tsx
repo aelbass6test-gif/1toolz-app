@@ -205,6 +205,33 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     showToast('تم تعديل اسم الشريك بنجاح');
   };
 
+  const recalculateSupplyBalance = () => {
+    setDialog({
+        isOpen: true,
+        title: 'مزامنة محفظة التوريد',
+        message: 'هل تريد إعادة حساب رصيد محفظة التوريد بناءً على سجل المعاملات؟ سيقوم هذا الإجراء بتصحيح أي خطأ في الرصيد الحالي الناتج عن عمليات التعديل السابقة.',
+        onConfirm: () => {
+            const supplyTxs = wallet.transactions.filter(t => 
+                t.status === 'completed' && 
+                ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply'].includes(t.category || '')
+            );
+            
+            const newSupplyBalance = supplyTxs.reduce((sum, t) => {
+                const amount = Number(t.amount) || 0;
+                return t.type === 'إيداع' ? sum + amount : sum - amount;
+            }, 0);
+
+            setWallet(prev => ({
+                ...prev,
+                supplyBalance: newSupplyBalance
+            }));
+            
+            setDialog(null);
+            showToast('تمت إعادة مزامنة رصيد محفظة التوريد بنجاح');
+        }
+    });
+  };
+
   const addTransaction = (partnerId: string) => {
     const amount = parseFloat(transactionAmount);
     if (!amount || isNaN(amount)) return;
@@ -347,10 +374,18 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         </div>
         
         <div className="flex gap-3">
-            <button 
-              onClick={() => distributeProfit()}
-              className="bg-white dark:bg-slate-800 border-2 border-indigo-600/20 text-indigo-600 dark:text-indigo-400 px-6 py-3 rounded-2xl font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center gap-2"
-            >
+              <button 
+                onClick={recalculateSupplyBalance}
+                className="bg-white dark:bg-slate-800 border-2 border-indigo-600/20 text-indigo-600 dark:text-indigo-400 px-6 py-3 rounded-2xl font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center gap-2"
+                title="إعادة حساب رصيد محفظة التوريد من المعاملات"
+              >
+                <Activity size={18} />
+                مزامنة المحفظة
+              </button>
+              <button 
+                onClick={() => distributeProfit()}
+                className="bg-white dark:bg-slate-800 border-2 border-indigo-600/20 text-indigo-600 dark:text-indigo-400 px-6 py-3 rounded-2xl font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center gap-2"
+              >
               <TrendingUp size={18} />
               تحليل الأرباح
             </button>

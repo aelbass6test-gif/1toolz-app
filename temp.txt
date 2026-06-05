@@ -1,0 +1,118 @@
+
+  const applyTemplate = (tpl: PresetTemplate) => {
+    setCustomization(prev => {
+      const currentBanners = prev.banners || [];
+      const updatedBanners: Banner[] = currentBanners.length > 0 
+--
+// --- SEC 2: Shaaaar & Logo ---
+const LogoIdentitySection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+
+    return (
+--
+// --- SEC 3: colors ---
+const ColorsSection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+    
+    const [confirmPalette, setConfirmPalette] = useState<typeof PRESET_PALETTES[0] | null>(null);
+--
+
+    const applyPalette = (p: typeof PRESET_PALETTES[0]) => {
+        setCustomization(c => ({...c, primaryColor: p.primary, backgroundColor: p.bg, textColor: p.text}));
+    };
+
+--
+// --- SEC 4: fonts ---
+const FontsSection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+
+    return (
+--
+// --- SEC 5: announcement ---
+const AnnouncementSection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+
+    return (
+--
+// --- SEC 6: slider ---
+const SlidersSection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+
+    return (
+--
+// --- SEC 7: products_view ---
+const ProductsViewSection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+
+    return (
+--
+
+    const handleSaveList = (updatedList: typeof list) => {
+        setCustomization(p => ({ ...p, navigationLinks: updatedList }));
+    };
+
+--
+
+    const updateField = (field: keyof typeof data, value: any) => {
+        setCustomization(p => ({
+            ...p,
+            aboutUs: { ...data, [field]: value }
+--
+        sectionsList[swapIndex] = temp;
+        
+        setCustomization(p => ({ ...p, pageSections: sectionsList }));
+    };
+
+--
+            enabled: !sectionsList[index].enabled
+        };
+        setCustomization(p => ({ ...p, pageSections: sectionsList }));
+    };
+
+--
+            enabled: true
+        };
+        setCustomization(p => ({ ...p, pageSections: [...sectionsList, newSec] }));
+    };
+
+    const handleRemoveSection = (index: number) => {
+        const sectionsList = [...(customization.pageSections || [])];
+        setCustomization(p => ({ ...p, pageSections: sectionsList.filter((_, idx) => idx !== index) }));
+    };
+
+--
+// --- SEC 11: footer ---
+const FooterSection: React.FC<SectionComponentProps> = ({ customization, setCustomization }) => {
+    const update = (field: keyof StoreCustomization, value: any) => setCustomization(p => ({...p, [field]: value}));
+
+    return (
+--
+
+    const updateField = (field: keyof typeof data, value: string) => {
+        setCustomization(p => ({
+            ...p,
+            contactInfo: { ...data, [field]: value }
+--
+
+    const updateField = (field: keyof typeof links, value: string) => {
+        setCustomization(p => ({
+            ...p,
+            socialLinksExtended: { ...links, [field]: value },
+--
+            fieldData.show = true; // must show if required
+        }
+        setCustomization(p => ({
+            ...p,
+            checkoutFieldsOptions: {
+--
+
+    const updateField = (field: keyof typeof screen, value: string) => {
+        setCustomization(p => ({
+            ...p,
+            successScreen: { ...screen, [field]: value }
+--
+
+    const updateField = (field: keyof typeof notifs, value: any) => {
+        setCustomization(p => ({
+            ...p,
+            emailNotifications: { ...notifs, [field]: value }

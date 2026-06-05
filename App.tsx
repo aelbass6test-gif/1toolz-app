@@ -1277,6 +1277,11 @@ export const AppComponent = () => {
             return () => {};
         }
 
+        if (db.isSupabaseActive()) {
+            console.log('[REALTIME] Custom Supabase cloud active: Firestore live snapshots are disabled to prevent quota issues.');
+            return () => {};
+        }
+
         console.log('[REALTIME] Setting up Firestore snapshots...');
         
         // Update refs with current values
@@ -1756,20 +1761,33 @@ export const AppComponent = () => {
 
     const handleAddToCart = (product: any) => {
         pageProps.setCart((prev: any[]) => {
-            const existing = prev.find(item => item.id === product.id);
+            const existing = prev.find(item => (item.productId || item.id) === product.id);
             if (existing) {
-                return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+                return prev.map(item => (item.productId || item.id) === product.id ? { ...item, quantity: item.quantity + 1 } : item);
             }
-            return [...prev, { ...product, quantity: 1 }];
+            const newItem: OrderItem = {
+                productId: product.id,
+                name: product.name,
+                price: product.price,
+                cost: product.costPrice || 0,
+                weight: product.weight || 0,
+                thumbnail: product.thumbnail,
+                quantity: 1
+            };
+            return [...prev, newItem];
         });
     };
 
-    const handleUpdateCartQuantity = (id: string, quantity: number) => {
-        pageProps.setCart((prev: any[]) => prev.map(item => item.id === id ? { ...item, quantity } : item));
+    const handleUpdateCartQuantity = (productId: string, quantity: number) => {
+        if (quantity < 1) {
+            handleRemoveFromCart(productId);
+            return;
+        }
+        pageProps.setCart((prev: any[]) => prev.map(item => (item.productId || item.id) === productId ? { ...item, quantity } : item));
     };
 
-    const handleRemoveFromCart = (id: string) => {
-        pageProps.setCart((prev: any[]) => prev.filter(item => item.id !== id));
+    const handleRemoveFromCart = (productId: string) => {
+        pageProps.setCart((prev: any[]) => prev.filter(item => (item.productId || item.id) !== productId));
     };
 
     if (isStoreNotFound) {
@@ -1908,6 +1926,7 @@ export const AppComponent = () => {
                             settings={pageProps.settings} 
                             setSettings={pageProps.setSettings} 
                             activeStoreId={activeStoreId} 
+                            activeStore={activeStore}
                             hostUrl={pageProps.settings.customAppDomain || window.location.origin}
                             dbSyncMode={dbSyncMode}
                             setDbSyncMode={setDbSyncMode}

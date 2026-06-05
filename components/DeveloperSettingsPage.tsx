@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
-import { Settings, WebhookIntegration } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud } from 'lucide-react';
-import { getSupabaseRestrictedStatus, setSupabaseRestricted } from '../services/databaseService';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Settings, WebhookIntegration, Store } from '../types';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download } from 'lucide-react';
+import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive } from '../services/databaseService';
+
+const SupabaseIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3ECF8E]">
+    <path d="M13.35 21.05C12.45 21.95 11 21.31 11 20.04V15H5.43C4.08 15 3.4 13.37 4.35 12.42L10.65 6.12C11.55 5.22 13 5.86 13 7.13V12.17H18.57C19.92 12.17 20.6 13.8 19.65 14.75L13.35 21.05Z" fill="currentColor"/>
+  </svg>
+);
 
 const SQL_SCHEMA_SCRIPT = `-- 1. STORES_DATA (قاعدة بيانات المتاجر)
 CREATE TABLE IF NOT EXISTS stores_data (
@@ -65,6 +72,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
     category TEXT,
+    status TEXT DEFAULT 'completed',
     note TEXT,
     details JSONB DEFAULT '{}'::jsonb
 );
@@ -357,21 +365,206 @@ ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE discount_codes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
-ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
-ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
-ALTER TABLE treasury_accounts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE treasury_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partners DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partner_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE chat_messages DISABLE ROW LEVEL SECURITY;`;
+-- ⚡ تأمين وجود جميع الأعمدة اللازمة (SQL Patches) لضمان توافق جميع إصدارات البيانات
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fees NUMERIC DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "orderId" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS service TEXT;
+
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS details TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_name TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS timestamp NUMERIC;
+
+-- تأمين أعمدة الربط لجميع الجداول
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS supplier_id TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerPayments" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFees" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFees" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "taxRate" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "taxAmount" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "grandTotal" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "attachmentUrl" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalCost" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalPaid" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS status TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS notes TEXT;
+
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "productId" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_id TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+-- تأمين أعمدة البيانات الإضافية
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "costPrice" NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS thumbnail TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "inStock" BOOLEAN DEFAULT true;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "collectionId" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "hasVariants" BOOLEAN DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS options JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "categoryId" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "useProfitPercentage" BOOLEAN DEFAULT false;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "waybillNumber" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "trackingUrl" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "platformOrderId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingCompany" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingArea" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerName" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone2" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS governorate TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "adminFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentStatus" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "productName" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "productPrice" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "productCost" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalPrice" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "insuranceFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS weight NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalAmountOverride" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalAmountOverrideReason" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "includeInspectionFee" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "isInsured" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFeeDeducted" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFeePaidByCustomer" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingAndInsuranceDeducted" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnFeeDeducted" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "collectionProcessed" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "preparationStatus" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS classification TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "redeemedPoints" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "pointsDiscount" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "loyaltyPointsAwarded" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stockDeducted" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderType" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipmentType" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "originalOrderId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "confirmationLogs" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "followUpReminder" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "auditLogs" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "callAttempts" JSONB DEFAULT '[]'::jsonb;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "totalSpent" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyaltyPoints" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "totalOrders" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "successfulOrders" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "returnedOrders" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "lastOrderDate" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "firstOrderDate" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "averageOrderValue" NUMERIC;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS governorate TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC;
+
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS action TEXT;
+
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "senderId" TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "receiverId" TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "isRead" BOOLEAN DEFAULT false;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "isFile" BOOLEAN DEFAULT false;
+
+-- تأمين جداول الخزينة (Treasury)
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "beneficiaryName" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "bankName" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "walletNumber" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "walletName" TEXT;
+
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "fromAccountId" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "toAccountId" TEXT;
+
+-- تأمين جداول الشركاء (Partners)
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+
+-- إعادة تفعيل الصلاحيات (RLS Disable is enough)
+ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;`;
+
 
 interface DeveloperSettingsPageProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   activeStoreId?: string | null;
+  activeStore?: Store;
   hostUrl?: string;
   dbSyncMode?: 'auto' | 'manual';
   setDbSyncMode?: (mode: 'auto' | 'manual') => void;
@@ -385,6 +578,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   settings, 
   setSettings, 
   activeStoreId, 
+  activeStore,
   hostUrl,
   dbSyncMode = 'auto',
   setDbSyncMode,
@@ -410,10 +604,102 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [isPullingRemote, setIsPullingRemote] = useState(false);
 
+  // In-app Custom alarm / alert system state
+  const [alarm, setAlarm] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'warning' | 'error' | 'info';
+    onConfirm?: () => void;
+    showCancel?: boolean;
+    cancelText?: string;
+    confirmText?: string;
+  } | null>(null);
+
+  const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
+    try {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+      
+      if (type === 'success') {
+        const osc1 = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(587.33, now); // D5
+        osc1.frequency.setValueAtTime(880, now + 0.1); // A5
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+        osc1.connect(gain);
+        gain.connect(ctx.destination);
+        osc1.start(now);
+        osc1.stop(now + 0.45);
+      } else if (type === 'error') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        // A low buzzing warning horn sound (pulsing)
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.setValueAtTime(150, now + 0.15);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.5);
+      } else if (type === 'warning') {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.setValueAtTime(349.23, now + 0.12); // F4
+        gain.gain.setValueAtTime(0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.35);
+      } else {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now); // C5
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.25);
+      }
+    } catch (e) {
+      console.error("Audio beep failed:", e);
+    }
+  };
+
+  const triggerAlarm = (
+    message: string, 
+    type: 'success' | 'warning' | 'error' | 'info' = 'info', 
+    title: string = 'تنبيه النظام', 
+    options?: { onConfirm?: () => void; showCancel?: boolean; cancelText?: string; confirmText?: string }
+  ) => {
+    playAlarmSound(type);
+    setAlarm({
+      show: true,
+      title,
+      message,
+      type,
+      onConfirm: options?.onConfirm,
+      showCancel: options?.showCancel,
+      cancelText: options?.cancelText || 'إلغاء',
+      confirmText: options?.confirmText || 'موافق'
+    });
+  };
+
   const handleSaveConflictStrategy = (strategy: string) => {
     localStorage.setItem('syncConflictStrategy', strategy);
     setSyncConflictStrategy(strategy);
-    alert("🚀 تم تعديل سياسة حل التعارض وتأمين المزامنة تلقائياً للفروع والديسك توب!");
+    triggerAlarm("🚀 تم تعديل سياسة حل التعارض وتأمين المزامنة تلقائياً للفروع والديسك توب!", 'success', 'مزامنة حل التعارض');
   };
 
   const triggerManualSync = async () => {
@@ -421,8 +707,10 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
     setIsManualSyncing(true);
     try {
       await forceSync();
-    } catch (e) {
+      triggerAlarm("✅ تم دفع المزامنة السحابية وبدء الرفع بنجاح!", 'success', 'مكتمل');
+    } catch (e: any) {
       console.error(e);
+      triggerAlarm(`❌ فشلت عملية المزامنة: ${e.message || String(e)}`, 'error', 'خطأ مزامنة');
     } finally {
       setIsManualSyncing(false);
     }
@@ -430,15 +718,32 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
 
   const triggerCloudPull = async () => {
     if (!forcePullFromCloud) return;
-    if (!window.confirm("⚠️ هل أنت متأكد من رغبتك في سحب البيانات من السحابة؟ هذا قد يستبدل أي بيانات محلية لم يتم رفعها بعد.")) return;
-    setIsPullingRemote(true);
-    try {
-      await forcePullFromCloud();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsPullingRemote(false);
-    }
+    triggerAlarm(
+      "⚠️ هل أنت متأكد من رغبتك في سحب واستيراد البيانات من السحابة؟ هذا قد يستبدل أي بيانات محلية لم يتم رفعها بعد على خوادم قاعدة البيانات.",
+      'warning',
+      'تأكيد استرداد البيانات',
+      {
+        showCancel: true,
+        confirmText: 'نعم، استرد الآن',
+        cancelText: 'إلغاء',
+        onConfirm: async () => {
+          setIsPullingRemote(true);
+          try {
+            const res = await forcePullFromCloud();
+            if (res && res.success) {
+              triggerAlarm("✅ تم استيراد وسحب البيانات من السحابة وتحديث الذاكرة المحلية بنجاح!", 'success', 'مكتمل');
+            } else if (res && res.error) {
+              triggerAlarm(`❌ فشل استرداد البيانات: ${res.error}`, 'error', 'فشل الاسترداد');
+            }
+          } catch (e: any) {
+            console.error(e);
+            triggerAlarm(`❌ فشل استيراد البيانات: ${e.message || String(e)}`, 'error', 'فشل الاسترداد');
+          } finally {
+            setIsPullingRemote(false);
+          }
+        }
+      }
+    );
   };
 
   const handleCopy = (text: string) => {
@@ -447,25 +752,61 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
       setTimeout(() => setCopiedLink(null), 2000);
   };
 
-  const handleSaveDatabaseCredentials = () => {
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const handleSaveDatabaseCredentials = async () => {
     if (customCloudUrl.trim() && !customCloudUrl.startsWith('http')) {
-      alert("يرجى إدخال رابط Cloud URL صحيح يبدأ بـ http:// أو https://");
+      triggerAlarm("يرجى إدخال رابط Cloud URL صحيح يبدأ بـ http:// أو https://", 'warning', 'رابط غير صالح');
       return;
     }
 
     if (customCloudUrl.trim() && customCloudAnonKey.trim()) {
-      localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
-      localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
-      
-      // Since they supplied a new fresh DB, let's auto-reactivate cloud connection
-      setSupabaseRestricted(false);
-      setIsRestricted(false);
-      alert("تم حفظ إعدادات قاعدة البيانات المخصصة بنجاح! سيتم إعادة تحميل التطبيق تلقائياً للاتصال بقاعدة بياناتك الجديدة.");
-      window.location.reload();
+      setIsVerifying(true);
+      try {
+        const { verifySupabaseConnection } = await import('../services/databaseService');
+        const verification = await verifySupabaseConnection(customCloudUrl.trim(), customCloudAnonKey.trim());
+        
+        if (!verification.success) {
+          triggerAlarm(
+            `⚠️ فشل التحقق من الاتصال بقاعدة البيانات: ${verification.error}\n\nهل تريد حفظ الإعدادات على أي حال والاستمرار؟`,
+            'warning',
+            'فشل الاتصال',
+            {
+              showCancel: true,
+              confirmText: 'حفظ على أي حال',
+              cancelText: 'إلغاء',
+              onConfirm: () => {
+                localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
+                localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
+                setSupabaseRestricted(false);
+                setIsRestricted(false);
+                triggerAlarm("✅ تم حفظ إعدادات قاعدة البيانات! سيتم إعادة تحميل الصفحة الآن للتطبيق.", 'success', 'تم الحفظ', {
+                  onConfirm: () => { window.location.reload(); }
+                });
+              }
+            }
+          );
+          return;
+        }
+
+        localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
+        localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
+        
+        // Since they supplied a new fresh DB, let's auto-reactivate cloud connection
+        setSupabaseRestricted(false);
+        setIsRestricted(false);
+        triggerAlarm("✅ تم التحقق وحفظ إعدادات قاعدة البيانات المخصصة بنجاح! سيتم إعادة تحميل التطبيق للاتصال بالخادم المخصص.", 'success', 'ربط ناجح', {
+          onConfirm: () => { window.location.reload(); }
+        });
+      } catch (e: any) {
+        triggerAlarm("خطأ أثناء التحقق: " + e.message, 'error', 'خطأ التحقق');
+      } finally {
+        setIsVerifying(false);
+      }
     } else if (!customCloudUrl.trim() && !customCloudAnonKey.trim()) {
       handleRestoreDefaultDatabase();
     } else {
-      alert("يرجى ملء كلا الحقلين (الرابط ومفتاح Api Key) أو تركهما فارغين لاستعادة الافتراضي.");
+      triggerAlarm("يرجى ملء كلا الحقلين (الرابط ومفتاح Api Key) أو تركهما فارغين لاستعادة الافتراضي.", 'warning', 'حقول ناقصة');
     }
   };
 
@@ -476,15 +817,17 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
     setIsRestricted(false);
     setCustomCloudUrl('');
     setCustomCloudAnonKey('');
-    alert("تمت استعادة قاعدة البيانات السحابية الافتراضية بنجاح! سيتم إعادة تحميل الصفحة لتطبيق التغييرات.");
-    window.location.reload();
+    triggerAlarm("تمت استعادة قاعدة البيانات السحابية الافتراضية بنجاح! سيتم إعادة تحميل الصفحة لتطبيق التغييرات.", 'success', 'استعادة الافتراضي', {
+      onConfirm: () => { window.location.reload(); }
+    });
   };
 
   const handleReactivateCloudSync = () => {
     setSupabaseRestricted(false);
     setIsRestricted(false);
-    alert("تم تنشيط الاتصال السحابي وإلغاء وضع الطوارئ المحلي. سيقوم النظام الآن بمحاولة المزامنة مع خوادم قاعدة البيانات.");
-    window.location.reload();
+    triggerAlarm("تم تنشيط الاتصال السحابي وإلغاء وضع الطوارئ المحلي. سيقوم النظام الآن بمحاولة المزامنة مع خوادم قاعدة البيانات.", 'success', 'تنشيط الاتصال', {
+      onConfirm: () => { window.location.reload(); }
+    });
   };
 
   const addIntegration = () => {
@@ -507,7 +850,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
 
   const saveSettings = () => {
     setSettings(prev => ({ ...prev, webhookIntegrations: integrations }));
-    alert("تم حفظ الإعدادات بنجاح");
+    triggerAlarm("تم حفظ الإعدادات والربط الخارجي بنجاح", 'success', 'مكتمل');
   };
 
   return (
@@ -545,10 +888,10 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                   <AlertCircle size={14} />
                   <span>وضع الطوارئ (تخزين محلي فقط)</span>
                 </span>
-              ) : localStorage.getItem('custom_cloud_url') ? (
+              ) : isSupabaseActive() ? (
                 <span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400 text-xs font-bold rounded-xl border border-green-200/50 dark:border-green-900/30">
                   <Check size={14} />
-                  <span>ربط مخصص متصل</span>
+                  <span>قاعدة البيانات المخصصة (Supabase) متصلة ونشطة</span>
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-blue-200/50 dark:border-blue-900/30">
@@ -572,10 +915,13 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5 text-right">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">رابط Cloud Endpoint / URL المخصص</label>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">
+                <SupabaseIcon />
+                <span>رابط Supabase URL / Cloud Endpoint المخصص</span>
+              </label>
               <input 
                 type="text" 
-                placeholder="https://your-custom-endpoint.com"
+                placeholder="https://xyz.supabase.co"
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
                 value={customCloudUrl}
                 onChange={(e) => setCustomCloudUrl(e.target.value)}
@@ -584,10 +930,13 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
             </div>
             
             <div className="space-y-1.5 text-right">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">مفتاح API Key الخاص بالربط</label>
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">
+                <Key size={14} className="text-emerald-500" />
+                <span>مفتاح Supabase Anon Key / API Key الخاص بالربط</span>
+              </label>
               <input 
                 type="text" 
-                placeholder="PRO-KEY-..."
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
                 value={customCloudAnonKey}
                 onChange={(e) => setCustomCloudAnonKey(e.target.value)}
@@ -600,10 +949,32 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
             <div className="flex flex-wrap gap-2.5">
               <button 
                 onClick={handleSaveDatabaseCredentials}
-                className="bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition flex items-center gap-2"
+                disabled={isVerifying}
+                className="bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition flex items-center gap-2 disabled:opacity-50"
               >
-                <Save size={16} />
-                حفظ وتشغيل الاتصال السحابي الخاص
+                {isVerifying ? (
+                  <RefreshCw size={16} className="animate-spin" />
+                ) : (
+                  <Save size={16} />
+                )}
+                {isVerifying ? "جاري التحقق..." : "حفظ وتشغيل الاتصال السحابي المخصص"}
+              </button>
+
+              <button
+                onClick={() => {
+                  const data = JSON.stringify(settings);
+                  const blob = new Blob([data], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `data_export_${new Date().toISOString()}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/30 transition flex items-center gap-2"
+              >
+                <Download size={16} />
+                تنزيل البيانات
               </button>
 
               {(localStorage.getItem('custom_cloud_url') || localStorage.getItem('custom_cloud_anon_key')) && (
@@ -626,6 +997,73 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
               </button>
             )}
           </div>
+
+          {isSupabaseActive() && (
+            <div className="w-full mt-4 p-5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-3xl border border-indigo-200/50 dark:border-indigo-900/30">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-6 text-right">
+                <div className="flex-1">
+                  <h4 className="text-sm font-black text-indigo-700 dark:text-indigo-400 flex items-center gap-2">
+                    <Sparkles size={16} />
+                    نقل البيانات الحالية إلى قاعدتك الجديدة (Migration)
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                    بما أنك قمت للتو بربط Supabase، فإن الجداول هناك ستكون فارغة. 
+                    اضغط على الزر أدناه لرفع كافة طلباتك ومنتجاتك الحالية من هذا الجهاز إلى السحابة فوراً لتظهر في جميع أجهزتك.
+                  </p>
+                </div>
+                <button 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const btn = e.currentTarget as HTMLButtonElement;
+                    
+                    triggerAlarm(
+                      "⚠️ هل أنت متأكد؟ سيتم رفع كافة البيانات المحلية من هذا الجهاز واستبدال ما هو موجود على قاعدة البيانات السحابية (Supabase) بها بالكامل.",
+                      'warning',
+                      'تأكيد المزامنة والرفع للسحابة',
+                      {
+                        showCancel: true,
+                        confirmText: 'نعم، ابدأ الرفع',
+                        cancelText: 'إلغاء',
+                        onConfirm: async () => {
+                          btn.disabled = true;
+                          const originalContent = btn.innerHTML;
+                          btn.innerHTML = '<span class="animate-spin">🔄</span> جاري الرفع...';
+                          
+                          try {
+                            const { getLocal, saveStoreData } = await import('../services/databaseService');
+                            const storeId = activeStoreId || localStorage.getItem('lastActiveStoreId');
+                            const store = activeStore;
+                            
+                            if (!storeId || !store) throw new Error("لم يتم اختيار متجر");
+                            
+                            const localData = await getLocal(storeId);
+                            if (!localData) throw new Error("لا توجد بيانات محلية للرفع");
+                            
+                            const res = await saveStoreData(store, localData);
+                            
+                            if (res.success) {
+                              triggerAlarm("✅ تمت المزامنة والرفع بنجاح! جداول قاعدة البيانات السحابية أصبحت تحتوي على بياناتك الآن.", 'success', 'مزامنة ناجحة');
+                            } else {
+                              throw new Error(res.error);
+                            }
+                          } catch (e: any) {
+                            triggerAlarm("❌ فشل الرفع المباشر: " + e.message, 'error', 'خطأ مزامنة');
+                          } finally {
+                            btn.disabled = false;
+                            btn.innerHTML = originalContent;
+                          }
+                        }
+                      }
+                    );
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-indigo-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
+                >
+                  <CloudUpload size={18} />
+                  ابدأ مزامنة ورفع البيانات الآن
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden text-right">
             <button 
@@ -983,6 +1421,93 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Custom Alarm / Prompt Sound Alert Modal */}
+      <AnimatePresence>
+        {alarm && alarm.show && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!alarm.showCancel) setAlarm(null);
+              }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+            />
+            
+            {/* Alarm Dialog Card */}
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden text-right font-sans"
+            >
+              {/* Sound Ring Pulse Decorator */}
+              <div className="absolute top-0 right-0 left-0 h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+              
+              <div className="flex flex-col items-center text-center mt-3">
+                {/* Visual Icon based on Alarm TYPE */}
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-lg ${
+                  alarm.type === 'success' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                  alarm.type === 'error' ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400' :
+                  alarm.type === 'warning' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 font-bold' :
+                  'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
+                }`}>
+                  {alarm.type === 'success' && <CheckCircle2 size={32} />}
+                  {alarm.type === 'error' && <ShieldAlert size={32} />}
+                  {alarm.type === 'warning' && <AlertCircle size={32} />}
+                  {alarm.type === 'info' && <Database size={32} />}
+                </div>
+
+                {/* Alarm Ringing Animation Indicator */}
+                <div className="flex items-center gap-1.5 mb-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 dark:text-slate-400 font-bold tracking-wider animate-bounce">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
+                  <span>تنبيه داخلي نشط 🔔</span>
+                </div>
+
+                <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1 leading-tight">
+                  {alarm.title}
+                </h3>
+                
+                <p className="text-sm text-slate-600 dark:text-slate-450 mt-3 leading-relaxed whitespace-pre-line text-center px-2">
+                  {alarm.message}
+                </p>
+              </div>
+
+              {/* Confirm / Cancel Actions */}
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    const onConf = alarm.onConfirm;
+                    setAlarm(null);
+                    if (onConf) onConf();
+                  }}
+                  className={`flex-1 px-5 py-3 rounded-2xl text-xs font-black text-white hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md cursor-pointer ${
+                    alarm.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/10' :
+                    alarm.type === 'error' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/10' :
+                    alarm.type === 'warning' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/10' :
+                    'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/10'
+                  }`}
+                >
+                  {alarm.confirmText}
+                </button>
+                
+                {alarm.showCancel && (
+                  <button
+                    onClick={() => setAlarm(null)}
+                    className="flex-1 px-5 py-3 rounded-2xl text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 cursor-pointer"
+                  >
+                    {alarm.cancelText}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

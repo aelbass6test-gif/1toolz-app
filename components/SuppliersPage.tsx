@@ -472,10 +472,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                       newSupplyBalance += (currentOld.grandTotal || currentOld.totalCost);
                   } else if (currentOld.paymentMethod === 'cash') {
                       newBalance += (currentOld.grandTotal || currentOld.totalCost);
-                  } else if (currentOld.paymentMethod === 'partner') {
-                      // Partner funding previously added to supplyBalance
-                      newSupplyBalance -= (currentOld.grandTotal || currentOld.totalCost);
                   }
+                  // FIX: Removed partner from revert logic because partner funding + purchase net change to supplyBalance was 0.
+                  // Any manual subtraction here was causing double-deduction on edits.
               }
 
               // 2. Prepare new transactions

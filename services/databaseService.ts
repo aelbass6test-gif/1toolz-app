@@ -1,5 +1,6 @@
 import { db as firebaseDb } from './firebaseClient';
 import { db as localDb } from '../src/lib/db';
+import { createClient } from '@supabase/supabase-js';
 import { 
     collection, 
     doc, 
@@ -39,6 +40,63 @@ import {
 import { INITIAL_SETTINGS } from '../constants';
 
 const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
+
+// --- Supabase Custom Connection ---
+let supabaseSingleton: any = null;
+
+export const getSupabaseClient = () => {
+    if (typeof window === 'undefined') return null;
+    const url = localStorage.getItem('custom_cloud_url');
+    const key = localStorage.getItem('custom_cloud_anon_key');
+    
+    if (url && key && url.startsWith('http')) {
+        // Reuse existing client if credentials haven't changed
+        if (supabaseSingleton && supabaseSingleton.__url === url && supabaseSingleton.__key === key) {
+            return supabaseSingleton;
+        }
+        try {
+            const client = createClient(url, key);
+            // Attach URL/Key for comparison in next calls
+            (client as any).__url = url;
+            (client as any).__key = key;
+            supabaseSingleton = client;
+            return supabaseSingleton;
+        } catch (e) {
+            console.error('Failed to init custom Supabase client', e);
+            return null;
+        }
+    }
+    supabaseSingleton = null;
+    return null;
+};
+
+export const isSupabaseActive = (): boolean => {
+    return !!localStorage.getItem('custom_cloud_url') && !!localStorage.getItem('custom_cloud_anon_key');
+};
+
+/**
+ * Pings the Supabase endpoint to verify credentials
+ */
+export const verifySupabaseConnection = async (url: string, key: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+        const client = createClient(url, key);
+        // Try to select from a common table or just a health check
+        // Note: Even if table doesn't exist, if we get a 404 or something from the client
+        // it means we reached the server. A 401/403 means bad key.
+        const { error } = await client.from('stores_data').select('id').limit(1);
+        
+        if (error) {
+            // If the table doesn't exist yet, it's still a success in terms of CONNECTION (the key/url are valid)
+            if (error.code === 'PGRST116' || error.message.includes('relation "stores_data" does not exist')) {
+                return { success: true };
+            }
+            return { success: false, error: error.message };
+        }
+        return { success: true };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+};
 
 // --- Error Handling & Metrics ---
 export enum OperationType {
@@ -100,6 +158,11 @@ export function cleanUndefined<T>(obj: T): T {
 
 export const checkSupabaseConnection = async (): Promise<boolean> => {
     try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            const { error } = await supabase.from('stores_data').select('id').limit(1);
+            return !error;
+        }
         await getDocFromServer(doc(firebaseDb, 'stores_data', 'connection_test'));
         return true;
     } catch (error: any) {
@@ -107,9 +170,18 @@ export const checkSupabaseConnection = async (): Promise<boolean> => {
     }
 };
 
-export const getSupabaseRestrictedStatus = (): boolean => false;
-export const setSupabaseRestricted = (restricted: boolean) => {};
-export const isRestrictionError = (error: any): boolean => false;
+export const getSupabaseRestrictedStatus = (): boolean => {
+    return localStorage.getItem('supabase_restricted') === 'true';
+};
+
+export const setSupabaseRestricted = (restricted: boolean) => {
+    localStorage.setItem('supabase_restricted', String(restricted));
+};
+
+export const isRestrictionError = (error: any): boolean => {
+    const msg = String(error?.message || error).toLowerCase();
+    return msg.includes('permission') || msg.includes('access') || msg.includes('unauthorized') || msg.includes('restricted');
+};
 
 // --- Local IndexedDB Helpers ---
 export const getLocal = async (key: string): Promise<any> => {
@@ -245,6 +317,75 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     // 2. If it's not a forced refresh, and local exists, return it immediately
     if (!forceRemote && local) {
         return local;
+    }
+
+    // --- Custom Supabase Fetch Logic ---
+    const supabase = getSupabaseClient();
+    if (supabase) {
+        try {
+            const fetchTable = async (table: string) => {
+                const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
+                if (error) throw error;
+                return data || [];
+            };
+
+            const [
+                products, orders, transactions, treasuryAccounts, treasuryTransactions, suppliers, supplyOrders, reviews, abandonedCarts, 
+                activityLogs, employees, discountCodes, collectionsList, customPages, 
+                paymentMethods, customers, globalOptions, shippingIntegrations, partners, partnerTransactions, chatMessages
+            ] = await Promise.all([
+                fetchTable('products'),
+                fetchTable('orders'),
+                fetchTable('transactions'),
+                fetchTable('treasury_accounts'),
+                fetchTable('treasury_transactions'),
+                fetchTable('suppliers'),
+                fetchTable('supply_orders'),
+                fetchTable('reviews'),
+                fetchTable('abandoned_carts'),
+                fetchTable('activity_logs'),
+                fetchTable('employees'),
+                fetchTable('discount_codes'),
+                fetchTable('collections'),
+                fetchTable('custom_pages'),
+                fetchTable('payment_methods'),
+                fetchTable('customers'),
+                fetchTable('global_options'),
+                fetchTable('shipping_integrations'),
+                fetchTable('partners'),
+                fetchTable('partner_transactions'),
+                fetchTable('chat_messages')
+            ]);
+
+            const fullData: StoreData = {
+                settings: {
+                    ...INITIAL_SETTINGS,
+                    products, suppliers, supplyOrders, reviews, abandonedCarts, activityLogs, employees, discountCodes,
+                    collections: collectionsList, customPages, paymentMethods, globalOptions, shippingIntegrations,
+                    partners, partnerTransactions
+                },
+                orders,
+                wallet: { balance: 0, transactions },
+                treasury: { accounts: treasuryAccounts, transactions: treasuryTransactions },
+                cart: [],
+                customers
+            };
+
+            // SAFEGUARD: If Supabase returns nothing but we have local data, 
+            // it means we probably haven't synced UP yet. 
+            // Return local data so the user can then "Sync" it to the new cloud.
+            const hasCloudData = (products && products.length > 0) || (orders && orders.length > 0) || (customers && customers.length > 0);
+            if (!hasCloudData && local && (local.orders?.length > 0 || local.settings?.products?.length > 0)) {
+                console.log('[SUPABASE] Cloud empty but local has data. Using local to prevent wipe.');
+                return local;
+            }
+
+            await saveLocal(storeId, fullData);
+            return fullData;
+        } catch (e) {
+            console.error('Supabase fetch failed, falling back to local', e);
+            return local;
+        }
     }
 
     try {
@@ -384,6 +525,85 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
 
 export const saveStoreData = async (store: Store, data: StoreData): Promise<{ success: boolean, error?: string }> => {
     await saveLocal(store.id, data);
+
+    // --- Custom Supabase Save Logic ---
+    const supabase = getSupabaseClient();
+    if (supabase) {
+        try {
+            // First: Ensure store record exists in stores_data (to satisfy FK constraints)
+            await supabase.from('stores_data').upsert({
+                id: store.id,
+                name: store.name,
+                settings: {} // You can add actual settings here if needed
+            });
+
+            const syncTable = async (table: string, items: any[], omitFields: string[] = []) => {
+                if (!items || items.length === 0) return;
+                const itemsFiltered = items.map(item => {
+                    const cleanItem = { ...item };
+                    omitFields.forEach(field => delete cleanItem[field]);
+                    
+                    // Fix for employees sync specifically
+                    if (table === 'employees' && !cleanItem.phone) {
+                        cleanItem.phone = '00000000000';
+                    }
+
+                    return { ...cleanItem, store_id: store.id };
+                });
+
+                // Deduplicate by the table's specific unique/primary key to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
+                const map = new Map<string, any>();
+                for (const item of itemsFiltered) {
+                    let key = '';
+                    if (table === 'employees') {
+                        key = `${item.store_id || ''}_${item.phone || ''}`;
+                    } else {
+                        // All other tables have 'id' as primary key
+                        key = String(item.id || '');
+                    }
+                    if (key) {
+                        map.set(key, item);
+                    } else {
+                        map.set(JSON.stringify(item), item);
+                    }
+                }
+                const uniqueItems = Array.from(map.values());
+                
+                const { error } = await supabase.from(table).upsert(uniqueItems);
+                if (error) throw error;
+            };
+
+            await Promise.all([
+                syncTable('products', data.settings.products, ['updatedAt']),
+                syncTable('orders', data.orders),
+                syncTable('transactions', data.wallet.transactions),
+                syncTable('treasury_accounts', data.treasury?.accounts || []),
+                syncTable('treasury_transactions', data.treasury?.transactions || []),
+                syncTable('suppliers', data.settings.suppliers),
+                syncTable('supply_orders', data.settings.supplyOrders),
+                syncTable('reviews', data.settings.reviews),
+                syncTable('abandoned_carts', data.settings.abandonedCarts),
+                syncTable('activity_logs', data.settings.activityLogs || []),
+                syncTable('employees', data.settings.employees, ['email', 'id', 'name', 'updatedAt', 'phone']),
+                syncTable('discount_codes', data.settings.discountCodes),
+                syncTable('collections', data.settings.collections),
+                syncTable('custom_pages', data.settings.customPages, ['isActive', 'updatedAt']),
+                syncTable('payment_methods', data.settings.paymentMethods),
+                syncTable('customers', data.customers),
+                syncTable('global_options', data.settings.globalOptions),
+                syncTable('shipping_integrations', data.settings.shippingIntegrations),
+                syncTable('partners', data.settings.partners || []),
+                syncTable('partner_transactions', data.settings.partnerTransactions || []),
+                syncTable('chat_messages', []) // Assuming chat messages handled separately or just not available here
+            ]);
+
+            return { success: true };
+        } catch (e: any) {
+            console.error('Supabase save failed', e);
+            return { success: false, error: e.message };
+        }
+    }
+
     try {
         await ensureStoreRecordExists(store.id, store.name);
 
@@ -461,10 +681,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             return val1 !== val2;
                         });
 
-                        if (fieldsChanged) {
-                            itemWithTimestamp.updatedAt = nowISO;
-                        } else if (existingDoc.updatedAt) {
-                            itemWithTimestamp.updatedAt = existingDoc.updatedAt;
+                        if (!fieldsChanged) {
+                            shouldUpdateCloud = false;
                         } else {
                             itemWithTimestamp.updatedAt = nowISO;
                         }

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
 import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, Database, Cloud, HardDrive, Activity, CheckCircle } from 'lucide-react';
-import { getSupabaseRestrictedStatus } from '../services/databaseService';
+import { getSupabaseRestrictedStatus, isSupabaseActive } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 
 const PATH_TITLES: { [key: string]: string } = {
@@ -194,9 +194,17 @@ const Header: React.FC<HeaderProps> = ({
     <div className="flex items-center gap-2 sm:gap-3 max-w-[150px] sm:max-w-none divide-x divide-slate-100 dark:divide-slate-800">
         <h1 className="text-base sm:text-lg font-display font-black text-slate-900 dark:text-white tracking-tight truncate">{pageTitle}</h1>
         {activeStore && (
-            <span className="hidden lg:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200 dark:border-slate-700">
-                ID: {activeStore.id}
-            </span>
+            <div className="flex items-center gap-1.5">
+                <span className="hidden lg:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200 dark:border-slate-700">
+                    ID: {activeStore.id}
+                </span>
+                {isSupabaseActive() && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg border border-emerald-200/80 dark:border-emerald-900/30">
+                        <Database size={10} className="text-emerald-500" />
+                        <span>Supabase Active</span>
+                    </span>
+                )}
+            </div>
         )}
         {isRestricted && (
             <span 
@@ -323,7 +331,7 @@ const Header: React.FC<HeaderProps> = ({
                                         <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">بوابة المزامنة:</span>
                                         <span className="text-xs font-black text-slate-800 dark:text-slate-250 flex items-center gap-1.5">
                                             <Cloud size={13} className="text-indigo-500" />
-                                            {typeof window !== 'undefined' && localStorage.getItem('custom_supabase_url') ? (
+                                            {isSupabaseActive() ? (
                                                 <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                                                     Supabase Cloud CRM ⚡
                                                 </span>

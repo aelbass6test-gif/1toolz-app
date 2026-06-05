@@ -11,6 +11,8 @@ interface TeamChatPageProps {
   users: User[];
 }
 
+import { isSupabaseActive } from '../services/databaseService';
+
 const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId, settings, users }) => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [activeChat, setActiveChat] = useState<Employee | 'general' | null>(null);
@@ -34,7 +36,7 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
   }, [messages]);
 
   useEffect(() => {
-    if (!activeChat || !currentUser || !activeStoreId) {
+    if (!activeChat || !currentUser || !activeStoreId || isSupabaseActive()) {
       setMessages([]);
       return;
     }

@@ -248,7 +248,7 @@ export interface Employee {
 
 export interface StoreSection {
   id: string;
-  type: 'hero' | 'products';
+  type: 'hero' | 'products' | 'about_us';
   enabled: boolean;
 }
 

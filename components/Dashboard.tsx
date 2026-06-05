@@ -304,10 +304,16 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       }
     }, 0);
 
-    // Liquid cash calculation
+    // Liquid cash calculation - Exclude supply wallet transactions to avoid double counting
     const cashBalance = (wallet?.transactions || []).reduce((sum, t) => {
         const amount = Number(t.amount) || 0;
         if (t.details?.paidByPartnerId) return sum;
+        
+        // Exclude supply wallet categories from liquid cash
+        const category = t.category || '';
+        const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply'].includes(category);
+        if (isSupplyTx) return sum;
+
         if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
         if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
         return sum;
@@ -678,6 +684,12 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
                   {((wallet?.transactions || []).reduce((sum, t) => {
                       const amount = Number(t.amount) || 0;
                       if (t.details?.paidByPartnerId) return sum;
+                      
+                      // Exclude supply wallet categories
+                      const category = t.category || '';
+                      const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply'].includes(category);
+                      if (isSupplyTx) return sum;
+
                       if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
                       if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
                       return sum;
