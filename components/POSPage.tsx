@@ -68,8 +68,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
   const cashHolders = settings.cashHolders || [];
   
   const allPossibleHolders = useMemo(() => [
-    ...(settings.employees || []).map(e => ({ id: `emp_${e.id}`, name: e.name })),
-    ...(settings.partners || []).map(p => ({ id: `part_${p.id}`, name: `${p.name} (شريك)` }))
+    ...(settings.employees || []).map((e, index) => ({ id: `emp_${e.id || index}`, name: e.name })),
+    ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: `${p.name} (شريك)` }))
   ], [settings.employees, settings.partners]);
 
   const filteredProducts = useMemo(() => {

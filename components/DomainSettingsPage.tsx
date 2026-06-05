@@ -45,6 +45,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   setSettings,
   users = []
 }) => {
+  // --- States ---
   const [customDomain, setCustomDomain] = useState('');
   const [domainStatus, setDomainStatus] = useState<'none' | 'pending' | 'verifying' | 'active' | 'pending_validation' | 'error'>('none');
   const [cfDetails, setCfDetails] = useState<any>(null);
@@ -55,17 +56,6 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     type: '405' | '404' | 'json' | 'generic' | null;
     message: string;
   } | null>(null);
-
-  // In-app Custom alarm / alert system and sound play
-  const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
-    try {
-      audioSynth.playTone(type);
-    } catch (e) {
-      console.error("Audio beep failed:", e);
-    }
-  };
-
-  // Custom Modal State
   const [modal, setModal] = useState<{
     show: boolean;
     title: string;
@@ -80,6 +70,53 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     message: '',
     type: 'info'
   });
+  const [localSubdomain, setLocalSubdomain] = useState(settings.subdomain || '');
+  const [isSubdomainSaving, setIsSubdomainSaving] = useState(false);
+  const [isPasswordVerified, setIsPasswordVerified] = useState(false);
+  const [typedPassword, setTypedPassword] = useState('');
+
+  // --- Effects ---
+  useEffect(() => {
+    if (settings.subdomain) {
+      setLocalSubdomain(settings.subdomain);
+    } else {
+      setLocalSubdomain('');
+    }
+  }, [settings.subdomain]);
+
+  useEffect(() => {
+    if (settings.domainDNSRecords) {
+      setCfDetails(settings.domainDNSRecords);
+    }
+    if (settings.domainStatus && settings.domainStatus !== 'none') {
+      setDomainStatus(settings.domainStatus as any);
+    }
+    if (settings.customAppDomain && !customDomain) {
+      setCustomDomain(settings.customAppDomain);
+    }
+  }, [settings.domainDNSRecords, settings.domainStatus, settings.customAppDomain]);
+
+  useEffect(() => {
+    if (activeStoreId) {
+      const savedDomain = localStorage.getItem(`custom_domain_${activeStoreId}`) || '';
+      const savedStatus = localStorage.getItem(`custom_domain_status_${activeStoreId}`) || 'none';
+      const savedDetails = localStorage.getItem(`custom_domain_details_${activeStoreId}`);
+      setCustomDomain(savedDomain);
+      setDomainStatus(savedStatus as any);
+      if (savedDetails) {
+        try { setCfDetails(JSON.parse(savedDetails)); } catch (e) {}
+      }
+    }
+  }, [activeStoreId]);
+
+  // In-app Custom alarm / alert system and sound play
+  const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
+    try {
+      audioSynth.playTone(type);
+    } catch (e) {
+      console.error("Audio beep failed:", e);
+    }
+  };
 
   const showAlert = (title: string, message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') => {
     playAlarmSound(type);
@@ -105,47 +142,6 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       buttonText: 'تأكيد'
     });
   };
-
-  // Subdomain Local State
-  const [localSubdomain, setLocalSubdomain] = useState(settings.subdomain || '');
-  const [isSubdomainSaving, setIsSubdomainSaving] = useState(false);
-  const [isPasswordVerified, setIsPasswordVerified] = useState(false);
-  const [typedPassword, setTypedPassword] = useState('');
-
-  // Sync state if settings update
-  useEffect(() => {
-    if (settings.subdomain) {
-      setLocalSubdomain(settings.subdomain);
-    } else {
-      setLocalSubdomain('');
-    }
-  }, [settings.subdomain]);
-
-  useEffect(() => {
-    if (settings.domainDNSRecords) {
-      setCfDetails(settings.domainDNSRecords);
-    }
-    if (settings.domainStatus && settings.domainStatus !== 'none') {
-      setDomainStatus(settings.domainStatus as any);
-    }
-    if (settings.customAppDomain && !customDomain) {
-      setCustomDomain(settings.customAppDomain);
-    }
-  }, [settings.domainDNSRecords, settings.domainStatus, settings.customAppDomain]);
-
-  // Load saved domain from localStorage or storeData relative to current store
-  useEffect(() => {
-    if (activeStoreId) {
-      const savedDomain = localStorage.getItem(`custom_domain_${activeStoreId}`) || '';
-      const savedStatus = localStorage.getItem(`custom_domain_status_${activeStoreId}`) || 'none';
-      const savedDetails = localStorage.getItem(`custom_domain_details_${activeStoreId}`);
-      setCustomDomain(savedDomain);
-      setDomainStatus(savedStatus as any);
-      if (savedDetails) {
-        try { setCfDetails(JSON.parse(savedDetails)); } catch (e) {}
-      }
-    }
-  }, [activeStoreId]);
 
   // If password protection is enabled, and not verified, show password modal
   if (settings.adminPassword && !isPasswordVerified) {
