@@ -5,354 +5,138 @@
       "description": "User account information",
       "type": "object",
       "properties": {
-        "phone": { "type": "string" },
         "fullName": { "type": "string" },
+        "phone": { "type": "string" },
         "password": { "type": "string" },
         "email": { "type": "string" },
-        "stores": { "type": "array" },
-        "sites": { "type": "array" },
         "isAdmin": { "type": "boolean" },
         "isBanned": { "type": "boolean" },
-        "joinDate": { "type": "string" }
+        "joinDate": { "type": "string" },
+        "stores": { "type": "array" },
+        "sites": { "type": "array" }
       },
-      "required": ["phone", "fullName", "password"]
+      "required": ["fullName", "phone", "password"]
     },
     "StoreData": {
-      "title": "StoreData",
-      "description": "Store main details and configuration",
+      "title": "Store Data",
+      "description": "Store configuration and summary data",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
         "settings": { "type": "object" }
-      },
-      "required": ["id", "name"]
+      }
     },
     "Product": {
       "title": "Product",
-      "description": "Store products metadata",
+      "description": "Store product",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "name": { "type": "string" },
         "sku": { "type": "string" },
+        "name": { "type": "string" },
         "price": { "type": "number" },
-        "stockQuantity": { "type": "number" },
-        "details": { "type": "object" }
-      },
-      "required": ["id", "storeId", "name", "price"]
+        "storeId": { "type": "string" }
+      }
     },
     "Order": {
       "title": "Order",
-      "description": "Store orders",
+      "description": "Customer order",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "storeId": { "type": "string" },
         "orderNumber": { "type": "string" },
         "customerName": { "type": "string" },
-        "status": { "type": "string" },
-        "date": { "type": "string" },
-        "totalPrice": { "type": "number" },
-        "details": { "type": "object" }
-      },
-      "required": ["id", "storeId", "orderNumber", "customerName", "status", "date", "totalPrice"]
-    },
-    "Transaction": {
-      "title": "Transaction",
-      "description": "Financial transaction logs",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "type": { "type": "string" },
-        "amount": { "type": "number" },
-        "date": { "type": "string" },
-        "category": { "type": "string" },
-        "note": { "type": "string" },
-        "details": { "type": "object" }
-      },
-      "required": ["id", "storeId", "type", "amount", "date"]
-    },
-    "Supplier": {
-      "title": "Supplier",
-      "description": "Store product suppliers",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "name": { "type": "string" },
-        "phone": { "type": "string" },
-        "address": { "type": "string" },
-        "notes": { "type": "string" }
-      },
-      "required": ["id", "storeId", "name"]
-    },
-    "SupplyOrder": {
-      "title": "SupplyOrder",
-      "description": "Stock replenishment orders",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "supplierId": { "type": "string" },
-        "totalCost": { "type": "number" },
-        "date": { "type": "string" },
-        "status": { "type": "string" },
-        "items": { "type": "object" }
-      },
-      "required": ["id", "storeId", "totalCost", "date", "status"]
-    },
-    "Review": {
-      "title": "Review",
-      "description": "Product or store reviews",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "productId": { "type": "string" },
-        "customerName": { "type": "string" },
-        "rating": { "type": "number" },
-        "comment": { "type": "string" },
-        "status": { "type": "string" }
-      },
-      "required": ["id", "storeId", "rating"]
-    },
-    "AbandonedCart": {
-      "title": "AbandonedCart",
-      "description": "Abandoned shopping carts",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "customerName": { "type": "string" },
         "customerPhone": { "type": "string" },
-        "totalValue": { "type": "number" },
-        "date": { "type": "string" },
-        "items": { "type": "array" }
-      },
-      "required": ["id", "storeId"]
-    },
-    "ActivityLog": {
-      "title": "ActivityLog",
-      "description": "Store internal logs and audits",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "userName": { "type": "string" },
-        "action": { "type": "string" },
-        "details": { "type": "object" },
-        "timestamp": { "type": "string" },
-        "date": { "type": "string" }
-      },
-      "required": ["id", "storeId", "action"]
-    },
-    "Employee": {
-      "title": "Employee",
-      "description": "Store employees and permissions",
-      "type": "object",
-      "properties": {
-        "phone": { "type": "string" },
-        "storeId": { "type": "string" },
-        "permissions": { "type": "array" },
-        "status": { "type": "string" }
-      },
-      "required": ["phone", "storeId", "status"]
-    },
-    "DiscountCode": {
-      "title": "DiscountCode",
-      "description": "Promotional codes",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "code": { "type": "string" },
-        "discountType": { "type": "string" },
-        "value": { "type": "number" },
-        "usageLimit": { "type": "number" },
-        "usageCount": { "type": "number" },
-        "expirationDate": { "type": "string" },
-        "isActive": { "type": "boolean" }
-      },
-      "required": ["id", "storeId", "code", "discountType", "value"]
-    },
-    "Collection": {
-      "title": "Collection",
-      "description": "Product categories/collections",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "imageUrl": { "type": "string" },
-        "isActive": { "type": "boolean" }
-      },
-      "required": ["id", "storeId", "name"]
-    },
-    "CustomPage": {
-      "title": "CustomPage",
-      "description": "Definition custom pages",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "title": { "type": "string" },
-        "slug": { "type": "string" },
-        "content": { "type": "string" },
-        "isActive": { "type": "boolean" }
-      },
-      "required": ["id", "storeId", "title", "slug"]
-    },
-    "PaymentMethod": {
-      "title": "PaymentMethod",
-      "description": "Store accepted payment types",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "name": { "type": "string" },
-        "type": { "type": "string" },
-        "logoUrl": { "type": "string" },
-        "isActive": { "type": "boolean" },
-        "details": { "type": "object" }
-      },
-      "required": ["id", "storeId", "name", "type"]
-    },
-    "Customer": {
-      "title": "Customer",
-      "description": "Customer profiles and metrics",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "name": { "type": "string" },
-        "phone": { "type": "string" },
-        "address": { "type": "string" },
-        "loyaltyPoints": { "type": "number" },
-        "totalSpent": { "type": "number" },
-        "firstOrderDate": { "type": "string" },
-        "lastOrderDate": { "type": "string" },
-        "notes": { "type": "string" }
-      },
-      "required": ["id", "storeId", "name", "phone"]
-    },
-    "GlobalOption": {
-      "title": "GlobalOption",
-      "description": "Global settings options",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "name": { "type": "string" },
-        "values": { "type": "array" }
-      },
-      "required": ["id", "storeId", "name"]
-    },
-    "ShippingIntegration": {
-      "title": "ShippingIntegration",
-      "description": "Shipping carrier integrations",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "storeId": { "type": "string" },
-        "provider": { "type": "string" },
-        "apiKey": { "type": "string" },
-        "apiSecret": { "type": "string" },
-        "accountNumber": { "type": "string" },
-        "isConnected": { "type": "boolean" }
-      },
-      "required": ["id", "storeId", "provider"]
-    },
-    "Document": {
-      "title": "Document",
-      "description": "Generic raw document object to hold backup chunks",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "content": { "type": "object" }
-      },
-      "required": ["id"]
+        "status": { "type": "string" },
+        "storeId": { "type": "string" }
+      }
     }
   },
   "firestore": {
-    "users": {
+    "/users/{userId}": {
       "schema": "User",
-      "description": "Global app users and administrators"
+      "description": "User profiles"
     },
-    "stores_data": {
+    "/stores_data/{storeId}": {
       "schema": "StoreData",
-      "description": "Global store records and static settings"
+      "description": "Core store settings"
     },
-    "products": {
+    "/products/{productId}": {
       "schema": "Product",
-      "description": "Store products items"
+      "description": "Products list"
     },
-    "orders": {
+    "/orders/{orderId}": {
       "schema": "Order",
-      "description": "Real-time customer orders"
+      "description": "Orders list"
     },
-    "transactions": {
-      "schema": "Transaction",
-      "description": "Financial accounting records"
+    "/transactions/{id}": {
+      "schema": "object",
+      "description": "Financial transactions"
     },
-    "suppliers": {
-      "schema": "Supplier",
-      "description": "Product providers / Suppliers contacts"
+    "/treasury_accounts/{id}": {
+      "schema": "object",
+      "description": "Treasury accounts"
     },
-    "supply_orders": {
-      "schema": "SupplyOrder",
-      "description": "Stock inventory purchase supply orders"
+    "/treasury_transactions/{id}": {
+      "schema": "object",
+      "description": "Treasury transactions"
     },
-    "reviews": {
-      "schema": "Review",
-      "description": "Store customer reviews and feedback"
+    "/suppliers/{id}": {
+      "schema": "object",
+      "description": "Suppliers"
     },
-    "abandoned_carts": {
-      "schema": "AbandonedCart",
-      "description": "Shopping carts abandoned by store customers"
+    "/supply_orders/{id}": {
+      "schema": "object",
+      "description": "Supply orders"
     },
-    "activity_logs": {
-      "schema": "ActivityLog",
-      "description": "Audit trails for employee actions"
+    "/reviews/{id}": {
+      "schema": "object",
+      "description": "Product reviews"
     },
-    "employees": {
-      "schema": "Employee",
-      "description": "Active employees and their permissions"
+    "/abandoned_carts/{id}": {
+      "schema": "object",
+      "description": "Abandoned carts"
     },
-    "discount_codes": {
-      "schema": "DiscountCode",
-      "description": "Custom discount codes"
+    "/activity_logs/{id}": {
+      "schema": "object",
+      "description": "Activity logs"
     },
-    "collections": {
-      "schema": "Collection",
-      "description": "Product categories and layouts"
+    "/employees/{id}": {
+      "schema": "object",
+      "description": "Employees"
     },
-    "custom_pages": {
-      "schema": "CustomPage",
-      "description": "Static custom-defined informational pages"
+    "/discount_codes/{id}": {
+      "schema": "object",
+      "description": "Discount codes"
     },
-    "payment_methods": {
-      "schema": "PaymentMethod",
-      "description": "Store payment gateways and setups"
+    "/collections/{id}": {
+      "schema": "object",
+      "description": "Product collections"
     },
-    "customers": {
-      "schema": "Customer",
-      "description": "Customers history, loyalty points, and summaries"
+    "/custom_pages/{id}": {
+      "schema": "object",
+      "description": "Custom pages"
     },
-    "global_options": {
-      "schema": "GlobalOption",
-      "description": "Flexible global checkout and customization options"
+    "/payment_methods/{id}": {
+      "schema": "object",
+      "description": "Payment methods"
     },
-    "shipping_integrations": {
-      "schema": "ShippingIntegration",
-      "description": "Integrations with shipping APIs"
+    "/customers/{id}": {
+      "schema": "object",
+      "description": "Customer profiles"
     },
-    "documents": {
-      "schema": "Document",
-      "description": "Raw JSON key-value store back-compatibles"
+    "/global_options/{id}": {
+      "schema": "object",
+      "description": "Global options"
+    },
+    "/shipping_integrations/{id}": {
+      "schema": "object",
+      "description": "Shipping carrier integrations"
+    },
+    "/partners/{id}": {
+      "schema": "object",
+      "description": "Partners"
     }
   }
 }

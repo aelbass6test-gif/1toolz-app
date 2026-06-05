@@ -11,7 +11,7 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.API_KEY!,
+  apiKey: process.env.GEMINI_API_KEY!,
   httpOptions: {
     headers: {
       'User-Agent': 'aistudio-build',
@@ -387,7 +387,7 @@ async function startServer() {
     try {
         const { model, prompt, config, service } = await c.req.json();
         const response = await ai.models.generateContent({
-            model: model || "gemini-3.5-flash",
+            model: model || "models/gemini-1.5-flash",
             contents: prompt,
             config: config
         });

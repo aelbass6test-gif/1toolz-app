@@ -379,7 +379,8 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          domain: customDomain
+          domain: customDomain,
+          storeId: activeStoreId
         })
       });
 
@@ -389,7 +390,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         const fallbackResponse = await fetch('/api/domains/status/index.php', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ domain: customDomain })
+          body: JSON.stringify({ domain: customDomain, storeId: activeStoreId })
         });
         
         if (fallbackResponse.ok || fallbackResponse.status === 400 || fallbackResponse.status === 500) {
@@ -486,8 +487,21 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   const handleDisconnect = () => {
     showConfirm(
       "تأكيد حذف النطاق", 
-      "هل أنت متأكد من حذف وإلغاء ربط النطاق المخصص؟ سيتم فك ارتباط متجرك بعنوان الويب الحالي فوراً.",
-      () => {
+      "هل أنت متأكد من حذف وإلغاء ربط النطاق المخصص؟ سيتم فك ارتباط متجرك بعنوان الويب الحالي فوراً من خوادم السيرفر.",
+      async () => {
+        setIsSaving(true);
+        try {
+          await fetch('/api/domains/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain: customDomain || settings.customAppDomain, storeId: activeStoreId })
+          });
+        } catch (e) {
+          console.error("Failed to delete domain on backend", e);
+        } finally {
+          setIsSaving(false);
+        }
+
         setCustomDomain('');
         setDomainStatus('none');
         setCfDetails(null);
@@ -496,9 +510,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         localStorage.removeItem(`custom_domain_details_${activeStoreId}`);
         setSettings((prev: any) => ({
           ...prev,
-          customAppDomain: ''
+          customAppDomain: '',
+          domainStatus: 'none',
+          domainDNSRecords: null
         }));
-        showAlert("تمت العملية", "تم إلغاء ربط النطاق المخصص بنجاح.", "success");
+        showAlert("تمت العملية", "تم إلغاء ربط النطاق المخصص بنجاح من جهازك ومن السيرفر.", "success");
       },
       "error"
     );

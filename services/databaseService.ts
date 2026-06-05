@@ -210,6 +210,24 @@ const WITH_TIMEOUT = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise
     ]);
 };
 
+// --- Sync Optimizations: Memory-Hash Cache to Prevent Duplicate Firestore Reads/Writes ---
+const LAST_SYNCED_HASHES: Record<string, string> = {};
+
+function getCollectionHash(items: any[] | null | undefined): string {
+    if (!items || !Array.isArray(items) || items.length === 0) return '[]';
+    const stripped = items.map(item => {
+        if (!item) return null;
+        const { updatedAt, updated_at, _ref, ...rest } = item;
+        return rest;
+    }).filter(Boolean);
+    stripped.sort((a: any, b: any) => {
+        const idA = String(a?.id || a?.phone || '');
+        const idB = String(b?.id || b?.phone || '');
+        return idA.localeCompare(idB);
+    });
+    return JSON.stringify(stripped);
+}
+
 export const ensureStoreRecordExists = async (storeId: string, storeName: string): Promise<{ success: boolean, error?: string }> => {
     try {
         const storeRef = doc(firebaseDb, 'stores_data', storeId);
@@ -250,10 +268,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     } as any));
                 }
                 // If cloud fetch returns empty, but local has data, trust local
-                if (items.length === 0 && localItems.length > 0) {
-                    return localItems;
-                }
-                return items.length > 0 ? items : localItems;
+                const finalItems = items.length > 0 ? items : localItems;
+                
+                // Cache loaded results hash
+                LAST_SYNCED_HASHES[`${storeId}_${collectionName}`] = getCollectionHash(finalItems);
+                
+                return finalItems;
             } catch (err) {
                 return localItems;
             }
@@ -395,6 +415,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
         const syncCollection = async (collectionName: string, stateItems: any[], idField = 'id') => {
             try {
+                const hashKey = `${store.id}_${collectionName}`;
+                const currentHash = getCollectionHash(stateItems);
+                if (LAST_SYNCED_HASHES[hashKey] === currentHash) {
+                    console.log(`[SYNC-OPTIMIZATION] Skipping unchanged collection "${collectionName}" to conserve reads/writes`);
+                    return;
+                }
+
                 let snap = await getDocs(query(collection(firebaseDb, collectionName), where('storeId', '==', store.id)));
                 if (snap.empty) {
                     snap = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', store.id)));
@@ -494,6 +521,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         });
 
                 await Promise.all([...upsertPromises, ...deletePromises]);
+                LAST_SYNCED_HASHES[hashKey] = currentHash;
             } catch (err: any) {
                 if (err.message === 'QUOTA_EXCEEDED') throw err;
                 console.error(`Error syncing collection ${collectionName}:`, err);

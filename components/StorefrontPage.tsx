@@ -69,9 +69,56 @@ const ProductCard: React.FC<{ product: Product, customization: StoreCustomizatio
         onReview(product.id);
     };
 
+    // Card alignment layout
+    const isCenter = customization.cardInfoAlignment === 'center';
+    const isLeft = customization.cardInfoAlignment === 'left';
+    const alignmentClass = isCenter ? 'text-center items-center' : isLeft ? 'text-left items-start' : 'text-right items-end';
+
+    // Shadow size mapping
+    const shadowMap = {
+        none: 'shadow-none',
+        sm: 'shadow-sm',
+        md: 'shadow-md',
+        lg: 'shadow-lg',
+        xl: 'shadow-xl'
+    };
+    const shadowClass = shadowMap[customization.cardShadowSize || 'sm'] || 'shadow-sm';
+
+    // Hover effect mapping
+    let hoverEffectClass = 'transition-all duration-300 ';
+    const primary = customization.primaryColor || '#4f46e5';
+    switch (customization.cardHoverEffect) {
+        case 'scale':
+            hoverEffectClass += 'hover:-translate-y-2 hover:scale-[1.03]';
+            break;
+        case 'glow':
+            hoverEffectClass += `hover:-translate-y-1 hover:shadow-[0_10px_25px_${primary}33] hover:border-indigo-500/40`;
+            break;
+        case 'shadow':
+            hoverEffectClass += 'hover:shadow-2xl hover:translate-y-[-4px]';
+            break;
+        case 'none':
+            break;
+        default:
+            hoverEffectClass += 'hover:-translate-y-1.5 hover:shadow-xl';
+    }
+
+    // Card border / outlines style
+    let cardStyleClass = 'bg-white dark:bg-slate-900 ';
+    if (customization.cardStyle === 'elevated') {
+        cardStyleClass += 'border border-transparent bg-white dark:bg-slate-900 shadow';
+    } else if (customization.cardStyle === 'outlined') {
+        cardStyleClass += 'border-2 border-slate-300/85 dark:border-slate-750';
+    } else {
+        cardStyleClass += 'border border-slate-200/70 dark:border-slate-800/80';
+    }
+
     return (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl overflow-hidden flex flex-col shadow-sm hover:shadow-xl hover:border-indigo-500/20 dark:hover:border-indigo-500/20 cursor-pointer group transition-all duration-300 hover:-translate-y-1.5" onClick={onViewDetails}>
-            <div className="bg-slate-50 dark:bg-slate-950 p-2">
+        <div 
+          className={`${cardStyleClass} ${shadowClass} ${hoverEffectClass} rounded-2xl overflow-hidden flex flex-col cursor-pointer group`} 
+          onClick={onViewDetails}
+        >
+            <div className="bg-slate-50 dark:bg-slate-950 p-2 relative">
                 <div className="aspect-square w-full rounded-xl overflow-hidden relative">
                     <img 
                         src={product.thumbnail || `https://picsum.photos/400/400?random=${product.id}`} 
@@ -80,24 +127,31 @@ const ProductCard: React.FC<{ product: Product, customization: StoreCustomizatio
                         loading="lazy"
                     />
                      {productReviews.length > 0 && (
-                        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-md dark:bg-slate-900/90 px-2.5 py-1 rounded-full flex items-center gap-1 text-[10px] font-black shadow-lg">
+                        <div className="absolute top-2 right-2 bg-white/95 backdrop-blur-md dark:bg-slate-900/95 px-2.5 py-1 rounded-full flex items-center gap-1 text-[10px] font-black shadow-lg">
                             <Star size={10} className="text-amber-500" fill="#f59e0b"/>
                             <span className="text-slate-800 dark:text-white">{averageRating.toFixed(1)}</span>
                         </div>
-                    )}
+                     )}
                 </div>
             </div>
 
-            <div className="p-5 flex flex-col flex-grow text-right">
-                <h3 className={`font-extrabold text-sm sm:text-base text-slate-800 dark:text-slate-100 flex-grow mb-3 line-clamp-2 leading-relaxed ${customization.headingFontWeight}`}>{product.name}</h3>
-                <div className="flex justify-between items-center mb-4 flex-row-reverse">
-                     <p className="font-black text-xl text-slate-900 dark:text-white">{product.price.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span></p>
-                     <button onClick={handleReviewClick} className="text-xs text-indigo-500 hover:text-indigo-650 font-bold underline z-10 relative">أضف تقييم</button>
+            <div className={`p-5 flex flex-col flex-grow text-right ${alignmentClass}`}>
+                <h3 
+                  className={`font-extrabold text-sm sm:text-base flex-grow mb-3 line-clamp-2 leading-relaxed w-full ${customization.headingFontWeight}`}
+                  style={{ color: customization.textColor || 'inherit' }}
+                >
+                    {product.name}
+                </h3>
+                <div className={`flex justify-between items-center mb-4 w-full ${isCenter ? 'flex-col gap-2' : isLeft ? 'flex-row' : 'flex-row-reverse'}`}>
+                     <p className="font-black text-xl" style={{ color: customization.primaryColor }}>
+                         {product.price.toLocaleString()} <span className="text-xs font-bold text-slate-455">ج.م</span>
+                     </p>
+                     <button onClick={handleReviewClick} className="text-xs font-bold underline z-10 relative" style={{ color: customization.primaryColor }}>أضف تقييم</button>
                 </div>
                 <button 
                     onClick={handleAddToCartClick}
                     disabled={isAdded}
-                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-semibold text-sm transition-all text-white z-10 relative rounded-xl shadow-md cursor-pointer ${isAdded ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/10' : 'hover:opacity-90 shadow-indigo-500/10'}`}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-sm transition-all text-white z-10 relative shadow-md cursor-pointer ${customization.buttonBorderRadius} ${isAdded ? 'bg-emerald-600 hover:bg-emerald-500' : 'hover:opacity-90'}`}
                     style={{ backgroundColor: isAdded ? '' : customization.primaryColor }}
                 >
                     {isAdded ? (
@@ -215,37 +269,137 @@ const ProductsSection: React.FC<{ settings: Settings, searchTerm: string, custom
 
     const gridClass = `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${customization.productColumnsDesktop} gap-4 md:gap-6`;
 
+    // Render Category tabs
+    const renderCategoryTabs = () => {
+        if (settings.collections.length === 0) return null;
+
+        const tabStyle = customization.tabStyle || 'pills';
+
+        if (tabStyle === 'underline') {
+            return (
+                <div className="flex justify-center items-center border-b border-slate-200 dark:border-slate-800 pb-2 w-full max-w-lg mx-auto flex-wrap gap-4 md:gap-8 mb-8">
+                    <button 
+                        onClick={() => setActiveCollectionId('all')} 
+                        className={`pb-2 relative font-extrabold text-sm px-1.5 transition-all text-center ${activeCollectionId === 'all' ? 'text-slate-900 dark:text-white border-b-2' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`} 
+                        style={{ borderBottomColor: activeCollectionId === 'all' ? customization.primaryColor : 'transparent' }}
+                    >
+                        الكل ({settings.products.length})
+                    </button>
+                    {settings.collections.map(col => {
+                        const count = settings.products.filter(p => p.collectionId === col.id).length;
+                        return (
+                            <button 
+                                key={col.id} 
+                                onClick={() => setActiveCollectionId(col.id)} 
+                                className={`pb-2 relative font-extrabold text-sm px-1.5 transition-all text-center ${activeCollectionId === col.id ? 'text-slate-900 dark:text-white border-b-2' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`} 
+                                style={{ borderBottomColor: activeCollectionId === col.id ? customization.primaryColor : 'transparent' }}
+                            >
+                                {col.name} ({count})
+                            </button>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        if (tabStyle === 'bento') {
+            const bentoGlowBorder = activeCollectionId === 'all' ? 'ring-2' : '';
+            return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 w-full">
+                    <div 
+                        onClick={() => setActiveCollectionId('all')} 
+                        className={`p-5 rounded-2xl cursor-pointer text-center flex flex-col justify-center items-center transition-all border border-slate-200/50 dark:border-slate-800 shadow-sm hover:translate-y-[-2px] ${activeCollectionId === 'all' ? 'text-white scale-105' : 'bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 text-slate-700 dark:text-slate-300'}`} 
+                        style={{ 
+                            backgroundColor: activeCollectionId === 'all' ? customization.primaryColor : '',
+                            borderColor: activeCollectionId === 'all' ? customization.primaryColor : ''
+                        }}
+                    >
+                        <LayoutGrid size={22} className="mb-2 opacity-85"/>
+                        <span className="font-extrabold text-xs md:text-sm">الكل ({settings.products.length})</span>
+                    </div>
+                    {settings.collections.map((col, idx) => {
+                        const count = settings.products.filter(p => p.collectionId === col.id).length;
+                        const isSel = activeCollectionId === col.id;
+                        const initial = col.name ? col.name.trim().charAt(0) : '🔑';
+                        const gradients = [
+                            'bg-indigo-500/10 text-indigo-600',
+                            'bg-emerald-500/10 text-emerald-600',
+                            'bg-pink-500/10 text-pink-600',
+                            'bg-amber-500/10 text-amber-600'
+                        ];
+                        const gradClass = gradients[idx % gradients.length];
+
+                        return (
+                            <div 
+                                key={col.id} 
+                                onClick={() => setActiveCollectionId(col.id)} 
+                                className={`p-5 rounded-2xl cursor-pointer text-center flex flex-col justify-center items-center transition-all border border-slate-200/50 dark:border-slate-800 shadow-sm hover:translate-y-[-2px] ${isSel ? 'text-white scale-105' : 'bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 text-slate-700 dark:text-slate-300'}`} 
+                                style={{ 
+                                    backgroundColor: isSel ? customization.primaryColor : '',
+                                    borderColor: isSel ? customization.primaryColor : ''
+                                }}
+                            >
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs mb-2 ${isSel ? 'bg-white/20 text-white' : gradClass}`}>
+                                    {initial}
+                                </div>
+                                <span className="font-extrabold text-xs md:text-sm">{col.name} ({count})</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        // Default 'pills' style
+        return (
+            <div className="flex justify-center flex-wrap gap-2.5 pb-2 -mx-4 px-4 mb-6">
+                <button 
+                    onClick={() => setActiveCollectionId('all')} 
+                    className={`px-5 py-2.5 text-xs sm:text-sm font-bold transition-all whitespace-nowrap shadow-sm hover:scale-[1.02] ${activeCollectionId === 'all' ? 'text-white font-extrabold' : 'bg-slate-100 dark:bg-slate-800 text-slate-650 dark:text-slate-305 hover:bg-slate-205 dark:hover:bg-slate-750'} ${customization.buttonBorderRadius}`}
+                    style={{ backgroundColor: activeCollectionId === 'all' ? customization.primaryColor : '' }}
+                >
+                    الكل
+                </button>
+                {settings.collections.map(col => (
+                    <button 
+                        key={col.id} 
+                        onClick={() => setActiveCollectionId(col.id)} 
+                        className={`px-5 py-2.5 text-xs sm:text-sm font-bold transition-all whitespace-nowrap shadow-sm hover:scale-[1.02] ${activeCollectionId === col.id ? 'text-white font-extrabold' : 'bg-slate-100 dark:bg-slate-800 text-slate-655 dark:text-slate-305 hover:bg-slate-205 dark:hover:bg-slate-750'} ${customization.buttonBorderRadius}`}
+                        style={{ backgroundColor: activeCollectionId === col.id ? customization.primaryColor : '' }}
+                    >
+                        {col.name}
+                    </button>
+                ))}
+            </div>
+        );
+    };
+
+    const isSidebarLayout = customization.tabStyle === 'sidebar' && settings.collections.length > 0;
+
     return (
-        <div id="products-section" className="container mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 scroll-mt-20">
+        <div id="products-section" className="container mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 scroll-mt-20 text-right">
              <div className="text-center mb-10">
                 <h2 className={`text-4xl sm:text-5xl text-slate-800 dark:text-white ${customization.headingFontWeight}`}>منتجاتنا المميزة</h2>
                 <p className="mt-2 text-lg text-slate-500 dark:text-slate-400 max-w-xl mx-auto">اكتشف تشكيلتنا الواسعة من المنتجات عالية الجودة.</p>
             </div>
             
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-                {settings.collections.length > 0 && (
-                    <div className="flex justify-center flex-wrap gap-3 pb-2 -mx-4 px-4">
-                        <button onClick={() => setActiveCollectionId('all')} className={`px-5 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${activeCollectionId === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300'}`}>الكل</button>
-                        {settings.collections.map(col => (
-                            <button key={col.id} onClick={() => setActiveCollectionId(col.id)} className={`px-5 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${activeCollectionId === col.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300'}`}>{col.name}</button>
-                        ))}
-                    </div>
-                )}
-                 <div className="flex-shrink-0 flex items-center gap-2">
-                    <select value={sortOption} onChange={e => setSortOption(e.target.value as any)} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-3 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <option value="default">ترتيب افتراضي</option>
-                        <option value="price-desc">السعر: من الأعلى للأقل</option>
-                        <option value="price-asc">السعر: من الأقل للأعلى</option>
-                    </select>
-                    <button onClick={handleAiSearch} disabled={isAiSearching} title="بحث بالذكاء الاصطناعي" className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-all disabled:bg-slate-400">
-                       {isAiSearching ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16}/>}
-                       <span className="hidden sm:inline">بحث ذكي</span>
+            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 pb-4 border-b border-slate-150 dark:border-slate-800">
+                {/* Search options & Smart AI */}
+                <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-3 flex-row-reverse">
+                    <button onClick={handleAiSearch} disabled={isAiSearching} title="بحث بالذكاء الاصطناعي" className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 hover:scale-[1.02] active:scale-95 transition-all disabled:bg-slate-400">
+                       {isAiSearching ? <RefreshCw size={15} className="animate-spin" /> : <Wand2 size={15}/>}
+                       <span>البحث الذكي</span>
                     </button>
+                    <select value={sortOption} onChange={e => setSortOption(e.target.value as any)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 rounded-xl py-3 px-3 text-xs sm:text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none text-right">
+                        <option value="default">ترتيب وتصفية المنتجات</option>
+                        <option value="price-desc">السعر: الأعلى للأقل</option>
+                        <option value="price-asc">السعر: الأقل للأعلى</option>
+                    </select>
                 </div>
             </div>
-            
+
             {aiSearchResults !== null && (
-                <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg flex justify-between items-center animate-in fade-in duration-300">
+                <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl flex justify-between items-center animate-in fade-in duration-300">
                     <p className="font-bold text-indigo-700 dark:text-indigo-300 text-sm">
                         نتائج البحث الذكي عن: "{searchTerm}"
                     </p>
@@ -256,32 +410,94 @@ const ProductsSection: React.FC<{ settings: Settings, searchTerm: string, custom
             )}
 
             {isAiSearching && !aiSearchResults && (
-                <div className="flex justify-center items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold mb-4">
-                    <BrainCircuit size={20} />
-                    <span>البحث الذكي يعمل...</span>
+                <div className="flex justify-center items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold mb-6">
+                    <BrainCircuit size={20} className="animate-pulse" />
+                    <span>البحث والذكاء الاصطناعي يفحص المنتجات...</span>
                 </div>
             )}
 
-            {isLoading ? (
-                <div className={gridClass}>
-                    {Array.from({ length: customization.productColumnsDesktop }).map((_, i) => <ProductCardSkeleton key={i} />)}
-                </div>
-            ) : filteredProducts.length > 0 ? (
-                <div className={gridClass}>
-                    {filteredProducts.map(product => (
-                        <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={onReview} reviews={settings.reviews || []} onViewDetails={() => onViewProduct(product)} />
-                    ))}
+            {isSidebarLayout ? (
+                /* Dynamic Sidebar layout split */
+                <div className="flex flex-col lg:flex-row gap-8 w-full mt-6">
+                    {/* Right Sticky Sidebar */}
+                    <aside className="w-full lg:w-1/4 shrink-0 bg-slate-50 dark:bg-slate-900/60 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 lg:sticky lg:top-24 self-start">
+                        <h3 className={`font-black text-sm text-slate-450 dark:text-slate-400 mb-4 pb-2 border-b border-slate-200 dark:border-slate-800 ${customization.headingFontWeight}`}>
+                            تصفح حسب الفئات
+                        </h3>
+                        <div className="flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 scrollbar-none">
+                            <button 
+                                onClick={() => setActiveCollectionId('all')} 
+                                className={`flex items-center justify-between text-right px-4.5 py-3 rounded-xl text-xs md:text-sm font-bold w-full transition-all whitespace-nowrap ${activeCollectionId === 'all' ? 'text-white shadow-sm' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-350 bg-white dark:bg-slate-900'}`} 
+                                style={{ backgroundColor: activeCollectionId === 'all' ? customization.primaryColor : '' }}
+                            >
+                                <span>الكل</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeCollectionId === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>{settings.products.length}</span>
+                            </button>
+                            {settings.collections.map(col => {
+                                const count = settings.products.filter(p => p.collectionId === col.id).length;
+                                return (
+                                    <button 
+                                        key={col.id} 
+                                        onClick={() => setActiveCollectionId(col.id)} 
+                                        className={`flex items-center justify-between text-right px-4.5 py-3 rounded-xl text-xs md:text-sm font-bold w-full transition-all whitespace-nowrap ${activeCollectionId === col.id ? 'text-white shadow-sm' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-350 bg-white dark:bg-slate-900'}`} 
+                                        style={{ backgroundColor: activeCollectionId === col.id ? customization.primaryColor : '' }}
+                                    >
+                                        <span>{col.name}</span>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeCollectionId === col.id ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>{count}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </aside>
+                    
+                    {/* Left Grid area */}
+                    <div className="flex-1">
+                        {isLoading ? (
+                            <div className={gridClass}>
+                                {Array.from({ length: customization.productColumnsDesktop }).map((_, i) => <ProductCardSkeleton key={i} />)}
+                            </div>
+                        ) : filteredProducts.length > 0 ? (
+                            <div className={gridClass}>
+                                {filteredProducts.map(product => (
+                                    <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={onReview} reviews={settings.reviews || []} onViewDetails={() => onViewProduct(product)} />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 bg-white dark:bg-slate-850 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 flex flex-col items-center justify-center text-slate-500">
+                                <Package size={48} className="text-slate-300 dark:text-slate-700 mb-4" />
+                                <h2 className="font-extrabold text-base text-slate-600 dark:text-slate-300 mb-1">لا توجد منتجات متطابقة</h2>
+                                <p className="text-xs">جرب تفقد فئات أخرى أو مسح مرشح البحث.</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             ) : (
-                <div className="text-center py-20 bg-white dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400">
-                    {isAiSearching ? (
-                        <RefreshCw size={48} className="text-slate-300 dark:text-slate-600 mb-4 animate-spin" />
+                /* Pills / underline / bento layout */
+                <>
+                    {renderCategoryTabs()}
+
+                    {isLoading ? (
+                        <div className={gridClass}>
+                            {Array.from({ length: customization.productColumnsDesktop }).map((_, i) => <ProductCardSkeleton key={i} />)}
+                        </div>
+                    ) : filteredProducts.length > 0 ? (
+                        <div className={gridClass}>
+                            {filteredProducts.map(product => (
+                                <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={onReview} reviews={settings.reviews || []} onViewDetails={() => onViewProduct(product)} />
+                            ))}
+                        </div>
                     ) : (
-                        <Package size={48} className="text-slate-300 dark:text-slate-600 mb-4" />
+                        <div className="text-center py-20 bg-white dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400">
+                            {isAiSearching ? (
+                                <RefreshCw size={48} className="text-slate-300 dark:text-slate-600 mb-4 animate-spin" />
+                            ) : (
+                                <Package size={48} className="text-slate-300 dark:text-slate-600 mb-4" />
+                            )}
+                            <h2 className={`font-bold text-xl text-slate-600 dark:text-slate-300 ${customization.headingFontWeight}`}>{isAiSearching ? 'جاري البحث...' : `لا توجد نتائج لخياراتك الحالية`}</h2>
+                            <p className="text-sm">{isAiSearching ? 'البحث الذكي يبحث عن تطابق دقيق.' : 'جرب اختيار الكل أو تعديل الكلمات المستخدمة.'}</p>
+                        </div>
                     )}
-                    <h2 className={`font-bold text-xl text-slate-600 dark:text-slate-300 ${customization.headingFontWeight}`}>{isAiSearching ? 'جاري البحث...' : `لا توجد نتائج بحث لـ "${searchTerm}"`}</h2>
-                    <p className="text-sm">{isAiSearching ? 'يقوم المساعد الذكي بالبحث عن طلبك.' : 'جرب البحث بكلمة أخرى أو استخدم البحث الذكي.'}</p>
-                </div>
+                </>
             )}
         </div>
     );
@@ -388,38 +604,160 @@ const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, 
   };
 
   return (
-    <div className="min-h-screen flex flex-col transition-colors duration-300 bg-slate-100 dark:bg-[#0C101B]" style={{ fontFamily: customization.fontFamily }}>
+    <div 
+      className="min-h-screen flex flex-col transition-all duration-300" 
+      style={{ 
+        fontFamily: customization.fontFamily,
+        backgroundColor: customization.backgroundColor || '#f8fafc',
+        color: customization.textColor || '#0f172a'
+      }}
+    >
       
-      {customization.isAnnouncementBarVisible && <div className="text-white text-center py-2 text-sm font-bold px-4" style={{ backgroundColor: customization.primaryColor }}>{customization.announcementBarText}</div>}
+      {customization.isAnnouncementBarVisible && <div className="text-white text-center py-2 text-sm font-bold px-4 transition-all duration-300" style={{ backgroundColor: customization.primaryColor }}>{customization.announcementBarText}</div>}
 
-      <nav className="sticky top-0 z-40 bg-gradient-to-r from-[#1E293B] to-[#0F172A] text-white">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-           <span className={`text-2xl font-black text-white`}>{activeStore?.name || 'اسم المتجر'}</span>
-           <div className="flex items-center gap-3 md:gap-6">
-              <button onClick={() => setIsCartOpen(true)} className="relative p-2 rounded-full hover:bg-white/10 transition-colors">
-                  <ShoppingCart size={24} />
-                  {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-[#1E293B]">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
-              </button>
-           </div>
+      {customization.headerStyle === 'floating' ? (
+        <div className="mx-auto px-4 max-w-7xl w-full z-40 relative animate-in slide-in-from-top duration-500">
+          <nav className="my-3 sm:my-5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/55 dark:border-slate-800/85 rounded-[1.8rem] shadow-xl relative text-right transition-all duration-300" style={{ borderColor: `${customization.primaryColor}22` }}>
+            <div className="px-6 h-16 flex items-center justify-between gap-4">
+               <span className="text-xl font-black text-transparent bg-clip-text" style={{ backgroundImage: `linear-gradient(to right, ${customization.primaryColor}, ${customization.primaryColor}cc)` }}>{activeStore?.name || 'اسم المتجر'}</span>
+               <div className="flex items-center gap-3">
+                  <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                      <ShoppingCart size={22} className="text-slate-705 dark:text-slate-355" style={{ color: customization.primaryColor }} />
+                      {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
+                  </button>
+               </div>
+            </div>
+          </nav>
         </div>
-      </nav>
+      ) : customization.headerStyle === 'minimal' ? (
+        <nav className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 border-b border-slate-200/80 dark:border-slate-850/80 text-right transition-all duration-300" style={{ borderBottomColor: `${customization.primaryColor}1a` }}>
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+             <span className="text-xl font-black tracking-tight" style={{ color: customization.primaryColor }}>{activeStore?.name || 'اسم المتجر'}</span>
+             <div className="flex items-center gap-4">
+                <button onClick={() => setIsCartOpen(true)} className={`relative p-2 hover:bg-slate-100 dark:hover:bg-slate-905 transition-colors ${customization.buttonBorderRadius}`}>
+                    <ShoppingCart size={20} style={{ color: customization.primaryColor }} />
+                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4.5 h-4.5 rounded-full flex items-center justify-center">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
+                </button>
+             </div>
+          </div>
+        </nav>
+      ) : customization.headerStyle === 'luxury' ? (
+        <nav className="sticky top-0 z-40 bg-zinc-950 text-amber-500 border-b border-amber-500/20 py-1 shadow-2xl text-right transition-all duration-305">
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+             <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500 tracking-widest uppercase">{activeStore?.name || 'اسم المتجر'}</span>
+             <div className="flex items-center gap-3">
+                <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 rounded-full hover:bg-amber-500/10 transition-colors border border-amber-500/10">
+                    <ShoppingCart size={22} className="text-amber-400" />
+                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-amber-500 text-black text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-black">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
+                </button>
+             </div>
+          </div>
+        </nav>
+      ) : (
+        /* Classic default style */
+        <nav className="sticky top-0 z-40 text-white shadow-md text-right transition-all duration-300" style={{ background: `linear-gradient(135deg, ${customization.primaryColor}, ${customization.primaryColor}eb)` }}>
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+             <span className="text-2xl font-black text-white">{activeStore?.name || 'اسم المتجر'}</span>
+             <div className="flex items-center gap-3 md:gap-6">
+                <button onClick={() => setIsCartOpen(true)} className="relative p-2 rounded-full hover:bg-white/10 transition-colors">
+                    <ShoppingCart size={24} />
+                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-white text-indigo-705 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2" style={{ color: customization.primaryColor }}>{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
+                </button>
+             </div>
+          </div>
+        </nav>
+      )}
       
-      <main className="flex-1 bg-white dark:bg-slate-900 md:rounded-t-3xl">
-          {customization.pageSections.find(s => s.type === 'hero' && s.enabled) && <HeroSection customization={customization} />}
-          {customization.pageSections.find(s => s.type === 'products' && s.enabled) && <ProductsSection settings={settings} searchTerm={searchTerm} customization={customization} onAddToCart={onAddToCart} onReview={openReviewModal} onViewProduct={setSelectedProduct} />}
+      <main 
+        className="flex-1 md:rounded-t-[2.5rem] shadow-sm transition-all duration-300 overflow-hidden text-right" 
+        style={{ 
+          backgroundColor: customization.backgroundColor || '#ffffff',
+          color: customization.textColor || '#0f172a'
+        }}
+      >
+          {(customization.pageSections || []).map((section) => {
+            if (!section.enabled) return null;
+            if (section.type === 'hero') {
+              return <HeroSection key={section.id || 'hero'} customization={customization} />;
+            }
+            if (section.type === 'products') {
+              return (
+                <ProductsSection 
+                  key={section.id || 'products'} 
+                  settings={settings} 
+                  searchTerm={searchTerm} 
+                  customization={customization} 
+                  onAddToCart={onAddToCart} 
+                  onReview={openReviewModal} 
+                  onViewProduct={setSelectedProduct} 
+                />
+              );
+            }
+            return null;
+          })}
       </main>
 
-      <footer className="bg-slate-900 dark:bg-[#0C101B] py-8">
-          <div className="container mx-auto px-4 text-center">
-              <div className="flex justify-center gap-6 mb-4">
-                  {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white"><Facebook size={20}/></a>}
-                  {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white"><Instagram size={20}/></a>}
-                  {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white"><Twitter size={20}/></a>}
-                  {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white"><MessageCircle size={20}/></a>}
+      {customization.footerStyle === 'multi-column' ? (
+          <footer className="bg-slate-950 dark:bg-[#070b13] border-t border-slate-800 py-16 text-right text-slate-300">
+              <div className="container mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-10">
+                  <div>
+                      <h4 className="font-extrabold text-white text-lg mb-4">{activeStore?.name}</h4>
+                      <p className="text-sm text-slate-400 mb-6 leading-relaxed">تسوّق مع أفضل متجر إلكتروني يوفر لك أرقى الخدمات والمنتجات الاستثنائية بأسعار مذهلة وجودة حقيقية.</p>
+                      <div className="flex gap-4 justify-start flex-row-reverse">
+                         {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><Facebook size={18}/></a>}
+                         {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><Instagram size={18}/></a>}
+                         {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><Twitter size={18}/></a>}
+                         {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><MessageCircle size={18}/></a>}
+                      </div>
+                  </div>
+                  <div>
+                      <h4 className="font-extrabold text-white text-sm mb-4">روابط سريعة</h4>
+                      <ul className="space-y-2 text-xs font-bold text-slate-400">
+                          <li><a href="#products-section" className="hover:text-white transition-all">جميع المعروضات</a></li>
+                          <li><a href="#products-section" className="hover:text-white transition-all">التصنيفات والفئات</a></li>
+                          <li><span className="text-slate-600 block">سياسة الاسترجاع والضمان</span></li>
+                      </ul>
+                  </div>
+                  <div>
+                      <h4 className="font-extrabold text-white text-sm mb-4">تواصل معنا</h4>
+                      <p className="text-xs text-slate-400 mb-3 leading-relaxed">يسعدنا دائماً الإجابة على أي تساؤلات أو استفسارات على مدار الساعة.</p>
+                      <span className="text-xs font-bold text-[#eab308] px-3.5 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl inline-block">دعم عملاء فني ٢٤/٧</span>
+                  </div>
               </div>
-              <p className="text-slate-500 dark:text-slate-400 text-sm">{customization.footerText}</p>
-          </div>
-      </footer>
+              <div className="border-t border-slate-900 mt-12 pt-6 text-center text-xs text-slate-500 font-bold">
+                  {customization.footerText}
+              </div>
+          </footer>
+      ) : customization.footerStyle === 'glass' ? (
+          <footer className="py-12 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-t border-slate-200/50 dark:border-slate-850/60 text-right">
+              <div className="container mx-auto px-4 max-w-5xl text-center">
+                  <div className="p-6 sm:p-8 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-xl">
+                      <span className="text-xl font-black tracking-tight text-slate-800 dark:text-white mb-2 block">{activeStore?.name}</span>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">نوفر كروت تصفح وقوالب عالية الأداء لتلبية تطلعاتك التسوقية في كل الأقسام.</p>
+                      <div className="flex justify-center gap-5 mb-6">
+                          {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-indigo-600 transition-colors"><Facebook size={20}/></a>}
+                          {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-pink-600 transition-colors"><Instagram size={20}/></a>}
+                          {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><Twitter size={20}/></a>}
+                          {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-indigo-500 transition-colors"><MessageCircle size={20}/></a>}
+                      </div>
+                      <p className="text-xs text-slate-500 font-extrabold">{customization.footerText}</p>
+                  </div>
+              </div>
+          </footer>
+      ) : (
+          /* Simple footer default style */
+          <footer className="bg-slate-900 dark:bg-[#0C101B] py-8 border-t border-slate-850 text-white text-right">
+              <div className="container mx-auto px-4 text-center">
+                  <div className="flex justify-center gap-6 mb-4">
+                      {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><Facebook size={20}/></a>}
+                      {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><Instagram size={20}/></a>}
+                      {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><Twitter size={20}/></a>}
+                      {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><MessageCircle size={20}/></a>}
+                  </div>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">{customization.footerText}</p>
+              </div>
+          </footer>
+      )}
 
       <CartSidebar isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} onUpdateQuantity={onUpdateCartQuantity} onRemoveItem={onRemoveFromCart} primaryColor={customization.primaryColor}/>
 

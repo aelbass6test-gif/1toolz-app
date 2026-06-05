@@ -743,7 +743,7 @@ export const AppComponent = () => {
             };
 
             syncWithTimeout();
-        }, 5000); // 5s debounce for efficiency
+        }, 15000); // 15s debounce for efficiency - reduced from 5s to conserve writes
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1227,8 +1227,25 @@ export const AppComponent = () => {
             // Listen for changes on store configuration
             const unsubStore = onSnapshot(doc(firebaseDb, 'stores_data', activeStoreId), (snap) => {
                 if (snap.exists() && !isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    const snapData = snap.data() as any;
                     console.log('[REALTIME] Store settings change detected via Firestore snapshot');
-                    refreshStoreDataRef.current(activeStoreId);
+                    isRefreshing.current = true;
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        // Only update name and settings from the store document
+                        return {
+                            ...prev,
+                            [activeStoreId]: {
+                                ...store,
+                                name: snapData.name || store.name,
+                                settings: {
+                                    ...store.settings,
+                                    ...(snapData.settings || {})
+                                }
+                            }
+                        };
+                    });
                 }
             });
             unsubscribers.push(unsubStore);
@@ -1238,17 +1255,69 @@ export const AppComponent = () => {
             const unsubOrders = onSnapshot(qOrders, (snap) => {
                 if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
                     console.log('[REALTIME] Orders change detected via Firestore snapshot');
-                    refreshStoreDataRef.current(activeStoreId);
+                    isRefreshing.current = true;
+                    const newOrders = snap.docs.map(doc => ({ 
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
+                        ...doc.data() 
+                    } as Order));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: { ...store, orders: newOrders }
+                        };
+                    });
                 }
             });
             unsubscribers.push(unsubOrders);
+
+            // Listen for changes on products
+            const qProducts = query(collection(firebaseDb, 'products'), where('storeId', '==', activeStoreId));
+            const unsubProducts = onSnapshot(qProducts, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    console.log('[REALTIME] Products change detected via Firestore snapshot');
+                    isRefreshing.current = true;
+                    const newProducts = snap.docs.map(doc => ({ 
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
+                        ...doc.data() 
+                    } as Product));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: { 
+                                ...store, 
+                                settings: { ...store.settings, products: newProducts } 
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubProducts);
 
             // Listen for changes on employees
             const qEmployees = query(collection(firebaseDb, 'employees'), where('storeId', '==', activeStoreId));
             const unsubEmployees = onSnapshot(qEmployees, (snap) => {
                 if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
                     console.log('[REALTIME] Employees change detected via Firestore snapshot');
-                    refreshStoreDataRef.current(activeStoreId);
+                    isRefreshing.current = true;
+                    const newEmployees = snap.docs.map(doc => ({ 
+                        ...doc.data(),
+                        phone: doc.id.split('_').pop() // doc.id is storeId_phone
+                    } as any));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: { 
+                                ...store, 
+                                settings: { ...store.settings, employees: newEmployees } 
+                            }
+                        };
+                    });
                 }
             });
             unsubscribers.push(unsubEmployees);
@@ -1258,18 +1327,27 @@ export const AppComponent = () => {
         const unsubUsers = onSnapshot(collection(firebaseDb, 'users'), (snap) => {
             if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
                 console.log('[REALTIME] Users collection change detected via Firestore snapshot');
-                refreshGlobalDataRef.current();
+                isRefreshing.current = true;
+                const updatedUsers = snap.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        fullName: data.fullName || '',
+                        phone: doc.id,
+                        password: data.password || '',
+                        email: data.email || '',
+                        stores: data.stores || [],
+                        sites: data.sites || [],
+                        isAdmin: data.isAdmin || false,
+                        isBanned: data.isBanned || false,
+                        joinDate: data.joinDate || ''
+                    } as User;
+                });
+                setUsers(updatedUsers);
             }
         });
         unsubscribers.push(unsubUsers);
 
-        // Fallback polling mechanism 
-        const pollingInterval = setInterval(() => {
-            if (activeStoreId && !isSavingRef.current && !isDirtyRef.current) {
-                refreshStoreDataRef.current(activeStoreId);
-            }
-        }, 8000); // Poll every 8 seconds
-
+        // No redundant polling - onSnapshot handles real-time updates efficiently.
         // Background Auto-Sync for Platforms (Wuilt, etc.)
         const autoSyncInterval = setInterval(async () => {
             if (activeStoreId && !isSavingRef.current && activeStoreRef.current) {
@@ -1304,9 +1382,8 @@ export const AppComponent = () => {
         }, 120000); // Every 2 minutes
 
         return () => {
-            console.log('[REALTIME] Unsubscribing Firestore listeners and polling.');
+            console.log('[REALTIME] Unsubscribing Firestore listeners and background intervals.');
             unsubscribers.forEach(unsub => unsub());
-            clearInterval(pollingInterval);
             clearInterval(autoSyncInterval);
         };
     }, [activeStoreId, dbSyncMode]); 
@@ -1727,7 +1804,7 @@ export const AppComponent = () => {
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
-                    <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} />} />
+                    <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colorsAndFonts" />} />
                     <Route path="shipping" element={<ShippingPage {...pageProps} />} />
                     <Route path="create-store" element={<CreateStorePage currentUser={currentUser} onStoreCreated={handleStoreCreated} />} />
                     <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
@@ -1757,7 +1834,7 @@ export const AppComponent = () => {
                     {/* Coming Soon Routes */}
                     <Route path="product-attributes" element={<ComingSoonPage />} />
                     <Route path="withdrawals" element={<ComingSoonPage />} />
-                    <Route path="design-templates" element={<ComingSoonPage />} />
+                    <Route path="design-templates" element={<StoreCustomizationPage {...pageProps} initialSection="templates" />} />
                     <Route path="domain" element={<DomainSettingsPage activeStoreId={activeStoreId} storeData={allStoresData[activeStoreId] || null} settings={pageProps.settings} setSettings={pageProps.setSettings} users={users} />} />
                     <Route path="legal-pages" element={<ComingSoonPage />} />
                     <Route path="apps" element={<AppsPage storeId={activeStoreId} storeData={allStoresData[activeStoreId] || null} onUpdateSettings={pageProps.setSettings} onUpdateOrders={pageProps.setOrders} onRefresh={pageProps.onRefresh} hostUrl={pageProps.settings.customAppDomain || window.location.origin} />} />

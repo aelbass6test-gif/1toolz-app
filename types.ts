@@ -285,6 +285,12 @@ export interface StoreCustomization {
   buttonBorderRadius: 'rounded-none' | 'rounded-md' | 'rounded-lg' | 'rounded-full';
   cardStyle: 'default' | 'elevated' | 'outlined';
   productColumnsDesktop: 2 | 3 | 4 | 5;
+  headerStyle?: 'floating' | 'classic' | 'minimal' | 'luxury';
+  footerStyle?: 'simple' | 'multi-column' | 'glass';
+  tabStyle?: 'pills' | 'underline' | 'sidebar' | 'bento';
+  cardHoverEffect?: 'scale' | 'glow' | 'shadow' | 'none';
+  cardInfoAlignment?: 'right' | 'center' | 'left';
+  cardShadowSize?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
 }
 
 export interface DiscountCode {
@@ -879,13 +885,13 @@ export interface Treasury {
 }
 
 export interface StoreData {
+  name?: string;
   orders: Order[];
   settings: Settings;
   wallet: Wallet;
   treasury?: Treasury;
   cart: OrderItem[];
   customers: CustomerProfile[]; // Added customers to StoreData
-
 }
 
 export interface PlaceOrderData {
