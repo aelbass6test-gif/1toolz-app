@@ -618,52 +618,124 @@ const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, 
       {customization.headerStyle === 'floating' ? (
         <div className="mx-auto px-4 max-w-7xl w-full z-40 relative animate-in slide-in-from-top duration-500">
           <nav className="my-3 sm:my-5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/55 dark:border-slate-800/85 rounded-[1.8rem] shadow-xl relative text-right transition-all duration-300" style={{ borderColor: `${customization.primaryColor}22` }}>
-            <div className="px-6 h-16 flex items-center justify-between gap-4">
-               <span className="text-xl font-black text-transparent bg-clip-text" style={{ backgroundImage: `linear-gradient(to right, ${customization.primaryColor}, ${customization.primaryColor}cc)` }}>{activeStore?.name || 'اسم المتجر'}</span>
+            <div className="px-6 h-16 flex items-center justify-between gap-4 flex-row-reverse">
                <div className="flex items-center gap-3">
                   <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                       <ShoppingCart size={22} className="text-slate-705 dark:text-slate-355" style={{ color: customization.primaryColor }} />
                       {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
                   </button>
                </div>
+               
+               {customization.navigationLinks && customization.navigationLinks.length > 0 && (
+                 <div className="hidden md:flex items-center gap-5 text-xs font-black">
+                   {customization.navigationLinks.map((link, idx) => (
+                     <a key={idx} href={link.url} className="opacity-80 hover:opacity-100 transition-opacity whitespace-nowrap px-1 py-2">{link.label}</a>
+                   ))}
+                 </div>
+               )}
+
+               {customization.logoUrl ? (
+                 <img 
+                   src={customization.logoUrl} 
+                   alt={activeStore?.name} 
+                   className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
+                   referrerPolicy="no-referrer"
+                 />
+               ) : (
+                 <span className="text-xl font-black text-transparent bg-clip-text" style={{ backgroundImage: `linear-gradient(to right, ${customization.primaryColor}, ${customization.primaryColor}cc)` }}>{activeStore?.name || 'اسم المتجر'}</span>
+               )}
             </div>
           </nav>
         </div>
       ) : customization.headerStyle === 'minimal' ? (
         <nav className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 border-b border-slate-200/80 dark:border-slate-850/80 text-right transition-all duration-300" style={{ borderBottomColor: `${customization.primaryColor}1a` }}>
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-             <span className="text-xl font-black tracking-tight" style={{ color: customization.primaryColor }}>{activeStore?.name || 'اسم المتجر'}</span>
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 flex-row-reverse">
              <div className="flex items-center gap-4">
                 <button onClick={() => setIsCartOpen(true)} className={`relative p-2 hover:bg-slate-100 dark:hover:bg-slate-905 transition-colors ${customization.buttonBorderRadius}`}>
                     <ShoppingCart size={20} style={{ color: customization.primaryColor }} />
                     {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4.5 h-4.5 rounded-full flex items-center justify-center">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
                 </button>
              </div>
+
+             {customization.navigationLinks && customization.navigationLinks.length > 0 && (
+               <div className="hidden md:flex items-center gap-5 text-xs font-black">
+                 {customization.navigationLinks.map((link, idx) => (
+                   <a key={idx} href={link.url} className="opacity-80 hover:opacity-100 transition-opacity whitespace-nowrap px-1 py-2">{link.label}</a>
+                 ))}
+               </div>
+             )}
+
+             {customization.logoUrl ? (
+               <img 
+                 src={customization.logoUrl} 
+                 alt={activeStore?.name} 
+                 className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
+                 referrerPolicy="no-referrer"
+               />
+             ) : (
+               <span className="text-xl font-black tracking-tight" style={{ color: customization.primaryColor }}>{activeStore?.name || 'اسم المتجر'}</span>
+             )}
           </div>
         </nav>
       ) : customization.headerStyle === 'luxury' ? (
         <nav className="sticky top-0 z-40 bg-zinc-950 text-amber-500 border-b border-amber-500/20 py-1 shadow-2xl text-right transition-all duration-305">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-             <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500 tracking-widest uppercase">{activeStore?.name || 'اسم المتجر'}</span>
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 flex-row-reverse">
              <div className="flex items-center gap-3">
                 <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 rounded-full hover:bg-amber-500/10 transition-colors border border-amber-500/10">
                     <ShoppingCart size={22} className="text-amber-400" />
                     {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-amber-500 text-black text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-black">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
                 </button>
              </div>
+
+             {customization.navigationLinks && customization.navigationLinks.length > 0 && (
+               <div className="hidden md:flex items-center gap-5 text-xs font-black">
+                 {customization.navigationLinks.map((link, idx) => (
+                   <a key={idx} href={link.url} className="opacity-80 hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-2">{link.label}</a>
+                 ))}
+               </div>
+             )}
+
+             {customization.logoUrl ? (
+               <img 
+                 src={customization.logoUrl} 
+                 alt={activeStore?.name} 
+                 className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
+                 referrerPolicy="no-referrer"
+               />
+             ) : (
+               <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500 tracking-widest uppercase">{activeStore?.name || 'اسم المتجر'}</span>
+             )}
           </div>
         </nav>
       ) : (
         /* Classic default style */
         <nav className="sticky top-0 z-40 text-white shadow-md text-right transition-all duration-300" style={{ background: `linear-gradient(135deg, ${customization.primaryColor}, ${customization.primaryColor}eb)` }}>
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-             <span className="text-2xl font-black text-white">{activeStore?.name || 'اسم المتجر'}</span>
+          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 flex-row-reverse">
              <div className="flex items-center gap-3 md:gap-6">
                 <button onClick={() => setIsCartOpen(true)} className="relative p-2 rounded-full hover:bg-white/10 transition-colors">
                     <ShoppingCart size={24} />
                     {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-white text-indigo-705 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2" style={{ color: customization.primaryColor }}>{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
                 </button>
              </div>
+
+             {customization.navigationLinks && customization.navigationLinks.length > 0 && (
+               <div className="hidden md:flex items-center gap-5 text-xs font-black">
+                 {customization.navigationLinks.map((link, idx) => (
+                   <a key={idx} href={link.url} className="opacity-90 hover:opacity-100 transition-opacity whitespace-nowrap px-1 py-2">{link.label}</a>
+                 ))}
+               </div>
+             )}
+
+             {customization.logoUrl ? (
+               <img 
+                 src={customization.logoUrl} 
+                 alt={activeStore?.name} 
+                 className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
+                 referrerPolicy="no-referrer"
+               />
+             ) : (
+               <span className="text-2xl font-black text-white">{activeStore?.name || 'اسم المتجر'}</span>
+             )}
           </div>
         </nav>
       )}
@@ -691,6 +763,23 @@ const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, 
                   onReview={openReviewModal} 
                   onViewProduct={setSelectedProduct} 
                 />
+              );
+            }
+            if (section.type === 'about_us' || (customization.aboutUs?.enabled && section.type === 'about_us')) {
+              const ab = customization.aboutUs || { title: 'من نحن', subtitle: 'قصتنا وهويتنا البصرية', content: 'نحن هاهنا لتقديم أرقى وأفضل معايير الجودة العالمية لعملائنا الكرام.', imageUrl: '' };
+              return (
+                <div key={section.id || 'about_us'} className="py-16 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-10 items-center text-right text-slate-800 dark:text-slate-100" id="about-section">
+                   {ab.imageUrl && (
+                     <img src={ab.imageUrl} alt={ab.title} className="rounded-3xl object-cover w-full h-80 shadow-md border border-slate-100 dark:border-slate-800" />
+                   )}
+                   <div className="space-y-4">
+                      {ab.subtitle && (
+                        <span className="text-[10px] font-black tracking-widest text-slate-400 dark:text-slate-500 uppercase">{ab.subtitle}</span>
+                      )}
+                      <h3 className={`text-2xl font-black ${customization.headingFontWeight}`} style={{ color: customization.primaryColor }}>{ab.title}</h3>
+                      <p className="text-sm font-semibold opacity-85 leading-relaxed whitespace-pre-line text-slate-600 dark:text-slate-350">{ab.content}</p>
+                   </div>
+                </div>
               );
             }
             return null;

@@ -37,6 +37,52 @@ const INITIAL_CUSTOMIZATION: StoreCustomization = {
   buttonBorderRadius: 'rounded-lg',
   cardStyle: 'elevated',
   productColumnsDesktop: 4,
+  navigationLinks: [
+    { label: 'الرئيسية', url: '#hero-section' },
+    { label: 'المنتجات', url: '#products-section' },
+    { label: 'من نحن', url: '#about-section' },
+    { label: 'روابط السوشيال', url: '#footer-section' }
+  ],
+  aboutUs: {
+    enabled: true,
+    title: 'قصة علامتنا التجارية',
+    subtitle: 'نقاء الطبيعة ومصداقية المنتجات بين يديك',
+    content: 'نحن نؤمن بأن الطبيعة تقدم لنا أفضل الحلول لكل احتياجاتنا. لذلك، كرسنا أنفسنا لتوفير منتجات نقية، أصلية، ومصنوعة بأعلى جودة تليق بثقتكم الغالية وتمنحكم تجربة تسوق فريدة ومميزة.',
+    imageUrl: 'https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?auto=format&fit=crop&w=600&q=80'
+  },
+  contactInfo: {
+    phone: '01012345678',
+    whatsapp: '201012345678',
+    email: 'support@yourstore.com',
+    address: 'شارع التسعين، التجمع الخامس، القاهرة، مصر',
+    workHours: 'يومياً من الساعة 10 صباحاً وحتى 10 مساءً'
+  },
+  checkoutFieldsOptions: {
+    fullName: { show: true, required: true },
+    phone: { show: true, required: true },
+    address: { show: true, required: true },
+    email: { show: false, required: false },
+    notes: { show: true, required: false }
+  },
+  successScreen: {
+    title: 'تم استلام طلبك بنجاح! 🎉',
+    description: 'شكراً لتسوقك معنا. سيتواصل معك أحد ممثلي الدعم الفني خلال ساعات معدودة لتأكيد الشحن وتفاصيل التوصيل.',
+    buttonText: 'العودة للمتجر الرئيسي'
+  },
+  emailNotifications: {
+    customerEnabled: true,
+    adminEnabled: true,
+    templateType: 'minimal'
+  },
+  socialLinksExtended: {
+    facebook: 'https://facebook.com',
+    instagram: 'https://instagram.com',
+    x: 'https://twitter.com',
+    tiktok: 'https://tiktok.com',
+    youtube: 'https://youtube.com',
+    snapchat: '',
+    pinterest: ''
+  }
 };
 
 export const EGYPT_GOVERNORATES = [

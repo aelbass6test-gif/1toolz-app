@@ -291,6 +291,48 @@ export interface StoreCustomization {
   cardHoverEffect?: 'scale' | 'glow' | 'shadow' | 'none';
   cardInfoAlignment?: 'right' | 'center' | 'left';
   cardShadowSize?: 'none' | 'sm' | 'md' | 'lg' | 'xl';
+  // --- New SaaS style fields for high-fidelity controls ---
+  navigationLinks?: { label: string; url: string }[];
+  aboutUs?: {
+    enabled: boolean;
+    title: string;
+    subtitle: string;
+    content: string;
+    imageUrl?: string;
+  };
+  contactInfo?: {
+    phone: string;
+    whatsapp: string;
+    email: string;
+    address: string;
+    workHours: string;
+  };
+  checkoutFieldsOptions?: {
+    fullName: { show: boolean; required: boolean };
+    phone: { show: boolean; required: boolean };
+    address: { show: boolean; required: boolean };
+    email: { show: boolean; required: boolean };
+    notes: { show: boolean; required: boolean };
+  };
+  successScreen?: {
+    title: string;
+    description: string;
+    buttonText: string;
+  };
+  emailNotifications?: {
+    customerEnabled: boolean;
+    adminEnabled: boolean;
+    templateType: 'minimal' | 'dark' | 'luxury';
+  };
+  socialLinksExtended?: {
+    facebook: string;
+    instagram: string;
+    x: string;
+    tiktok: string;
+    youtube: string;
+    snapchat: string;
+    pinterest: string;
+  };
 }
 
 export interface DiscountCode {

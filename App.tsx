@@ -3,7 +3,7 @@ import { HashRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, us
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData } from './types';
 import * as db from './services/databaseService';
-import { onSnapshot, collection, query, where, doc } from 'firebase/firestore';
+import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb } from './services/firebaseClient';
 import { INITIAL_SETTINGS } from './constants';
 import { oneToolzProducts } from './data/one-toolz-products';
@@ -812,29 +812,61 @@ export const AppComponent = () => {
             let foundStoreId: string | null = previewId;
             
             if (!foundStoreId && !isExactMainDomain) {
-                for (const u of loadedUsers) {
-                    if (!u.stores) continue;
-                    const store = u.stores.find(s => {
-                        const storeCustomDomain = (s.customDomain || '').toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim();
-                        const storeSubdomain = (s.subdomain || '').toLowerCase().trim();
-                        
-                        // 1. Match custom domain (e.g. 3bdomedia.com or www.3bdomedia.com)
-                        if (storeCustomDomain && (storeCustomDomain === hostNoWww || `www.${storeCustomDomain}` === host)) {
-                            return true;
-                        }
-                        
-                        // 2. Match free subdomain of abdomedi (e.g. mystore.abdomedi.com)
-                        if (storeSubdomain && host.endsWith('.abdomedi.com')) {
-                            const sub = host.split('.')[0].toLowerCase();
-                            if (sub === storeSubdomain) {
-                                console.log('[DOMAIN-MATCH] Matched subdomain:', sub);
-                                return true;
+                // 1. HIGH-PERFORMANCE DIRECT LOOKUP IN STORES_DATA COLLECTION
+                // This bypasses Firebase Auth guest list restriction and quota issues
+                try {
+                    console.log('[STOREFRONT-LOOKUP] Attempting direct stores_data query for:', host);
+                    
+                    if (host.endsWith('.abdomedi.com')) {
+                        const sub = host.split('.')[0].toLowerCase();
+                        if (sub && sub !== 'www' && sub !== 'app' && sub !== 'fallback') {
+                            const qSub = query(collection(firebaseDb, 'stores_data'), where('settings.subdomain', '==', sub));
+                            const subSnap = await getDocs(qSub);
+                            if (!subSnap.empty) {
+                                foundStoreId = subSnap.docs[0].id;
+                                console.log('[STOREFRONT-LOOKUP] Matched store ID via subdomain query:', foundStoreId);
                             }
                         }
-                        
-                        return false;
-                    });
-                    if (store) { foundStoreId = store.id; break; }
+                    }
+                    
+                    if (!foundStoreId) {
+                        const qCD = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', hostNoWww));
+                        const cdSnap = await getDocs(qCD);
+                        if (!cdSnap.empty) {
+                            foundStoreId = cdSnap.docs[0].id;
+                            console.log('[STOREFRONT-LOOKUP] Matched store ID via custom domain query:', foundStoreId);
+                        }
+                    }
+                } catch (lookupErr) {
+                    console.error('[STOREFRONT-LOOKUP] Error in direct stores_data lookup:', lookupErr);
+                }
+
+                // 2. FALLBACK: LOOP OVER ALL USERS (IF ACCESSIBLE / CACHED)
+                if (!foundStoreId) {
+                    for (const u of loadedUsers) {
+                        if (!u.stores) continue;
+                        const store = u.stores.find(s => {
+                            const storeCustomDomain = (s.customDomain || '').toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim();
+                            const storeSubdomain = (s.subdomain || '').toLowerCase().trim();
+                            
+                            // 1. Match custom domain (e.g. 3bdomedia.com or www.3bdomedia.com)
+                            if (storeCustomDomain && (storeCustomDomain === hostNoWww || `www.${storeCustomDomain}` === host)) {
+                                return true;
+                            }
+                            
+                            // 2. Match free subdomain of abdomedi (e.g. mystore.abdomedi.com)
+                            if (storeSubdomain && host.endsWith('.abdomedi.com')) {
+                                const sub = host.split('.')[0].toLowerCase();
+                                if (sub === storeSubdomain) {
+                                    console.log('[DOMAIN-MATCH] Fallback matched subdomain:', sub);
+                                    return true;
+                                }
+                            }
+                            
+                            return false;
+                        });
+                        if (store) { foundStoreId = store.id; break; }
+                    }
                 }
             }
             
@@ -1804,7 +1836,7 @@ export const AppComponent = () => {
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
-                    <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colorsAndFonts" />} />
+                    <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
                     <Route path="shipping" element={<ShippingPage {...pageProps} />} />
                     <Route path="create-store" element={<CreateStorePage currentUser={currentUser} onStoreCreated={handleStoreCreated} />} />
                     <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
