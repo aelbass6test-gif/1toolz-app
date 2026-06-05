@@ -793,10 +793,14 @@ export const AppComponent = () => {
         setIsInitialLoad(true);
         isRefreshing.current = true;
         try {
-            const globalData = await db.getGlobalData();
-            let loadedUsers: User[] = globalData?.users || [];
-
-            setUsers(loadedUsers);
+            let loadedUsers: User[] = [];
+            try {
+                const globalData = await db.getGlobalData();
+                loadedUsers = globalData?.users || [];
+                setUsers(loadedUsers);
+            } catch (globalErr) {
+                console.warn('[LOAD-DATA] Failed to fetch global user data (expected for guest storefront page):', globalErr);
+            }
             
             const host = window.location.hostname.toLowerCase();
             const hostNoWww = host.replace(/^www\./, '');
