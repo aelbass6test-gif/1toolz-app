@@ -416,7 +416,11 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         throw new Error(data.error || data.message || "فشل التحقق من حالة النطاق.");
       }
 
-      if (data.status === 'active' && data.ssl_status === 'active') {
+      const isActive = data.domainStatus === 'active' || 
+                       (data.status === 'active' && data.ssl_status === 'active') || 
+                       (data.details?.status === 'active' && data.details?.ssl?.status === 'active');
+
+      if (isActive) {
         setDomainStatus('active');
         localStorage.setItem(`custom_domain_status_${activeStoreId}`, 'active');
         if (data.details) {

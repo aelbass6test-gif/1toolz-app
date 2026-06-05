@@ -4,6 +4,7 @@ import { Settings, Store, Product, StoreCustomization, OrderItem, Review } from 
 import { ShoppingCart, Package, Search, Facebook, Instagram, Twitter, MessageCircle, ArrowDown, CheckCircle, Star, X, LayoutGrid, ChevronLeft, ChevronRight, ArrowRight, BrainCircuit, RefreshCw, Wand2 } from 'lucide-react';
 import CartSidebar from './CartSidebar';
 import { searchProductsWithAI } from '../services/geminiService';
+import { SmartUpdatesWidget } from './SmartUpdatesWidget';
 
 interface StorefrontPageProps {
   settings: Settings;
@@ -854,6 +855,7 @@ const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, 
       
       {selectedProduct && <ProductDetailModal product={selectedProduct} allProducts={settings.products} allReviews={settings.reviews || []} customization={customization} onClose={() => setSelectedProduct(null)} onAddToCart={onAddToCart} onSelectProduct={setSelectedProduct} />}
 
+      <SmartUpdatesWidget primaryColor={customization.primaryColor} isAdminView={false} />
     </div>
   );
 };

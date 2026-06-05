@@ -24,6 +24,7 @@ import CustomersPage from './components/CustomersPage';
 import WalletPage from './components/WalletPage';
 import SettingsPage from './components/SettingsPage';
 import StorefrontPage from './components/StorefrontPage';
+import { SmartUpdatesWidget } from './components/SmartUpdatesWidget';
 import CheckoutPage from './components/CheckoutPage';
 import OrderSuccessPage from './components/OrderSuccessPage';
 import StoreCustomizationPage from './components/StoreCustomizationPage';
@@ -1910,6 +1911,9 @@ export const AppComponent = () => {
                 isStandalone={isStandalone} 
                 isIos={isIos} 
             />
+            {currentUser && !isStandaloneStorefront && (
+                <SmartUpdatesWidget isAdminView={true} primaryColor="#6366f1" />
+            )}
         </>
     );
 };
