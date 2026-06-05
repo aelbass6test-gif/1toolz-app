@@ -982,6 +982,10 @@ CREATE TABLE IF NOT EXISTS products (
     price NUMERIC NOT NULL,
     stock_quantity NUMERIC DEFAULT 0,
     stockQuantity NUMERIC DEFAULT 0,
+    min_stock_level NUMERIC DEFAULT 0,
+    minStockLevel NUMERIC DEFAULT 0,
+    last_audited JSONB DEFAULT '{}'::jsonb,
+    lastAudited JSONB DEFAULT '{}'::jsonb,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -1287,6 +1291,272 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     isFile BOOLEAN DEFAULT false
 );
 
+-- 25. WAREHOUSES (المخازن والمستودعات)
+CREATE TABLE IF NOT EXISTS warehouses (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    location TEXT,
+    is_default BOOLEAN DEFAULT false,
+    isDefault BOOLEAN DEFAULT false
+);
+
+-- 26. INVENTORY_AUDITS (جلسات جرد المخزون)
+CREATE TABLE IF NOT EXISTS inventory_audits (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    performed_by TEXT,
+    performedBy TEXT,
+    scope TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    total_system_qty NUMERIC DEFAULT 0,
+    totalSystemQty NUMERIC DEFAULT 0,
+    total_actual_qty NUMERIC DEFAULT 0,
+    totalActualQty NUMERIC DEFAULT 0,
+    total_variance_qty NUMERIC DEFAULT 0,
+    totalVarianceQty NUMERIC DEFAULT 0,
+    total_variance_value NUMERIC DEFAULT 0,
+    totalVarianceValue NUMERIC DEFAULT 0,
+    discrepancies JSONB DEFAULT '[]'::jsonb,
+    notes TEXT
+);
+
+-- 27. STOCK_TRANSFERS (تحويلات المخزون بين المستودعات)
+CREATE TABLE IF NOT EXISTS stock_transfers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    transfer_number TEXT NOT NULL,
+    transferNumber TEXT,
+    date TEXT NOT NULL,
+    source_warehouse_id TEXT,
+    sourceWarehouseId TEXT,
+    destination_warehouse_id TEXT,
+    destinationWarehouseId TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL,
+    notes TEXT,
+    performed_by TEXT,
+    performedBy TEXT
+);
+
+-- 28. ORDER_RETURNS (مرتجعات طلبات البيع)
+CREATE TABLE IF NOT EXISTS order_returns (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    return_number TEXT NOT NULL,
+    returnNumber TEXT,
+    order_id TEXT,
+    orderId TEXT,
+    order_number TEXT,
+    orderNumber TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_refund NUMERIC DEFAULT 0,
+    totalRefund NUMERIC DEFAULT 0,
+    reason TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    restock_items BOOLEAN DEFAULT true,
+    restockItems BOOLEAN DEFAULT true,
+    status TEXT NOT NULL,
+    performed_by TEXT,
+    performedBy TEXT,
+    notes TEXT
+);
+
+-- 29. PURCHASE_RETURNS (مرتجعات طلبات الشراء من الموردين)
+CREATE TABLE IF NOT EXISTS purchase_returns (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    return_number TEXT NOT NULL,
+    returnNumber TEXT,
+    supplier_id TEXT,
+    supplierId TEXT,
+    supplier_name TEXT,
+    supplierName TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_refund_amount NUMERIC DEFAULT 0,
+    totalRefundAmount NUMERIC DEFAULT 0,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    status TEXT NOT NULL,
+    notes TEXT,
+    performed_by TEXT,
+    performedBy TEXT
+);
+
+-- 30. POS_SALES (مبيعات الكاشير ونقاط البيع)
+CREATE TABLE IF NOT EXISTS pos_sales (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    sale_number TEXT NOT NULL,
+    saleNumber TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_amount NUMERIC DEFAULT 0,
+    totalAmount NUMERIC DEFAULT 0,
+    payment_method TEXT NOT NULL,
+    paymentMethod TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    customer_phone TEXT,
+    customerPhone TEXT,
+    customer_name TEXT,
+    customerName TEXT,
+    customer_address TEXT,
+    customerAddress TEXT,
+    performed_by TEXT,
+    performedBy TEXT,
+    cash_holder_id TEXT,
+    cashHolderId TEXT,
+    cash_holder_name TEXT,
+    cashHolderName TEXT,
+    notes TEXT
+);
+
+-- 31. CASH_HOLDERS (عهد الكاشير والمناديب)
+CREATE TABLE IF NOT EXISTS cash_holders (
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    user_id TEXT NOT NULL,
+    userId TEXT,
+    user_name TEXT,
+    userName TEXT,
+    current_balance NUMERIC DEFAULT 0,
+    currentBalance NUMERIC DEFAULT 0,
+    last_updated TEXT,
+    lastUpdated TEXT,
+    PRIMARY KEY (store_id, user_id)
+);
+
+-- 32. CASH_HANDOVERS (تسليمات العهد النقدية)
+CREATE TABLE IF NOT EXISTS cash_handovers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    from_user_id TEXT,
+    fromUserId TEXT,
+    from_user_name TEXT,
+    fromUserName TEXT,
+    to_user_id TEXT,
+    toUserId TEXT,
+    to_user_name TEXT,
+    toUserName TEXT,
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    notes TEXT,
+    status TEXT NOT NULL
+);
+
+-- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)
+CREATE TABLE IF NOT EXISTS whatsapp_templates (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    label TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+
+-- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
+CREATE TABLE IF NOT EXISTS call_scripts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+
+-- 20. TREASURY_ACCOUNTS (خزائن وحسابات السيولة المالية)
+CREATE TABLE IF NOT EXISTS treasury_accounts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL, -- safe, bank, wallet, custody
+    balance NUMERIC DEFAULT 0,
+    currency TEXT DEFAULT 'EGP',
+    account_number TEXT,
+    accountNumber TEXT,
+    beneficiary_name TEXT,
+    beneficiaryName TEXT,
+    bank_name TEXT,
+    bankName TEXT,
+    wallet_number TEXT,
+    walletNumber TEXT,
+    wallet_name TEXT,
+    walletName TEXT
+);
+
+-- 21. TREASURY_TRANSACTIONS (الحركات والمعاملات المالية الخزينة)
+CREATE TABLE IF NOT EXISTS treasury_transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    date TEXT NOT NULL,
+    from_account_id TEXT,
+    fromAccountId TEXT,
+    to_account_id TEXT,
+    toAccountId TEXT,
+    amount NUMERIC NOT NULL,
+    type TEXT NOT NULL, -- deposit, withdrawal, transfer, advance
+    description TEXT,
+    reference TEXT
+);
+
+-- 22. PARTNERS (بيانات الشركاء وحصص رأس المال)
+CREATE TABLE IF NOT EXISTS partners (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    notes TEXT,
+    balance NUMERIC DEFAULT 0,
+    profit_ratio NUMERIC DEFAULT 0,
+    profitRatio NUMERIC DEFAULT 0
+);
+
+-- 23. PARTNER_TRANSACTIONS (الحركات والمسحوبات مع الشركاء)
+CREATE TABLE IF NOT EXISTS partner_transactions (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    partner_id TEXT,
+    partnerId TEXT,
+    type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    note TEXT
+);
+
+-- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    sender_id TEXT NOT NULL,
+    senderId TEXT,
+    receiver_id TEXT NOT NULL,
+    receiverId TEXT,
+    content TEXT NOT NULL,
+    created_at TEXT,
+    createdAt TEXT,
+    is_read BOOLEAN DEFAULT false,
+    isRead BOOLEAN DEFAULT false,
+    is_file BOOLEAN DEFAULT false,
+    isFile BOOLEAN DEFAULT false
+);
+
 -- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
 ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
@@ -1397,6 +1667,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
       {activeTab === 'general' && (
         <div className="space-y-8 animate-in fade-in duration-300">
+          <InventorySettingsCard settings={settings} setSettings={setSettings} />
           <POSSettingsCard settings={settings} setSettings={setSettings} />
           <PlatformIntegrationCard 
             integration={settings.integration} 
@@ -1502,6 +1773,44 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       )}
     </div>
   );
+};
+
+const InventorySettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>> }> = ({ settings, setSettings }) => {
+    return (
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
+            <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
+                <div className="p-2 bg-amber-50 dark:bg-amber-900/30 rounded-lg"><Package size={24}/></div>
+                <div>
+                    <h2 className="text-xl font-black dark:text-white">إعدادات المخزون والتنبيهات</h2>
+                    <p className="text-xs text-slate-500">ضبط مواعيد التنبيه لجرد المخزون والتحكم في الإشعارات الذكية.</p>
+                </div>
+            </div>
+            <div className="space-y-6">
+                <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-400 mb-2">
+                        📋 تنبيه جرد المخزون الدوري (أيام)
+                    </label>
+                    <div className="flex items-center gap-3">
+                        <input 
+                            type="number" 
+                            min="1"
+                            max="365"
+                            value={settings.auditAlertDays || 30}
+                            onChange={(e) => setSettings(prev => ({ ...prev, auditAlertDays: Number(e.target.value) }))}
+                            className="w-24 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-amber-500"
+                        />
+                        <span className="text-sm font-medium text-slate-500">يوم (سيظهر تنبيه لكل منتج لم يتم جرده منذ هذا التاريخ)</span>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800 rounded-xl">
+                    <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed font-medium">
+                        💡 هذا الإعداد يساعدك في الحفاظ على دقة المخزون. إذا مرّت المدة المحددة ولم يتم تحديث جرد المنتج، سيظهر إشعار في لوحة التحكم لتذكيرك بالمراجعة اليدوية.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const POSSettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>> }> = ({ settings, setSettings }) => {

@@ -77,22 +77,34 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     name TEXT NOT NULL,
     sku TEXT,
     price NUMERIC NOT NULL,
     stock_quantity NUMERIC DEFAULT 0,
-    details JSONB DEFAULT '{}'::jsonb
+    stockQuantity NUMERIC DEFAULT 0,
+    min_stock_level NUMERIC DEFAULT 0,
+    minStockLevel NUMERIC DEFAULT 0,
+    last_audited JSONB DEFAULT '{}'::jsonb,
+    lastAudited JSONB DEFAULT '{}'::jsonb,
+    details JSONB DEFAULT '{}'::jsonb,
+    expiry_date TEXT,
+    expiryDate TEXT
 );
 
 -- 4. ORDERS (الطلبات والأوردرات)
 CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     order_number TEXT NOT NULL,
+    orderNumber TEXT,
     customer_name TEXT NOT NULL,
+    customerName TEXT,
     status TEXT NOT NULL,
     date TEXT NOT NULL,
     total_price NUMERIC NOT NULL,
+    totalPrice NUMERIC,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -100,6 +112,7 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     type TEXT NOT NULL,
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
@@ -166,6 +179,8 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 CREATE TABLE IF NOT EXISTS employees (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     phone TEXT NOT NULL,
+    name TEXT,
+    email TEXT,
     permissions JSONB DEFAULT '[]'::jsonb,
     status TEXT NOT NULL,
     PRIMARY KEY (store_id, phone)
@@ -255,8 +270,211 @@ CREATE TABLE IF NOT EXISTS documents (
     content JSONB DEFAULT '{}'::jsonb
 );
 
--- تعطيل نظام الحماية للمشاريع البسيطة لتمكين الاتصال المباشر دون تعقيد السياسات
+-- 25. WAREHOUSES (المخازن والمستودعات)
+CREATE TABLE IF NOT EXISTS warehouses (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    location TEXT,
+    is_default BOOLEAN DEFAULT false,
+    isDefault BOOLEAN DEFAULT false
+);
+
+-- 26. INVENTORY_AUDITS (جلسات جرد المخزون)
+CREATE TABLE IF NOT EXISTS inventory_audits (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    performed_by TEXT,
+    performedBy TEXT,
+    scope TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    total_system_qty NUMERIC DEFAULT 0,
+    totalSystemQty NUMERIC DEFAULT 0,
+    total_actual_qty NUMERIC DEFAULT 0,
+    totalActualQty NUMERIC DEFAULT 0,
+    total_variance_qty NUMERIC DEFAULT 0,
+    totalVarianceQty NUMERIC DEFAULT 0,
+    total_variance_value NUMERIC DEFAULT 0,
+    totalVarianceValue NUMERIC DEFAULT 0,
+    discrepancies JSONB DEFAULT '[]'::jsonb,
+    notes TEXT
+);
+
+-- 27. STOCK_TRANSFERS (تحويلات المخزون بين المستودعات)
+CREATE TABLE IF NOT EXISTS stock_transfers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    transfer_number TEXT NOT NULL,
+    transferNumber TEXT,
+    date TEXT NOT NULL,
+    source_warehouse_id TEXT,
+    sourceWarehouseId TEXT,
+    destination_warehouse_id TEXT,
+    destinationWarehouseId TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL,
+    notes TEXT,
+    performed_by TEXT,
+    performedBy TEXT
+);
+
+-- 28. ORDER_RETURNS (مرتجعات طلبات البيع)
+CREATE TABLE IF NOT EXISTS order_returns (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    return_number TEXT NOT NULL,
+    returnNumber TEXT,
+    order_id TEXT,
+    orderId TEXT,
+    order_number TEXT,
+    orderNumber TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_refund NUMERIC DEFAULT 0,
+    totalRefund NUMERIC DEFAULT 0,
+    reason TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    restock_items BOOLEAN DEFAULT true,
+    restockItems BOOLEAN DEFAULT true,
+    status TEXT NOT NULL,
+    performed_by TEXT,
+    performedBy TEXT,
+    notes TEXT
+);
+
+-- 29. PURCHASE_RETURNS (مرتجعات طلبات الشراء من الموردين)
+CREATE TABLE IF NOT EXISTS purchase_returns (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    return_number TEXT NOT NULL,
+    returnNumber TEXT,
+    supplier_id TEXT,
+    supplierId TEXT,
+    supplier_name TEXT,
+    supplierName TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_refund_amount NUMERIC DEFAULT 0,
+    totalRefundAmount NUMERIC DEFAULT 0,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    status TEXT NOT NULL,
+    notes TEXT,
+    performed_by TEXT,
+    performedBy TEXT
+);
+
+-- 30. POS_SALES (مبيعات الكاشير ونقاط البيع)
+CREATE TABLE IF NOT EXISTS pos_sales (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    sale_number TEXT NOT NULL,
+    saleNumber TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_amount NUMERIC DEFAULT 0,
+    totalAmount NUMERIC DEFAULT 0,
+    payment_method TEXT NOT NULL,
+    paymentMethod TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    customer_phone TEXT,
+    customerPhone TEXT,
+    customer_name TEXT,
+    customerName TEXT,
+    customer_address TEXT,
+    customerAddress TEXT,
+    performed_by TEXT,
+    performedBy TEXT,
+    cash_holder_id TEXT,
+    cashHolderId TEXT,
+    cash_holder_name TEXT,
+    cashHolderName TEXT,
+    notes TEXT
+);
+
+-- 31. CASH_HOLDERS (عهد الكاشير والمناديب)
+CREATE TABLE IF NOT EXISTS cash_holders (
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    user_id TEXT NOT NULL,
+    userId TEXT,
+    user_name TEXT,
+    userName TEXT,
+    current_balance NUMERIC DEFAULT 0,
+    currentBalance NUMERIC DEFAULT 0,
+    last_updated TEXT,
+    lastUpdated TEXT,
+    PRIMARY KEY (store_id, user_id)
+);
+
+-- 32. CASH_HANDOVERS (تسليمات العهد النقدية)
+CREATE TABLE IF NOT EXISTS cash_handovers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    from_user_id TEXT,
+    fromUserId TEXT,
+    from_user_name TEXT,
+    fromUserName TEXT,
+    to_user_id TEXT,
+    toUserId TEXT,
+    to_user_name TEXT,
+    toUserName TEXT,
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    notes TEXT,
+    status TEXT NOT NULL
+);
+
+-- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)
+CREATE TABLE IF NOT EXISTS whatsapp_templates (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    label TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+
+-- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
+CREATE TABLE IF NOT EXISTS call_scripts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+
+-- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
 ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS last_audited JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT DEFAULT 'manual';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0;
+
+-- تأمين أعمدة الموظفين
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE products DISABLE ROW LEVEL SECURITY;
 ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
@@ -274,7 +492,18 @@ ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
 ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
 ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE documents DISABLE ROW LEVEL SECURITY;`;
+ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_audits DISABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_transfers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_returns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE purchase_returns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE pos_sales DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_holders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_handovers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE whatsapp_templates DISABLE ROW LEVEL SECURITY;
+ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
+`;
 
 // --- Main Page Component ---
 interface SignUpPageProps {

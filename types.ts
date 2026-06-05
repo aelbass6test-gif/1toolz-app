@@ -78,6 +78,9 @@ export interface ProductVariant {
   stock?: number;
   stockQuantity: number | null;
   warehouseStock?: Record<string, number>; // New field for multi-warehouse stock
+  lastAudited?: Record<string, string>; // New field for audit tracking per warehouse
+  minStockLevel?: number; // Minimum stock before alert
+  expiryDate?: string; // Product expiry date
   options: { [optionName: string]: string };
 }
 
@@ -99,6 +102,9 @@ export interface Product {
   hasVariants: boolean;
   options: string[];
   variants: ProductVariant[];
+  lastAudited?: Record<string, string>; // New field for audit tracking per warehouse
+  minStockLevel?: number; // Minimum stock before alert
+  expiryDate?: string; // Product expiry date
   
   // For profit calculation
   useProfitPercentage?: boolean; // Legacy, will be phased out
@@ -457,6 +463,8 @@ export interface SupplyOrder {
   attachmentUrl?: string;
   treasuryAccountId?: string;
   warehouseId?: string; // New field for warehouse allocation
+  recordExpensesFormally?: boolean;
+  distributeExpensesEqually?: boolean;
 }
 
 export interface ActivityLog {
@@ -564,6 +572,7 @@ export interface Settings {
   domainConflict?: boolean;
   domainDNSRecords?: any; 
   subdomain?: string; // <-- New field for subdomains
+  isSubdomainFixed?: boolean; // <-- To pin/fix subdomain
   platformConfigs?: Record<string, {
     appId: string;
     apiKey?: string;
@@ -614,6 +623,7 @@ export interface Settings {
   posSales?: POSSale[];
   cashHolders?: CashHolder[];
   cashHandovers?: CashHandover[];
+  auditAlertDays?: number; // Days between manual audits before alert
 }
 
 export interface CashHolder {
@@ -749,6 +759,7 @@ export interface InventoryAuditSession {
   date: string;
   performedBy: string; // user name/email
   scope: 'all' | string; // 'all' or collection ID
+  warehouseId?: string; // New field for warehouse-specific audits
   totalSystemQty: number;
   totalActualQty: number;
   totalVarianceQty: number;

@@ -93,6 +93,7 @@ const MainLayout = ({
     setSidebarOpen, 
     activeStore, 
     settings,
+    orders = [],
     theme, 
     setTheme,
     dbSyncMode,
@@ -102,6 +103,176 @@ const MainLayout = ({
     saveMessage,
     unsavedChanges
 }: any) => {
+    const inventoryAlerts = useMemo(() => {
+        if (!settings) return [];
+        
+        const alerts: any[] = [];
+        const products = settings.products || [];
+        const auditAlertDays = settings.auditAlertDays || 30;
+        const suppliers = settings.suppliers || [];
+        
+        const now = new Date();
+
+        // 1. Check Low Stock, Audits & Expiry
+        products.forEach(p => {
+            if (p.hasVariants && p.variants) {
+                p.variants.forEach(v => {
+                    const stock = v.stockQuantity ?? 0;
+                    const minStock = v.minStockLevel || 0;
+                    if (minStock > 0 && stock <= minStock) {
+                        alerts.push({
+                            type: 'low_stock',
+                            id: `lowstock-${p.id}-${v.id}`,
+                            title: 'مخزون منخفض',
+                            message: `المنتج "${p.name} - ${Object.values(v.options).join(' ')}" وصل للحد الأدنى (المتاح: ${stock})`,
+                            severity: stock === 0 ? 'critical' : 'warning'
+                        });
+                    }
+                    
+                    // Expiry check for variants
+                    if (v.expiryDate) {
+                        const expDate = new Date(v.expiryDate);
+                        const daysToExpiry = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                        if (daysToExpiry <= 30 && daysToExpiry > 0) {
+                            alerts.push({
+                                type: 'expiry',
+                                id: `expiry-${p.id}-${v.id}`,
+                                title: 'اقتراب تاريخ الانتهاء',
+                                message: `المنتج "${p.name} - ${Object.values(v.options).join(' ')}" سينتهي خلال ${daysToExpiry} يوم.`,
+                                severity: daysToExpiry <= 7 ? 'critical' : 'warning'
+                            });
+                        } else if (daysToExpiry <= 0) {
+                            alerts.push({
+                                type: 'expiry_expired',
+                                id: `expired-${p.id}-${v.id}`,
+                                title: 'منتج منتهي الصلاحية',
+                                message: `المنتج "${p.name} - ${Object.values(v.options).join(' ')}" منتهي الصلاحية منذ ${Math.abs(daysToExpiry)} يوم.`,
+                                severity: 'critical'
+                            });
+                        }
+                    }
+                });
+            } else {
+                const stock = p.stockQuantity ?? 0;
+                const minStock = p.minStockLevel || 0;
+                if (minStock > 0 && stock <= minStock) {
+                    alerts.push({
+                        type: 'low_stock',
+                        id: `lowstock-${p.id}`,
+                        title: 'مخزون منخفض',
+                        message: `المنتج "${p.name}" وصل للحد الأدنى (المتاح: ${stock})`,
+                        severity: stock === 0 ? 'critical' : 'warning'
+                    });
+                }
+
+                // Expiry check for products
+                if (p.expiryDate) {
+                    const expDate = new Date(p.expiryDate);
+                    const daysToExpiry = Math.ceil((expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    if (daysToExpiry <= 30 && daysToExpiry > 0) {
+                        alerts.push({
+                            type: 'expiry',
+                            id: `expiry-${p.id}`,
+                            title: 'اقتراب تاريخ الانتهاء',
+                            message: `المنتج "${p.name}" سينتهي خلال ${daysToExpiry} يوم.`,
+                            severity: daysToExpiry <= 7 ? 'critical' : 'warning'
+                        });
+                    } else if (daysToExpiry <= 0) {
+                        alerts.push({
+                            type: 'expiry_expired',
+                            id: `expired-${p.id}`,
+                            title: 'منتج منتهي الصلاحية',
+                            message: `المنتج "${p.name}" منتهي الصلاحية منذ ${Math.abs(daysToExpiry)} يوم.`,
+                            severity: 'critical'
+                        });
+                    }
+                }
+            }
+
+            const audits = p.lastAudited || {};
+            const lastAuditDateStr = audits['all'] || Object.values(audits)[0];
+            if (lastAuditDateStr) {
+                const lastAuditDate = new Date(lastAuditDateStr);
+                const diffTime = Math.abs(now.getTime() - lastAuditDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (diffDays >= auditAlertDays) {
+                    alerts.push({
+                        type: 'audit_overdue',
+                        id: `audit-${p.id}`,
+                        title: 'جرد متأخر',
+                        message: `المنتج "${p.name}" لم يتم جرده منذ ${diffDays} يوم.`,
+                        severity: 'info'
+                    });
+                }
+            }
+        });
+
+        // 2. Check Pending Orders (Older than 24 hours)
+        orders.forEach(order => {
+            if (order.status === 'pending') {
+                const orderDate = new Date(order.date);
+                const hoursDiff = Math.abs(now.getTime() - orderDate.getTime()) / 36e5;
+                if (hoursDiff >= 24) {
+                    alerts.push({
+                        type: 'pending_order',
+                        id: `pending-${order.id}`,
+                        title: 'أوردر معلق متأخر',
+                        message: `الأوردر #${order.orderNumber || order.id.slice(-6)} ينتظر التأكيد منذ ${Math.floor(hoursDiff)} ساعة.`,
+                        severity: 'warning'
+                    });
+                }
+            }
+        });
+
+        // 3. Check High Supplier Debts (Threshold: 5000)
+        suppliers.forEach(sup => {
+            if ((sup.balance || 0) >= 5000) {
+                alerts.push({
+                    type: 'supplier_debt',
+                    id: `debt-${sup.id}`,
+                    title: 'مديونية مورد مرتفعة',
+                    message: `المورد "${sup.name}" لديه مديونية مستحقة بقيمة ${sup.balance.toLocaleString()} ج.م`,
+                    severity: 'warning'
+                });
+            }
+        });
+
+        // 4. Check High Cash Holder Balances (Threshold: 5000)
+        const cashHolders = settings.cashHolders || [];
+        cashHolders.forEach(ch => {
+            if (ch.currentBalance >= 5000) {
+                alerts.push({
+                    type: 'cash_balance',
+                    id: `cash-${ch.userId}`,
+                    title: 'عهدة نقدية مرتفعة',
+                    message: `الموظف "${ch.userName}" يحمل عهدة نقدية كبيرة بقيمة ${ch.currentBalance.toLocaleString()} ج.م`,
+                    severity: 'warning'
+                });
+            }
+        });
+
+        // 5. Check Abandoned Carts (High value: 2000+)
+        const abandonedCarts = settings.abandonedCarts || [];
+        abandonedCarts.forEach(cart => {
+            if (cart.totalValue >= 2000) {
+                const cartDate = new Date(cart.date);
+                const hoursDiff = Math.abs(now.getTime() - cartDate.getTime()) / 36e5;
+                if (hoursDiff <= 48) { // Only alert for recent ones
+                    alerts.push({
+                        type: 'abandoned_cart',
+                        id: `abandoned-${cart.id}`,
+                        title: 'سلة متروكة هامة',
+                        message: `العميل "${cart.customerName}" ترك سلة بقيمة ${cart.totalValue.toLocaleString()} ج.م`,
+                        severity: 'info'
+                    });
+                }
+            }
+        });
+
+        return alerts;
+    }, [settings, orders]);
+
     return (
         <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50" dir="rtl">
     <Header 
@@ -117,6 +288,7 @@ const MainLayout = ({
         saveStatus={saveStatus}
         saveMessage={saveMessage}
         unsavedChanges={unsavedChanges}
+        inventoryAlerts={inventoryAlerts}
     />
     <div className="flex flex-1 overflow-hidden relative">
         <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -199,6 +371,7 @@ const OwnerLayoutWrapper = ({
     setIsSidebarOpen,
     activeStore,
     settings,
+    orders = [],
     theme,
     setTheme,
     dbSyncMode,
@@ -254,6 +427,7 @@ const OwnerLayoutWrapper = ({
             setSidebarOpen={setIsSidebarOpen} 
             activeStore={activeStore} 
             settings={settings}
+            orders={orders}
             theme={theme} 
             setTheme={setTheme} 
             dbSyncMode={dbSyncMode}
@@ -570,7 +744,7 @@ export const AppComponent = () => {
         
         Object.keys(newAllStoresData).forEach(storeId => {
             const data = newAllStoresData[storeId];
-            if (data && data.settings && !data.settings.subdomain) {
+            if (data && data.settings && !data.settings.subdomain && !data.settings.isSubdomainFixed) {
                 const storeName = storeId;
                 const base = storeName.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
                 const random = Math.floor(1000 + Math.random() * 9000).toString();
@@ -612,9 +786,13 @@ export const AppComponent = () => {
                         if (storeData && storeData.settings) {
                             currentCustomDomain = storeData.settings.customAppDomain || currentCustomDomain;
                             currentSubdomain = storeData.settings.subdomain || currentSubdomain;
+                            // If it's fixed in settings, respect that even if currentSubdomain is somehow null in store object
+                            if (storeData.settings.isSubdomainFixed && storeData.settings.subdomain) {
+                                currentSubdomain = storeData.settings.subdomain;
+                            }
                         }
 
-                        if (!currentSubdomain && (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
+                        if (!currentSubdomain && !storeData?.settings?.isSubdomainFixed && (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
                             const base = store.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
                             const random = Math.floor(1000 + Math.random() * 9000).toString();
                             currentSubdomain = `${base || 'store'}-${random}`;
@@ -1861,6 +2039,7 @@ export const AppComponent = () => {
                         setIsSidebarOpen={setIsSidebarOpen}
                         activeStore={activeStore}
                         settings={pageProps.settings}
+                        orders={pageProps.orders}
                         theme={theme}
                         setTheme={setTheme}
                         dbSyncMode={dbSyncMode}
@@ -1881,7 +2060,7 @@ export const AppComponent = () => {
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
                     <Route path="create-order" element={<Navigate to="/orders/new" replace />} />
-                    <Route path="products" element={<ProductsPage {...pageProps} />} />
+                    <Route path="products" element={<ProductsPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="inventory-transfers" element={<InventoryTransfers settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
@@ -1902,7 +2081,7 @@ export const AppComponent = () => {
                     <Route path="standard-reports" element={<ReportsPage {...pageProps} />} />
                     <Route path="collections-report" element={<CollectionsReportPage {...pageProps} />} />
                     <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings.activityLogs || []} />} />
-                    <Route path="suppliers" element={<SuppliersPage {...pageProps} />} />
+                    <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} />} />
                     <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} />} />
                     <Route path="pages" element={<PagesManager {...pageProps} />} />

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
     Plus, Search, ClipboardList, Calendar, User, Eye, ArrowRight, CheckCircle, 
     AlertTriangle, TrendingUp, TrendingDown, RefreshCw, Printer, AlertCircle, FileText, Check, 
-    Layers, SearchCode, Trash2, Sliders, Layout, Filter, Sparkles, HelpCircle, Package, Info
+    Layers, SearchCode, Trash2, Sliders, Layout, Filter, Sparkles, HelpCircle, Package, Info, Clock
 } from 'lucide-react';
 import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAuditItemDiscrepancy } from '../types';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -21,6 +21,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
     // Active Audit Session Form State
     const [auditTitle, setAuditTitle] = useState('');
     const [auditScope, setAuditScope] = useState<'all' | string>('all'); // all or collection id
+    const [auditWarehouseId, setAuditWarehouseId] = useState<'all' | string>('all'); // all or warehouse id
     const [onlyInStock, setOnlyInStock] = useState(false);
     const [activeSessionStarted, setActiveSessionStarted] = useState(false);
     
@@ -102,14 +103,21 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
             costPrice: number;
             image?: string;
             variance?: number;
+            lastAudited?: string;
         }> = [];
 
         filtered.forEach(p => {
+            const productLastAudited = p.lastAudited?.[auditWarehouseId] || p.lastAudited?.['all'];
+
             if (p.hasVariants && p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
                     const variantDesc = Object.entries(v.options)
                         .map(([k, val]) => `${k}: ${val}`)
                         .join(' | ');
+
+                    const warehouseQty = auditWarehouseId === 'all' 
+                        ? (v.stockQuantity || 0)
+                        : (v.warehouseStock?.[auditWarehouseId] || 0);
 
                     worksheetRows.push({
                         key: `${p.id}_${v.id}`,
@@ -117,26 +125,32 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                         variantId: v.id,
                         name: `${p.name} (${variantDesc})`,
                         sku: v.sku || p.sku,
-                        systemQty: v.stockQuantity || 0,
+                        systemQty: warehouseQty,
                         costPrice: v.costPrice ?? p.costPrice ?? 0,
-                        image: p.thumbnail || p.images?.[0]
+                        image: p.thumbnail || p.images?.[0],
+                        lastAudited: v.lastAudited?.[auditWarehouseId] || v.lastAudited?.['all'] || productLastAudited
                     });
                 });
             } else {
+                const warehouseQty = auditWarehouseId === 'all' 
+                    ? (p.stockQuantity || 0)
+                    : (p.warehouseStock?.[auditWarehouseId] || 0);
+
                 worksheetRows.push({
                     key: p.id,
                     productId: p.id,
                     name: p.name,
                     sku: p.sku || '',
-                    systemQty: p.stockQuantity || 0,
+                    systemQty: warehouseQty,
                     costPrice: p.costPrice || 0,
-                    image: p.thumbnail || p.images?.[0]
+                    image: p.thumbnail || p.images?.[0],
+                    lastAudited: productLastAudited
                 });
             }
         });
 
         return worksheetRows;
-    }, [activeSessionStarted, auditScope, onlyInStock, settings.products]);
+    }, [activeSessionStarted, auditScope, auditWarehouseId, onlyInStock, settings.products]);
 
     // Start New Session
     const handleStartSession = (e: React.FormEvent) => {
@@ -171,15 +185,23 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         filtered.forEach(p => {
             if (p.hasVariants && p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
+                    const warehouseQty = auditWarehouseId === 'all' 
+                        ? (v.stockQuantity || 0)
+                        : (v.warehouseStock?.[auditWarehouseId] || 0);
+
                     initialWorksheet[`${p.id}_${v.id}`] = {
-                        actualQty: v.stockQuantity || 0,
+                        actualQty: warehouseQty,
                         method: 'correction',
                         notes: ''
                     };
                 });
             } else {
+                const warehouseQty = auditWarehouseId === 'all' 
+                    ? (p.stockQuantity || 0)
+                    : (p.warehouseStock?.[auditWarehouseId] || 0);
+
                 initialWorksheet[p.id] = {
-                    actualQty: p.stockQuantity || 0,
+                    actualQty: warehouseQty,
                     method: 'correction',
                     notes: ''
                 };
@@ -308,6 +330,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         }
 
         // 1. Loop and update products array
+        const auditDateStr = new Date().toISOString();
         const updatedProducts = [...(settings.products || [])].map(product => {
             let updatedProduct = { ...product };
 
@@ -315,10 +338,24 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 const updatedVariants = product.variants.map(v => {
                     const wsKey = `${product.id}_${v.id}`;
                     if (worksheet[wsKey] !== undefined) {
-                        return {
-                            ...v,
-                            stockQuantity: worksheet[wsKey].actualQty
-                        };
+                        const newStockQty = worksheet[wsKey].actualQty;
+                        let updatedVariant = { ...v };
+
+                        if (auditWarehouseId === 'all') {
+                            updatedVariant.stockQuantity = newStockQty;
+                        } else {
+                            if (!updatedVariant.warehouseStock) updatedVariant.warehouseStock = {};
+                            updatedVariant.warehouseStock[auditWarehouseId] = newStockQty;
+                            
+                            // Re-calculate total from warehouses if they exist
+                            const totalFromWarehouses = Object.values(updatedVariant.warehouseStock).reduce((sum, val) => sum + (val || 0), 0);
+                            updatedVariant.stockQuantity = totalFromWarehouses;
+                        }
+
+                        if (!updatedVariant.lastAudited) updatedVariant.lastAudited = {};
+                        updatedVariant.lastAudited[auditWarehouseId] = auditDateStr;
+
+                        return updatedVariant;
                     }
                     return v;
                 });
@@ -328,11 +365,29 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 updatedProduct.variants = updatedVariants;
                 updatedProduct.stockQuantity = totalStock;
                 updatedProduct.inStock = totalStock > 0;
+
+                if (!updatedProduct.lastAudited) updatedProduct.lastAudited = {};
+                updatedProduct.lastAudited[auditWarehouseId] = auditDateStr;
             } else {
                 const wsKey = product.id;
                 if (worksheet[wsKey] !== undefined) {
-                    updatedProduct.stockQuantity = worksheet[wsKey].actualQty;
-                    updatedProduct.inStock = worksheet[wsKey].actualQty > 0;
+                    const newStockQty = worksheet[wsKey].actualQty;
+                    
+                    if (auditWarehouseId === 'all') {
+                        updatedProduct.stockQuantity = newStockQty;
+                    } else {
+                        if (!updatedProduct.warehouseStock) updatedProduct.warehouseStock = {};
+                        updatedProduct.warehouseStock[auditWarehouseId] = newStockQty;
+                        
+                        // Re-calculate total from warehouses if they exist
+                        const totalFromWarehouses = Object.values(updatedProduct.warehouseStock).reduce((sum, val) => sum + (val || 0), 0);
+                        updatedProduct.stockQuantity = totalFromWarehouses;
+                    }
+                    
+                    updatedProduct.inStock = updatedProduct.stockQuantity > 0;
+                    
+                    if (!updatedProduct.lastAudited) updatedProduct.lastAudited = {};
+                    updatedProduct.lastAudited[auditWarehouseId] = auditDateStr;
                 }
             }
 
@@ -368,9 +423,10 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         const newSessionLog: InventoryAuditSession = {
             id: `audit-${Date.now()}`,
             title: auditTitle,
-            date: new Date().toISOString(),
+            date: auditDateStr,
             performedBy: userName,
             scope: auditScope,
+            warehouseId: auditWarehouseId,
             totalSystemQty: activeSessionStats.totalSystemQty,
             totalActualQty: activeSessionStats.totalActualQty,
             totalVarianceQty: activeSessionStats.totalActualQty - activeSessionStats.totalSystemQty,
@@ -535,7 +591,25 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
             {subTab === 'history' && !activeSessionStarted && (
                 <div className="space-y-6">
                     {/* Header stats overview cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div className="bg-slate-50 dark:bg-slate-800/20 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800">
+                            <span className="text-xs text-slate-400 font-bold block mb-1">دورية الجرد (تنبيه)</span>
+                            <div className="flex items-center gap-2">
+                                <span className="p-1.5 bg-amber-100 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg">
+                                    <Clock size={20}/>
+                                </span>
+                                <div className="flex items-center gap-1">
+                                    <input 
+                                        type="number" 
+                                        value={settings.auditAlertDays || 30} 
+                                        onChange={(e) => setSettings(s => ({ ...s, auditAlertDays: Number(e.target.value) }))}
+                                        className="w-12 bg-transparent text-xl font-black text-slate-800 dark:text-white border-none outline-none focus:ring-0 p-0"
+                                    />
+                                    <span className="text-xs font-bold text-slate-400">يوم</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="bg-slate-50 dark:bg-slate-800/20 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800">
                             <span className="text-xs text-slate-400 font-bold block mb-1">إجمالي عمليات الجرد</span>
                             <div className="flex items-center gap-2">
@@ -614,6 +688,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                                                     <span className="flex items-center gap-1"><Calendar size={13}/> {dateFormatted}</span>
                                                     <span className="flex items-center gap-1"><User size={13}/> بواسطة: {session.performedBy}</span>
                                                     <span className="flex items-center gap-1"><Layers size={13}/> النطاق: {session.scope === 'all' ? 'المخزن بالكامل' : 'تصنيف محدد'}</span>
+                                                    <span className="flex items-center gap-1"><Package size={13}/> المخزن: {session.warehouseId === 'all' ? 'جميع المخازن' : settings.warehouses?.find(w => w.id === session.warehouseId)?.name || 'غير معروف'}</span>
                                                 </p>
                                             </div>
 
@@ -683,6 +758,20 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
+                                <label className="text-xs text-slate-500 dark:text-slate-400 font-bold block mb-1">المستودع / المخزن المستهدف</label>
+                                <select 
+                                    value={auditWarehouseId}
+                                    onChange={e => setAuditWarehouseId(e.target.value)}
+                                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-bold dark:text-white transition-all"
+                                >
+                                    <option value="all">الرصيد الإجمالي (جميع المخازن)</option>
+                                    {(settings.warehouses || []).map(w => (
+                                        <option key={w.id} value={w.id}>مخزن: {w.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
                                 <label className="text-xs text-slate-500 dark:text-slate-400 font-bold block mb-1">نطاق البضائع المشمولة بالجرد</label>
                                 <select 
                                     value={auditScope}
@@ -695,7 +784,9 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                                     ))}
                                 </select>
                             </div>
+                        </div>
 
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="flex items-center">
                                 <label className="flex items-center gap-2.5 cursor-pointer mt-5">
                                     <input 
@@ -859,7 +950,14 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                                                                 ) : <Package className="text-slate-400" size={14}/>}
                                                             </div>
                                                             <div>
-                                                                <span className="font-bold text-slate-800 dark:text-white">{row.name}</span>
+                                                                <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5 leading-none">
+                                                                    {row.name}
+                                                                    {!row.lastAudited && (
+                                                                        <span className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-400 rounded-md font-bold flex items-center gap-1">
+                                                                            <AlertCircle size={9}/> لم يجرد
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </td>

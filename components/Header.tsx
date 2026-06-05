@@ -2,9 +2,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
+import { audioSynth } from '../utils/audioSynth';
 
 const PATH_TITLES: { [key: string]: string } = {
     '/': 'الرئيسية',
@@ -43,6 +44,7 @@ interface HeaderProps {
     saveStatus?: any;
     saveMessage?: string;
     unsavedChanges?: any[];
+    inventoryAlerts?: any[];
 }
 
 const Header: React.FC<HeaderProps> = ({ 
@@ -57,14 +59,30 @@ const Header: React.FC<HeaderProps> = ({
     forceSync,
     saveStatus,
     saveMessage,
-    unsavedChanges
+    unsavedChanges,
+    inventoryAlerts = []
 }) => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
     const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false);
     const [isTestingPing, setIsTestingPing] = useState(false);
     const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
+    const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+    const alertsMenuRef = useRef<HTMLDivElement>(null);
     const syncMenuRef = useRef<HTMLDivElement>(null);
+
+    // Audio alarm logic
+    useEffect(() => {
+        if (inventoryAlerts.length > 0) {
+            // Play a warning sound if there are critical alerts
+            const hasCritical = inventoryAlerts.some(a => a.severity === 'critical');
+            if (hasCritical) {
+                audioSynth.playTone('error');
+            } else {
+                audioSynth.playTone('warning');
+            }
+        }
+    }, [inventoryAlerts.length]);
 
     const [lastSyncTime, setLastSyncTime] = useState<string>(() => {
         if (typeof window !== 'undefined' && activeStore?.id) {
@@ -505,6 +523,89 @@ const Header: React.FC<HeaderProps> = ({
                         )}
                     </div>
                 )}
+
+                <div className="relative" ref={alertsMenuRef}>
+                    <button 
+                        onClick={() => setIsAlertsOpen(!isAlertsOpen)}
+                        className={`p-2 rounded-xl transition-all relative ${isAlertsOpen ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                    >
+                        <Bell size={20} className={inventoryAlerts.length > 0 ? "animate-swing" : ""} />
+                        {inventoryAlerts.length > 0 && (
+                            <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
+                                {inventoryAlerts.length}
+                            </span>
+                        )}
+                    </button>
+                    {isAlertsOpen && (
+                        <div className="absolute left-0 top-14 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 z-[60] overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
+                                <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
+                                    <Bell size={16} className="text-amber-500" />
+                                    تنبيهات المخزون والجرد
+                                </h3>
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full">
+                                    {inventoryAlerts.length} تنبيه
+                                </span>
+                            </div>
+                            <div className="max-h-96 overflow-y-auto p-2 space-y-2">
+                                {inventoryAlerts.length === 0 ? (
+                                    <div className="py-8 text-center space-y-2">
+                                        <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
+                                            <CheckCircle size={24} />
+                                        </div>
+                                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد تنبيهات حالياً</p>
+                                        <p className="text-[10px] text-slate-400">كل شيء يبدو على ما يرام في المخزن!</p>
+                                    </div>
+                                ) : (
+                                    inventoryAlerts.map(alert => (
+                                        <div 
+                                            key={alert.id} 
+                                            className={`p-3 rounded-xl border flex gap-3 transition-all ${
+                                                alert.severity === 'critical' 
+                                                    ? 'bg-rose-50 border-rose-100 dark:bg-rose-900/10 dark:border-rose-900/30' 
+                                                    : alert.type === 'audit_overdue' || alert.type === 'pending_order'
+                                                        ? 'bg-blue-50 border-blue-100 dark:bg-blue-900/10 dark:border-blue-900/30'
+                                                        : 'bg-amber-50 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900/30'
+                                            }`}
+                                        >
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                                alert.severity === 'critical' ? 'bg-rose-500 text-white shadow-lg shadow-rose-200 dark:shadow-none' :
+                                                alert.type === 'audit_overdue' || alert.type === 'abandoned_cart' ? 'bg-blue-500 text-white shadow-lg shadow-blue-200 dark:shadow-none' :
+                                                alert.type === 'pending_order' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 dark:shadow-none' :
+                                                alert.type === 'expiry' || alert.type === 'expiry_expired' ? 'bg-rose-600 text-white shadow-lg shadow-rose-200' :
+                                                alert.type === 'cash_balance' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' :
+                                                'bg-amber-500 text-white shadow-lg shadow-amber-200 dark:shadow-none'
+                                            }`}>
+                                                {alert.type === 'low_stock' ? <Package size={16} /> : 
+                                                 alert.type === 'pending_order' ? <Activity size={16} /> :
+                                                 alert.type === 'supplier_debt' ? <Database size={16} /> :
+                                                 alert.type === 'expiry' || alert.type === 'expiry_expired' ? <Calendar size={16} /> :
+                                                 alert.type === 'cash_balance' ? <HandCoins size={16} /> :
+                                                 alert.type === 'abandoned_cart' ? <ShoppingCart size={16} /> :
+                                                 <Clock size={16} />}
+                                            </div>
+                                            <div className="flex-1 text-right">
+                                                <h4 className="text-xs font-black text-slate-800 dark:text-white mb-0.5">{alert.title}</h4>
+                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{alert.message}</p>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                            {inventoryAlerts.length > 0 && (
+                                <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800">
+                                    <Link 
+                                        to="/inventory-audit" 
+                                        onClick={() => setIsAlertsOpen(false)}
+                                        className="w-full py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center block hover:bg-slate-100 transition-colors"
+                                    >
+                                        انتقل لصفحة الجرد والمخزن
+                                    </Link>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
                 <button 
                     onClick={handleManageStoresClick}

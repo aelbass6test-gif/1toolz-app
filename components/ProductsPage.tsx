@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info } from 'lucide-react';
-import { Settings, Product, ProductVariant } from '../types';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar } from 'lucide-react';
+import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
@@ -26,11 +26,12 @@ const itemVariants: Variants = {
 interface ProductsPageProps {
   settings: Settings;
   setSettings: (updater: React.SetStateAction<Settings>) => void;
+  orders: Order[];
   activeStoreId: string | null;
   onRefresh?: () => void;
 }
 
-const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSettings, activeStoreId, onRefresh }) => {
+const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSettings, orders, activeStoreId, onRefresh }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -206,6 +207,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         costPrice: productData.costPrice || 0,
         stockQuantity: finalStock,
         inStock: finalStock === null || finalStock > 0,
+        minStockLevel: productData.minStockLevel || 0,
         collectionId: productData.collectionId || undefined,
         description: productData.description || '',
         images: productData.images || [],
@@ -235,11 +237,26 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
   const confirmDelete = () => {
     if (productToDelete) {
+        // Prevent deletion if linked to orders or supply orders
+        const isLinkedToOrders = orders.some(order => order.items?.some(item => item.productId === productToDelete.id));
+        const isLinkedToSupplyOrders = settings.supplyOrders?.some(order => order.items?.some(item => item.productId === productToDelete.id));
+
+        if (isLinkedToOrders || isLinkedToSupplyOrders) {
+            showAlert(
+                "خطأ في الحذف",
+                `لا يمكن حذف هذا المنتج لأنه مرتبط بـ ${isLinkedToOrders ? "طلبات عملاء" : ""}${isLinkedToOrders && isLinkedToSupplyOrders ? " و " : ""}${isLinkedToSupplyOrders ? "فواتير توريد" : ""} مسجلة.`,
+                "error"
+            );
+            setProductToDelete(null);
+            return;
+        }
+
         setSettings({
             ...settings,
             products: settings.products.filter(p => p.id !== productToDelete.id)
         });
         setProductToDelete(null);
+        showAlert("تم الحذف", "تم إزالة المنتج من القائمة بنجاح.", "success");
     }
   };
 
@@ -819,12 +836,26 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                   const collection = settings.collections.find(c => c.id === product.collectionId);
                   const isExpanded = expandedProductId === product.id;
                   
+                  const isDuplicateName = settings.products.some(p => 
+                    p.id !== product.id && 
+                    p.name.trim().toLowerCase() !== '' &&
+                    p.name.trim().toLowerCase().replace(/\s+/g, ' ') === product.name.trim().toLowerCase().replace(/\s+/g, ' ')
+                  );
+
+                  const isDuplicateSKU = settings.products.some(p => 
+                    p.id !== product.id && 
+                    p.sku && product.sku &&
+                    p.sku.trim().toLowerCase() === product.sku.trim().toLowerCase()
+                  );
+
+                  const isDuplicate = isDuplicateName || isDuplicateSKU;
+
                   // Calculate distributed stock vs total
                   const distributedStock = Object.values(product.warehouseStock || {}).reduce((sum, val) => sum + (val || 0), 0);
                   
                   return (
                   <React.Fragment key={product.id}>
-                    <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${isExpanded ? 'bg-indigo-50/20 dark:bg-indigo-900/10' : ''}`}>
+                    <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${isExpanded ? 'bg-indigo-50/20 dark:bg-indigo-900/10' : ''} ${isDuplicate ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
                       <td className="px-6 py-2">
                         {product.thumbnail ? (
                           <img src={product.thumbnail} alt={product.name} className="w-12 h-12 rounded-lg object-cover border-2 border-slate-100 dark:border-slate-700" />
@@ -837,6 +868,18 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <div className="font-bold text-slate-800 dark:text-slate-200">{product.name}</div>
+                          {(!product.lastAudited || Object.keys(product.lastAudited).length === 0) && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-400 rounded-md font-bold flex items-center gap-1" title="لم يتم جرد هذا المنتج من قبل">
+                              <AlertCircle size={10} />
+                              جرد مطلوب
+                            </span>
+                          )}
+                          {isDuplicate && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-400 rounded-md font-bold flex items-center gap-1" title={isDuplicateSKU ? "مكرر بنفس الكود (SKU)" : "مكرر بنفس الاسم"}>
+                              <AlertCircle size={10} />
+                              مكرر
+                            </span>
+                          )}
                           {product.id.startsWith('wuilt-') && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-rose-50 text-rose-600 border border-rose-100 rounded-md font-bold flex items-center gap-1">
                               <img src="https://wuilt.com/favicon.ico" className="w-2.5 h-2.5" referrerPolicy="no-referrer" />
@@ -1019,10 +1062,24 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               const collection = settings.collections.find(c => c.id === product.collectionId);
               const isExpanded = expandedProductId === product.id;
               
+              const isDuplicateName = settings.products.some(p => 
+                p.id !== product.id && 
+                p.name.trim().toLowerCase() !== '' &&
+                p.name.trim().toLowerCase().replace(/\s+/g, ' ') === product.name.trim().toLowerCase().replace(/\s+/g, ' ')
+              );
+
+              const isDuplicateSKU = settings.products.some(p => 
+                p.id !== product.id && 
+                p.sku && product.sku &&
+                p.sku.trim().toLowerCase() === product.sku.trim().toLowerCase()
+              );
+
+              const isDuplicate = isDuplicateName || isDuplicateSKU;
+
               // Calculate distributed stock vs total
               const distributedStock = Object.values(product.warehouseStock || {}).reduce((sum, val) => sum + (val || 0), 0);
               return (
-                <div key={product.id} className="bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right" dir="rtl">
+                <div key={product.id} className={`bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right ${isDuplicate ? 'border-amber-400 bg-amber-50/10 dark:border-amber-900/50 dark:bg-amber-900/10' : ''}`} dir="rtl">
                   <div className="flex gap-3">
                      <div className="relative flex-shrink-0">
                         {product.thumbnail ? (
@@ -1031,6 +1088,11 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                           <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
                             <ImageIcon size={20} />
                           </div>
+                        )}
+                        {isDuplicate && (
+                            <div className="absolute -top-2 -left-2 bg-amber-500 text-white rounded-full p-1 shadow-md z-1">
+                                <AlertCircle size={12} />
+                            </div>
                         )}
                         {product.id.startsWith('wuilt-') && (
                           <div className="absolute -top-1 -right-1 bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-900 rounded-full p-0.5 shadow-sm">
@@ -1041,6 +1103,12 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     <div className="flex-1 min-w-0">
                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm line-clamp-2 leading-tight">{product.name}</h3>
                        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                          {isDuplicateName && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:border-amber-800 dark:text-amber-400 rounded-md font-bold flex items-center gap-1" title="مكرر بنفس الاسم">
+                              <AlertCircle size={10} />
+                              مكرر
+                            </span>
+                          )}
                           {collection && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-md truncate">{collection.name}</span>}
                           <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 truncate bg-slate-50 dark:bg-slate-800 px-1 rounded">#{product.sku}</span>
                        </div>
@@ -1653,6 +1721,41 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                     />
                                 </div>
 
+                                {!productData.hasVariants && (
+                                    <div className="animate-in slide-in-from-top-2 duration-300">
+                                        <FormInput 
+                                            label="حد تنبيه المخزون (Minimum Stock)" 
+                                            icon={<AlertCircle size={16} className="text-amber-500"/>} 
+                                            type="number" 
+                                            value={productData.minStockLevel || ''} 
+                                            onChange={e => updateField('minStockLevel', Number(e.target.value))}
+                                            placeholder="أدخل الحد الأدنى للتنبيه عند النقص"
+                                            tooltip="سيظهر تنبيه عندما يصل المخزون إلى هذا الرقم أو أقل."
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                   <FormInput 
+                                       label="تاريخ الانتهاء" 
+                                       icon={<Calendar size={16} className="text-rose-500"/>} 
+                                       type="date" 
+                                       value={productData.expiryDate || ''} 
+                                       onChange={e => updateField('expiryDate', e.target.value)} 
+                                       tooltip="سيظهر تنبيه عندما يقترب تاريخ انتهاء المنتج (قبل 30 يوم)."
+                                   />
+                                   {!productData.hasVariants && (
+                                       <div className="bg-blue-50 dark:bg-blue-950/10 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-center gap-3">
+                                           <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
+                                               <Info size={20}/>
+                                           </div>
+                                           <div className="text-[10px] text-blue-800 dark:text-blue-300 font-bold leading-relaxed">
+                                               يمكنك ضبط تنبيهات المخزون وتواريخ الانتهاء لضمان جودة الخدمة.
+                                           </div>
+                                       </div>
+                                   )}
+                                </div>
+
                                 {/* Warehouse Stock Breakdown */}
                                 {!productData.hasVariants && (settings.warehouses || []).length > 0 && (
                                     <div className="p-4 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-xl space-y-3">
@@ -1797,6 +1900,7 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
                                     <input type="text" value={variant.sku} onChange={e => updateVariant(variant.id, 'sku', e.target.value)} placeholder="SKU" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
                                     <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, 'price', Number(e.target.value))} placeholder="السعر" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
                                     <input type="number" value={variant.stockQuantity === null || variant.stockQuantity === undefined ? '' : variant.stockQuantity} onChange={e => updateVariant(variant.id, 'stockQuantity', e.target.value === '' ? null : Number(e.target.value))} placeholder="الكمية" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
+                                    <input type="number" value={variant.minStockLevel || ''} onChange={e => updateVariant(variant.id, 'minStockLevel', Number(e.target.value))} placeholder="حد التنبيه" className="w-full text-xs p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-100 dark:border-amber-800 outline-none" title="الحد الأدنى للمخزون قبل التنبيه"/>
                                 </div>
                                 
                                 {(settings.warehouses || []).length > 0 && (

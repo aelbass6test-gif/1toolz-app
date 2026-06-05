@@ -45,7 +45,13 @@ CREATE TABLE IF NOT EXISTS products (
     price NUMERIC NOT NULL,
     stock_quantity NUMERIC DEFAULT 0,
     stockQuantity NUMERIC DEFAULT 0,
-    details JSONB DEFAULT '{}'::jsonb
+    min_stock_level NUMERIC DEFAULT 0,
+    minStockLevel NUMERIC DEFAULT 0,
+    last_audited JSONB DEFAULT '{}'::jsonb,
+    lastAudited JSONB DEFAULT '{}'::jsonb,
+    details JSONB DEFAULT '{}'::jsonb,
+    expiry_date TEXT,
+    expiryDate TEXT
 );
 
 -- 4. ORDERS (الطلبات والأوردرات)
@@ -153,6 +159,8 @@ CREATE TABLE IF NOT EXISTS employees (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     phone TEXT NOT NULL,
+    name TEXT,
+    email TEXT,
     permissions JSONB DEFAULT '[]'::jsonb,
     status TEXT NOT NULL,
     PRIMARY KEY (store_id, phone)
@@ -351,6 +359,191 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     isFile BOOLEAN DEFAULT false
 );
 
+-- 25. WAREHOUSES (المخازن والمستودعات)
+CREATE TABLE IF NOT EXISTS warehouses (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    name TEXT NOT NULL,
+    location TEXT,
+    is_default BOOLEAN DEFAULT false,
+    isDefault BOOLEAN DEFAULT false
+);
+
+-- 26. INVENTORY_AUDITS (جلسات جرد المخزون)
+CREATE TABLE IF NOT EXISTS inventory_audits (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    date TEXT NOT NULL,
+    performed_by TEXT,
+    performedBy TEXT,
+    scope TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    total_system_qty NUMERIC DEFAULT 0,
+    totalSystemQty NUMERIC DEFAULT 0,
+    total_actual_qty NUMERIC DEFAULT 0,
+    totalActualQty NUMERIC DEFAULT 0,
+    total_variance_qty NUMERIC DEFAULT 0,
+    totalVarianceQty NUMERIC DEFAULT 0,
+    total_variance_value NUMERIC DEFAULT 0,
+    totalVarianceValue NUMERIC DEFAULT 0,
+    discrepancies JSONB DEFAULT '[]'::jsonb,
+    notes TEXT
+);
+
+-- 27. STOCK_TRANSFERS (تحويلات المخزون بين المستودعات)
+CREATE TABLE IF NOT EXISTS stock_transfers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    transfer_number TEXT NOT NULL,
+    transferNumber TEXT,
+    date TEXT NOT NULL,
+    source_warehouse_id TEXT,
+    sourceWarehouseId TEXT,
+    destination_warehouse_id TEXT,
+    destinationWarehouseId TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL,
+    notes TEXT,
+    performed_by TEXT,
+    performedBy TEXT
+);
+
+-- 28. ORDER_RETURNS (مرتجعات طلبات البيع)
+CREATE TABLE IF NOT EXISTS order_returns (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    return_number TEXT NOT NULL,
+    returnNumber TEXT,
+    order_id TEXT,
+    orderId TEXT,
+    order_number TEXT,
+    orderNumber TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_refund NUMERIC DEFAULT 0,
+    totalRefund NUMERIC DEFAULT 0,
+    reason TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    restock_items BOOLEAN DEFAULT true,
+    restockItems BOOLEAN DEFAULT true,
+    status TEXT NOT NULL,
+    performed_by TEXT,
+    performedBy TEXT,
+    notes TEXT
+);
+
+-- 29. PURCHASE_RETURNS (مرتجعات طلبات الشراء من الموردين)
+CREATE TABLE IF NOT EXISTS purchase_returns (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    return_number TEXT NOT NULL,
+    returnNumber TEXT,
+    supplier_id TEXT,
+    supplierId TEXT,
+    supplier_name TEXT,
+    supplierName TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_refund_amount NUMERIC DEFAULT 0,
+    totalRefundAmount NUMERIC DEFAULT 0,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    status TEXT NOT NULL,
+    notes TEXT,
+    performed_by TEXT,
+    performedBy TEXT
+);
+
+-- 30. POS_SALES (مبيعات الكاشير ونقاط البيع)
+CREATE TABLE IF NOT EXISTS pos_sales (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    sale_number TEXT NOT NULL,
+    saleNumber TEXT,
+    date TEXT NOT NULL,
+    items JSONB DEFAULT '[]'::jsonb,
+    total_amount NUMERIC DEFAULT 0,
+    totalAmount NUMERIC DEFAULT 0,
+    payment_method TEXT NOT NULL,
+    paymentMethod TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    customer_phone TEXT,
+    customerPhone TEXT,
+    customer_name TEXT,
+    customerName TEXT,
+    customer_address TEXT,
+    customerAddress TEXT,
+    performed_by TEXT,
+    performedBy TEXT,
+    cash_holder_id TEXT,
+    cashHolderId TEXT,
+    cash_holder_name TEXT,
+    cashHolderName TEXT,
+    notes TEXT
+);
+
+-- 31. CASH_HOLDERS (عهد الكاشير والمناديب)
+CREATE TABLE IF NOT EXISTS cash_holders (
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    user_id TEXT NOT NULL,
+    userId TEXT,
+    user_name TEXT,
+    userName TEXT,
+    current_balance NUMERIC DEFAULT 0,
+    currentBalance NUMERIC DEFAULT 0,
+    last_updated TEXT,
+    lastUpdated TEXT,
+    PRIMARY KEY (store_id, user_id)
+);
+
+-- 32. CASH_HANDOVERS (تسليمات العهد النقدية)
+CREATE TABLE IF NOT EXISTS cash_handovers (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    from_user_id TEXT,
+    fromUserId TEXT,
+    from_user_name TEXT,
+    fromUserName TEXT,
+    to_user_id TEXT,
+    toUserId TEXT,
+    to_user_name TEXT,
+    toUserName TEXT,
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    notes TEXT,
+    status TEXT NOT NULL
+);
+
+-- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)
+CREATE TABLE IF NOT EXISTS whatsapp_templates (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    label TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+
+-- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
+CREATE TABLE IF NOT EXISTS call_scripts (
+    id TEXT PRIMARY KEY,
+    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
+    title TEXT NOT NULL,
+    text TEXT NOT NULL
+);
+
 -- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
 ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
@@ -366,7 +559,33 @@ ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE discount_codes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_audits DISABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_transfers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE order_returns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE purchase_returns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE pos_sales DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_holders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE cash_handovers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE whatsapp_templates DISABLE ROW LEVEL SECURITY;
+ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
+
 -- ⚡ تأمين وجود جميع الأعمدة اللازمة (SQL Patches) لضمان توافق جميع إصدارات البيانات
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS last_audited JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT DEFAULT 'manual';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0;
+
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fees NUMERIC DEFAULT 0;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "orderId" TEXT;
@@ -381,6 +600,25 @@ ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS timestamp NUMERIC;
 -- تأمين أعمدة الربط لجميع الجداول
 ALTER TABLE products ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS last_audited JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT DEFAULT 'manual';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0;
+
+-- تأمين أعمدة الموظفين
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
@@ -469,6 +707,8 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS "categoryId" TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS "useProfitPercentage" BOOLEAN DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
@@ -590,6 +830,26 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
 }) => {
   const [integrations, setIntegrations] = useState<WebhookIntegration[]>(settings.webhookIntegrations || []);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+
+  const handleFixDBSchema = () => {
+    const instructions = `
+-- انسخ هذا الكود والصقه في SQL Editor في Supabase
+-- لتحديث الجداول وإضافة الأعمدة المفقودة (مثل minStockLevel)
+
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS last_audited JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "fullName" TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN DEFAULT false;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS storeId TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+`;
+    navigator.clipboard.writeText(instructions);
+    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح خطأ (minStockLevel).", 'success', 'إصلاح قاعدة البيانات');
+  };
   
   // Custom Database Credentials States
   const [customCloudUrl, setCustomCloudUrl] = useState(localStorage.getItem('custom_cloud_url') || '');
@@ -1008,6 +1268,14 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
                 >
                   <CloudUpload size={18} />
                   ابدأ مزامنة ورفع البيانات الآن
+                </button>
+
+                <button 
+                  onClick={handleFixDBSchema}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
+                >
+                  <RefreshCw size={18} />
+                  إصلاح "minStockLevel" والأعمدة المفقودة
                 </button>
               </div>
             </div>

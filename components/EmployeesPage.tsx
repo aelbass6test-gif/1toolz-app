@@ -121,7 +121,7 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
 
     if (userByPhone) {
         alert(`تم العثور على حساب للمستخدم "${userByPhone.fullName}". سيتم إضافته كموظف في هذا المتجر.`);
-        const newEmployee: Employee = { id: userByPhone.phone, name: userByPhone.fullName, email: userByPhone.email, permissions: [], status: 'active' };
+        const newEmployee: Employee = { id: userByPhone.phone, phone: userByPhone.phone, name: userByPhone.fullName, email: userByPhone.email, permissions: [], status: 'active' };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
         setIsAddEmployeeModalOpen(false);
     } else {
@@ -133,7 +133,7 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
 
         const newUser: User = { fullName: data.name, phone: data.phone, email: data.email, password: data.password, joinDate: new Date().toISOString() };
         setUsers(prev => [...prev, newUser]);
-        const newEmployee: Employee = { id: data.phone, name: data.name, email: data.email, permissions: [], status: 'active' };
+        const newEmployee: Employee = { id: data.phone, phone: data.phone, name: data.name, email: data.email, permissions: [], status: 'active' };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
         setNewEmployeeCredentials({ phone: data.phone, pass: data.password });
         setIsAddEmployeeModalOpen(false);
@@ -175,6 +175,7 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
             onRequestAction={handleRequestAction}
             owner={owner}
             loggedInUser={currentUser}
+            users={users}
         />
       </motion.div>
       
@@ -216,8 +217,9 @@ const PermissionsCard: React.FC<{
   onDelete: (emp: Employee) => void, 
   onRequestAction: (id: string, action: 'accept' | 'decline') => void, 
   owner: User | undefined, 
-  loggedInUser: User | null 
-}> = ({ employees, partners = [], onAdd, onEdit, onDelete, onRequestAction, owner, loggedInUser }) => {
+  loggedInUser: User | null,
+  users: User[]
+}> = ({ employees, partners = [], onAdd, onEdit, onDelete, onRequestAction, owner, loggedInUser, users }) => {
   // Consolidate everyone for display
   const employeesToDisplay = useMemo(() => {
     let list: any[] = [];
@@ -251,7 +253,13 @@ const PermissionsCard: React.FC<{
     // 3. Add Employees
     employees.forEach(e => {
       if (!list.some(item => item.id === e.id)) {
-        list.push({ ...e, role: 'staff' });
+        const user = users.find(u => u.phone === e.id);
+        list.push({ 
+          ...e, 
+          name: e.name || user?.fullName || 'موظف',
+          email: e.email || user?.email || e.id,
+          role: 'staff' 
+        });
       }
     });
     
@@ -316,8 +324,8 @@ const PermissionsCard: React.FC<{
           <div className="mb-8 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
               <h3 className="font-bold text-amber-800 dark:text-amber-300 mb-3 flex items-center gap-2"><Clock size={16}/> طلبات انضمام معلقة</h3>
               <div className="space-y-2">
-                  {pendingEmployees.map(emp => (
-                      <div key={emp.id} className="bg-white/50 dark:bg-slate-800/30 p-3 rounded-lg flex justify-between items-center">
+                  {pendingEmployees.map((emp, idx) => (
+                      <div key={emp.id || `pending-${idx}`} className="bg-white/50 dark:bg-slate-800/30 p-3 rounded-lg flex justify-between items-center">
                           <div>
                               <p className="font-bold text-sm text-slate-800 dark:text-white">{emp.name}</p>
                               <p className="text-xs text-slate-500">{emp.email}</p>
@@ -342,13 +350,13 @@ const PermissionsCard: React.FC<{
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {activeAndInvitedArr.map(emp => {
+            {activeAndInvitedArr.map((emp, idx) => {
                 const isOwner = emp.role === 'owner';
                 const isPartner = emp.role === 'partner';
                 const isInvited = emp.status === 'invited';
 
                 return (
-                <tr key={emp.id} className="group">
+                <tr key={emp.id || `${emp.role}-${idx}`} className="group">
                     <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                              <div className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</div>

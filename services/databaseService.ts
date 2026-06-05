@@ -694,10 +694,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const itemsFiltered = items.map(item => {
                     const cleanItem = { ...item };
                     omitFields.forEach(field => delete cleanItem[field]);
+                    
+                    // Robustness check for employees: ensure phone is set from id if missing
+                    if (table === 'employees' && !cleanItem.phone && cleanItem.id) {
+                        cleanItem.phone = cleanItem.id;
+                    }
+                    
                     return { ...cleanItem, store_id: store.id };
                 }).filter(item => {
                     if (table === 'employees' && !item.phone) {
-                        return false; // Skip invalid employee records without phone
+                        return false; 
                     }
                     return true;
                 });
@@ -726,43 +732,75 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         console.warn(`Table ${table} not found in Supabase schema. Skipping sync.`);
                         return;
                     }
+                    if (error.code === 'PGRST204') {
+                        console.error(`Column missing in table ${table}: ${error.message}`);
+                        // Return error specifically about columns
+                        (window as any).SUPABASE_SCHEMA_ERROR = {
+                            table,
+                            message: error.message,
+                            code: error.code
+                        };
+                    }
                     throw error;
                 }
             };
 
-            await Promise.all([
-                syncTable('products', data.settings.products, ['updatedAt']),
-                syncTable('orders', data.orders),
-                syncTable('transactions', data.wallet.transactions),
-                syncTable('treasury_accounts', data.treasury?.accounts || []),
-                syncTable('treasury_transactions', data.treasury?.transactions || []),
-                syncTable('suppliers', data.settings.suppliers),
-                syncTable('supply_orders', data.settings.supplyOrders),
-                syncTable('reviews', data.settings.reviews),
-                syncTable('abandoned_carts', data.settings.abandonedCarts),
-                syncTable('activity_logs', data.settings.activityLogs || []),
-                syncTable('employees', data.settings.employees, ['email', 'id', 'name', 'updatedAt']),
-                syncTable('discount_codes', data.settings.discountCodes),
-                syncTable('collections', data.settings.collections),
-                syncTable('custom_pages', data.settings.customPages, ['isActive', 'updatedAt']),
-                syncTable('payment_methods', data.settings.paymentMethods),
-                syncTable('customers', data.customers),
-                syncTable('global_options', data.settings.globalOptions),
-                syncTable('shipping_integrations', data.settings.shippingIntegrations),
-                syncTable('partners', data.settings.partners || []),
-                syncTable('partner_transactions', data.settings.partnerTransactions || []),
-                syncTable('warehouses', data.settings.warehouses || []),
-                syncTable('inventory_audits', data.settings.inventoryAudits || []),
-                syncTable('stock_transfers', data.settings.stockTransfers || []),
-                syncTable('order_returns', data.settings.orderReturns || []),
-                syncTable('purchase_returns', data.settings.purchaseReturns || []),
-                syncTable('pos_sales', data.settings.posSales || []),
-                syncTable('cash_holders', data.settings.cashHolders || []),
-                syncTable('cash_handovers', data.settings.cashHandovers || []),
-                syncTable('whatsapp_templates', data.settings.whatsappTemplates || []),
-                syncTable('call_scripts', data.settings.callScripts || []),
-                syncTable('chat_messages', []) // Assuming chat messages handled separately or just not available here
-            ]);
+            // Parallel sync with individual error handling to ensure one table error (like missing column) 
+            // doesn't block other tables (like employees) from syncing.
+            const tablesToSync = [
+                () => syncTable('products', data.settings.products, ['updatedAt']),
+                () => syncTable('orders', data.orders),
+                () => syncTable('transactions', data.wallet.transactions),
+                () => syncTable('treasury_accounts', data.treasury?.accounts || []),
+                () => syncTable('treasury_transactions', data.treasury?.transactions || []),
+                () => syncTable('suppliers', data.settings.suppliers),
+                () => syncTable('supply_orders', data.settings.supplyOrders),
+                () => syncTable('reviews', data.settings.reviews),
+                () => syncTable('abandoned_carts', data.settings.abandonedCarts),
+                () => syncTable('activity_logs', data.settings.activityLogs || []),
+                () => syncTable('employees', data.settings.employees, ['id', 'updatedAt']),
+                () => syncTable('discount_codes', data.settings.discountCodes),
+                () => syncTable('collections', data.settings.collections),
+                () => syncTable('custom_pages', data.settings.customPages, ['isActive', 'updatedAt']),
+                () => syncTable('payment_methods', data.settings.paymentMethods),
+                () => syncTable('customers', data.customers),
+                () => syncTable('global_options', data.settings.globalOptions),
+                () => syncTable('shipping_integrations', data.settings.shippingIntegrations),
+                () => syncTable('partners', data.settings.partners || []),
+                () => syncTable('partner_transactions', data.settings.partnerTransactions || []),
+                () => syncTable('warehouses', data.settings.warehouses || []),
+                () => syncTable('inventory_audits', data.settings.inventoryAudits || []),
+                () => syncTable('stock_transfers', data.settings.stockTransfers || []),
+                () => syncTable('order_returns', data.settings.orderReturns || []),
+                () => syncTable('purchase_returns', data.settings.purchaseReturns || []),
+                () => syncTable('pos_sales', data.settings.posSales || []),
+                () => syncTable('cash_holders', data.settings.cashHolders || []),
+                () => syncTable('cash_handovers', data.settings.cashHandovers || []),
+                () => syncTable('whatsapp_templates', data.settings.whatsappTemplates || []),
+                () => syncTable('call_scripts', data.settings.callScripts || []),
+                () => syncTable('chat_messages', [])
+            ];
+
+            const syncErrors: any[] = [];
+            await Promise.all(tablesToSync.map(async (fn) => {
+                try {
+                    await fn();
+                } catch (e: any) {
+                    syncErrors.push(e);
+                    console.error(`Table sync failed:`, e);
+                }
+            }));
+
+            if (syncErrors.length > 0) {
+                // If there are errors, check if any are schema related
+                const isSchemaError = syncErrors.some(e => e.code === 'PGRST204');
+                return { 
+                    success: false, 
+                    error: isSchemaError 
+                        ? `كود الخطأ PGRST204: هناك أعمدة مفقودة في قاعدة البيانات (مثل minStockLevel). يرجى الضغط على زر "إصلاح الأعمدة المفقودة" في إعدادات المطورين.` 
+                        : syncErrors[0].message 
+                };
+            }
 
             return { success: true };
         } catch (e: any) {

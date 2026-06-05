@@ -25,9 +25,10 @@ interface SuppliersPageProps {
   treasury?: any;
   setTreasury?: (updater: any) => void;
   currentUser?: any;
+  orders: any[];
 }
 
-const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wallet, setWallet, treasury, setTreasury, currentUser }) => {
+const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wallet, setWallet, treasury, setTreasury, currentUser, orders }) => {
   const [activeTab, setActiveTab] = useState<'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses'>('orders');
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
@@ -55,6 +56,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [orderItems, setOrderItems] = useState<SupplyOrderItem[]>([]);
   const [shippingFees, setShippingFees] = useState(0);
   const [otherFees, setOtherFees] = useState(0);
+  const [distributeExpensesEqually, setDistributeExpensesEqually] = useState(false);
+  const [recordExpensesFormally, setRecordExpensesFormally] = useState(false);
   const [taxRate, setTaxRate] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury'>('cash');
   const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
@@ -248,6 +251,18 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   };
 
   const handleDeleteSupplier = (id: string) => {
+      // Check if supplier has any supply orders
+      const hasAssociatedOrders = settings.supplyOrders?.some(order => order.supplierId === id);
+
+      if (hasAssociatedOrders) {
+          showAlert(
+              "خطأ في الحذف",
+              "لا يمكن حذف هذا المورد لأنه مرتبط بفواتير وأوامر توريد مسجلة. يرجى حذف فواتير المورد أولاً إذا كنت ترغب في إزالته.",
+              "error"
+          );
+          return;
+      }
+
       showConfirm("تأكيد الحذف", "هل أنت متأكد من حذف هذا المورد؟ لا يمكن التراجع عن هذا الإجراء.", () => {
           setSettings(prev => ({
               ...prev,
@@ -434,12 +449,19 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                         (updatedProducts[productIndex].warehouseStock[selectedWarehouseId] || 0) + totalQty;
                   }
                   
-                  // ... rest of the pricing logic ...
-                  // landedCost = (item_cost_after_item_discount + proportional_part_of_fees) / total_units
                   const itemSubtotal = (newItem.cost * (newItem.quantity || 0)) - (newItem.discountType === 'percentage' ? (newItem.cost * (newItem.quantity || 0) * (newItem.discountValue || 0) / 100) : ((newItem.discountValue || 0) * (newItem.quantity || 0)));
-                  // Distribute tax and fees proportionally based on subtotal
-                  const feesFactor = itemsSubtotal > 0 ? (grandTotal / itemsSubtotal) : 1;
-                  const itemLandedCost = totalQty > 0 ? (itemSubtotal * feesFactor / totalQty) : (newItem.cost * feesFactor);
+                  
+                  let itemLandedCost = 0;
+                  if (distributeExpensesEqually) {
+                      const orderTotalUnits = orderItems.reduce((acc, curr) => acc + (curr.receivedQuantity !== undefined ? curr.receivedQuantity : curr.quantity) + (curr.bonusQuantity || 0), 0);
+                      const totalAdditions = shippingFees + otherFees + taxAmount;
+                      const additionPerUnit = orderTotalUnits > 0 ? (totalAdditions / orderTotalUnits) : 0;
+                      itemLandedCost = totalQty > 0 ? ((itemSubtotal / totalQty) + additionPerUnit) : (newItem.cost + additionPerUnit);
+                  } else {
+                      // Distribute tax and fees proportionally based on subtotal
+                      const feesFactor = itemsSubtotal > 0 ? (grandTotal / itemsSubtotal) : 1;
+                      itemLandedCost = totalQty > 0 ? (itemSubtotal * feesFactor / totalQty) : (newItem.cost * feesFactor);
+                  }
 
                   // Get pricing configurations determined in the purchase invoice
                   const currentProd = updatedProducts[productIndex];
@@ -530,20 +552,82 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
 
           // 6. Update Treasury Balance
           if (paymentMethod === 'treasury' && selectedTreasuryAccountId && setTreasury) {
-             setTreasury((prev: any) => ({
-                 ...prev,
-                 accounts: prev.accounts.map((acc: any) => 
-                     acc.id === selectedTreasuryAccountId ? { ...acc, balance: acc.balance - totalCost } : acc
-                 ),
-                 transactions: [{
+             setTreasury((prev: any) => {
+                 const baseAmount = recordExpensesFormally ? (totalCost - shippingFees - otherFees) : totalCost;
+                 let newTxs = [...prev.transactions];
+                 if (recordExpensesFormally) {
+                     if (shippingFees > 0) {
+                         newTxs.unshift({
+                             id: `expense_tx_${currentOrderId}_shipping`,
+                             date: new Date().toISOString(),
+                             type: 'expense',
+                             amount: shippingFees,
+                             category: 'expense_shipping_fees',
+                             fromAccountId: selectedTreasuryAccountId,
+                             description: `مصاريف شحن فاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
+                         });
+                         
+                         // Add to Wallet for Expenses Page
+                         if (setWallet) {
+                            setWallet((prevW: any) => ({
+                                ...prevW,
+                                transactions: [{
+                                    id: `wallet_exp_${currentOrderId}_shipping`,
+                                    date: new Date().toISOString(),
+                                    type: 'سحب',
+                                    amount: shippingFees,
+                                    category: 'expense_shipping_fees',
+                                    note: `شحن فاتورة مشتريات: ${orderReference || currentOrderId}`,
+                                    status: 'completed'
+                                }, ...prevW.transactions]
+                            }));
+                         }
+                     }
+                     if (otherFees > 0) {
+                         newTxs.unshift({
+                             id: `expense_tx_${currentOrderId}_other`,
+                             date: new Date().toISOString(),
+                             type: 'expense',
+                             amount: otherFees,
+                             category: 'expense_other',
+                             fromAccountId: selectedTreasuryAccountId,
+                             description: `مصاريف إضافية لفاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
+                         });
+
+                         // Add to Wallet for Expenses Page
+                         if (setWallet) {
+                            setWallet((prevW: any) => ({
+                                ...prevW,
+                                transactions: [{
+                                    id: `wallet_exp_${currentOrderId}_other`,
+                                    date: new Date().toISOString(),
+                                    type: 'سحب',
+                                    amount: otherFees,
+                                    category: 'expense_other',
+                                    note: `مصاريف إضافية شحنة: ${orderReference || currentOrderId}`,
+                                    status: 'completed'
+                                }, ...prevW.transactions]
+                            }));
+                         }
+                     }
+                 }
+                 newTxs.unshift({
                      id: `supply_tx_${currentOrderId}`,
                      date: new Date().toISOString(),
                      type: 'withdrawal',
-                     amount: totalCost,
+                     amount: baseAmount,
                      fromAccountId: selectedTreasuryAccountId,
                      description: `شراء بضاعة من المورد ${supplier?.name} (أمر: ${orderReference || currentOrderId})`
-                 }, ...prev.transactions]
-             }));
+                 });
+                 
+                 return {
+                     ...prev,
+                     accounts: prev.accounts.map((acc: any) => 
+                         acc.id === selectedTreasuryAccountId ? { ...acc, balance: acc.balance - totalCost } : acc
+                     ),
+                     transactions: newTxs
+                 };
+             });
           }
 
           if (editingOrder) {
@@ -563,7 +647,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   otherFees,
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
-                  warehouseId: selectedWarehouseId
+                  warehouseId: selectedWarehouseId,
+                  recordExpensesFormally,
+                  distributeExpensesEqually
               } as any : o);
           } else {
               const newOrder: SupplyOrder = {
@@ -584,7 +670,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   status: 'completed',
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
-                  warehouseId: selectedWarehouseId
+                  warehouseId: selectedWarehouseId,
+                  recordExpensesFormally,
+                  distributeExpensesEqually
               } as SupplyOrder;
               updatedOrders.push(newOrder);
           }
@@ -623,6 +711,34 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               // 2. Prepare new transactions
               const newWalletTransactions: Transaction[] = [];
               const now = new Date();
+              const baseAmount = recordExpensesFormally ? (totalCost - shippingFees - otherFees) : totalCost;
+
+              const pushFormalExpenses = (date: Date) => {
+                  if (recordExpensesFormally) {
+                      if (shippingFees > 0) {
+                          newWalletTransactions.push({
+                              id: `supply_expense_shipping_${currentOrderId}`,
+                              type: 'سحب',
+                              amount: shippingFees,
+                              date: new Date(date.getTime() + 2).toISOString(),
+                              note: `مصاريف شحن (فاتورة مورد: ${supplier?.name})`,
+                              category: 'expense_shipping_fees',
+                              status: 'completed'
+                          } as Transaction);
+                      }
+                      if (otherFees > 0) {
+                          newWalletTransactions.push({
+                              id: `supply_expense_other_${currentOrderId}`,
+                              type: 'سحب',
+                              amount: otherFees,
+                              date: new Date(date.getTime() + 3).toISOString(),
+                              note: `مصاريف إضافية (فاتورة مورد: ${supplier?.name})`,
+                              category: 'expense_other',
+                              status: 'completed'
+                          } as Transaction);
+                      }
+                  }
+              };
 
               if (paymentMethod === 'partner') {
                   partnerPayments.forEach((pp, idx) => {
@@ -647,12 +763,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   newWalletTransactions.push({
                       id: `supply_purchase_with_${currentOrderId}`,
                       type: 'سحب',
-                      amount: totalCost,
+                      amount: baseAmount,
                       date: purchaseDate.toISOString(),
                       note: `شراء بضاعة (بتمويل الشركاء) من المورد ${supplier?.name} (أمر: ${orderReference || currentOrderId})`,
                       category: 'supply_purchase',
                       status: 'completed'
                   } as Transaction);
+                  pushFormalExpenses(purchaseDate);
                   
                   // Payment comes out of the supply wallet
                   newSupplyBalance -= totalCost;
@@ -661,28 +778,32 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   newWalletTransactions.push({
                       id: `supply_purchase_${currentOrderId}`,
                       type: 'سحب',
-                      amount: totalCost,
-                      date: new Date().toISOString(),
+                      amount: baseAmount,
+                      date: now.toISOString(),
                       note: `شراء بضاعة (كاش) من المورد ${supplier?.name} (المرجع: ${orderReference || currentOrderId})`,
                       category: 'inventory_purchase',
                       status: 'completed'
                   } as Transaction);
+                  pushFormalExpenses(now);
               } else if (paymentMethod === 'supply_wallet') {
                   newSupplyBalance -= totalCost;
                   newWalletTransactions.push({
                       id: `supply_purchase_${currentOrderId}`,
                       type: 'سحب',
-                      amount: totalCost,
-                      date: new Date().toISOString(),
+                      amount: baseAmount,
+                      date: now.toISOString(),
                       note: `شراء بضاعة من محفظة التوريد (المورد: ${supplier?.name})`,
                       category: 'supply_purchase',
                       status: 'completed'
                   } as Transaction);
+                  pushFormalExpenses(now);
               }
 
               const filteredTransactions = prev.transactions.filter((t: any) => 
                 !t.id.startsWith(`supply_${currentOrderId}`) && 
                 !t.id.startsWith(`supply_purchase_with_${currentOrderId}`) &&
+                !t.id.startsWith(`supply_expense_shipping_${currentOrderId}`) &&
+                !t.id.startsWith(`supply_expense_other_${currentOrderId}`) &&
                 !t.id.startsWith(`supply_funding_dep_${currentOrderId}`)
               );
 
@@ -710,7 +831,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                 ...prev,
                 balance: newBalance,
                 supplyBalance: newSupplyBalance,
-                transactions: prev.transactions.filter((t: any) => t.id !== `supply_${editingOrder.id}`)
+                transactions: prev.transactions.filter((t: any) => 
+                    !t.id.startsWith(`supply_${editingOrder.id}`) &&
+                    !t.id.startsWith(`supply_purchase_with_${editingOrder.id}`) &&
+                    !t.id.startsWith(`supply_expense_shipping_${editingOrder.id}`) &&
+                    !t.id.startsWith(`supply_expense_other_${editingOrder.id}`) &&
+                    !t.id.startsWith(`supply_funding_dep_${editingOrder.id}`)
+                )
               };
           });
       }
@@ -725,6 +852,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderNotes('');
       setShippingFees(0);
       setOtherFees(0);
+      setDistributeExpensesEqually(false);
+      setRecordExpensesFormally(false);
       setTaxRate(0);
       setSelectedTreasuryAccountId('');
   };
@@ -739,6 +868,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderNotes(order.notes || '');
       setShippingFees(order.shippingFees || 0);
       setOtherFees(order.otherFees || 0);
+      setDistributeExpensesEqually(order.distributeExpensesEqually || false);
+      setRecordExpensesFormally(order.recordExpensesFormally || false);
       setTaxRate(order.taxRate || 0);
       
       const itemsHydrated = (order.items || []).map(item => {
@@ -760,9 +891,24 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   };
 
   const handleDeleteOrder = (order: SupplyOrder) => {
-      if (!confirm('هل أنت متأكد من حذف أمر التوريد هذا؟ سيتم استرجاع المخزون وتعديل الحسابات.')) return;
-      
-      setSettings(prev => {
+      // Check if any product in this supply order was sold in customer orders
+      // We block deletion if any product from this order is present in customer orders
+      const productIdsInOrder = order.items.map(item => item.productId);
+      const isLinkedToSales = orders.some(o => 
+        o.items?.some((item: any) => productIdsInOrder.includes(item.productId))
+      );
+
+      if (isLinkedToSales) {
+          showAlert(
+              "حذف غير مسموح",
+              "لا يمكن حذف فاتورة الشراء هذه لأنها مرتبطة بعمليات بيع لعملاء. يرجى مراجعة حركة المخزن أولاً.",
+              "error"
+          );
+          return;
+      }
+
+      showConfirm("تأكيد حذف الفاتورة", `هل أنت متأكد من حذف فاتورة الشراء رقم ${order.orderNumber || order.id}؟ سيتم خصم الكميات من المخزن وإلغاء المعاملات المالية المرتبطة بها.`, () => {
+          setSettings(prev => {
           let updatedSuppliers = [...prev.suppliers];
           let updatedPartners = [...(prev.partners || [])];
           let updatedPartnerTransactions = [...(prev.partnerTransactions || [])];
@@ -835,6 +981,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                  !t.id.startsWith(`supply_${order.id}`) && 
                  !t.id.startsWith(`supply_purchase_${order.id}`) && 
                  !t.id.startsWith(`supply_purchase_with_${order.id}`) && 
+                 !t.id.startsWith(`supply_expense_shipping_${order.id}`) && 
+                 !t.id.startsWith(`supply_expense_other_${order.id}`) && 
                  !t.id.startsWith(`supply_funding_dep_${order.id}`)
               );
 
@@ -855,9 +1003,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
             ? { ...acc, balance: acc.balance + (order.grandTotal || order.totalCost) }
             : acc
           ),
-          transactions: prev.transactions.filter((t: any) => !t.id.startsWith(`supply_tx_${order.id}`))
+          transactions: prev.transactions.filter((t: any) => 
+            !t.id.startsWith(`supply_tx_${order.id}`) &&
+            !t.id.startsWith(`expense_tx_${order.id}`)
+          )
         }));
       }
+    });
   };
 
 const ProductSelect = ({ value, onChange, products }: { value: string, onChange: (val: string) => void, products: any[] }) => {
@@ -1444,6 +1596,11 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               setOrderReference('');
               setOrderNotes('');
               setOrderItems([]);
+              setShippingFees(0);
+              setOtherFees(0);
+              setTaxRate(0);
+              setDistributeExpensesEqually(false);
+              setRecordExpensesFormally(false);
               const defaultWh = settings.warehouses?.find(w => w.isDefault);
               setSelectedWarehouseId(defaultWh?.id || '');
               setShowOrderModal(true);
@@ -1757,34 +1914,53 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {(settings.suppliers || []).map(supplier => (
-                <div key={supplier.id} className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-[2.2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700 transition-all duration-300">
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-base border shrink-0 ${getAvatarColor(supplier.name)}`}>
-                          {(supplier.name || 'م')[0]}
-                        </div>
-                        <div className="text-right">
-                          <h3 className="font-extrabold text-base dark:text-white truncate max-w-[180px] sm:max-w-xs">{supplier.name}</h3>
-                          <p className="text-slate-400 text-xs font-semibold flex items-center gap-1 mt-0.5" dir="ltr">
-                            <Phone size={12} className="text-slate-400"/>
-                            <span>{supplier.phone || 'بلا رقم هاتف'}</span>
-                          </p>
-                        </div>
-                      </div>
+              {(settings.suppliers || []).map(supplier => {
+                  const supplierOrders = (settings.supplyOrders || []).filter(o => o.supplierId === supplier.id);
+                  const supplierReturns = (settings.purchaseReturns || []).filter(r => r.supplierId === supplier.id);
+                  
+                  const purchasesCount = supplierOrders.filter(o => o.status === 'completed').length;
+                  const returnsCount = supplierReturns.length;
 
-                      {/* Display Liabilities Pill if balance > 0 */}
-                      {(supplier.balance || 0) > 0 ? (
-                        <span className="text-[10px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 px-3 py-1.5 rounded-2xl border border-rose-100/60 dark:border-rose-900/30 whitespace-nowrap shadow-sm">
-                          مديونية: {supplier.balance?.toLocaleString()} ج.م
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-black bg-indigo-50/50 dark:bg-slate-800/80 text-indigo-505 text-indigo-500 px-3 py-1.5 rounded-2xl border border-slate-100 dark:border-slate-800/50 whitespace-nowrap">
-                          مخلص بالكامل
-                        </span>
-                      )}
-                    </div>
+                  return (
+                    <div key={supplier.id} className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-[2.2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700 transition-all duration-300">
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-base border shrink-0 ${getAvatarColor(supplier.name)}`}>
+                              {(supplier.name || 'م')[0]}
+                            </div>
+                            <div className="text-right">
+                              <h3 className="font-extrabold text-base dark:text-white truncate max-w-[180px] sm:max-w-xs">{supplier.name}</h3>
+                              <p className="text-slate-400 text-xs font-semibold flex items-center gap-1 mt-0.5" dir="ltr">
+                                <Phone size={12} className="text-slate-400"/>
+                                <span>{supplier.phone || 'بلا رقم هاتف'}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Display Liabilities Pill if balance > 0 */}
+                          {(supplier.balance || 0) > 0 ? (
+                            <span className="text-[10px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 px-3 py-1.5 rounded-2xl border border-rose-100/60 dark:border-rose-900/30 whitespace-nowrap shadow-sm">
+                              مديونية: {supplier.balance?.toLocaleString()} ج.م
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-black bg-indigo-50/50 dark:bg-slate-800/80 text-indigo-505 text-indigo-500 px-3 py-1.5 rounded-2xl border border-slate-100 dark:border-slate-800/50 whitespace-nowrap">
+                              مخلص بالكامل
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Transaction Counts */}
+                        <div className="grid grid-cols-2 gap-2">
+                           <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50 flex flex-col items-center justify-center transition-colors">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">عمليات الشراء</span>
+                              <span className="text-sm font-black text-slate-800 dark:text-slate-200">{purchasesCount}</span>
+                           </div>
+                           <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50 flex flex-col items-center justify-center transition-colors">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">مرتجع / استبدال</span>
+                              <span className="text-sm font-black text-slate-800 dark:text-slate-200">{returnsCount}</span>
+                           </div>
+                        </div>
 
                     {supplier.address && (
                       <p className="text-slate-500 dark:text-slate-455 text-xs bg-slate-50/50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100/60 dark:border-slate-800/50 leading-relaxed text-right">
@@ -1937,7 +2113,8 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     )}
                   </div>
                 </div>
-              ))}
+              );
+            })}
             </div>
           )}
         </motion.div>
@@ -3100,47 +3277,77 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               </div>
 
               {/* Fees and Taxes Section */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف الشحن / النقل</label>
-                  <div className="relative">
-                    <input 
-                      type="number" 
-                      min="0"
-                      value={shippingFees || ''} 
-                      onChange={e => setShippingFees(Number(e.target.value))} 
-                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                    />
-                    <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+              <div className="space-y-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف الشحن / النقل</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={shippingFees || ''} 
+                        onChange={e => setShippingFees(Number(e.target.value))} 
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                      />
+                      <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف أخرى / إضافية</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={otherFees || ''} 
+                        onChange={e => setOtherFees(Number(e.target.value))} 
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                      />
+                      <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-500 mb-1 block">نسبة الضريبة %</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        min="0"
+                        max="100"
+                        value={taxRate || ''} 
+                        onChange={e => setTaxRate(Number(e.target.value))} 
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                      />
+                      <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">%</span>
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف أخرى / إضافية</label>
-                  <div className="relative">
-                    <input 
-                      type="number" 
-                      min="0"
-                      value={otherFees || ''} 
-                      onChange={e => setOtherFees(Number(e.target.value))} 
-                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                    />
-                    <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+
+                {(shippingFees > 0 || otherFees > 0) && (
+                  <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={recordExpensesFormally} 
+                        onChange={e => setRecordExpensesFormally(e.target.checked)} 
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
+                      />
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        إدراج كمصروفات منفصلة في دفتر المصروفات (تظهر في التقارير)
+                      </span>
+                    </label>
+                    
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={distributeExpensesEqually} 
+                        onChange={e => setDistributeExpensesEqually(e.target.checked)} 
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
+                      />
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        توزيع هذه المصاريف بالتساوي على تكلفة المنتجات (Landed Cost)
+                      </span>
+                    </label>
                   </div>
-                </div>
-                <div>
-                  <label className="text-[10px] font-black text-slate-500 mb-1 block">نسبة الضريبة %</label>
-                  <div className="relative">
-                    <input 
-                      type="number" 
-                      min="0"
-                      max="100"
-                      value={taxRate || ''} 
-                      onChange={e => setTaxRate(Number(e.target.value))} 
-                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                    />
-                    <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">%</span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Inventory items allocation */}
