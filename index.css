@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@200;400;700;900&family=Inter:wght@100;200;300;400;500;600;700;800;900&family=Outfit:wght@100;200;300;400;500;600;700;800;900&family=Readex+Pro:wght@200;300;400;500;600;700&display=swap');
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -13,6 +14,7 @@
 
   --font-sans: "Inter", "Cairo", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Readex Pro", "Inter", sans-serif;
+  --font-store: "Outfit", "Cairo", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   --radius-xl: 0.75rem;

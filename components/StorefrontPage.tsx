@@ -1,10 +1,11 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Settings, Store, Product, StoreCustomization, OrderItem, Review } from '../types';
-import { ShoppingCart, Package, Search, Facebook, Instagram, Twitter, MessageCircle, ArrowDown, CheckCircle, Star, X, LayoutGrid, ChevronLeft, ChevronRight, ArrowRight, BrainCircuit, RefreshCw, Wand2 } from 'lucide-react';
+import { ShoppingCart, Package, Search, Facebook, Instagram, Twitter, MessageCircle, ArrowDown, CheckCircle, Star, X, LayoutGrid, ChevronLeft, ChevronRight, ArrowRight, BrainCircuit, RefreshCw, Wand2, Info, ShieldCheck, Truck, RotateCcw, CreditCard, Heart, Store as StoreIcon } from 'lucide-react';
 import CartSidebar from './CartSidebar';
 import { searchProductsWithAI } from '../services/geminiService';
 import { SmartUpdatesWidget } from './SmartUpdatesWidget';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface StorefrontPageProps {
   settings: Settings;
@@ -16,43 +17,159 @@ interface StorefrontPageProps {
   onRemoveFromCart: (productId: string) => void;
 }
 
-const ReviewModal = ({ productId, onClose, onSubmit }: { productId: string, onClose: () => void, onSubmit: (review: Omit<Review, 'id' | 'status' | 'date'>) => void }) => {
-    const [name, setName] = useState('');
-    const [comment, setComment] = useState('');
-    const [rating, setRating] = useState(5);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSubmit({ productId, customerName: name, comment, rating });
-        onClose();
-        alert("شكراً لتقييمك! سيتم مراجعته قبل النشر.");
-    };
+const ProductReviewDisplay = ({ reviews }: { reviews: Review[] }) => {
+    if (reviews.length === 0) return (
+        <div className="py-12 text-center bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] border border-dashed border-slate-200 dark:border-slate-800">
+            <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                <MessageCircle className="text-slate-300" size={32} />
+            </div>
+            <h4 className="font-black text-slate-800 dark:text-white mb-1">لا توجد تقييمات حتى الآن</h4>
+            <p className="text-slate-500 text-sm max-w-[200px] mx-auto">كن أول من يشارك تجربته مع هذا المنتج الرائع!</p>
+        </div>
+    );
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-6 text-right animate-in zoom-in duration-200">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-lg dark:text-white">أضف تقييمك</h3>
-                    <button onClick={onClose}><X className="text-slate-400"/></button>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="flex justify-center gap-2 mb-4">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                            <button key={star} type="button" onClick={() => setRating(star)} className="focus:outline-none transition-transform hover:scale-110">
-                                <Star size={32} fill={star <= rating ? "#f59e0b" : "none"} className={star <= rating ? "text-amber-500" : "text-slate-300"} />
-                            </button>
-                        ))}
+        <div className="space-y-6">
+            {reviews.map((review) => (
+                <div key={review.id} className="group p-6 bg-white dark:bg-white/5 rounded-[2rem] border border-slate-100 dark:border-slate-800/50 shadow-sm transition-all hover:shadow-xl hover:border-slate-200 dark:hover:border-slate-700">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-indigo-200 dark:shadow-none">
+                                {review.customerName.charAt(0)}
+                            </div>
+                            <div className="text-right">
+                                <h4 className="font-black text-base dark:text-white">{review.customerName}</h4>
+                                <div className="flex text-amber-500 mt-1">
+                                    {[...Array(5)].map((_, i) => (
+                                        <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} className={i < review.rating ? "" : "text-slate-200 dark:text-slate-700"} />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <span className="text-[10px] bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full text-slate-400 font-black uppercase tracking-wider">
+                            {new Date(review.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}
+                        </span>
                     </div>
-                    <input type="text" required placeholder="اسمك" className="w-full p-3 bg-slate-50 dark:bg-slate-800 border rounded-xl" value={name} onChange={e => setName(e.target.value)} />
-                    <textarea required placeholder="اكتب رأيك هنا..." className="w-full p-3 bg-slate-50 dark:bg-slate-800 border rounded-xl h-24" value={comment} onChange={e => setComment(e.target.value)} />
-                    <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold">إرسال التقييم</button>
-                </form>
-            </div>
+                    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed pr-2 border-r-2 border-indigo-100 dark:border-slate-800">{review.comment}</p>
+                </div>
+            ))}
         </div>
     );
 };
 
-const ProductCard: React.FC<{ product: Product, customization: StoreCustomization, onAddToCart: (product: Product) => void, onReview: (id: string) => void, reviews: Review[], onViewDetails: () => void }> = ({ product, customization, onAddToCart, onReview, reviews, onViewDetails }) => {
+const ReviewModal = ({ productId, productName, onClose, onSubmit }: { productId: string, productName: string, onClose: () => void, onSubmit: (review: Omit<Review, 'id' | 'status' | 'date'>) => void }) => {
+    const [name, setName] = useState('');
+    const [comment, setComment] = useState('');
+    const [rating, setRating] = useState(5);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        await new Promise(r => setTimeout(r, 600));
+        onSubmit({ productId, customerName: name, comment, rating });
+        onClose();
+        setIsSubmitting(false);
+    };
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl"
+            onClick={onClose}
+        >
+            <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 30 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 30 }}
+                className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[3rem] p-8 sm:p-12 text-right shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] relative overflow-hidden"
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-400 to-amber-600" />
+                
+                <div className="flex justify-between items-start mb-10">
+                    <button onClick={onClose} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-full hover:bg-slate-100 transition-colors">
+                        <X className="text-slate-400" size={24} />
+                    </button>
+                    <div className="text-right">
+                        <h3 className="font-black text-3xl text-slate-900 dark:text-white mb-2 leading-none">ضع بصمتك</h3>
+                        <p className="text-sm text-slate-500 font-bold">للمنتج: {productName}</p>
+                    </div>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-8">
+                    <div className="flex flex-col items-center justify-center gap-4 py-8 bg-slate-50 dark:bg-slate-950/40 rounded-[2.5rem] border border-slate-100 dark:border-slate-800">
+                        <div className="flex gap-3">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                                <button 
+                                    key={star} 
+                                    type="button" 
+                                    onMouseEnter={() => setRating(star)}
+                                    onClick={() => setRating(star)} 
+                                    className="focus:outline-none transition-all hover:scale-125"
+                                >
+                                    <Star 
+                                        size={48} 
+                                        fill={star <= rating ? "#f59e0b" : "none"} 
+                                        className={star <= rating ? "text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]" : "text-slate-200 dark:text-slate-800"} 
+                                    />
+                                </button>
+                            ))}
+                        </div>
+                        <span className="text-lg font-black text-amber-600 tracking-tight">
+                            {rating === 5 ? 'تجربة أسطورية! ⭐⭐⭐⭐⭐' : rating === 4 ? 'راضٍ جداً عن المنتج 😊' : rating === 3 ? 'منتج جيد وعملي ✅' : rating === 2 ? 'هناك ملاحظات بسيطة ⚠️' : 'لم يعجبني للأسف ❌'}
+                        </span>
+                    </div>
+
+                    <div className="space-y-6">
+                        <div className="relative group">
+                            <input 
+                                type="text" 
+                                required 
+                                className="w-full pt-8 pb-4 px-6 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 outline-none rounded-3xl transition-all font-black text-slate-900 dark:text-white peer" 
+                                value={name} 
+                                onChange={e => setName(e.target.value)} 
+                            />
+                            <label className="absolute right-6 top-4 text-[10px] font-black uppercase tracking-widest text-slate-400 group-focus-within:text-indigo-600 transition-colors pointer-events-none">الاسم الكامل</label>
+                        </div>
+                        <div className="relative group">
+                            <textarea 
+                                required 
+                                className="w-full pt-8 pb-4 px-6 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 outline-none rounded-3xl transition-all font-bold text-slate-900 dark:text-white h-40 resize-none" 
+                                value={comment} 
+                                onChange={e => setComment(e.target.value)} 
+                            />
+                            <label className="absolute right-6 top-4 text-[10px] font-black uppercase tracking-widest text-slate-400 group-focus-within:text-indigo-600 transition-colors pointer-events-none">رأيك بالتفصيل</label>
+                        </div>
+                    </div>
+
+                    <button 
+                        type="submit" 
+                        disabled={isSubmitting}
+                        className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-indigo-500/30 flex items-center justify-center gap-3 transform active:scale-95 transition-all disabled:opacity-70"
+                    >
+                        {isSubmitting ? (
+                            <RefreshCw size={24} className="animate-spin" />
+                        ) : (
+                            <>
+                                <CheckCircle size={24} />
+                                <span>اعتمـاد التقييـم</span>
+                            </>
+                        )}
+                    </button>
+                    <div className="flex items-center justify-center gap-2 text-slate-400 text-[10px] font-black uppercase">
+                        <ShieldCheck size={14}/>
+                        <span>خصوصيتك محمية. يتم مراجعة التقييم بشرياً.</span>
+                    </div>
+                </form>
+            </motion.div>
+        </motion.div>
+    );
+};
+
+const ProductCard: React.FC<{ product: Product, customization: StoreCustomization, onAddToCart: (product: Product) => void, onReview: (id: string, name: string) => void, reviews: Review[], onViewDetails: () => void }> = ({ product, customization, onAddToCart, onReview, reviews, onViewDetails }) => {
     const [isAdded, setIsAdded] = useState(false);
     
     const productReviews = reviews.filter(r => r.productId === product.id && r.status === 'approved');
@@ -67,152 +184,199 @@ const ProductCard: React.FC<{ product: Product, customization: StoreCustomizatio
 
     const handleReviewClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        onReview(product.id);
+        onReview(product.id, product.name);
     };
 
-    // Card alignment layout
-    const isCenter = customization.cardInfoAlignment === 'center';
-    const isLeft = customization.cardInfoAlignment === 'left';
-    const alignmentClass = isCenter ? 'text-center items-center' : isLeft ? 'text-left items-start' : 'text-right items-end';
-
-    // Shadow size mapping
-    const shadowMap = {
-        none: 'shadow-none',
-        sm: 'shadow-sm',
-        md: 'shadow-md',
-        lg: 'shadow-lg',
-        xl: 'shadow-xl'
-    };
-    const shadowClass = shadowMap[customization.cardShadowSize || 'sm'] || 'shadow-sm';
-
-    // Hover effect mapping
-    let hoverEffectClass = 'transition-all duration-300 ';
-    const primary = customization.primaryColor || '#4f46e5';
-    switch (customization.cardHoverEffect) {
-        case 'scale':
-            hoverEffectClass += 'hover:-translate-y-2 hover:scale-[1.03]';
-            break;
-        case 'glow':
-            hoverEffectClass += `hover:-translate-y-1 hover:shadow-[0_10px_25px_${primary}33] hover:border-indigo-500/40`;
-            break;
-        case 'shadow':
-            hoverEffectClass += 'hover:shadow-2xl hover:translate-y-[-4px]';
-            break;
-        case 'none':
-            break;
-        default:
-            hoverEffectClass += 'hover:-translate-y-1.5 hover:shadow-xl';
-    }
-
-    // Card border / outlines style
-    let cardStyleClass = 'bg-white dark:bg-slate-900 ';
-    if (customization.cardStyle === 'elevated') {
-        cardStyleClass += 'border border-transparent bg-white dark:bg-slate-900 shadow';
-    } else if (customization.cardStyle === 'outlined') {
-        cardStyleClass += 'border-2 border-slate-300/85 dark:border-slate-750';
-    } else {
-        cardStyleClass += 'border border-slate-200/70 dark:border-slate-800/80';
-    }
+    const primaryColor = customization.primaryColor || '#6366f1';
 
     return (
-        <div 
-          className={`${cardStyleClass} ${shadowClass} ${hoverEffectClass} rounded-2xl overflow-hidden flex flex-col cursor-pointer group`} 
+        <motion.div 
+          whileHover={{ y: -12 }}
+          className="group relative bg-white dark:bg-slate-900 rounded-[2.5rem] overflow-hidden flex flex-col cursor-pointer border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-[0_40px_80px_-20px_rgba(0,0,0,0.15)] transition-all duration-700" 
           onClick={onViewDetails}
         >
-            <div className="bg-slate-50 dark:bg-slate-950 p-2 relative">
-                <div className="aspect-square w-full rounded-xl overflow-hidden relative">
-                    <img 
-                        src={product.thumbnail || `https://picsum.photos/400/400?random=${product.id}`} 
-                        alt={product.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
-                        loading="lazy"
-                    />
-                     {productReviews.length > 0 && (
-                        <div className="absolute top-2 right-2 bg-white/95 backdrop-blur-md dark:bg-slate-900/95 px-2.5 py-1 rounded-full flex items-center gap-1 text-[10px] font-black shadow-lg">
-                            <Star size={10} className="text-amber-500" fill="#f59e0b"/>
-                            <span className="text-slate-800 dark:text-white">{averageRating.toFixed(1)}</span>
+            <div className="relative aspect-[4/5] overflow-hidden bg-slate-50 dark:bg-slate-950 p-4">
+                <motion.img 
+                    src={product.thumbnail || `https://picsum.photos/600/750?random=${product.id}`} 
+                    alt={product.name}
+                    className="w-full h-full object-cover rounded-[2rem] transition-transform duration-1000 group-hover:scale-115" 
+                    loading="lazy"
+                />
+                
+                {/* Visual Anchors */}
+                <div className="absolute top-8 right-8 flex flex-col gap-3">
+                    {productReviews.length > 0 && (
+                        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl px-4 py-2 rounded-2xl flex items-center gap-2 shadow-2xl border border-white/20">
+                            <Star size={14} className="text-amber-500" fill="currentColor"/>
+                            <span className="text-xs font-black">{averageRating.toFixed(1)}</span>
                         </div>
-                     )}
+                    )}
+                    {product.stockQuantity && product.stockQuantity < 10 && (
+                        <div className="bg-rose-600 text-white px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl animate-pulse">
+                            قرب يخلص!
+                        </div>
+                    )}
+                </div>
+
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                
+                <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-[80%] translate-y-6 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500">
+                    <button 
+                        onClick={handleAddToCartClick}
+                        className="w-full py-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-[1.5rem] font-black text-xs shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center justify-center gap-2 hover:bg-slate-900 hover:text-white dark:hover:bg-white dark:hover:text-slate-900 active:scale-95 transition-all"
+                    >
+                        {isAdded ? <CheckCircle size={20} className="text-emerald-500" /> : <ShoppingCart size={20} />}
+                        <span>{isAdded ? 'تمت الإضافة' : 'إضافة للسلة'}</span>
+                    </button>
                 </div>
             </div>
 
-            <div className={`p-5 flex flex-col flex-grow text-right ${alignmentClass}`}>
-                <h3 
-                  className={`font-extrabold text-sm sm:text-base flex-grow mb-3 line-clamp-2 leading-relaxed w-full ${customization.headingFontWeight}`}
-                  style={{ color: customization.textColor || 'inherit' }}
-                >
+            <div className="p-8 flex flex-col flex-grow text-right">
+                <div className="flex justify-between items-center mb-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+                        {product.collectionId ? 'وصل حديثاً ✨' : 'الأكثر طلباً 🔥'}
+                    </p>
+                    <button onClick={handleReviewClick} className="p-2 text-slate-300 hover:text-amber-500 transition-colors backdrop-blur-sm rounded-full">
+                        <MessageCircle size={14} />
+                    </button>
+                </div>
+                
+                <h3 className="font-black text-xl mb-4 line-clamp-2 leading-tight text-slate-900 dark:text-white h-14">
                     {product.name}
                 </h3>
-                <div className={`flex justify-between items-center mb-4 w-full ${isCenter ? 'flex-col gap-2' : isLeft ? 'flex-row' : 'flex-row-reverse'}`}>
-                     <p className="font-black text-xl" style={{ color: customization.primaryColor }}>
-                         {product.price.toLocaleString()} <span className="text-xs font-bold text-slate-455">ج.م</span>
-                     </p>
-                     <button onClick={handleReviewClick} className="text-xs font-bold underline z-10 relative" style={{ color: customization.primaryColor }}>أضف تقييم</button>
+                
+                <div className="flex items-center gap-3 mt-auto">
+                    <div className="flex items-baseline gap-1.5 order-last">
+                        <span className="text-3xl font-black text-slate-900 dark:text-white" style={{ color: primaryColor }}>
+                            {product.price.toLocaleString()}
+                        </span>
+                        <span className="text-xs font-black text-slate-400 uppercase">ج.م</span>
+                    </div>
+                    <div className="h-px flex-grow bg-slate-100 dark:bg-slate-800" />
                 </div>
-                <button 
-                    onClick={handleAddToCartClick}
-                    disabled={isAdded}
-                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 font-bold text-sm transition-all text-white z-10 relative shadow-md cursor-pointer ${customization.buttonBorderRadius} ${isAdded ? 'bg-emerald-600 hover:bg-emerald-500' : 'hover:opacity-90'}`}
-                    style={{ backgroundColor: isAdded ? '' : customization.primaryColor }}
-                >
-                    {isAdded ? (
-                        <>
-                            <CheckCircle size={16} />
-                            <span>تمت الإضافة للسلة!</span>
-                        </>
-                    ) : (
-                        <>
-                            <ShoppingCart size={16} />
-                            <span>أضف للسلة</span>
-                        </>
-                    )}
-                </button>
             </div>
-        </div>
+        </motion.div>
     );
 };
 
 const ProductCardSkeleton: React.FC = () => (
-    <div className="bg-slate-500/50 dark:bg-slate-700/50 rounded-2xl p-3 flex flex-col animate-pulse">
-        <div className="bg-slate-300/50 dark:bg-slate-600/50 rounded-xl aspect-square mb-3"></div>
-        <div className="px-2 pb-2 space-y-3">
-            <div className="h-4 bg-slate-400/50 dark:bg-slate-600/50 rounded w-3/4"></div>
-            <div className="h-4 bg-slate-400/50 dark:bg-slate-600/50 rounded w-1/2"></div>
-            <div className="flex justify-between items-center">
-                 <div className="h-6 bg-slate-400/50 dark:bg-slate-600/50 rounded w-1/3"></div>
+    <div className="bg-white dark:bg-slate-950 rounded-[3rem] p-5 flex flex-col animate-pulse border border-slate-100 dark:border-slate-900">
+        <div className="bg-slate-100 dark:bg-slate-900 rounded-[2.5rem] aspect-[4/5] mb-6 shadow-inner"></div>
+        <div className="px-2 space-y-5">
+            <div className="flex justify-between">
+                <div className="h-3 bg-slate-100 dark:bg-slate-900 rounded-full w-24"></div>
+                <div className="h-3 bg-slate-100 dark:bg-slate-900 rounded-full w-8"></div>
             </div>
-            <div className="h-12 bg-slate-400/50 dark:bg-slate-600/50 rounded-lg"></div>
+            <div className="h-8 bg-slate-100 dark:bg-slate-900 rounded-full w-full"></div>
+            <div className="pt-4 flex justify-end gap-2 items-end">
+                <div className="h-4 bg-slate-100 dark:bg-slate-900 rounded-full w-12 mb-1"></div>
+                <div className="h-10 bg-slate-100 dark:bg-slate-900 rounded-full w-24"></div>
+            </div>
         </div>
     </div>
 );
 
 const HeroSection: React.FC<{ customization: StoreCustomization }> = ({ customization }) => {
-    const firstBanner = customization.banners?.[0];
+    const banners = customization.banners || [];
+    const [currentIndex, setCurrentIndex] = useState(0);
 
-    if (!firstBanner) {
-        return null; // Or a fallback hero
-    }
-    
+    if (banners.length === 0) return null;
+
+    const banner = banners[currentIndex];
+
     return (
-        <div className="relative h-[60vh] min-h-[400px] bg-cover bg-center flex items-center justify-center text-center text-white" style={{ backgroundImage: `url(${firstBanner.imageUrl})` }}>
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/40 to-transparent"></div>
-            <div className="relative z-10 px-4 flex flex-col items-center animate-in fade-in slide-in-from-bottom-10 duration-700">
-                <h2 className={`text-4xl md:text-7xl drop-shadow-lg ${customization.headingFontWeight}`}>{firstBanner.title}</h2>
-                <p className="mt-4 text-lg md:text-2xl max-w-3xl mx-auto drop-shadow-md">{firstBanner.subtitle}</p>
-                <a 
-                  href={firstBanner.link || "#products-section"} 
-                  className={`mt-8 flex items-center gap-2 bg-white px-8 py-4 font-bold text-lg hover:bg-slate-200 transition-all shadow-lg transform hover:scale-105 ${customization.buttonBorderRadius}`}
-                  style={{ color: customization.primaryColor }}
-                >
-                  <span>{firstBanner.buttonText || 'تصفح المنتجات'}</span>
-                  <ArrowDown size={20} />
-                </a>
+        <div className="relative h-[90vh] w-full bg-slate-950 overflow-hidden">
+            <AnimatePresence mode="wait">
+                <motion.div 
+                    key={currentIndex}
+                    initial={{ opacity: 0, scale: 1.15 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 1.05 }}
+                    transition={{ duration: 1.5, ease: "easeOut" }}
+                    className="absolute inset-0 bg-cover bg-center" 
+                    style={{ backgroundImage: `url(${banner.imageUrl})` }}
+                />
+            </AnimatePresence>
+
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
+            <div className="absolute inset-0 bg-black/40" />
+
+            {/* Cinematic Overlay */}
+            <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden">
+                <div className="absolute top-[15%] left-[5%] w-64 h-64 bg-indigo-600/30 rounded-full blur-[120px] animate-pulse" />
+                <div className="absolute bottom-[20%] right-[10%] w-96 h-96 bg-rose-600/20 rounded-full blur-[150px] animate-pulse delay-1000" />
             </div>
+
+            <div className="relative z-10 h-full container mx-auto px-6 flex flex-col items-center justify-center text-center">
+                <motion.div
+                    initial={{ opacity: 0, y: 50 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    key={`content-${currentIndex}`}
+                    transition={{ delay: 0.2, duration: 1 }}
+                    className="max-w-5xl"
+                >
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="inline-flex items-center gap-3 px-6 py-2 bg-white/10 backdrop-blur-3xl border border-white/20 text-white rounded-full text-[11px] font-black uppercase tracking-[0.25em] mb-10 shadow-2xl"
+                    >
+                        <Heart size={14} className="text-rose-500 fill-rose-500" />
+                        <span>مجموعة الإصدار المحدود 2024</span>
+                    </motion.div>
+                    
+                    <h2 className="text-5xl md:text-9xl text-white font-black leading-[0.95] drop-shadow-2xl mb-10 tracking-tighter sm:tracking-[-0.04em]">
+                        {banner.title.split(' ').map((word, i) => (
+                            <span key={i} className={i % 2 === 1 ? 'text-indigo-400 block' : 'block'}>
+                                {word}
+                            </span>
+                        ))}
+                    </h2>
+                    
+                    <p className="text-xl md:text-3xl text-slate-300/90 max-w-2xl mx-auto font-medium mb-16 leading-relaxed drop-shadow-lg">
+                        {banner.subtitle}
+                    </p>
+                    
+                    <div className="flex flex-wrap justify-center gap-6">
+                        <motion.a 
+                            whileHover={{ scale: 1.05, boxShadow: "0 20px 40px rgba(99,102,241,0.4)" }}
+                            whileTap={{ scale: 0.98 }}
+                            href={banner.link || "#products-section"} 
+                            className="px-14 py-6 bg-white text-slate-950 font-black rounded-[2rem] text-xl shadow-2xl flex items-center gap-4 group transition-all"
+                        >
+                            <span>تسوق الآن</span>
+                            <ArrowRight size={26} className="group-hover:translate-x-[-10px] transition-transform" />
+                        </motion.a>
+                    </div>
+                </motion.div>
+
+                {/* Vertical Indicators */}
+                {banners.length > 1 && (
+                    <div className="absolute right-12 top-1/2 -translate-y-1/2 flex flex-col gap-4">
+                        {banners.map((_, idx) => (
+                            <button 
+                                key={idx} 
+                                onClick={() => setCurrentIndex(idx)}
+                                className={`w-1.5 transition-all duration-700 rounded-full ${idx === currentIndex ? 'h-16 bg-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.8)]' : 'h-4 bg-white/30'}`}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+            
+            <motion.div 
+                animate={{ y: [0, 15, 0] }}
+                transition={{ repeat: Infinity, duration: 2.5 }}
+                className="absolute bottom-12 left-1/2 -translate-x-1/2 text-white/20"
+            >
+                <div className="w-8 h-12 border-2 border-white/20 rounded-full flex justify-center p-1">
+                    <motion.div animate={{ height: [4, 12, 4] }} transition={{ repeat: Infinity, duration: 1.5 }} className="w-1 bg-white/40 rounded-full" />
+                </div>
+            </motion.div>
         </div>
     );
 };
 
-const ProductsSection: React.FC<{ settings: Settings, searchTerm: string, customization: StoreCustomization, onAddToCart: (product: Product) => void, onReview: (id: string) => void, onViewProduct: (product: Product) => void }> = ({ settings, searchTerm, customization, onAddToCart, onReview, onViewProduct }) => {
+const ProductsSection: React.FC<{ settings: Settings, searchTerm: string, customization: StoreCustomization, onAddToCart: (product: Product) => void, onReview: (id: string, name: string) => void, onViewProduct: (product: Product) => void }> = ({ settings, searchTerm, customization, onAddToCart, onReview, onViewProduct }) => {
     const [activeCollectionId, setActiveCollectionId] = useState<string>('all');
     const [sortOption, setSortOption] = useState<'default' | 'price-asc' | 'price-desc'>('default');
     const [isAiSearching, setIsAiSearching] = useState(false);
@@ -221,285 +385,108 @@ const ProductsSection: React.FC<{ settings: Settings, searchTerm: string, custom
 
     useEffect(() => {
         setIsLoading(true);
-        const timer = setTimeout(() => {
-            setIsLoading(false);
-        }, 1000); // Simulate 1 second loading
+        const timer = setTimeout(() => setIsLoading(false), 900);
         return () => clearTimeout(timer);
     }, [activeCollectionId, sortOption, aiSearchResults, searchTerm]);
 
-
-    const handleAiSearch = async () => {
-        if (!searchTerm.trim() || searchTerm.length < 5) {
-            alert('للبحث الذكي، يرجى كتابة وصف أطول للمنتج الذي تبحث عنه (5 أحرف على الأقل).');
-            return;
-        }
-        setIsAiSearching(true);
-        const resultIds = await searchProductsWithAI(searchTerm, settings.products);
-        setAiSearchResults(resultIds);
-        setIsAiSearching(false);
-    };
-
-    const clearAiSearch = () => {
-        setAiSearchResults(null);
-    };
-
     const filteredProducts = useMemo(() => {
-        let products;
-        if (aiSearchResults !== null) {
-            products = settings.products.filter(p => aiSearchResults.includes(p.id));
-        } else {
-            products = settings.products.filter(p => {
-              const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()));
-              const matchesCollection = activeCollectionId === 'all' || p.collectionId === activeCollectionId;
-              return matchesSearch && matchesCollection;
-            });
-        }
+        let products = aiSearchResults !== null 
+            ? settings.products.filter(p => aiSearchResults.includes(p.id))
+            : settings.products.filter(p => {
+                const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()));
+                const matchesCollection = activeCollectionId === 'all' || p.collectionId === activeCollectionId;
+                return matchesSearch && matchesCollection;
+              });
         
-        if (activeCollectionId !== 'all') {
-            products = products.filter(p => p.collectionId === activeCollectionId);
-        }
-
-        if (sortOption === 'price-asc') {
-            products.sort((a, b) => a.price - b.price);
-        } else if (sortOption === 'price-desc') {
-            products.sort((a, b) => b.price - a.price);
-        }
+        if (sortOption === 'price-asc') products.sort((a, b) => a.price - b.price);
+        else if (sortOption === 'price-desc') products.sort((a, b) => b.price - a.price);
 
         return products;
     }, [settings.products, searchTerm, activeCollectionId, sortOption, aiSearchResults]);
 
-    const gridClass = `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${customization.productColumnsDesktop} gap-4 md:gap-6`;
+    const numCols = customization.productColumnsDesktop || 4;
+    const gridClass = `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${numCols} gap-8 md:gap-12`;
 
-    // Render Category tabs
-    const renderCategoryTabs = () => {
-        if (settings.collections.length === 0) return null;
-
-        const tabStyle = customization.tabStyle || 'pills';
-
-        if (tabStyle === 'underline') {
-            return (
-                <div className="flex justify-center items-center border-b border-slate-200 dark:border-slate-800 pb-2 w-full max-w-lg mx-auto flex-wrap gap-4 md:gap-8 mb-8">
-                    <button 
-                        onClick={() => setActiveCollectionId('all')} 
-                        className={`pb-2 relative font-extrabold text-sm px-1.5 transition-all text-center ${activeCollectionId === 'all' ? 'text-slate-900 dark:text-white border-b-2' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`} 
-                        style={{ borderBottomColor: activeCollectionId === 'all' ? customization.primaryColor : 'transparent' }}
-                    >
-                        الكل ({settings.products.length})
-                    </button>
-                    {settings.collections.map(col => {
-                        const count = settings.products.filter(p => p.collectionId === col.id).length;
-                        return (
-                            <button 
-                                key={col.id} 
-                                onClick={() => setActiveCollectionId(col.id)} 
-                                className={`pb-2 relative font-extrabold text-sm px-1.5 transition-all text-center ${activeCollectionId === col.id ? 'text-slate-900 dark:text-white border-b-2' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`} 
-                                style={{ borderBottomColor: activeCollectionId === col.id ? customization.primaryColor : 'transparent' }}
-                            >
-                                {col.name} ({count})
-                            </button>
-                        );
-                    })}
+    return (
+        <div id="products-section" className="container mx-auto px-6 py-32 text-right">
+            <div className="flex flex-col lg:flex-row justify-between items-end mb-24 gap-12">
+                <div className="text-right max-w-3xl">
+                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-600 mb-4 block">تسكيلاتنا العالمية</span>
+                    <h2 className="text-6xl md:text-7xl font-black text-slate-900 dark:text-white mb-6 tracking-tighter">أحدث التوجهـات</h2>
+                    <p className="text-slate-500 dark:text-slate-400 text-xl leading-relaxed max-w-2xl">نختار لك بعناية فائقة أفضل ما أنتجته بيوت الموضة لتصلك بجودة لا تضاهى حتى باب منزلك.</p>
                 </div>
-            );
-        }
-
-        if (tabStyle === 'bento') {
-            const bentoGlowBorder = activeCollectionId === 'all' ? 'ring-2' : '';
-            return (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 w-full">
-                    <div 
-                        onClick={() => setActiveCollectionId('all')} 
-                        className={`p-5 rounded-2xl cursor-pointer text-center flex flex-col justify-center items-center transition-all border border-slate-200/50 dark:border-slate-800 shadow-sm hover:translate-y-[-2px] ${activeCollectionId === 'all' ? 'text-white scale-105' : 'bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 text-slate-700 dark:text-slate-300'}`} 
-                        style={{ 
-                            backgroundColor: activeCollectionId === 'all' ? customization.primaryColor : '',
-                            borderColor: activeCollectionId === 'all' ? customization.primaryColor : ''
-                        }}
-                    >
-                        <LayoutGrid size={22} className="mb-2 opacity-85"/>
-                        <span className="font-extrabold text-xs md:text-sm">الكل ({settings.products.length})</span>
+                
+                <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
+                    <div className="relative group flex-1 sm:flex-none">
+                         <Search size={18} className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+                         <input 
+                            type="text" 
+                            placeholder="كلمة البحث..." 
+                            className="w-full sm:w-64 py-4 px-14 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl text-sm font-black focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                         />
                     </div>
-                    {settings.collections.map((col, idx) => {
-                        const count = settings.products.filter(p => p.collectionId === col.id).length;
-                        const isSel = activeCollectionId === col.id;
-                        const initial = col.name ? col.name.trim().charAt(0) : '🔑';
-                        const gradients = [
-                            'bg-indigo-500/10 text-indigo-600',
-                            'bg-emerald-500/10 text-emerald-600',
-                            'bg-pink-500/10 text-pink-600',
-                            'bg-amber-500/10 text-amber-600'
-                        ];
-                        const gradClass = gradients[idx % gradients.length];
-
-                        return (
-                            <div 
-                                key={col.id} 
-                                onClick={() => setActiveCollectionId(col.id)} 
-                                className={`p-5 rounded-2xl cursor-pointer text-center flex flex-col justify-center items-center transition-all border border-slate-200/50 dark:border-slate-800 shadow-sm hover:translate-y-[-2px] ${isSel ? 'text-white scale-105' : 'bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 text-slate-700 dark:text-slate-300'}`} 
-                                style={{ 
-                                    backgroundColor: isSel ? customization.primaryColor : '',
-                                    borderColor: isSel ? customization.primaryColor : ''
-                                }}
-                            >
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs mb-2 ${isSel ? 'bg-white/20 text-white' : gradClass}`}>
-                                    {initial}
-                                </div>
-                                <span className="font-extrabold text-xs md:text-sm">{col.name} ({count})</span>
-                            </div>
-                        );
-                    })}
+                    <select 
+                        value={sortOption} 
+                        onChange={e => setSortOption(e.target.value as any)} 
+                        className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] py-4 px-8 text-sm font-black outline-none shadow-xl cursor-pointer hover:border-slate-300 dark:hover:border-slate-700 transition-all flex-shrink-0"
+                    >
+                        <option value="default">الترتيب الذكي</option>
+                        <option value="price-desc">الأعلى سعراً</option>
+                        <option value="price-asc">الأقل سعراً</option>
+                    </select>
                 </div>
-            );
-        }
+            </div>
 
-        // Default 'pills' style
-        return (
-            <div className="flex justify-center flex-wrap gap-2.5 pb-2 -mx-4 px-4 mb-6">
+            {/* Interactive Collection Sidebar/Header */}
+            <div className="flex gap-4 overflow-x-auto pb-8 mb-16 scrollbar-none snap-x flex-row-reverse">
                 <button 
                     onClick={() => setActiveCollectionId('all')} 
-                    className={`px-5 py-2.5 text-xs sm:text-sm font-bold transition-all whitespace-nowrap shadow-sm hover:scale-[1.02] ${activeCollectionId === 'all' ? 'text-white font-extrabold' : 'bg-slate-100 dark:bg-slate-800 text-slate-650 dark:text-slate-305 hover:bg-slate-205 dark:hover:bg-slate-750'} ${customization.buttonBorderRadius}`}
-                    style={{ backgroundColor: activeCollectionId === 'all' ? customization.primaryColor : '' }}
+                    className={`px-10 py-4.5 rounded-[1.8rem] text-sm font-black whitespace-nowrap snap-start transition-all shadow-xl ${activeCollectionId === 'all' ? 'bg-indigo-600 text-white scale-105 shadow-indigo-600/40' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                 >
-                    الكل
+                    كل التشكيلات
                 </button>
                 {settings.collections.map(col => (
                     <button 
                         key={col.id} 
                         onClick={() => setActiveCollectionId(col.id)} 
-                        className={`px-5 py-2.5 text-xs sm:text-sm font-bold transition-all whitespace-nowrap shadow-sm hover:scale-[1.02] ${activeCollectionId === col.id ? 'text-white font-extrabold' : 'bg-slate-100 dark:bg-slate-800 text-slate-655 dark:text-slate-305 hover:bg-slate-205 dark:hover:bg-slate-750'} ${customization.buttonBorderRadius}`}
-                        style={{ backgroundColor: activeCollectionId === col.id ? customization.primaryColor : '' }}
+                        className={`px-10 py-4.5 rounded-[1.8rem] text-sm font-black whitespace-nowrap snap-start transition-all shadow-xl ${activeCollectionId === col.id ? 'bg-indigo-600 text-white scale-105 shadow-indigo-600/40' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                     >
                         {col.name}
                     </button>
                 ))}
             </div>
-        );
-    };
 
-    const isSidebarLayout = customization.tabStyle === 'sidebar' && settings.collections.length > 0;
-
-    return (
-        <div id="products-section" className="container mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 scroll-mt-20 text-right">
-             <div className="text-center mb-10">
-                <h2 className={`text-4xl sm:text-5xl text-slate-800 dark:text-white ${customization.headingFontWeight}`}>منتجاتنا المميزة</h2>
-                <p className="mt-2 text-lg text-slate-500 dark:text-slate-400 max-w-xl mx-auto">اكتشف تشكيلتنا الواسعة من المنتجات عالية الجودة.</p>
-            </div>
-            
-            <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 pb-4 border-b border-slate-150 dark:border-slate-800">
-                {/* Search options & Smart AI */}
-                <div className="w-full md:w-auto flex items-center justify-between md:justify-end gap-3 flex-row-reverse">
-                    <button onClick={handleAiSearch} disabled={isAiSearching} title="بحث بالذكاء الاصطناعي" className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 hover:scale-[1.02] active:scale-95 transition-all disabled:bg-slate-400">
-                       {isAiSearching ? <RefreshCw size={15} className="animate-spin" /> : <Wand2 size={15}/>}
-                       <span>البحث الذكي</span>
-                    </button>
-                    <select value={sortOption} onChange={e => setSortOption(e.target.value as any)} className="bg-slate-50 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700 rounded-xl py-3 px-3 text-xs sm:text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none text-right">
-                        <option value="default">ترتيب وتصفية المنتجات</option>
-                        <option value="price-desc">السعر: الأعلى للأقل</option>
-                        <option value="price-asc">السعر: الأقل للأعلى</option>
-                    </select>
-                </div>
-            </div>
-
-            {aiSearchResults !== null && (
-                <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl flex justify-between items-center animate-in fade-in duration-300">
-                    <p className="font-bold text-indigo-700 dark:text-indigo-300 text-sm">
-                        نتائج البحث الذكي عن: "{searchTerm}"
-                    </p>
-                    <button onClick={clearAiSearch} className="flex items-center gap-1 text-sm text-slate-500 hover:text-red-500 font-bold">
-                        <X size={14}/> مسح النتائج
-                    </button>
-                </div>
-            )}
-
-            {isAiSearching && !aiSearchResults && (
-                <div className="flex justify-center items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold mb-6">
-                    <BrainCircuit size={20} className="animate-pulse" />
-                    <span>البحث والذكاء الاصطناعي يفحص المنتجات...</span>
-                </div>
-            )}
-
-            {isSidebarLayout ? (
-                /* Dynamic Sidebar layout split */
-                <div className="flex flex-col lg:flex-row gap-8 w-full mt-6">
-                    {/* Right Sticky Sidebar */}
-                    <aside className="w-full lg:w-1/4 shrink-0 bg-slate-50 dark:bg-slate-900/60 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-800/80 lg:sticky lg:top-24 self-start">
-                        <h3 className={`font-black text-sm text-slate-450 dark:text-slate-400 mb-4 pb-2 border-b border-slate-200 dark:border-slate-800 ${customization.headingFontWeight}`}>
-                            تصفح حسب الفئات
-                        </h3>
-                        <div className="flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 scrollbar-none">
-                            <button 
-                                onClick={() => setActiveCollectionId('all')} 
-                                className={`flex items-center justify-between text-right px-4.5 py-3 rounded-xl text-xs md:text-sm font-bold w-full transition-all whitespace-nowrap ${activeCollectionId === 'all' ? 'text-white shadow-sm' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-350 bg-white dark:bg-slate-900'}`} 
-                                style={{ backgroundColor: activeCollectionId === 'all' ? customization.primaryColor : '' }}
-                            >
-                                <span>الكل</span>
-                                <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeCollectionId === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>{settings.products.length}</span>
-                            </button>
-                            {settings.collections.map(col => {
-                                const count = settings.products.filter(p => p.collectionId === col.id).length;
-                                return (
-                                    <button 
-                                        key={col.id} 
-                                        onClick={() => setActiveCollectionId(col.id)} 
-                                        className={`flex items-center justify-between text-right px-4.5 py-3 rounded-xl text-xs md:text-sm font-bold w-full transition-all whitespace-nowrap ${activeCollectionId === col.id ? 'text-white shadow-sm' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-650 dark:text-slate-350 bg-white dark:bg-slate-900'}`} 
-                                        style={{ backgroundColor: activeCollectionId === col.id ? customization.primaryColor : '' }}
-                                    >
-                                        <span>{col.name}</span>
-                                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeCollectionId === col.id ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}>{count}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </aside>
-                    
-                    {/* Left Grid area */}
-                    <div className="flex-1">
-                        {isLoading ? (
-                            <div className={gridClass}>
-                                {Array.from({ length: customization.productColumnsDesktop }).map((_, i) => <ProductCardSkeleton key={i} />)}
-                            </div>
-                        ) : filteredProducts.length > 0 ? (
-                            <div className={gridClass}>
-                                {filteredProducts.map(product => (
-                                    <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={onReview} reviews={settings.reviews || []} onViewDetails={() => onViewProduct(product)} />
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center py-20 bg-white dark:bg-slate-850 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 flex flex-col items-center justify-center text-slate-500">
-                                <Package size={48} className="text-slate-300 dark:text-slate-700 mb-4" />
-                                <h2 className="font-extrabold text-base text-slate-600 dark:text-slate-300 mb-1">لا توجد منتجات متطابقة</h2>
-                                <p className="text-xs">جرب تفقد فئات أخرى أو مسح مرشح البحث.</p>
-                            </div>
-                        )}
+            <AnimatePresence mode="wait">
+                {isLoading ? (
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className={gridClass}
+                    >
+                        {Array.from({ length: 8 }).map((_, i) => <ProductCardSkeleton key={i} />)}
+                    </motion.div>
+                ) : filteredProducts.length > 0 ? (
+                    <motion.div 
+                        key={`${activeCollectionId}-${sortOption}`}
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.6, ease: "easeOut" }}
+                        className={gridClass}
+                    >
+                        {filteredProducts.map(product => (
+                            <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={onReview} reviews={settings.reviews || []} onViewDetails={() => onViewProduct(product)} />
+                        ))}
+                    </motion.div>
+                ) : (
+                    <div className="py-40 flex flex-col items-center justify-center text-slate-300 dark:text-slate-800 bg-white dark:bg-slate-950/20 rounded-[4rem] border-4 border-dashed border-slate-50 dark:border-slate-900">
+                        <Package size={100} strokeWidth={0.5} className="mb-8" />
+                        <h3 className="text-3xl font-black text-slate-900 dark:text-white mb-2">عذراً، الرفوف فارغة حالياً</h3>
+                        <p className="text-slate-400 font-bold mb-10">لم نجد أي منتجات تتطابق مع بحثك في هذه المجموعة.</p>
+                        <button onClick={() => { setActiveCollectionId('all'); }} className="px-12 py-5 bg-indigo-600 text-white rounded-full font-black text-lg hover:scale-105 transition-all shadow-2xl shadow-indigo-500/30">اكتشف كل المنتجات</button>
                     </div>
-                </div>
-            ) : (
-                /* Pills / underline / bento layout */
-                <>
-                    {renderCategoryTabs()}
-
-                    {isLoading ? (
-                        <div className={gridClass}>
-                            {Array.from({ length: customization.productColumnsDesktop }).map((_, i) => <ProductCardSkeleton key={i} />)}
-                        </div>
-                    ) : filteredProducts.length > 0 ? (
-                        <div className={gridClass}>
-                            {filteredProducts.map(product => (
-                                <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={onReview} reviews={settings.reviews || []} onViewDetails={() => onViewProduct(product)} />
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="text-center py-20 bg-white dark:bg-slate-800/50 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400">
-                            {isAiSearching ? (
-                                <RefreshCw size={48} className="text-slate-300 dark:text-slate-600 mb-4 animate-spin" />
-                            ) : (
-                                <Package size={48} className="text-slate-300 dark:text-slate-600 mb-4" />
-                            )}
-                            <h2 className={`font-bold text-xl text-slate-600 dark:text-slate-300 ${customization.headingFontWeight}`}>{isAiSearching ? 'جاري البحث...' : `لا توجد نتائج لخياراتك الحالية`}</h2>
-                            <p className="text-sm">{isAiSearching ? 'البحث الذكي يبحث عن تطابق دقيق.' : 'جرب اختيار الكل أو تعديل الكلمات المستخدمة.'}</p>
-                        </div>
-                    )}
-                </>
-            )}
+                )}
+            </AnimatePresence>
         </div>
     );
 };
@@ -512,6 +499,8 @@ const ProductDetailModal: React.FC<{ product: Product; allProducts: Product[]; a
     const productReviews = allReviews.filter(r => r.productId === product.id && r.status === 'approved');
     const relatedProducts = allProducts.filter(p => p.collectionId === product.collectionId && p.id !== product.id).slice(0, 4);
 
+    const averageRating = productReviews.length > 0 ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length : 5.0;
+
     const handleAddToCartClick = () => {
         onAddToCart(product);
         setIsAdded(true);
@@ -519,69 +508,143 @@ const ProductDetailModal: React.FC<{ product: Product; allProducts: Product[]; a
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-300" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[90vh] rounded-2xl shadow-2xl flex flex-col md:flex-row animate-in zoom-in-95 duration-300 overflow-hidden" onClick={e => e.stopPropagation()}>
-                <button onClick={onClose} className="absolute top-4 right-4 z-20 p-2 bg-white/50 dark:bg-black/50 rounded-full text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-black"><X/></button>
-                {/* Image Gallery */}
-                <div className="w-full md:w-1/2 bg-slate-100 dark:bg-slate-800 relative flex items-center justify-center">
-                    <img src={images[currentImageIndex] || `https://picsum.photos/600/600?random=${product.id}`} alt={product.name} className="w-full h-full object-contain"/>
+        <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-3xl p-6 sm:p-12" 
+            onClick={onClose}
+        >
+            <motion.div 
+                initial={{ scale: 0.9, opacity: 0, y: 50 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.85, opacity: 0, y: 30 }}
+                className="bg-white dark:bg-slate-900 w-full max-w-7xl h-[95vh] rounded-[4rem] shadow-[0_50px_150px_-30px_rgba(0,0,0,0.8)] flex flex-col lg:flex-row overflow-hidden relative" 
+                onClick={e => e.stopPropagation()}
+            >
+                <button 
+                    onClick={onClose} 
+                    className="absolute top-8 left-8 z-20 p-4 bg-white/95 dark:bg-slate-800/95 border border-slate-100 dark:border-slate-700 rounded-3xl text-slate-900 dark:text-white hover:scale-110 active:scale-95 transition-all shadow-2xl"
+                >
+                    <X size={26} />
+                </button>
+
+                {/* Left: Gallery (60% width on large screens) */}
+                <div className="w-full lg:w-[60%] bg-slate-50 dark:bg-slate-950 relative flex flex-col items-center justify-center p-8 lg:p-20 overflow-hidden">
+                    <motion.div 
+                        initial={{ opacity: 0, x: 50 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        key={currentImageIndex}
+                        className="relative w-full aspect-square max-w-[650px]"
+                    >
+                         <img 
+                            src={images[currentImageIndex] || `https://picsum.photos/1000/1000?random=${product.id}`} 
+                            className="w-full h-full object-contain drop-shadow-[0_45px_65px_rgba(0,0,0,0.4)] transition-all"
+                        />
+                    </motion.div>
+                    
                     {images.length > 1 && (
-                        <>
-                            <button onClick={e => {e.stopPropagation(); setCurrentImageIndex(p => (p - 1 + images.length) % images.length)}} className="absolute left-4 p-2 bg-white/50 rounded-full"><ChevronLeft/></button>
-                            <button onClick={e => {e.stopPropagation(); setCurrentImageIndex(p => (p + 1) % images.length)}} className="absolute right-4 p-2 bg-white/50 rounded-full"><ChevronRight/></button>
-                            <div className="absolute bottom-4 flex gap-2">
-                                {images.map((_, idx) => <div key={idx} onClick={() => setCurrentImageIndex(idx)} className={`w-2 h-2 rounded-full cursor-pointer ${idx === currentImageIndex ? 'bg-indigo-500' : 'bg-white/50'}`}/>)}
-                            </div>
-                        </>
+                        <div className="flex gap-4 mt-12 overflow-x-auto pb-4 w-full justify-center scrollbar-none px-4">
+                            {images.map((img, idx) => (
+                                <button 
+                                    key={idx} 
+                                    onClick={() => setCurrentImageIndex(idx)} 
+                                    className={`w-24 h-24 rounded-[1.8rem] overflow-hidden border-4 transition-all flex-shrink-0 flex items-center justify-center bg-white dark:bg-slate-900 shadow-lg ${idx === currentImageIndex ? 'border-indigo-600 scale-115 rotate-3' : 'border-transparent opacity-40 hover:opacity-100'}`}
+                                >
+                                    <img src={img} className="w-full h-full object-cover" />
+                                </button>
+                            ))}
+                        </div>
                     )}
                 </div>
 
-                {/* Product Details */}
-                <div className="w-full md:w-1/2 p-8 overflow-y-auto">
-                    <h2 className={`text-3xl font-black mb-2 ${customization.headingFontWeight}`}>{product.name}</h2>
-                    <p className="font-black text-4xl mb-4" style={{ color: customization.primaryColor }}>{product.price.toLocaleString()} ج.م</p>
-                    <div className={`p-4 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-sm text-slate-600 dark:text-slate-300 prose prose-sm dark:prose-invert max-w-full mb-6 ${customization.bodyFontSize}`} dangerouslySetInnerHTML={{ __html: product.description?.replace(/\n/g, '<br/>') || 'لا يوجد وصف متاح لهذا المنتج.' }}></div>
+                {/* Right: Details */}
+                <div className="w-full lg:w-[40%] p-10 lg:p-16 overflow-y-auto bg-white dark:bg-slate-900 border-r-2 dark:border-slate-800/50 text-right">
+                    <div className="flex flex-wrap gap-3 mb-10">
+                         <div className="bg-amber-50 dark:bg-amber-950/40 text-amber-600 px-5 py-2 rounded-2xl flex items-center gap-2 text-sm font-black">
+                            <Star size={16} fill="currentColor" />
+                            <span>{averageRating.toFixed(1)} من 5</span>
+                         </div>
+                         <div className="bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 px-5 py-2 rounded-2xl flex items-center gap-2 text-sm font-black uppercase tracking-widest">
+                            <CheckCircle size={16} />
+                            <span>متوفر للشحن</span>
+                         </div>
+                    </div>
 
-                    <button onClick={handleAddToCartClick} disabled={isAdded} className={`w-full flex items-center justify-center gap-2 py-4 font-bold transition-all text-white ${customization.buttonBorderRadius} ${isAdded ? 'bg-emerald-500' : ''}`} style={{ backgroundColor: isAdded ? '' : customization.primaryColor }}>
-                        {isAdded ? <><CheckCircle/> تمت الإضافة!</> : <><ShoppingCart/> أضف للسلة</>}
-                    </button>
+                    <h2 className="text-4xl lg:text-5xl font-black mb-6 text-slate-900 dark:text-white leading-[1.1] tracking-tighter">{product.name}</h2>
                     
-                    {/* Reviews */}
-                    {productReviews.length > 0 && (
-                        <div className="mt-8">
-                            <h3 className="font-bold mb-4">آراء العملاء ({productReviews.length})</h3>
-                            <div className="space-y-4 max-h-48 overflow-y-auto">
-                                {productReviews.map(r => (
-                                    <div key={r.id} className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                                        <div className="flex justify-between items-center">
-                                            <span className="font-bold text-sm">{r.customerName}</span>
-                                            <div className="flex text-amber-500">{Array(r.rating).fill(0).map((_, i) => <Star key={i} size={14} fill="currentColor"/>)}</div>
-                                        </div>
-                                        <p className="text-sm text-slate-500 mt-1">{r.comment}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
+                    <div className="flex items-baseline gap-3 mb-12">
+                        <span className="text-5xl font-black text-indigo-600 dark:text-indigo-400 tracking-tighter">
+                            {product.price.toLocaleString()}
+                        </span>
+                        <span className="text-xl font-black text-slate-400 uppercase tracking-widest italic">ج.م</span>
+                    </div>
 
-                     {/* Related Products */}
+                    <div className="space-y-8 mb-16">
+                        <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] border border-slate-100 dark:border-slate-800">
+                             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-4 px-2">قصة المنتج ومواصفاته</h3>
+                             <div 
+                                className="text-lg text-slate-600 dark:text-slate-300 leading-relaxed prose prose-indigo max-w-full font-medium"
+                                dangerouslySetInnerHTML={{ __html: product.description?.replace(/\n/g, '<br/>') || 'لم يتم إضافة تفاصيل دقيقة لهذا المنتج بعد، ولكن تم اختياره وفق أعلى المعايير.' }}
+                            ></div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-4 sticky bottom-0 bg-white dark:bg-slate-900 pt-6 pb-2">
+                        <motion.button 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={handleAddToCartClick} 
+                            className={`w-full py-6 rounded-[2.2rem] font-black text-2xl transition-all flex items-center justify-center gap-4 shadow-2xl ${isAdded ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white hover:bg-indigo-700'}`}
+                            style={{ backgroundColor: isAdded ? '' : customization.primaryColor }}
+                        >
+                            {isAdded ? (
+                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="flex items-center gap-3">
+                                    <CheckCircle size={32} />
+                                    <span>تمـت الإضـافة</span>
+                                </motion.div>
+                            ) : (
+                                <>
+                                    <ShoppingCart size={32} />
+                                    <span>أضـف للسـلة الآن</span>
+                                </>
+                            )}
+                        </motion.button>
+                        <p className="text-center text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">
+                            جميع المبيعات مضمونة بنسبة 100% ضد عيوب الصناعة
+                        </p>
+                    </div>
+                    
+                    <div className="mt-24 pb-12 border-t-2 border-slate-50 dark:border-slate-800 pt-16">
+                        <div className="flex items-center justify-between mb-12">
+                             <h3 className="text-3xl font-black text-slate-900 dark:text-white leading-none tracking-tighter">آراء العملاء</h3>
+                        </div>
+                        <ProductReviewDisplay reviews={productReviews} />
+                    </div>
+
                     {relatedProducts.length > 0 && (
-                        <div className="mt-8">
-                             <h3 className="font-bold mb-4">قد يعجبك أيضاً</h3>
-                             <div className="grid grid-cols-2 gap-4">
+                        <div className="mt-20 pt-16 border-t-2 border-slate-50 dark:border-slate-800 pb-10">
+                             <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-10 tracking-tighter">اكتشف تشكيلات مماثلة</h3>
+                             <div className="grid grid-cols-2 gap-8">
                                  {relatedProducts.map(p => (
-                                     <div key={p.id} onClick={() => onSelectProduct(p)} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800">
-                                         <img src={p.thumbnail} className="w-full aspect-square object-cover rounded-md mb-2"/>
-                                         <p className="font-bold text-xs truncate">{p.name}</p>
-                                         <p className="font-bold text-xs" style={{ color: customization.primaryColor }}>{p.price.toLocaleString()} ج.م</p>
+                                     <div key={p.id} onClick={() => onSelectProduct(p)} className="group cursor-pointer">
+                                         <div className="aspect-square bg-slate-50 dark:bg-slate-800 rounded-[2.5rem] overflow-hidden mb-6 p-4">
+                                            <img src={p.thumbnail} className="w-full h-full object-contain group-hover:scale-115 transition-transform duration-700 drop-shadow-xl"/>
+                                         </div>
+                                         <p className="font-black text-lg text-slate-900 dark:text-white truncate mb-2">{p.name}</p>
+                                         <div className="flex items-center justify-between">
+                                            <p className="font-black text-indigo-600 dark:text-indigo-400 text-xl">{p.price.toLocaleString()} ج.م</p>
+                                            <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-400 opacity-0 group-hover:opacity-100 transition-all">
+                                                <ArrowRight size={14} />
+                                            </div>
+                                         </div>
                                      </div>
                                  ))}
                              </div>
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+            </motion.div>
+        </motion.div>
     );
 };
 
@@ -589,7 +652,7 @@ const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, 
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
-  const [selectedProductIdForReview, setSelectedProductIdForReview] = useState<string | null>(null);
+  const [selectedProductForReview, setSelectedProductForReview] = useState<{id: string, name: string} | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const customization = settings.customization;
@@ -597,265 +660,215 @@ const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, 
   const handleReviewSubmit = (review: Omit<Review, 'id' | 'status' | 'date'>) => {
       const newReview: Review = { ...review, id: Date.now().toString(), date: new Date().toISOString(), status: 'pending' };
       setSettings(prevSettings => ({ ...prevSettings, reviews: [...(prevSettings.reviews || []), newReview] }));
+      alert("شكراً لك من القلب 🤍! تقييمك قيد المراجعة الفورية وسيظهر للجميع قريباً.");
   };
 
-  const openReviewModal = (productId: string) => {
-      setSelectedProductIdForReview(productId);
+  const openReviewModal = (productId: string, productName: string) => {
+      setSelectedProductForReview({ id: productId, name: productName });
       setReviewModalOpen(true);
   };
 
   return (
     <div 
-      className="min-h-screen flex flex-col transition-all duration-300" 
+      className="min-h-screen flex flex-col font-store selection:bg-indigo-600 selection:text-white antialiased overflow-x-hidden" 
       style={{ 
-        fontFamily: customization.fontFamily,
-        backgroundColor: customization.backgroundColor || '#f8fafc',
-        color: customization.textColor || '#0f172a'
+        backgroundColor: customization.backgroundColor || '#ffffff',
+        color: customization.textColor || '#000000'
       }}
     >
-      
-      {customization.isAnnouncementBarVisible && <div className="text-white text-center py-2 text-sm font-bold px-4 transition-all duration-300" style={{ backgroundColor: customization.primaryColor }}>{customization.announcementBarText}</div>}
+      <SmartUpdatesWidget primaryColor={customization.primaryColor} />
 
-      {customization.headerStyle === 'floating' ? (
-        <div className="mx-auto px-4 max-w-7xl w-full z-40 relative animate-in slide-in-from-top duration-500">
-          <nav className="my-3 sm:my-5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/55 dark:border-slate-800/85 rounded-[1.8rem] shadow-xl relative text-right transition-all duration-300" style={{ borderColor: `${customization.primaryColor}22` }}>
-            <div className="px-6 h-16 flex items-center justify-between gap-4 flex-row-reverse">
-               <div className="flex items-center gap-3">
-                  <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                      <ShoppingCart size={22} className="text-slate-705 dark:text-slate-355" style={{ color: customization.primaryColor }} />
-                      {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
-                  </button>
-               </div>
-               
-               {customization.navigationLinks && customization.navigationLinks.length > 0 && (
-                 <div className="hidden md:flex items-center gap-5 text-xs font-black">
-                   {customization.navigationLinks.map((link, idx) => (
-                     <a key={idx} href={link.url} className="opacity-80 hover:opacity-100 transition-opacity whitespace-nowrap px-1 py-2">{link.label}</a>
-                   ))}
-                 </div>
-               )}
-
-               {customization.logoUrl ? (
-                 <img 
-                   src={customization.logoUrl} 
-                   alt={activeStore?.name} 
-                   className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
-                   referrerPolicy="no-referrer"
-                 />
-               ) : (
-                 <span className="text-xl font-black text-transparent bg-clip-text" style={{ backgroundImage: `linear-gradient(to right, ${customization.primaryColor}, ${customization.primaryColor}cc)` }}>{activeStore?.name || 'اسم المتجر'}</span>
-               )}
-            </div>
-          </nav>
-        </div>
-      ) : customization.headerStyle === 'minimal' ? (
-        <nav className="sticky top-0 z-40 bg-white/95 dark:bg-slate-950/95 border-b border-slate-200/80 dark:border-slate-850/80 text-right transition-all duration-300" style={{ borderBottomColor: `${customization.primaryColor}1a` }}>
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 flex-row-reverse">
-             <div className="flex items-center gap-4">
-                <button onClick={() => setIsCartOpen(true)} className={`relative p-2 hover:bg-slate-100 dark:hover:bg-slate-905 transition-colors ${customization.buttonBorderRadius}`}>
-                    <ShoppingCart size={20} style={{ color: customization.primaryColor }} />
-                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4.5 h-4.5 rounded-full flex items-center justify-center">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
-                </button>
-             </div>
-
-             {customization.navigationLinks && customization.navigationLinks.length > 0 && (
-               <div className="hidden md:flex items-center gap-5 text-xs font-black">
-                 {customization.navigationLinks.map((link, idx) => (
-                   <a key={idx} href={link.url} className="opacity-80 hover:opacity-100 transition-opacity whitespace-nowrap px-1 py-2">{link.label}</a>
-                 ))}
-               </div>
-             )}
-
-             {customization.logoUrl ? (
-               <img 
-                 src={customization.logoUrl} 
-                 alt={activeStore?.name} 
-                 className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
-                 referrerPolicy="no-referrer"
-               />
-             ) : (
-               <span className="text-xl font-black tracking-tight" style={{ color: customization.primaryColor }}>{activeStore?.name || 'اسم المتجر'}</span>
-             )}
-          </div>
-        </nav>
-      ) : customization.headerStyle === 'luxury' ? (
-        <nav className="sticky top-0 z-40 bg-zinc-950 text-amber-500 border-b border-amber-500/20 py-1 shadow-2xl text-right transition-all duration-305">
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 flex-row-reverse">
-             <div className="flex items-center gap-3">
-                <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 rounded-full hover:bg-amber-500/10 transition-colors border border-amber-500/10">
-                    <ShoppingCart size={22} className="text-amber-400" />
-                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-amber-500 text-black text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border border-black">{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
-                </button>
-             </div>
-
-             {customization.navigationLinks && customization.navigationLinks.length > 0 && (
-               <div className="hidden md:flex items-center gap-5 text-xs font-black">
-                 {customization.navigationLinks.map((link, idx) => (
-                   <a key={idx} href={link.url} className="opacity-80 hover:text-amber-400 transition-colors whitespace-nowrap px-1 py-2">{link.label}</a>
-                 ))}
-               </div>
-             )}
-
-             {customization.logoUrl ? (
-               <img 
-                 src={customization.logoUrl} 
-                 alt={activeStore?.name} 
-                 className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
-                 referrerPolicy="no-referrer"
-               />
-             ) : (
-               <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-500 tracking-widest uppercase">{activeStore?.name || 'اسم المتجر'}</span>
-             )}
-          </div>
-        </nav>
-      ) : (
-        /* Classic default style */
-        <nav className="sticky top-0 z-40 text-white shadow-md text-right transition-all duration-300" style={{ background: `linear-gradient(135deg, ${customization.primaryColor}, ${customization.primaryColor}eb)` }}>
-          <div className="container mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 flex-row-reverse">
-             <div className="flex items-center gap-3 md:gap-6">
-                <button onClick={() => setIsCartOpen(true)} className="relative p-2 rounded-full hover:bg-white/10 transition-colors">
-                    <ShoppingCart size={24} />
-                    {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-white text-indigo-705 text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center border-2" style={{ color: customization.primaryColor }}>{cart.reduce((a, c) => a + c.quantity, 0)}</span>}
-                </button>
-             </div>
-
-             {customization.navigationLinks && customization.navigationLinks.length > 0 && (
-               <div className="hidden md:flex items-center gap-5 text-xs font-black">
-                 {customization.navigationLinks.map((link, idx) => (
-                   <a key={idx} href={link.url} className="opacity-90 hover:opacity-100 transition-opacity whitespace-nowrap px-1 py-2">{link.label}</a>
-                 ))}
-               </div>
-             )}
-
-             {customization.logoUrl ? (
-               <img 
-                 src={customization.logoUrl} 
-                 alt={activeStore?.name} 
-                 className={`object-contain ${customization.logoSize === 'sm' ? 'h-8' : customization.logoSize === 'lg' ? 'h-15' : 'h-11'}`} 
-                 referrerPolicy="no-referrer"
-               />
-             ) : (
-               <span className="text-2xl font-black text-white">{activeStore?.name || 'اسم المتجر'}</span>
-             )}
-          </div>
-        </nav>
-      )}
-      
-      <main 
-        className="flex-1 md:rounded-t-[2.5rem] shadow-sm transition-all duration-300 overflow-hidden text-right" 
-        style={{ 
-          backgroundColor: customization.backgroundColor || '#ffffff',
-          color: customization.textColor || '#0f172a'
-        }}
+      {/* Modern Glass Header */}
+      <motion.header 
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        className="sticky top-0 z-[60] py-4"
       >
-          {(customization.pageSections || []).map((section) => {
-            if (!section.enabled) return null;
-            if (section.type === 'hero') {
-              return <HeroSection key={section.id || 'hero'} customization={customization} />;
-            }
-            if (section.type === 'products') {
-              return (
-                <ProductsSection 
-                  key={section.id || 'products'} 
-                  settings={settings} 
-                  searchTerm={searchTerm} 
-                  customization={customization} 
-                  onAddToCart={onAddToCart} 
-                  onReview={openReviewModal} 
-                  onViewProduct={setSelectedProduct} 
-                />
-              );
-            }
-            if (section.type === 'about_us' || (customization.aboutUs?.enabled && section.type === 'about_us')) {
-              const ab = customization.aboutUs || { title: 'من نحن', subtitle: 'قصتنا وهويتنا البصرية', content: 'نحن هاهنا لتقديم أرقى وأفضل معايير الجودة العالمية لعملائنا الكرام.', imageUrl: '' };
-              return (
-                <div key={section.id || 'about_us'} className="py-16 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-10 items-center text-right text-slate-800 dark:text-slate-100" id="about-section">
-                   {ab.imageUrl && (
-                     <img src={ab.imageUrl} alt={ab.title} className="rounded-3xl object-cover w-full h-80 shadow-md border border-slate-100 dark:border-slate-800" />
-                   )}
-                   <div className="space-y-4">
-                      {ab.subtitle && (
-                        <span className="text-[10px] font-black tracking-widest text-slate-400 dark:text-slate-500 uppercase">{ab.subtitle}</span>
-                      )}
-                      <h3 className={`text-2xl font-black ${customization.headingFontWeight}`} style={{ color: customization.primaryColor }}>{ab.title}</h3>
-                      <p className="text-sm font-semibold opacity-85 leading-relaxed whitespace-pre-line text-slate-600 dark:text-slate-350">{ab.content}</p>
-                   </div>
+        <div className="container mx-auto px-6">
+            <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-3xl border border-white/40 dark:border-white/5 rounded-[2.5rem] shadow-[0_15px_30px_-5px_rgba(0,0,0,0.08)] px-8 h-20 sm:h-24 flex items-center justify-between gap-8 flex-row-reverse">
+                 <div className="flex items-center gap-4">
+                    <button onClick={() => setIsCartOpen(true)} className="group relative p-4.5 bg-slate-950 text-white dark:bg-white dark:text-slate-950 rounded-2xl shadow-xl hover:scale-110 active:scale-95 transition-all">
+                        <ShoppingCart size={22} strokeWidth={2.5} />
+                        {cart.length > 0 && (
+                            <span className="absolute -top-2 -right-2 bg-indigo-600 text-white text-[11px] font-black w-7 h-7 rounded-full flex items-center justify-center border-4 border-white dark:border-slate-900 shadow-2xl">
+                                {cart.reduce((a, c) => a + c.quantity, 0)}
+                            </span>
+                        )}
+                    </button>
+                    <div className="hidden sm:flex flex-col text-right mr-2">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">سلة التسوق</span>
+                        <span className="text-xs font-black text-slate-900 dark:text-white">{cart.reduce((a, c) => a + (c.price * c.quantity), 0).toLocaleString()} ج.م</span>
+                    </div>
+                 </div>
+
+                 <div className="hidden lg:flex items-center gap-12 font-black text-[13px] uppercase tracking-wider">
+                    {customization.navigationLinks?.map((link, idx) => (
+                        <a key={idx} href={link.url} className="text-slate-500 hover:text-slate-950 dark:hover:text-white transition-all hover:translate-y-[-2px]">{link.label}</a>
+                    ))}
+                 </div>
+
+                 <a href="/" className="flex items-center gap-3 group">
+                    <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white scale-90 sm:scale-100 group-hover:rotate-12 transition-transform">
+                        <StoreIcon size={24} />
+                    </div>
+                    {customization.logoUrl ? (
+                        <img 
+                            src={customization.logoUrl} 
+                            alt={activeStore?.name} 
+                            className="h-10 sm:h-12 object-contain" 
+                            referrerPolicy="no-referrer"
+                        />
+                    ) : (
+                        <span className="text-3xl font-black tracking-[-10][0.06em] text-slate-950 dark:text-white sm:inline hidden uppercase">
+                            {activeStore?.name || 'VOGUE'}
+                        </span>
+                    )}
+                 </a>
+            </div>
+        </div>
+      </motion.header>
+
+      <main className="flex-grow">
+        <HeroSection customization={customization} />
+        
+        {/* Animated Feature Grid */}
+        <div className="py-24 bg-slate-50/50 dark:bg-slate-950/20">
+            <div className="container mx-auto px-6 grid grid-cols-2 lg:grid-cols-4 gap-12 text-right">
+                {[
+                    { icon: <Truck size={32} strokeWidth={1} />, title: "توصيل استثنائي", desc: "لباب بيتك في أسرع وقت" },
+                    { icon: <ShieldCheck size={32} strokeWidth={1} />, title: "ضمان حقيقي", desc: "حقك محفوظ دائمـاً معنا" },
+                    { icon: <RefreshCw size={32} strokeWidth={1} />, title: "تبديل مرن", desc: "سياسة استرجاع مريحة جداً" },
+                    { icon: <CreditCard size={32} strokeWidth={1} />, title: "دفعات آمنة", desc: "نأنظمة تشفير بنكية عالمية" }
+                ].map((item, i) => (
+                    <motion.div 
+                        initial={{ opacity: 0, y: 30 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ delay: i * 0.1 }}
+                        key={i} 
+                        className="flex flex-col items-center lg:items-end text-center lg:text-right"
+                    >
+                        <div className="p-6 bg-white dark:bg-slate-900 rounded-[2rem] mb-6 text-indigo-600 dark:text-indigo-400 shadow-xl shadow-slate-100 dark:shadow-none border border-slate-50 dark:border-slate-800 hover:rotate-6 transition-transform">
+                            {item.icon}
+                        </div>
+                        <h4 className="font-black text-lg text-slate-900 dark:text-white mb-2">{item.title}</h4>
+                        <p className="text-sm font-bold text-slate-400 leading-relaxed">{item.desc}</p>
+                    </motion.div>
+                ))}
+            </div>
+        </div>
+
+        <ProductsSection 
+          settings={settings} 
+          searchTerm={searchTerm} 
+          customization={customization} 
+          onAddToCart={onAddToCart} 
+          onReview={openReviewModal} 
+          onViewProduct={setSelectedProduct} 
+        />
+        
+        {/* CTA Section */}
+        <div className="container mx-auto px-6 py-32">
+            <div className="bg-slate-950 rounded-[4rem] p-12 lg:p-24 overflow-hidden relative group">
+                <div className="absolute top-0 left-0 w-full h-full opacity-30 bg-cover bg-center transition-transform duration-[10s] group-hover:scale-125" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?q=80&w=2070)' }} />
+                <div className="absolute inset-0 bg-indigo-900/60 mix-blend-multiply" />
+                
+                <div className="relative z-10 text-center max-w-4xl mx-auto">
+                    <span className="text-xs font-black uppercase text-indigo-300 tracking-[0.4em] mb-8 block">هل أنت جاهز للتميز؟</span>
+                    <h2 className="text-4xl md:text-7xl font-black text-white mb-12 tracking-tighter leading-tight">ابدأ رحلتك في عالم الموضة الاستثنائية اليوم!</h2>
+                    <button className="px-16 py-6 bg-white text-slate-950 rounded-full font-black text-2xl shadow-2xl hover:scale-105 active:scale-95 transition-all">تصفح الفئات الجديدة</button>
                 </div>
-              );
-            }
-            return null;
-          })}
+            </div>
+        </div>
       </main>
 
-      {customization.footerStyle === 'multi-column' ? (
-          <footer className="bg-slate-950 dark:bg-[#070b13] border-t border-slate-800 py-16 text-right text-slate-300">
-              <div className="container mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-10">
-                  <div>
-                      <h4 className="font-extrabold text-white text-lg mb-4">{activeStore?.name}</h4>
-                      <p className="text-sm text-slate-400 mb-6 leading-relaxed">تسوّق مع أفضل متجر إلكتروني يوفر لك أرقى الخدمات والمنتجات الاستثنائية بأسعار مذهلة وجودة حقيقية.</p>
-                      <div className="flex gap-4 justify-start flex-row-reverse">
-                         {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><Facebook size={18}/></a>}
-                         {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><Instagram size={18}/></a>}
-                         {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><Twitter size={18}/></a>}
-                         {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-slate-900 hover:bg-slate-850 hover:text-white text-slate-450 transition-all"><MessageCircle size={18}/></a>}
-                      </div>
-                  </div>
-                  <div>
-                      <h4 className="font-extrabold text-white text-sm mb-4">روابط سريعة</h4>
-                      <ul className="space-y-2 text-xs font-bold text-slate-400">
-                          <li><a href="#products-section" className="hover:text-white transition-all">جميع المعروضات</a></li>
-                          <li><a href="#products-section" className="hover:text-white transition-all">التصنيفات والفئات</a></li>
-                          <li><span className="text-slate-600 block">سياسة الاسترجاع والضمان</span></li>
-                      </ul>
-                  </div>
-                  <div>
-                      <h4 className="font-extrabold text-white text-sm mb-4">تواصل معنا</h4>
-                      <p className="text-xs text-slate-400 mb-3 leading-relaxed">يسعدنا دائماً الإجابة على أي تساؤلات أو استفسارات على مدار الساعة.</p>
-                      <span className="text-xs font-bold text-[#eab308] px-3.5 py-2 bg-amber-500/10 border border-amber-500/20 rounded-xl inline-block">دعم عملاء فني ٢٤/٧</span>
-                  </div>
+      <footer className="bg-white dark:bg-slate-900 pt-32 pb-16">
+          <div className="container mx-auto px-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-20 mb-32 text-right">
+              <div className="lg:col-span-1">
+                 <div className="flex items-center gap-3 mb-8 justify-end">
+                    <span className="text-4xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">{activeStore?.name}</span>
+                    <div className="w-10 h-10 bg-indigo-600 rounded-xl" />
+                 </div>
+                 <p className="text-lg text-slate-500 leading-relaxed font-medium mb-12">{customization.footerText || 'نوفر لك تجربة تسوق لا تنسى تجمع بين الأصالة والمعاصرة في متجر واحد متكامل.'}</p>
+                 <div className="flex gap-4 justify-end">
+                    {[<Facebook key="fb"/>, <Instagram key="ig"/>, <Twitter key="tw"/>].map((icon, i) => (
+                        <a key={i} href="#" className="w-14 h-14 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-950 hover:text-white transition-all shadow-sm">
+                            {React.cloneElement(icon as React.ReactElement<any>, { size: 24 })}
+                        </a>
+                    ))}
+                 </div>
               </div>
-              <div className="border-t border-slate-900 mt-12 pt-6 text-center text-xs text-slate-500 font-bold">
-                  {customization.footerText}
+              
+              <div>
+                  <h4 className="text-xl font-black text-slate-900 dark:text-white mb-10">المتجر الذكي</h4>
+                  <ul className="space-y-5 text-sm font-black text-slate-400">
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">عن رحلتنا</a></li>
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">صناع الجودة</a></li>
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">سياسة البيانات</a></li>
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">وظائف متاحة</a></li>
+                  </ul>
               </div>
-          </footer>
-      ) : customization.footerStyle === 'glass' ? (
-          <footer className="py-12 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-t border-slate-200/50 dark:border-slate-850/60 text-right">
-              <div className="container mx-auto px-4 max-w-5xl text-center">
-                  <div className="p-6 sm:p-8 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-xl">
-                      <span className="text-xl font-black tracking-tight text-slate-800 dark:text-white mb-2 block">{activeStore?.name}</span>
-                      <p className="text-xs text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">نوفر كروت تصفح وقوالب عالية الأداء لتلبية تطلعاتك التسوقية في كل الأقسام.</p>
-                      <div className="flex justify-center gap-5 mb-6">
-                          {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-indigo-600 transition-colors"><Facebook size={20}/></a>}
-                          {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-pink-600 transition-colors"><Instagram size={20}/></a>}
-                          {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"><Twitter size={20}/></a>}
-                          {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-indigo-500 transition-colors"><MessageCircle size={20}/></a>}
-                      </div>
-                      <p className="text-xs text-slate-500 font-extrabold">{customization.footerText}</p>
-                  </div>
+              
+              <div>
+                  <h4 className="text-xl font-black text-slate-900 dark:text-white mb-10">الدعم الفني</h4>
+                  <ul className="space-y-5 text-sm font-black text-slate-400">
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">تتبع الطلبات</a></li>
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">تواصل مباشر</a></li>
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">مراكز التوزيع</a></li>
+                      <li><a href="#" className="hover:text-indigo-600 transition-colors">الشكاوى والمقترحات</a></li>
+                  </ul>
               </div>
-          </footer>
-      ) : (
-          /* Simple footer default style */
-          <footer className="bg-slate-900 dark:bg-[#0C101B] py-8 border-t border-slate-850 text-white text-right">
-              <div className="container mx-auto px-4 text-center">
-                  <div className="flex justify-center gap-6 mb-4">
-                      {customization.socialLinks.facebook && <a href={customization.socialLinks.facebook} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><Facebook size={20}/></a>}
-                      {customization.socialLinks.instagram && <a href={customization.socialLinks.instagram} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><Instagram size={20}/></a>}
-                      {customization.socialLinks.x && <a href={customization.socialLinks.x} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><Twitter size={20}/></a>}
-                      {customization.socialLinks.tiktok && <a href={customization.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white transition-colors"><MessageCircle size={20}/></a>}
-                  </div>
-                  <p className="text-slate-500 dark:text-slate-400 text-sm font-semibold">{customization.footerText}</p>
-              </div>
-          </footer>
-      )}
 
-      <CartSidebar isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} onUpdateQuantity={onUpdateCartQuantity} onRemoveItem={onRemoveFromCart} primaryColor={customization.primaryColor}/>
+              <div>
+                  <h4 className="text-xl font-black text-slate-900 dark:text-white mb-10">انضم لنادينا</h4>
+                  <p className="text-sm font-bold text-slate-500 mb-8 max-w-xs">احصل على وصول حصري للمجموعات الجديدة قبل الجميع.</p>
+                  <div className="relative">
+                      <input type="email" placeholder="بريدك الإلكتروني..." className="w-full bg-slate-50 dark:bg-slate-800 py-6 px-10 rounded-[2rem] text-sm font-black outline-none border-2 border-transparent focus:border-indigo-600 transition-all text-right shadow-inner" />
+                      <button className="absolute left-3 top-3 w-12 h-12 bg-slate-950 text-white rounded-2xl flex items-center justify-center hover:bg-indigo-600 transition-colors"><ArrowRight size={20}/></button>
+                  </div>
+              </div>
+          </div>
+          
+          <div className="container mx-auto px-6 pt-16 border-t border-slate-50 dark:border-slate-800 text-center flex flex-col md:flex-row justify-between items-center gap-8">
+              <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest order-last md:order-first">© {new Date().getFullYear()} {activeStore?.name}. بـكل فخـر صنع في مصـر.</p>
+              <div className="flex gap-4 items-center">
+                  <div className="h-4 w-8 bg-slate-100 dark:bg-slate-800 rounded-sm" />
+                  <div className="h-4 w-8 bg-slate-100 dark:bg-slate-800 rounded-sm" />
+                  <div className="h-4 w-8 bg-slate-100 dark:bg-slate-800 rounded-sm" />
+              </div>
+          </div>
+      </footer>
 
-      {reviewModalOpen && selectedProductIdForReview && <ReviewModal productId={selectedProductIdForReview} onClose={() => setReviewModalOpen(false)} onSubmit={handleReviewSubmit} />}
+      <CartSidebar 
+        isOpen={isCartOpen} 
+        onClose={() => setIsCartOpen(false)} 
+        cart={cart} 
+        onUpdateQuantity={onUpdateCartQuantity} 
+        onRemoveItem={onRemoveFromCart} 
+        primaryColor={customization.primaryColor || '#6366f1'} 
+      />
       
-      {selectedProduct && <ProductDetailModal product={selectedProduct} allProducts={settings.products} allReviews={settings.reviews || []} customization={customization} onClose={() => setSelectedProduct(null)} onAddToCart={onAddToCart} onSelectProduct={setSelectedProduct} />}
-
-      <SmartUpdatesWidget primaryColor={customization.primaryColor} isAdminView={false} />
+      <AnimatePresence>
+        {reviewModalOpen && selectedProductForReview && (
+            <ReviewModal 
+                productId={selectedProductForReview.id} 
+                productName={selectedProductForReview.name}
+                onClose={() => setReviewModalOpen(false)} 
+                onSubmit={handleReviewSubmit} 
+            />
+        )}
+        {selectedProduct && (
+            <ProductDetailModal 
+                product={selectedProduct} 
+                allProducts={settings.products} 
+                allReviews={settings.reviews || []}
+                customization={customization}
+                onClose={() => setSelectedProduct(null)}
+                onAddToCart={onAddToCart}
+                onSelectProduct={setSelectedProduct}
+            />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
