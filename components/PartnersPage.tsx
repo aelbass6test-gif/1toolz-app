@@ -232,6 +232,39 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     });
   };
 
+  const recalculatePartnerBalances = () => {
+    setDialog({
+        isOpen: true,
+        title: 'مزامنة أرصدة الشركاء',
+        message: 'هل تريد إعادة حساب ومزامنة الأرصدة الجارية للشركاء بناءً على سجل معاملاتهم المالية؟ سيقوم هذا الإجراء بتصحيح أي خطأ أو تباين في الأرصدة الحالية نتيجة بعض عمليات التعديل أو الحذف السابقة.',
+        onConfirm: () => {
+            const updatedPartners = partners.map(partner => {
+                const partnerTxs = transactions.filter(t => t.partnerId === partner.id);
+                const computedBalance = partnerTxs.reduce((sum, t) => {
+                    const amount = Number(t.amount) || 0;
+                    if (['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type)) {
+                        return sum + amount;
+                    } else {
+                        return sum - amount;
+                    }
+                }, 0);
+                return {
+                    ...partner,
+                    balance: computedBalance
+                };
+            });
+
+            updateSettings({
+                ...settings,
+                partners: updatedPartners
+            });
+            
+            setDialog(null);
+            showToast('تمت إعادة مزامنة أرصدة الشركاء من المعاملات بنجاح');
+        }
+    });
+  };
+
   const addTransaction = (partnerId: string) => {
     const amount = parseFloat(transactionAmount);
     if (!amount || isNaN(amount)) return;
@@ -381,6 +414,14 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
               >
                 <Activity size={18} />
                 مزامنة المحفظة
+              </button>
+              <button 
+                onClick={recalculatePartnerBalances}
+                className="bg-white dark:bg-slate-800 border-2 border-emerald-600/20 text-emerald-600 dark:text-emerald-400 px-6 py-3 rounded-2xl font-bold hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-all flex items-center gap-2"
+                title="إعادة حساب أرصدة الشركاء الحالية من سجل المعاملات المالية"
+              >
+                <Coins size={18} />
+                مزامنة أرصدة الشركاء
               </button>
               <button 
                 onClick={() => distributeProfit()}
