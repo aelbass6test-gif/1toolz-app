@@ -41,6 +41,7 @@ interface HeaderProps {
     dbSyncMode?: 'manual' | 'auto';
     setDbSyncMode?: (mode: 'manual' | 'auto') => void;
     forceSync?: () => Promise<void>;
+    forcePullFromCloud?: () => Promise<any>;
     saveStatus?: any;
     saveMessage?: string;
     unsavedChanges?: any[];
@@ -57,6 +58,7 @@ const Header: React.FC<HeaderProps> = ({
     dbSyncMode,
     setDbSyncMode,
     forceSync,
+    forcePullFromCloud,
     saveStatus,
     saveMessage,
     unsavedChanges,
@@ -494,27 +496,43 @@ const Header: React.FC<HeaderProps> = ({
                                 </div>
 
                                 {/* Footer Quick Info and toggle */}
-                                <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-100 dark:border-slate-850 flex gap-2 rounded-b-3xl">
-                                    <button
-                                        onClick={async () => {
-                                            if (forceSync) {
-                                                setIsSyncMenuOpen(false);
-                                                await forceSync();
-                                            }
-                                        }}
-                                        disabled={saveStatus === 'saving'}
-                                        className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors"
-                                    >
-                                        <RefreshCw size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
-                                        مزامنة سحابية الآن
-                                    </button>
+                                <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-100 dark:border-slate-850 flex flex-col gap-2 rounded-b-3xl">
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={async () => {
+                                                if (forceSync) {
+                                                    setIsSyncMenuOpen(false);
+                                                    await forceSync();
+                                                }
+                                            }}
+                                            disabled={saveStatus === 'saving'}
+                                            className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors text-center"
+                                        >
+                                            <RefreshCw size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
+                                            رفع ومزامنة الآن ⬆️
+                                        </button>
+                                        
+                                        {forcePullFromCloud && (
+                                            <button
+                                                onClick={async () => {
+                                                    setIsSyncMenuOpen(false);
+                                                    await forcePullFromCloud();
+                                                }}
+                                                disabled={saveStatus === 'saving'}
+                                                className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors text-center"
+                                            >
+                                                <Cloud size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
+                                                سحب وتحديث محلي ⬇️
+                                            </button>
+                                        )}
+                                    </div>
                                     
                                     <button
                                         onClick={() => {
                                             setIsSyncMenuOpen(false);
                                             navigate('/settings/developer');
                                         }}
-                                        className="px-3 py-2.5 bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                                        className="w-full py-2 bg-white dark:bg-slate-850 hover:bg-slate-105 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer transition-colors"
                                     >
                                         تفاصيل النسخ لقاعدة البيانات
                                     </button>

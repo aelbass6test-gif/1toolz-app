@@ -99,6 +99,7 @@ const MainLayout = ({
     dbSyncMode,
     setDbSyncMode,
     forceSync,
+    forcePullFromCloud,
     saveStatus,
     saveMessage,
     unsavedChanges
@@ -285,6 +286,7 @@ const MainLayout = ({
         dbSyncMode={dbSyncMode}
         setDbSyncMode={setDbSyncMode}
         forceSync={forceSync}
+        forcePullFromCloud={forcePullFromCloud}
         saveStatus={saveStatus}
         saveMessage={saveMessage}
         unsavedChanges={unsavedChanges}
@@ -377,6 +379,7 @@ const OwnerLayoutWrapper = ({
     dbSyncMode,
     setDbSyncMode,
     forceSync,
+    forcePullFromCloud,
     saveStatus,
     saveMessage,
     unsavedChanges
@@ -433,6 +436,7 @@ const OwnerLayoutWrapper = ({
             dbSyncMode={dbSyncMode}
             setDbSyncMode={setDbSyncMode}
             forceSync={forceSync}
+            forcePullFromCloud={forcePullFromCloud}
             saveStatus={saveStatus}
             saveMessage={saveMessage}
             unsavedChanges={unsavedChanges}
@@ -1083,7 +1087,7 @@ export const AppComponent = () => {
             if (foundStoreId) {
                 setIsStandaloneStorefront(true);
                 setActiveStoreId(foundStoreId);
-                const storeData = await db.getStoreData(foundStoreId, false) as StoreData | null;
+                const storeData = await db.getStoreData(foundStoreId, dbSyncMode === 'auto') as StoreData | null;
                 if (storeData) {
                     const sanitizedStoreData = sanitizeData(storeData);
                     setAllStoresData(prev => ({ ...prev, [foundStoreId!]: sanitizedStoreData }));
@@ -1114,7 +1118,7 @@ export const AppComponent = () => {
                         if (storeId) {
                             setActiveStoreId(storeId);
                             
-                            const storeData = await db.getStoreData(storeId, false) as StoreData | null;
+                            const storeData = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
                             if (storeData) {
                                 const sanitizedStoreData = sanitizeData(storeData);
                                 setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
@@ -1244,7 +1248,7 @@ export const AppComponent = () => {
         localStorage.setItem('lastActiveStoreId', storeId);
         setCart([]); 
         if (!allStoresData[storeId]) {
-            const storeData = await db.getStoreData(storeId) as StoreData | null;
+            const storeData = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
             if (storeData) {
                 const sanitizedStoreData = sanitizeData(storeData);
                 setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
@@ -1260,7 +1264,7 @@ export const AppComponent = () => {
 
         let storeData = allStoresData[storeId];
         if (!storeData) {
-            const data = await db.getStoreData(storeId) as StoreData | null;
+            const data = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
             if (data) {
                 const sanitizedData = sanitizeData(data);
                 setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedData }));
@@ -1299,7 +1303,7 @@ export const AppComponent = () => {
         
         let storeData = allStoresData[storeId];
         if (!storeData) {
-            const data = await db.getStoreData(storeId) as StoreData | null;
+            const data = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
             if (data) {
                 const sanitizedData = sanitizeData(data);
                 setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedData }));
@@ -2045,6 +2049,7 @@ export const AppComponent = () => {
                         dbSyncMode={dbSyncMode}
                         setDbSyncMode={setDbSyncMode}
                         forceSync={forceSync}
+                        forcePullFromCloud={forcePullFromCloud}
                         saveStatus={saveStatus}
                         saveMessage={saveMessage}
                         unsavedChanges={getUnsavedChanges()}
