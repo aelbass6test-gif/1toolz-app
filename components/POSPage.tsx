@@ -115,129 +115,141 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
     setCart(newCart);
   };
 
+  const [isProcessing, setIsProcessing] = useState(false);
   const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
+    if (isProcessing) return;
     if (cart.length === 0) return alert('السلة فارغة!');
     if (!selectedWarehouse) return alert('يرجى اختيار المستودع المتوفر به البضاعة');
 
-    const saleId = `POS-${Date.now()}`;
-    const saleNumber = `P-${String((settings.posSales?.length || 0) + 1).padStart(5, '0')}`;
-    
-    const receiver = allPossibleHolders.find(h => h.id === selectedCashHolder);
-    const isCredit = paymentStatusType === 'credit';
-    
-    const newSale: POSSale = {
-      id: saleId,
-      saleNumber,
-      date: new Date().toISOString(),
-      items: cart,
-      totalAmount,
-      paymentMethod: isCredit ? 'cash' : paymentMethod, // Default to cash label for credit records if needed
-      warehouseId: selectedWarehouse,
-      customerName: customerInfo.name,
-      customerPhone: customerInfo.phone,
-      customerAddress: customerInfo.address,
-      performedBy: currentUser?.fullName || currentUser?.email || 'كاشير',
-      cashHolderId: isCredit ? 'credit' : selectedCashHolder,
-      cashHolderName: isCredit ? 'حساب أجل' : receiver?.name,
-      notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : 'بيع مباشر من المنفذ'}`
-    };
+    setIsProcessing(true);
+    try {
+      const saleId = `POS-${Date.now()}`;
+      const saleNumber = `P-${String((settings.posSales?.length || 0) + 1).padStart(5, '0')}`;
+      
+      const receiver = allPossibleHolders.find(h => h.id === selectedCashHolder);
+      const isCredit = paymentStatusType === 'credit';
+      
+      const newSale: POSSale = {
+        id: saleId,
+        saleNumber,
+        date: new Date().toISOString(),
+        items: cart,
+        totalAmount,
+        paymentMethod: isCredit ? 'cash' : paymentMethod,
+        warehouseId: selectedWarehouse,
+        customerName: customerInfo.name,
+        customerPhone: customerInfo.phone,
+        customerAddress: customerInfo.address,
+        performedBy: currentUser?.fullName || currentUser?.email || 'كاشير',
+        cashHolderId: isCredit ? 'credit' : selectedCashHolder,
+        cashHolderName: isCredit ? 'حساب أجل' : receiver?.name,
+        notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : 'بيع مباشر من المنفذ'}`
+      };
 
-    // Update Stocks
-    const updatedProducts = [...settings.products];
-    newSale.items.forEach(item => {
-      const pIdx = updatedProducts.findIndex(p => p.id === item.productId);
-      if (pIdx > -1) {
-        const prod = { ...updatedProducts[pIdx] };
-        if (item.variantId && prod.variants) {
-          prod.variants = prod.variants.map(v => {
-            if (v.id === item.variantId) {
-              const vUpdated = { ...v };
-              vUpdated.stockQuantity = Math.max(0, (vUpdated.stockQuantity || 0) - item.quantity);
-              vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
-              vUpdated.warehouseStock[selectedWarehouse] = Math.max(0, (vUpdated.warehouseStock[selectedWarehouse] || 0) - item.quantity);
-              return vUpdated;
-            }
-            return v;
-          });
-        } else {
-          prod.stockQuantity = Math.max(0, (prod.stockQuantity || 0) - item.quantity);
-          prod.warehouseStock = { ...(prod.warehouseStock || {}) };
-          prod.warehouseStock[selectedWarehouse] = Math.max(0, (prod.warehouseStock[selectedWarehouse] || 0) - item.quantity);
+      // Update Stocks
+      const updatedProducts = [...(settings.products || [])];
+      newSale.items.forEach(item => {
+        const pIdx = updatedProducts.findIndex(p => p.id === item.productId);
+        if (pIdx > -1) {
+          const prod = { ...updatedProducts[pIdx] };
+          if (item.variantId && prod.variants) {
+            prod.variants = prod.variants.map(v => {
+              if (v.id === item.variantId) {
+                const vUpdated = { ...v };
+                vUpdated.stockQuantity = Math.max(0, (vUpdated.stockQuantity || 0) - item.quantity);
+                vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+                vUpdated.warehouseStock[selectedWarehouse] = Math.max(0, (vUpdated.warehouseStock[selectedWarehouse] || 0) - item.quantity);
+                return vUpdated;
+              }
+              return v;
+            });
+          } else {
+            prod.stockQuantity = Math.max(0, (prod.stockQuantity || 0) - item.quantity);
+            prod.warehouseStock = { ...(prod.warehouseStock || {}) };
+            prod.warehouseStock[selectedWarehouse] = Math.max(0, (prod.warehouseStock[selectedWarehouse] || 0) - item.quantity);
+          }
+          updatedProducts[pIdx] = prod;
         }
-        updatedProducts[pIdx] = prod;
-      }
-    });
+      });
 
-    // Update Cash Holder Balance - Only if NOT credit
-    let updatedHolders = [...(settings.cashHolders || [])];
-    if (!isCredit) {
-      const hIdx = updatedHolders.findIndex(h => h.userId === selectedCashHolder);
-      if (hIdx > -1) {
-        updatedHolders[hIdx].currentBalance += totalAmount;
-        updatedHolders[hIdx].lastUpdated = new Date().toISOString();
-      } else {
-        updatedHolders.push({
-          userId: selectedCashHolder,
-          userName: receiver?.name || 'مستلم',
-          currentBalance: totalAmount,
-          lastUpdated: new Date().toISOString()
-        });
+      // Update Cash Holder Balance
+      let updatedHolders = [...(settings.cashHolders || [])];
+      if (!isCredit) {
+        const hIdx = updatedHolders.findIndex(h => h.userId === selectedCashHolder);
+        if (hIdx > -1) {
+          updatedHolders[hIdx].currentBalance += totalAmount;
+          updatedHolders[hIdx].lastUpdated = new Date().toISOString();
+        } else {
+          updatedHolders.push({
+            userId: selectedCashHolder,
+            userName: receiver?.name || 'مستلم',
+            currentBalance: totalAmount,
+            lastUpdated: new Date().toISOString()
+          });
+        }
       }
+
+      const newSettings: Settings = {
+        ...settings,
+        products: updatedProducts,
+        cashHolders: updatedHolders,
+        posSales: [newSale, ...(settings.posSales || [])],
+        activityLogs: [
+          {
+            id: `log-${Date.now()}`,
+            user: currentUser?.fullName || 'POS',
+            action: 'عملية بيع سريعة',
+            details: `بيع مباشر بقيمة ${totalAmount} ج.م استلمها ${receiver?.name}`,
+            date: new Date().toLocaleString('ar-EG'),
+            timestamp: Date.now()
+          },
+          ...(settings.activityLogs || [])
+        ]
+      };
+
+      // Create equivalent Order
+      const newOrder: Order = {
+        id: saleId,
+        orderNumber: saleNumber,
+        customerName: customerInfo.name,
+        customerPhone: customerInfo.phone || '0000000000',
+        customerAddress: customerInfo.address || 'بيع مباشر - المنفذ',
+        shippingCompany: 'كاشير - بيع مباشر',
+        shippingArea: 'نقطة البيع',
+        productName: cart.length > 1 ? `${cart[0].name} + ${cart.length - 1} منتجات أخرى` : cart[0]?.name || '',
+        productPrice: totalAmount,
+        productCost: cart.reduce((acc, i) => acc + (i.cost * i.quantity), 0),
+        weight: 0,
+        discount: 0,
+        preparationStatus: 'جاهز',
+        items: cart.map(i => ({ ...i, image: '', weight: 0 })),
+        totalPrice: totalAmount,
+        shippingFee: 0,
+        status: isCredit ? 'جاري_المراجعة' : 'تم_التحصيل',
+        date: new Date().toISOString(),
+        paymentStatus: isCredit ? 'بانتظار الدفع' : 'مدفوع',
+        warehouseId: selectedWarehouse,
+        channel: 'pos'
+      };
+
+      // Perform a single atomic update to the store data
+      updateStoreData({ 
+        settings: newSettings, 
+        orders: [newOrder, ...orders] 
+      });
+
+      alert(isCredit ? 'تم تسجيل العملية كطلب أجل بنجاح!' : 'تم إتمام البيع وتحديث المخزن بنجاح!');
+      setCart([]);
+      setCustomerInfo({ name: 'عميل نقدي', phone: '', address: '' });
+      setPaymentStatusType('paid');
+    } catch (err) {
+      console.error('Checkout failed:', err);
+      alert('فشلت عملية البيع، يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsProcessing(false);
     }
-
-    const newSettings: Settings = {
-      ...settings,
-      products: updatedProducts,
-      cashHolders: updatedHolders,
-      posSales: [newSale, ...(settings.posSales || [])],
-      activityLogs: [
-        {
-          id: `log-${Date.now()}`,
-          user: currentUser?.fullName || 'POS',
-          action: 'عملية بيع سريعة',
-          details: `بيع مباشر بقيمة ${totalAmount} ج.م استلمها ${receiver?.name}`,
-          date: new Date().toLocaleString('ar-EG'),
-          timestamp: Date.now()
-        },
-        ...(settings.activityLogs || [])
-      ]
-    };
-
-    updateSettings(newSettings);
-    
-    // Also add to orders for reporting consistency
-    const newOrder: Order = {
-      id: saleId,
-      orderNumber: saleNumber,
-      customerName: customerInfo.name,
-      customerPhone: customerInfo.phone || '0000000000',
-      customerAddress: customerInfo.address || 'بيع مباشر - المنفذ',
-      shippingCompany: 'كاشير - بيع مباشر',
-      shippingArea: 'نقطة البيع',
-      productName: cart.length > 1 ? `${cart[0].name} + ${cart.length - 1} منتجات أخرى` : cart[0]?.name || '',
-      productPrice: totalAmount,
-      productCost: cart.reduce((acc, i) => acc + (i.cost * i.quantity), 0),
-      weight: 0,
-      discount: 0,
-      preparationStatus: 'جاهز',
-      items: cart.map(i => ({ ...i, image: '', weight: 0 })),
-      totalPrice: totalAmount,
-      shippingFee: 0,
-      status: isCredit ? 'جاري_المراجعة' : 'تم_التحصيل',
-      date: new Date().toISOString(),
-      paymentStatus: isCredit ? 'بانتظار الدفع' : 'مدفوع',
-      warehouseId: selectedWarehouse,
-      channel: 'pos'
-    };
-
-    updateStoreData({ settings: newSettings, orders: [newOrder, ...orders] });
-
-    alert(isCredit ? 'تم تسجيل العملية كطلب أجل بنجاح!' : 'تم إتمام البيع وتحديث المخزن بنجاح!');
-    setCart([]);
-    setCustomerInfo({ name: 'عميل نقدي', phone: '', address: '' });
-    setPaymentStatusType('paid');
   };
 
   return (

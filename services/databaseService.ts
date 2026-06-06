@@ -420,9 +420,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
 
             // SAFEGUARD: If Supabase returns nothing but we have local data, 
             // it means we probably haven't synced UP yet. 
-            // Return local data so the user can then "Sync" it to the new cloud.
+            // Only perform this fallback if we ARE NOT forcing a pull from remote.
             const hasCloudData = (products && products.length > 0) || (orders && orders.length > 0) || (customers && customers.length > 0);
-            if (!hasCloudData && local && (local.orders?.length > 0 || local.settings?.products?.length > 0)) {
+            if (!hasCloudData && !forceRemote && local && (local.orders?.length > 0 || local.settings?.products?.length > 0)) {
                 console.log('[SUPABASE] Cloud empty but local has data. Using local to prevent wipe.');
                 return local;
             }
@@ -455,8 +455,13 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         ...doc.data() 
                     } as any));
                 }
-                // If cloud fetch returns empty, but local has data, trust local
-                const finalItems = items.length > 0 ? items : localItems;
+                
+                // If forceRemote is true, we trust the cloud even if it's empty
+                // unless it feels like an accidental wipe (safeguard)
+                let finalItems = items;
+                if (items.length === 0 && !forceRemote && localItems.length > 0) {
+                    finalItems = localItems;
+                }
                 
                 // Cache loaded results hash
                 LAST_SYNCED_HASHES[`${storeId}_${collectionName}`] = getCollectionHash(finalItems);
@@ -690,6 +695,36 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             }
 
             const syncTable = async (table: string, items: any[], omitFields: string[] = []) => {
+                // 1. Handle Deletions (Relational Sync)
+                // We need to identify items currently in Supabase for this store that are NOT in the incoming 'items' list
+                try {
+                    const idField = table === 'employees' ? 'phone' : 'id';
+                    const { data: cloudItems, error: fetchError } = await supabase
+                        .from(table)
+                        .select(idField)
+                        .eq('store_id', store.id);
+
+                    if (!fetchError && cloudItems) {
+                        const localIds = new Set(items.map(item => String(item[table === 'employees' ? 'phone' : 'id'] || '')));
+                        const idsToDelete = cloudItems
+                            .map((ci: any) => String(ci[idField]))
+                            .filter(id => id && !localIds.has(id));
+
+                        if (idsToDelete.length > 0) {
+                            // Defensive check: only block if EVERYTHING is being deleted and there were MANY items
+                            // This prevents accidental wipes if the app fails to load the local state correctly
+                            const isTotalWipeOfLargeCollection = items.length === 0 && idsToDelete.length > 50;
+                            if (!isTotalWipeOfLargeCollection) {
+                                await supabase.from(table).delete().eq('store_id', store.id).in(idField, idsToDelete);
+                            } else {
+                                console.warn(`[SYNC] Safeguard triggered: Blocked total wipe of ${idsToDelete.length} items from ${table}`);
+                            }
+                        }
+                    }
+                } catch (deletionErr) {
+                    console.error(`Failed to handle deletions for ${table}:`, deletionErr);
+                }
+
                 if (!items || items.length === 0) return;
                 const itemsFiltered = items.map(item => {
                     const cleanItem = { ...item };
@@ -708,20 +743,17 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     return true;
                 });
 
-                // Deduplicate by the table's specific unique/primary key to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
+                // Deduplicate by the table's specific unique/primary key
                 const map = new Map<string, any>();
                 for (const item of itemsFiltered) {
                     let key = '';
                     if (table === 'employees') {
-                        key = `${item.store_id || ''}_${item.phone || ''}`;
+                        key = String(item.phone || '');
                     } else {
-                        // All other tables have 'id' as primary key
                         key = String(item.id || '');
                     }
                     if (key) {
                         map.set(key, item);
-                    } else {
-                        map.set(JSON.stringify(item), item);
                     }
                 }
                 const uniqueItems = Array.from(map.values());
