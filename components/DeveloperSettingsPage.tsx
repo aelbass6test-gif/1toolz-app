@@ -846,9 +846,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN DEFAULT false;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS storeId TEXT;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
 `;
     navigator.clipboard.writeText(instructions);
-    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح خطأ (minStockLevel).", 'success', 'إصلاح قاعدة البيانات');
+    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح خطأ (minStockLevel, distributeExpensesEqually, recordExpensesFormally).", 'success', 'إصلاح قاعدة البيانات');
   };
   
   // Custom Database Credentials States
