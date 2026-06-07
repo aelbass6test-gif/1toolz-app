@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order } from '../types';
-import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins } from 'lucide-react';
+import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion } from 'motion/react';
 
@@ -20,10 +20,61 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
   const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId), [settings.partnerTransactions, partnerId]);
 
+  const [dialog, setDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void, isWarning?: boolean} | null>(null);
+
+  const deleteTransaction = (t: PartnerTransaction) => {
+    // Check if it's explicitly linked to a system document
+    const isLinkedExpense = t.id.endsWith('pt');
+    const isSupplyOrder = t.id.startsWith('supply_pt_');
+
+    if (isLinkedExpense || isSupplyOrder) {
+       setDialog({
+        isOpen: true,
+        title: 'لا يمكن حذف المعاملة',
+        message: isSupplyOrder 
+          ? 'هذه المعاملة مرتبطة بفاتورة شراء أو مرتجع. يرجى تعديلها أو حذفها من قسم "الموردين وفواتير الشراء".'
+          : 'هذه المعاملة مرتبطة بمصروف مسجل. يرجى حذفها من قسم "المصروفات والإيرادات" لضمان مزامنة الخزينة.',
+        onConfirm: () => setDialog(null),
+        isWarning: true
+       });
+       return;
+    }
+
+    setDialog({
+      isOpen: true,
+      title: 'تأكيد الحذف',
+      message: 'هل أنت متأكد من حذف هذه المعاملة الخاصة بالشريك؟ قد يؤثر ذلك على رصيد الشريك.',
+      onConfirm: () => {
+        let currentBalance = partner?.balance || 0;
+        const isAddition = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type);
+        
+        // Reverse the effect
+        if (isAddition) {
+            currentBalance -= t.amount;
+        } else {
+            currentBalance += t.amount;
+        }
+
+        const newPartners = (settings.partners || []).map(p => 
+            p.id === partnerId ? { ...p, balance: currentBalance } : p
+        );
+        const newPartnerTransactions = (settings.partnerTransactions || []).filter(tx => tx.id !== t.id);
+
+        updateSettings({
+            ...settings,
+            partners: newPartners,
+            partnerTransactions: newPartnerTransactions
+        });
+
+        setDialog(null);
+      }
+    });
+  };
+
   const stats = useMemo(() => {
     if (!partner) return { totalInvested: 0, totalWithdrawn: 0, totalLoans: 0, totalAdvances: 0, totalRepaid: 0 };
     return {
-       totalInvested: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding').reduce((sum, t) => sum + t.amount, 0),
+       totalInvested: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((sum, t) => sum + t.amount, 0),
        totalWithdrawn: transactions.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + t.amount, 0),
        totalLoans: transactions.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0),
        totalAdvances: transactions.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0),
@@ -65,6 +116,39 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
   return (
     <div className="p-4 sm:p-6 space-y-8 bg-slate-50/30 dark:bg-slate-900/10 min-h-screen">
+      {dialog && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-3xl shadow-xl p-6 text-right" dir="rtl">
+                <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{dialog.title}</h3>
+                <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">{dialog.message}</p>
+                <div className="flex gap-3">
+                    {dialog.isWarning ? (
+                        <button 
+                            onClick={dialog.onConfirm}
+                            className="flex-1 px-4 py-3 bg-indigo-600 text-white font-black rounded-xl hover:bg-indigo-700 transition-colors"
+                        >
+                            حسناً
+                        </button>
+                    ) : (
+                        <>
+                            <button 
+                                onClick={dialog.onConfirm}
+                                className="flex-1 px-4 py-3 bg-rose-600 text-white font-black rounded-xl hover:bg-rose-700 transition-colors"
+                            >
+                                تأكيد الحذف
+                            </button>
+                            <button 
+                                onClick={() => setDialog(null)}
+                                className="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-black rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                            >
+                                إلغاء
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <button 
           onClick={() => navigate('/partners')} 
@@ -248,8 +332,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                              t.type === 'profit_withdrawal' ? 'سحب من حصة الأرباح' : 
                              t.type === 'profit_distribution' ? 'إضافة أرباح من المستحقات' : 
                              t.type === 'supply_funding' ? 'تمويل شراء بضاعة' : 
-                             t.type === 'expense_coverage' ? 'مصروف شخصي مدفوع' :
-                             t.type === 'expense_repayment' ? 'رد مصروفات شخصية' : 'سداد سلفة مالية'}
+                             t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'تغطية مصاريف توريد' : 'تغطية مصروفات') :
+                             t.type === 'expense_repayment' ? 'استرداد مقابل مصروفات مدفوعة' : 'سداد سلفة مالية'}
                           </p>
                           <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 mt-0.5">
                              <Calendar size={10} />
@@ -257,10 +341,19 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                           </div>
                         </div>
                       </div>
-                      <span className={`text-base font-black ${['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type) ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {['loan', 'profit_withdrawal', 'expense_repayment'].includes(t.type) ? '-' : '+'}{t.amount.toLocaleString()} 
-                          <span className="text-[10px] ml-1">ج.م</span>
-                      </span>
+                      <div className="flex flex-col items-end gap-2">
+                        <span className={`text-base font-black ${['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type) ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {['loan', 'profit_withdrawal', 'expense_repayment'].includes(t.type) ? '-' : '+'}{t.amount.toLocaleString()} 
+                            <span className="text-[10px] ml-1">ج.م</span>
+                        </span>
+                        <button 
+                            onClick={() => deleteTransaction(t)}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="حذف المعاملة"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
                     {t.note && (
                       <div className="text-[10px] text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-700/50 mt-1">

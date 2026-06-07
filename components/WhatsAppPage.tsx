@@ -85,7 +85,7 @@ const WhatsAppPage = ({ orders }: { orders: Order[] }) => {
                         {filteredCustomers.map(customer => (
                             <button key={customer.id} onClick={() => handleSelectChat(customer)} className={`w-full text-right p-4 flex items-center gap-3 transition-colors border-b border-slate-100 dark:border-slate-800 ${activeChat?.id === customer.id ? 'bg-emerald-50 dark:bg-emerald-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
                                 <div className="w-10 h-10 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 text-sm">
-                                    {customer.name.substring(0, 2)}
+                                    {(customer.name || "").substring(0, 2)}
                                 </div>
                                 <div className="flex-1">
                                     <h4 className="font-bold text-slate-800 dark:text-white text-sm">{customer.name}</h4>
@@ -104,7 +104,7 @@ const WhatsAppPage = ({ orders }: { orders: Order[] }) => {
                             <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3 flex-shrink-0">
                                 <button onClick={() => setShowChatView(false)} className="md:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><ArrowRight size={20}/></button>
                                 <div className="w-10 h-10 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 text-sm">
-                                    {activeChat.name.substring(0, 2)}
+                                    {(activeChat?.name || "").substring(0, 2)}
                                 </div>
                                 <div>
                                     <h3 className="font-bold text-slate-800 dark:text-white">{activeChat.name}</h3>

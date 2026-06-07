@@ -111,7 +111,10 @@ CREATE TABLE IF NOT EXISTS supply_orders (
     notes TEXT,
     details JSONB DEFAULT '{}'::jsonb,
     "distributeExpensesEqually" BOOLEAN DEFAULT false,
-    "recordExpensesFormally" BOOLEAN DEFAULT false
+    "recordExpensesFormally" BOOLEAN DEFAULT false,
+    "shippingFeesNote" TEXT,
+    "otherFeesNote" TEXT,
+    "expensePaidBy" TEXT
 );
 
 -- 8. REVIEWS (مراجعات وآراء التقاطعات)
@@ -648,7 +651,10 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalCost" NUMERIC DEFAULT 0
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalPaid" NUMERIC DEFAULT 0;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS status TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
 
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS store_id TEXT;
@@ -800,6 +806,9 @@ ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
 
 -- إعادة تفعيل الصلاحيات (RLS Disable is enough)
 ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;`;
@@ -852,9 +861,12 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS storeId TEXT;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
 `;
     navigator.clipboard.writeText(instructions);
-    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح خطأ (minStockLevel, distributeExpensesEqually, recordExpensesFormally).", 'success', 'إصلاح قاعدة البيانات');
+    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح خطأ (minStockLevel, distributeExpensesEqually, recordExpensesFormally, expensePaidBy).", 'success', 'إصلاح قاعدة البيانات');
   };
   
   // Custom Database Credentials States
@@ -992,10 +1004,18 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOL
               onConfirm: () => {
                 localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
                 localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
+                setSettings(prev => ({
+                    ...prev,
+                    supabaseUrl: customCloudUrl.trim(),
+                    supabaseAnonKey: customCloudAnonKey.trim()
+                }));
                 setSupabaseRestricted(false);
                 setIsRestricted(false);
                 triggerAlarm("✅ تم حفظ إعدادات قاعدة البيانات! سيتم إعادة تحميل الصفحة الآن للتطبيق.", 'success', 'تم الحفظ', {
-                  onConfirm: () => { window.location.reload(); }
+                  onConfirm: async () => { 
+                      if (forceSync) await forceSync();
+                      window.location.reload(); 
+                  }
                 });
               }
             }
@@ -1005,12 +1025,20 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOL
 
         localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
         localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
+        setSettings(prev => ({
+            ...prev,
+            supabaseUrl: customCloudUrl.trim(),
+            supabaseAnonKey: customCloudAnonKey.trim()
+        }));
         
         // Since they supplied a new fresh DB, let's auto-reactivate cloud connection
         setSupabaseRestricted(false);
         setIsRestricted(false);
         triggerAlarm("✅ تم التحقق وحفظ إعدادات قاعدة البيانات المخصصة بنجاح! سيتم إعادة تحميل التطبيق للاتصال بالخادم المخصص.", 'success', 'ربط ناجح', {
-          onConfirm: () => { window.location.reload(); }
+          onConfirm: async () => { 
+              if (forceSync) await forceSync();
+              window.location.reload(); 
+          }
         });
       } catch (e: any) {
         triggerAlarm("خطأ أثناء التحقق: " + e.message, 'error', 'خطأ التحقق');
@@ -1027,12 +1055,21 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOL
   const handleRestoreDefaultDatabase = () => {
     localStorage.removeItem('custom_cloud_url');
     localStorage.removeItem('custom_cloud_anon_key');
+    setSettings(prev => {
+        const newSettings = { ...prev };
+        delete newSettings.supabaseUrl;
+        delete newSettings.supabaseAnonKey;
+        return newSettings;
+    });
     setSupabaseRestricted(false);
     setIsRestricted(false);
     setCustomCloudUrl('');
     setCustomCloudAnonKey('');
     triggerAlarm("تمت استعادة قاعدة البيانات السحابية الافتراضية بنجاح! سيتم إعادة تحميل الصفحة لتطبيق التغييرات.", 'success', 'استعادة الافتراضي', {
-      onConfirm: () => { window.location.reload(); }
+      onConfirm: async () => { 
+          if (forceSync) await forceSync();
+          window.location.reload(); 
+      }
     });
   };
 

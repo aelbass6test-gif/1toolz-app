@@ -116,7 +116,7 @@ export interface Product {
   stockThreshold?: number;
 }
 
-export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding';
+export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other';
 
 export type WithdrawStatus = 'pending' | 'accepted' | 'rejected' | 'processing';
 
@@ -417,6 +417,7 @@ export interface Supplier {
 
 export interface SupplyOrderItem {
   productId: string;
+  variantId?: string;
   name?: string;
   quantity: number;
   bonusQuantity?: number;
@@ -465,6 +466,9 @@ export interface SupplyOrder {
   warehouseId?: string; // New field for warehouse allocation
   recordExpensesFormally?: boolean;
   distributeExpensesEqually?: boolean;
+  shippingFeesNote?: string;
+  otherFeesNote?: string;
+  expensePaidBy?: string;
 }
 
 export interface ActivityLog {
@@ -538,6 +542,8 @@ export interface Settings {
   data?: any; // For flexible local storage
   enableGlobalFinancials: boolean; 
   webhookIntegrations?: WebhookIntegration[];
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
   insuranceFeePercent: number;
   enableInsurance: boolean; 
   inspectionFee: number;

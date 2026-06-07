@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Wallet, Transaction, TransactionCategory, Settings, Treasury, TreasuryTransaction, PartnerTransaction } from '../types';
-import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User } from 'lucide-react';
+import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User, Info } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface ExpensesPageProps {
@@ -48,7 +48,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
   const expenses = useMemo(() => {
       return wallet.transactions
-        .filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || (settings.expenseCategories || []).includes(t.category)))
+        .filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category)))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [wallet.transactions, settings.expenseCategories]);
 
@@ -74,7 +74,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
             'expense_rent': 'إيجار ومرافق',
             'expense_packaging': 'أدوات تغليف',
             'expense_shipping_fees': 'مصاريف شحن',
-            'expense_other': 'مصاريف أخرى'
+            'expense_other': 'مصاريف أخرى',
+            'supply_expense_shipping': 'شحن مشتريات',
+            'supply_expense_other': 'إضافات مشتريات'
         };
         return labels[key] || key;
     };
@@ -130,7 +132,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           type: 'expense_coverage',
           amount: numAmount,
           date: new Date().toISOString(),
-          note: `دفع مصروف شخصياً: ${description || 'مصروف جديد'} (${categoryLabel})`
+          note: `سداد مصروفات (تحمل شخصي): ${description || 'مصروف جديد'} (${categoryLabel})`
       };
 
       updateSettings({
@@ -214,30 +216,28 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         title: 'تأكيد الحذف',
         message: 'هل أنت متأكد من حذف هذا المصروف؟ سيتم إعادة المبلغ للمحفظة والخزينة.',
         onConfirm: () => {
-          let txAccountToRefund: string | undefined = undefined;
-          let amntoRefund: number = 0;
+          const transactionToDelete = wallet.transactions.find(t => t.id === id);
+          if (!transactionToDelete) {
+              setDialog(null);
+              return;
+          }
+
+          const txAccountToRefund = transactionToDelete.details?.treasuryAccountId;
+          const paidByPartnerId = transactionToDelete.details?.paidByPartnerId;
+          const amntoRefund = Number(transactionToDelete.amount) || 0;
+
+          if (paidByPartnerId) {
+              updateSettings({
+                  ...settings,
+                  partners: (settings.partners || []).map(p => p.id === paidByPartnerId ? { ...p, balance: (p.balance || 0) - amntoRefund } : p),
+                  partnerTransactions: (settings.partnerTransactions || []).filter(pt => pt.id !== id + 'pt')
+              });
+          }
 
           setWallet(prevWallet => {
-            const transactionToDelete = prevWallet.transactions.find(t => t.id === id);
-            if (!transactionToDelete) {
-                return prevWallet;
-            }
-            
-            txAccountToRefund = transactionToDelete.details?.treasuryAccountId;
-            const paidByPartnerId = transactionToDelete.details?.paidByPartnerId;
-            amntoRefund = Number(transactionToDelete.amount) || 0;
             const updatedTransactions = prevWallet.transactions.filter(t => t.id !== id);
-            
             const currentBalance = Number(prevWallet.balance) || 0;
             const newBalance = txAccountToRefund ? currentBalance + amntoRefund : currentBalance;
-
-            if (paidByPartnerId) {
-                updateSettings({
-                    ...settings,
-                    partners: (settings.partners || []).map(p => p.id === paidByPartnerId ? { ...p, balance: p.balance - amntoRefund } : p),
-                    partnerTransactions: (settings.partnerTransactions || []).filter(pt => pt.id !== id + 'pt')
-                });
-            }
 
             return {
                 ...prevWallet,
@@ -246,16 +246,15 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
             };
           });
 
-          if (setTreasury && amntoRefund > 0) {
+          if (setTreasury && amntoRefund > 0 && txAccountToRefund) {
             setTreasury((prev: Treasury) => {
               const updatedAccounts = prev.accounts.map(acc => 
                 acc.id === txAccountToRefund ? { ...acc, balance: acc.balance + amntoRefund } : acc
               );
-              // We could also record a refund transaction in treasury here, but keeping it simple for now
               return {
                 ...prev,
                 accounts: updatedAccounts,
-                transactions: prev.transactions.filter(tx => tx.id !== id) // Remove the linked treasury tx if it exists
+                transactions: prev.transactions.filter(tx => tx.id !== id)
               };
             });
           }
@@ -380,15 +379,55 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                         ) : (
                             expenses.map(exp => {
                                 const catInfo = expenseCategoriesConfig.find(c => c.key === exp.category);
+                                
+                                let fundingPartners: { name: string, amount?: number, isPartner: boolean }[] = [];
+                                
+                                if (exp.details?.paidByPartnerId) {
+                                    const p = settings.partners?.find(p => p.id === exp.details.paidByPartnerId);
+                                    if (p) fundingPartners.push({ name: p.name, isPartner: true });
+                                } else if (exp.details?.orderId) {
+                                    const isShipping = exp.category?.includes('shipping');
+                                    const requiredType = isShipping ? 'shipping_funding' : 'expense_coverage';
+                                    const pts = settings.partnerTransactions?.filter(t => 
+                                        t.type === requiredType && 
+                                        t.id.includes(exp.details.orderId!) &&
+                                        t.amount > 0
+                                    ) || [];
+                                    
+                                    pts.forEach(pt => {
+                                        const p = settings.partners?.find(p => p.id === pt.partnerId);
+                                        if (p) fundingPartners.push({ name: p.name, amount: pt.amount, isPartner: true });
+                                    });
+                                }
+
+                                if (fundingPartners.length === 0 && exp.details?.expensePaidBy) {
+                                    const isPartner = settings.partners?.some(p => p.name.trim() === exp.details.expensePaidBy?.trim());
+                                    fundingPartners.push({ name: exp.details.expensePaidBy, isPartner: !!isPartner });
+                                } else if (fundingPartners.length === 0 && exp.details?.note) {
+                                    const p = settings.partners?.find(p => p.name.trim() === exp.details.note?.trim());
+                                    if (p) fundingPartners.push({ name: p.name, isPartner: true });
+                                }
+
                                 return (
                                     <tr key={exp.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-850/40 transition-colors">
                                         <td className="px-8 py-5">
                                             <div className="font-extrabold text-slate-800 dark:text-slate-200">{exp.note}</div>
-                                            {exp.details?.paidByPartnerId && (
-                                                <div className="text-[10px] text-indigo-500 font-black flex items-center gap-1 mt-1.5 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md w-max">
-                                                    <User size={10} /> سدد شخصياً بواسطة: {settings.partners?.find(p => p.id === exp.details.paidByPartnerId)?.name}
-                                                </div>
-                                            )}
+                                            <div className="flex flex-wrap gap-2 mt-1.5">
+                                                {fundingPartners.length > 0 ? (
+                                                    fundingPartners.map((fp, idx) => (
+                                                        <div key={idx} className={`text-[10px] font-black flex items-center gap-1 px-2 py-0.5 rounded-md w-max ${fp.isPartner ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40' : 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40'}`}>
+                                                            <User size={10} /> 
+                                                            {fp.isPartner ? 'سداد شريك: ' : 'القائم بالدفع: '} {fp.name}
+                                                            {fp.amount ? ` (${fp.amount} ج.م)` : ''}
+                                                        </div>
+                                                    ))
+                                                ) : null}
+                                                {exp.details?.note && exp.details.note !== exp.note && (
+                                                    <div className="text-[10px] text-slate-500 font-bold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md w-max">
+                                                        <Info size={10} /> ملاحظة: {exp.details.note}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-8 py-5">
                                             <span className="px-3 py-1 rounded-full text-[10px] font-black text-white" style={{ backgroundColor: catInfo?.color || '#94a3b8' }}>

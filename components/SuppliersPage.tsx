@@ -55,7 +55,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [orderNotes, setOrderNotes] = useState('');
   const [orderItems, setOrderItems] = useState<SupplyOrderItem[]>([]);
   const [shippingFees, setShippingFees] = useState(0);
+  const [shippingFeesNote, setShippingFeesNote] = useState('');
   const [otherFees, setOtherFees] = useState(0);
+  const [otherFeesNote, setOtherFeesNote] = useState('');
+  const [expensePaidBy, setExpensePaidBy] = useState('');
   const [distributeExpensesEqually, setDistributeExpensesEqually] = useState(false);
   const [recordExpensesFormally, setRecordExpensesFormally] = useState(false);
   const [taxRate, setTaxRate] = useState(0);
@@ -463,12 +466,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   let itemLandedCost = 0;
                   if (distributeExpensesEqually) {
                       const orderTotalUnits = orderItems.reduce((acc, curr) => acc + (curr.receivedQuantity !== undefined ? curr.receivedQuantity : curr.quantity) + (curr.bonusQuantity || 0), 0);
-                      const totalAdditions = shippingFees + otherFees + taxAmount;
+                      const totalAdditions = (recordExpensesFormally ? 0 : (shippingFees + otherFees)) + taxAmount;
                       const additionPerUnit = orderTotalUnits > 0 ? (totalAdditions / orderTotalUnits) : 0;
                       itemLandedCost = totalQty > 0 ? ((itemSubtotal / totalQty) + additionPerUnit) : (newItem.cost + additionPerUnit);
                   } else {
-                      const feesFactor = itemsSubtotal > 0 ? (grandTotal / itemsSubtotal) : 1;
-                      itemLandedCost = totalQty > 0 ? (itemSubtotal * feesFactor / totalQty) : (newItem.cost * feesFactor);
+                      const baseTotalForFees = itemsSubtotal;
+                      const distributionFactor = (recordExpensesFormally ? (itemsSubtotal + taxAmount) : grandTotal) / (baseTotalForFees || 1);
+                      itemLandedCost = totalQty > 0 ? (itemSubtotal * distributionFactor / totalQty) : (newItem.cost * distributionFactor);
                   }
 
                   const currentProd = updatedProducts[productIndex];
@@ -699,7 +703,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   taxRate,
                   taxAmount,
                   shippingFees,
+                  shippingFeesNote,
                   otherFees,
+                  otherFeesNote,
+                  expensePaidBy,
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
                   warehouseId: selectedWarehouseId,
@@ -721,7 +728,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   taxRate,
                   taxAmount,
                   shippingFees,
+                  shippingFeesNote,
                   otherFees,
+                  otherFeesNote,
+                  expensePaidBy,
                   status: 'completed',
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
@@ -770,26 +780,43 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
 
               const pushFormalExpenses = (date: Date) => {
                   if (recordExpensesFormally) {
+                      const isCapitalPayment = paymentMethod === 'supply_wallet' || paymentMethod === 'partner';
                       if (shippingFees > 0) {
+                          const shippingNote = shippingFeesNote ? ` (${shippingFeesNote})` : '';
+                          const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
                           newWalletTransactions.push({
                               id: `supply_expense_shipping_${currentOrderId}`,
                               type: 'سحب',
                               amount: shippingFees,
                               date: new Date(date.getTime() + 2).toISOString(),
-                              note: `مصاريف شحن (فاتورة مورد: ${supplier?.name})`,
-                              category: 'expense_shipping_fees',
-                              status: 'completed'
+                              note: `مصاريف شحن${shippingNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})${payerNote}`,
+                              category: isCapitalPayment ? 'supply_expense_shipping' : 'expense_shipping_fees',
+                              status: 'completed',
+                              details: {
+                                expensePaidBy,
+                                note: shippingFeesNote,
+                                supplierId: supplier?.id,
+                                orderId: currentOrderId
+                              }
                           } as Transaction);
                       }
                       if (otherFees > 0) {
+                          const otherNote = otherFeesNote ? ` (${otherFeesNote})` : '';
+                          const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
                           newWalletTransactions.push({
                               id: `supply_expense_other_${currentOrderId}`,
                               type: 'سحب',
                               amount: otherFees,
                               date: new Date(date.getTime() + 3).toISOString(),
-                              note: `مصاريف إضافية (فاتورة مورد: ${supplier?.name})`,
-                              category: 'expense_other',
-                              status: 'completed'
+                              note: `مصاريف إضافية${otherNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})${payerNote}`,
+                              category: isCapitalPayment ? 'supply_expense_other' : 'expense_other',
+                              status: 'completed',
+                              details: {
+                                expensePaidBy,
+                                note: otherFeesNote,
+                                supplierId: supplier?.id,
+                                orderId: currentOrderId
+                              }
                           } as Transaction);
                       }
                   }
@@ -835,7 +862,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                       type: 'سحب',
                       amount: baseAmount,
                       date: now.toISOString(),
-                      note: `شراء بضاعة (كاش) من المورد ${supplier?.name} (المرجع: ${orderReference || currentOrderId})`,
+                      note: `شراء بضاعة (كاش) من المورد ${supplier?.name} (أمر: ${orderReference || currentOrderId})`,
                       category: 'inventory_purchase',
                       status: 'completed'
                   } as Transaction);
@@ -906,7 +933,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderReference('');
       setOrderNotes('');
       setShippingFees(0);
+      setShippingFeesNote('');
       setOtherFees(0);
+      setOtherFeesNote('');
+      setExpensePaidBy('');
       setDistributeExpensesEqually(false);
       setRecordExpensesFormally(false);
       setTaxRate(0);
@@ -922,7 +952,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderReference(order.referenceNumber || '');
       setOrderNotes(order.notes || '');
       setShippingFees(order.shippingFees || 0);
+      setShippingFeesNote(order.shippingFeesNote || '');
       setOtherFees(order.otherFees || 0);
+      setOtherFeesNote(order.otherFeesNote || '');
+      setExpensePaidBy(order.expensePaidBy || '');
       setDistributeExpensesEqually(order.distributeExpensesEqually || false);
       setRecordExpensesFormally(order.recordExpensesFormally || false);
       setTaxRate(order.taxRate || 0);
@@ -3323,7 +3356,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                   <label className="text-xs font-black text-slate-500 mb-1 block">بيان أو ملاحظات الفاتورة</label>
                   <input 
                     type="text" 
-                    placeholder="امثلة: بضاعة صيفية، كميات مضافة لعروض موسمية" 
+                    placeholder="أمثلة: مصروفات عمالة، بضاعة صيفية، كميات مضافة لعروض موسمية..." 
                     value={orderNotes || ''} 
                     onChange={e => setOrderNotes(e.target.value)} 
                     className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-semibold text-xs dark:text-white" 
@@ -3336,28 +3369,46 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف الشحن / النقل</label>
-                    <div className="relative">
-                      <input 
-                        type="number" 
-                        min="0"
-                        value={shippingFees || ''} 
-                        onChange={e => setShippingFees(Number(e.target.value))} 
-                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                      />
-                      <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                    <div className="space-y-2">
+                       <div className="relative">
+                         <input 
+                           type="number" 
+                           min="0"
+                           value={shippingFees || ''} 
+                           onChange={e => setShippingFees(Number(e.target.value))} 
+                           className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                         />
+                         <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                       </div>
+                       <input 
+                         type="text"
+                         placeholder="وصف مصروف الشحن (مثل: عمالة، نقل...)"
+                         value={shippingFeesNote}
+                         onChange={e => setShippingFeesNote(e.target.value)}
+                         className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-[10px] dark:text-white"
+                       />
                     </div>
                   </div>
                   <div>
                     <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف أخرى / إضافية</label>
-                    <div className="relative">
-                      <input 
-                        type="number" 
-                        min="0"
-                        value={otherFees || ''} 
-                        onChange={e => setOtherFees(Number(e.target.value))} 
-                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                      />
-                      <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                    <div className="space-y-2">
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            min="0"
+                            value={otherFees || ''} 
+                            onChange={e => setOtherFees(Number(e.target.value))} 
+                            className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
+                          />
+                          <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
+                        </div>
+                        <input 
+                          type="text"
+                          placeholder="وصف المصاريف الإضافية"
+                          value={otherFeesNote}
+                          onChange={e => setOtherFeesNote(e.target.value)}
+                          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-[10px] dark:text-white"
+                        />
                     </div>
                   </div>
                   <div>
@@ -3365,7 +3416,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     <div className="relative">
                       <input 
                         type="number" 
-                        min="0"
+                        min="0" 
                         max="100"
                         value={taxRate || ''} 
                         onChange={e => setTaxRate(Number(e.target.value))} 
@@ -3375,6 +3426,28 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     </div>
                   </div>
                 </div>
+
+                {paymentMethod !== 'partner' && (
+                  <div className="pt-2">
+                    <label className="text-[10px] font-black text-slate-500 mb-1 block">الشخص / الجهة القائمة بدفع المصروفات الإضافية (إن وجدت)</label>
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        list="partnersList"
+                        placeholder="اختر الشريك أو اكتب اسم جهة الدفع..."
+                        value={expensePaidBy}
+                        onChange={e => setExpensePaidBy(e.target.value)}
+                        className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs dark:text-white font-bold"
+                      />
+                      <datalist id="partnersList">
+                          {settings.partners?.map(p => (
+                              <option key={p.id} value={p.name} />
+                          ))}
+                      </datalist>
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
+                    </div>
+                  </div>
+                )}
 
                 {(shippingFees > 0 || otherFees > 0) && (
                   <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-2">

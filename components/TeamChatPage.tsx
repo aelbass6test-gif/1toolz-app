@@ -133,11 +133,11 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
                 <h4 className="font-bold text-slate-800 dark:text-white text-sm">دردشة الفريق العامة</h4>
               </div>
             </button>
-            {employees.map(employee => (
+            {employees.filter(e => e && e.name).map(employee => (
               <button key={employee.id} onClick={() => setActiveChat(employee)} className={`w-full text-right p-4 flex items-center gap-3 transition-colors border-b border-slate-100 dark:border-slate-800 ${activeChat !== 'general' && activeChat?.id === employee.id ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
                 <div className="relative">
                   <div className="w-10 h-10 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 text-sm">
-                    {employee.name.substring(0, 2)}
+                    {String(employee.name || "").substring(0, 2)}
                   </div>
                   <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${employee.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                 </div>
@@ -156,7 +156,7 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
             <>
               <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3 flex-shrink-0 bg-slate-50 dark:bg-slate-800/50">
                 <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-full flex items-center justify-center font-bold text-sm">
-                  {activeChat === 'general' ? <MessageSquare size={20} /> : activeChat.name.substring(0, 2)}
+                  {activeChat === 'general' ? <MessageSquare size={20} /> : String((activeChat as Employee)?.name || "").substring(0, 2)}
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800 dark:text-white">{activeChat === 'general' ? 'دردشة الفريق العامة' : activeChat.name}</h3>

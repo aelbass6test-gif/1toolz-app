@@ -236,7 +236,7 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
         });
 
         // Expenses from wallet
-        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && t.category.startsWith('expense_'));
+        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));
         const totalExpenses = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
 
         // Losses from returns
@@ -871,7 +871,7 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
 
         partnerTransactions.forEach(t => {
             if (perPartner[t.partnerId]) {
-                if (t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding') {
+                if (t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage') {
                     perPartner[t.partnerId].capital += t.amount;
                 } else if (t.type === 'profit_withdrawal' || t.type === 'loan') {
                     perPartner[t.partnerId].drawings += t.amount;
@@ -905,7 +905,7 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
             inspectionFees += (o.inspectionFee || 0);
         });
 
-        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && t.category.startsWith('expense_'));
+        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));
         const totalExpenses = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
 
         const returnTxs = (wallet?.transactions || []).filter(t => t.category === 'return' && t.type === 'سحب');

@@ -592,6 +592,25 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             customers: customers
         };
 
+        if (typeof window !== 'undefined') {
+            const localUrl = localStorage.getItem('custom_cloud_url');
+            const localKey = localStorage.getItem('custom_cloud_anon_key');
+            
+            if (fullData.settings.supabaseUrl && fullData.settings.supabaseAnonKey) {
+                if (localUrl !== fullData.settings.supabaseUrl || localKey !== fullData.settings.supabaseAnonKey) {
+                    console.log('[SUPABASE] Detected global database connection in settings. Activating for this device...');
+                    localStorage.setItem('custom_cloud_url', fullData.settings.supabaseUrl);
+                    localStorage.setItem('custom_cloud_anon_key', fullData.settings.supabaseAnonKey);
+                    // Re-fetch now that localStorage has the custom connection
+                    return getStoreData(storeId, forceRemote);
+                }
+            } else if (!fullData.settings.supabaseUrl && localUrl) {
+                console.log('[SUPABASE] Detected owner disconnected global SUPABASE connection. Reverting to Firebase...');
+                localStorage.removeItem('custom_cloud_url');
+                localStorage.removeItem('custom_cloud_anon_key');
+            }
+        }
+
         // Cache fetched data to local
         await saveLocal(storeId, fullData);
         return fullData;

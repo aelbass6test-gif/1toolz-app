@@ -115,6 +115,7 @@ const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({ currentUser, onLogout, 
     }, []);
 
     const getUserInitials = (name: string) => {
+        if (!name) return "";
         const names = name.split(' ');
         return names.length > 1 && names[names.length - 1]
             ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()

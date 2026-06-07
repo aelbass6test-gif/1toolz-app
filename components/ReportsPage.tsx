@@ -89,7 +89,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             else totalLoss += Math.abs(net);
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
         
         // Compute trend based on standard days in filtered data
         // If they chose custom range, map those days; otherwise last 7 days as default
@@ -171,7 +171,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             }
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
         
         const marketingAds = (wallet?.transactions || [])
             .filter(t => t.category === 'expense_ads' || (t.note && (t.note.toLowerCase().includes('تسويق') || t.note.toLowerCase().includes('إعلان') || t.note.toLowerCase().includes('ads') || t.note.toLowerCase().includes('marketing'))))
@@ -1109,7 +1109,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             totalLoss += loss;
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
         
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
@@ -1147,6 +1147,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             { name: 'إعلانات', value: (wallet?.transactions || []).filter(t => t.category === 'expense_ads').reduce((sum, t) => sum + t.amount, 0), color: '#4f46e5' },
             { name: 'رواتب', value: (wallet?.transactions || []).filter(t => t.category === 'expense_salary').reduce((sum, t) => sum + t.amount, 0), color: '#06b6d4' },
             { name: 'إيجار', value: (wallet?.transactions || []).filter(t => t.category === 'expense_rent').reduce((sum, t) => sum + t.amount, 0), color: '#8b5cf6' },
+            { name: 'شحن مشتريات (توريد)', value: (wallet?.transactions || []).filter(t => (t.category as string) === 'supply_expense_shipping' || t.category === 'expense_shipping_fees').reduce((sum, t) => sum + t.amount, 0), color: '#f59e0b' },
+            { name: 'مصاريف توريد أخرى', value: (wallet?.transactions || []).filter(t => (t.category as string) === 'supply_expense_other').reduce((sum, t) => sum + t.amount, 0), color: '#059669' },
             { name: 'أخرى', value: (wallet?.transactions || []).filter(t => t.category === 'expense_other').reduce((sum, t) => sum + t.amount, 0), color: '#ec4899' },
         ].filter(c => c.value > 0);
 
@@ -1191,7 +1193,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         const partnerTransactions = settings.partnerTransactions || [];
         
         const totalCapital = partnerTransactions
-            .filter(t => t.type === 'capital_addition')
+            .filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage')
             .reduce((sum, t) => sum + t.amount, 0);
             
         const totalLoans = partnerTransactions
@@ -1208,7 +1210,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
         const partnerPerformance = partners.map(partner => {
             const partnerTx = partnerTransactions.filter(t => t.partnerId === partner.id);
-            const capitalContribution = partnerTx.filter(t => t.type === 'capital_addition').reduce((sum, t) => sum + t.amount, 0);
+            const capitalContribution = partnerTx.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((sum, t) => sum + t.amount, 0);
             const loans = partnerTx.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0);
             const advances = partnerTx.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0);
             const withdrawals = partnerTx.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + t.amount, 0);
@@ -2023,7 +2025,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
 
         const adminExpenses = (wallet?.transactions || [])
             .filter(t => {
-                const isExpenseCategory = t.category?.startsWith('expense_') || (settings.expenseCategories || []).includes(t.category || '');
+                const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category || '');
                 const isManualWithdrawal = t.category === 'manual_withdrawal';
                 const isNotPartnerTx = !t.note?.includes('معاملة شريك');
                 return t.type === 'سحب' && (isExpenseCategory || isManualWithdrawal) && isNotPartnerTx;
@@ -2040,7 +2042,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
         const undistributedProfit = Math.max(0, allTimeNetProfit - distributed);
 
         const totals = {
-            capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding').reduce((a, b) => a + b.amount, 0),
+            capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((a, b) => a + b.amount, 0),
             loans: transactions.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0),
             advances: transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0),
             repayments: transactions.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0),
@@ -2056,7 +2058,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
             totalOperationalExpenses,
             partnerDetails: partners.map(p => {
                 const pTx = transactions.filter(t => t.partnerId === p.id);
-                const capital = pTx.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding').reduce((a, b) => a + b.amount, 0);
+                const capital = pTx.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((a, b) => a + b.amount, 0);
                 const loans = pTx.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0);
                 const advances = pTx.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0);
                 const repayments = pTx.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0);
@@ -2625,7 +2627,7 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
             totalLoss += loss;
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
         const inventoryValue = (settings?.products || []).reduce((sum, p) => {
@@ -2641,7 +2643,7 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
         const partners = settings.partners || [];
         const partnerTransactions = settings.partnerTransactions || [];
         const totalCapital = partnerTransactions
-            .filter(t => t.type === 'capital_addition')
+            .filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage')
             .reduce((sum, t) => sum + t.amount, 0);
 
         const pendingCollection = orders.filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);

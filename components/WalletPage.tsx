@@ -64,7 +64,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         const amount = Number(t.amount) || 0;
         
         // Exclude transactions that come from the Supply Wallet (they were already deducted from main during funding or never entered main)
-        if (t.category === 'supply_purchase' || t.category === 'supply_deposit') return sum;
+        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
 
         // Exclude partner personal expenses from the global wallet balance
         if (t.details?.paidByPartnerId) return sum;
@@ -424,7 +424,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       if (orderKey && (t.type === 'سحب' || t.type === 'إيداع') && t.category !== 'wallet_withdrawal' && t.category !== 'wallet_charge') {
         if (!groups[orderKey]) groups[orderKey] = [];
         groups[orderKey].push(t);
-      } else if (supplyKey && (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category === 'inventory_purchase' || t.category === 'supply_withdrawal')) {
+      } else if (supplyKey && (t.category?.startsWith('supply_') || t.category === 'inventory_purchase')) {
         const key = `supply_${supplyKey}`;
         if (!groups[key]) groups[key] = [];
         groups[key].push(t);

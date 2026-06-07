@@ -103,26 +103,103 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   });
   const [isGenerating, setIsGenerating] = useState(false);
   
+  const invoicesStockMap = useMemo(() => {
+    const pMap: Record<string, number> = {};
+    const vMap: Record<string, number> = {};
+    
+    (settings.supplyOrders || []).forEach(order => {
+        if (order.status === 'cancelled') return;
+        order.items.forEach(item => {
+            const qty = (item.receivedQuantity ?? item.quantity ?? 0) + (item.bonusQuantity || 0);
+            if (item.variantId) {
+                vMap[item.variantId] = (vMap[item.variantId] || 0) + qty;
+            } else {
+                pMap[item.productId] = (pMap[item.productId] || 0) + qty;
+            }
+        });
+    });
+
+    orders.forEach(order => {
+        if (['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(order.status)) return;
+        order.items?.forEach(item => {
+            const qty = item.quantity || 0;
+            if (item.variantId) {
+                vMap[item.variantId] = (vMap[item.variantId] || 0) - qty;
+            } else {
+                pMap[item.productId] = (pMap[item.productId] || 0) - qty;
+            }
+        });
+    });
+
+    return { products: pMap, variants: vMap };
+  }, [settings.supplyOrders, orders]);
+
+  const restoreAllStockFromInvoices = () => {
+    showConfirm(
+        "استعادة المخزون من الفواتير",
+        "سيقوم هذا الإجراء بإعادة حساب الكميات بناءً على فواتير المشتريات المسجلة مطروحاً منها المبيعات. هل أنت متأكد؟",
+        () => {
+            const warehouseIds = (settings.warehouses || []).map(w => w.id);
+            const defaultWhId = warehouseIds[0];
+
+            const updatedProducts = (settings.products || []).map(product => {
+                let updated = { ...product };
+                if (updated.hasVariants && updated.variants) {
+                    updated.variants = updated.variants.map(v => {
+                        const invStock = invoicesStockMap.variants[v.id] ?? 0;
+                        let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
+                        if (defaultWhId && (vCopy.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
+                            vCopy.warehouseStock = { ...(vCopy.warehouseStock || {}), [defaultWhId]: invStock };
+                        }
+                        return vCopy;
+                    });
+                    updated.stockQuantity = updated.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                } else {
+                    const invStock = invoicesStockMap.products[product.id] ?? 0;
+                    updated.stockQuantity = invStock;
+                    updated.stock = invStock;
+                    if (defaultWhId && (updated.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
+                        updated.warehouseStock = { ...(updated.warehouseStock || {}), [defaultWhId]: invStock };
+                    }
+                }
+                updated.inStock = (updated.stockQuantity || 0) > 0;
+                return updated;
+            });
+
+            setSettings(prev => ({ ...prev, products: updatedProducts }));
+            showAlert("تمت الاستعادة", "تمت إعادة بناء المخزون من واقع الفواتير بنجاح.", "success");
+        }
+    );
+  };
+
   const recalculateAllStock = () => {
     showConfirm(
       "مزامنة المخزون الشاملة",
-      "سيقوم هذا الإجراء بإعادة حساب إجمالي المخزون لكل منتج بناءً على مجموع الكميات المسجلة في المستودعات الحالية وتصفية أي بيانات لمستودعات محذوفة. هل تريد الاستمرار؟",
+      "سيقوم هذا الإجراء بمطابقة إجمالي المخزون مع توزيع المستودعات. إذا كان هناك منتج غير موزع، سيتم نقله بالكامل للمستودع الأول. هل تريد الاستمرار؟",
       () => {
         const warehouseIds = (settings.warehouses || []).map(w => w.id);
+        const defaultWhId = warehouseIds[0];
+        
         const updatedProducts = (settings.products || []).map(product => {
+          if (warehouseIds.length === 0) return product; // Don't recalculate if no warehouses exist to prevent zeroing stock
           let updatedProduct = { ...product };
           
           if (updatedProduct.hasVariants && updatedProduct.variants) {
             const updatedVariants = updatedProduct.variants.map(variant => {
-              // Clean up warehouse stock (only keep active warehouses)
               const cleanedWhStock: Record<string, number> = {};
               warehouseIds.forEach(id => {
                 if (variant.warehouseStock?.[id] !== undefined) {
-                  cleanedWhStock[id] = variant.warehouseStock[id];
+                  cleanedWhStock[id] = Number(variant.warehouseStock[id]);
                 }
               });
               
-              const totalFromWarehouses = Object.values(cleanedWhStock).reduce((sum, val) => sum + (val || 0), 0);
+              let totalFromWarehouses = Object.values(cleanedWhStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+              
+              if (totalFromWarehouses === 0 && (Number(variant.stockQuantity) || 0) > 0 && defaultWhId) {
+                cleanedWhStock[defaultWhId] = Number(variant.stockQuantity);
+                totalFromWarehouses = Number(variant.stockQuantity);
+              }
+
               return {
                 ...variant,
                 warehouseStock: cleanedWhStock,
@@ -139,15 +216,20 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               inStock: totalFromVariants > 0
             };
           } else {
-            // Clean up warehouse stock (only keep active warehouses)
             const cleanedWhStock: Record<string, number> = {};
             warehouseIds.forEach(id => {
               if (updatedProduct.warehouseStock?.[id] !== undefined) {
-                cleanedWhStock[id] = updatedProduct.warehouseStock[id];
+                cleanedWhStock[id] = Number(updatedProduct.warehouseStock[id]);
               }
             });
 
-            const totalFromWarehouses = Object.values(cleanedWhStock).reduce((sum, val) => sum + (val || 0), 0);
+            let totalFromWarehouses = Object.values(cleanedWhStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+            
+            if (totalFromWarehouses === 0 && (Number(updatedProduct.stockQuantity) || 0) > 0 && defaultWhId) {
+                cleanedWhStock[defaultWhId] = Number(updatedProduct.stockQuantity);
+                totalFromWarehouses = Number(updatedProduct.stockQuantity);
+            }
+
             return {
               ...updatedProduct,
               warehouseStock: cleanedWhStock,
@@ -159,38 +241,52 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         });
 
         setSettings(prev => ({ ...prev, products: updatedProducts }));
-        showAlert("تمت المزامنة", "تمت تصفية بيانات المستودعات المحذوفة وإعادة حساب الأرصدة بنجاح.", "success");
+        showAlert("تمت المزامنة", "تمت موازنة الأرصدة بنجاح وتصحيح التوزيع.", "success");
       }
     );
   };
 
-  // Helper to fix a SINGLE product stock
   const fixProductStock = (productId: string) => {
     const warehouseIds = (settings.warehouses || []).map(w => w.id);
+    const defaultWhId = warehouseIds[0];
+    
+    if (warehouseIds.length === 0) {
+        showAlert("خطأ", "يجب إضافة مستودع واحد على الأقل أولاً.", "error");
+        return;
+    }
+
     const updatedProducts = settings.products.map(p => {
         if (p.id !== productId) return p;
         let updated = { ...p };
         if (updated.hasVariants && updated.variants) {
             updated.variants = updated.variants.map(v => {
                 let vCopy = { ...v, warehouseStock: { ...(v.warehouseStock || {}) } };
-                // Clean up deleted warehouses
                 Object.keys(vCopy.warehouseStock).forEach(whId => {
                     if (!warehouseIds.includes(whId)) delete vCopy.warehouseStock![whId];
                 });
-                vCopy.stockQuantity = Object.values(vCopy.warehouseStock).reduce((sum, val) => sum + (val || 0), 0);
-                vCopy.stock = vCopy.stockQuantity;
+                let dist = Object.values(vCopy.warehouseStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                if (dist === 0 && (Number(vCopy.stockQuantity) || 0) > 0) {
+                    vCopy.warehouseStock[defaultWhId] = Number(vCopy.stockQuantity);
+                    dist = Number(vCopy.stockQuantity);
+                }
+                vCopy.stockQuantity = dist;
+                vCopy.stock = dist;
                 return vCopy;
             });
             updated.stockQuantity = updated.variants.reduce((t, v) => t + (v.stockQuantity || 0), 0);
             updated.stock = updated.stockQuantity;
         } else {
             updated.warehouseStock = { ...(updated.warehouseStock || {}) };
-            // Clean up deleted warehouses
             Object.keys(updated.warehouseStock).forEach(whId => {
                 if (!warehouseIds.includes(whId)) delete updated.warehouseStock![whId];
             });
-            updated.stockQuantity = Object.values(updated.warehouseStock).reduce((sum, val) => sum + (val || 0), 0);
-            updated.stock = updated.stockQuantity;
+            let dist = Object.values(updated.warehouseStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+            if (dist === 0 && (Number(updated.stockQuantity) || 0) > 0) {
+                updated.warehouseStock[defaultWhId] = Number(updated.stockQuantity);
+                dist = Number(updated.stockQuantity);
+            }
+            updated.stockQuantity = dist;
+            updated.stock = dist;
         }
         updated.inStock = (updated.stockQuantity || 0) > 0;
         return updated;
@@ -766,6 +862,9 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             <button onClick={handleExportCSV} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
                 <Download size={14} /> تصدير
             </button>
+            <button onClick={restoreAllStockFromInvoices} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900 rounded-lg font-bold text-[10px] sm:text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all">
+                <FileText size={14} /> استعادة من الفواتير
+            </button>
             <button onClick={recalculateAllStock} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-900 rounded-lg font-bold text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all">
                 <RefreshCw size={14} /> مزامنة المخازن
             </button>
@@ -961,7 +1060,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     distributedStock = warehouseIds.reduce((sum, id) => sum + (product.warehouseStock?.[id] || 0), 0);
                   }
 
-                  const hasStockInconsistency = distributedStock > 0 && product.stockQuantity !== distributedStock;
+                  const hasStockInconsistency = Number(product.stockQuantity || 0) !== distributedStock;
                   
                   return (
                   <React.Fragment key={product.id}>
@@ -1036,8 +1135,49 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                    className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm animate-pulse"
                                    title={`فجوة في البيانات! إجمالي المخازن: ${distributedStock} بينما الإجمالي المسجل: ${product.stockQuantity}. اضغط للمزامنة.`}
                                  >
-                                   <AlertTriangle size={10} />
-                                   فجوة: {distributedStock}
+                                   <AlertCircle size={10} />
+                                   {distributedStock === 0 ? "توزيع على المخازن" : "تصحيح الفجوة (" + distributedStock + ")"}
+                                 </button>
+                               )}
+                               {((product.stockQuantity || 0) !== invoicesStockMap.products[product.id] || product.variants?.some(v => (v.stockQuantity || 0) !== invoicesStockMap.variants[v.id])) && (
+                                 <button 
+                                   onClick={(e) => { 
+                                     e.stopPropagation(); 
+                                     showConfirm("استعادة من الفواتير", "سيتم سحب الرصيد من فواتير الشراء لهذا المنتج فقط. استمرار؟", () => {
+                                        const warehouseIds = (settings.warehouses || []).map(w => w.id);
+                                        const defaultWhId = warehouseIds[0];
+                                        const updatedProducts = settings.products.map(p => {
+                                          if (p.id !== product.id) return p;
+                                          let updated = { ...p };
+                                          if (updated.hasVariants && updated.variants) {
+                                            updated.variants = updated.variants.map(v => {
+                                              const invStock = invoicesStockMap.variants[v.id] ?? 0;
+                                              let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
+                                              if (defaultWhId && (vCopy.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
+                                                vCopy.warehouseStock = { ...(vCopy.warehouseStock || {}), [defaultWhId]: invStock };
+                                              }
+                                              return vCopy;
+                                            });
+                                            updated.stockQuantity = updated.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                                          } else {
+                                            const invStock = invoicesStockMap.products[p.id] ?? 0;
+                                            updated.stockQuantity = invStock;
+                                            if (defaultWhId && (updated.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
+                                                updated.warehouseStock = { ...(updated.warehouseStock || {}), [defaultWhId]: invStock };
+                                            }
+                                          }
+                                          updated.stock = updated.stockQuantity;
+                                          updated.inStock = (updated.stockQuantity || 0) > 0;
+                                          return updated;
+                                        });
+                                        setSettings(prev => ({ ...prev, products: updatedProducts }));
+                                        audioSynth.playTone('success');
+                                     });
+                                   }}
+                                   className="text-[9px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-indigo-100 dark:border-indigo-800 transition-all cursor-pointer shadow-sm"
+                                 >
+                                   <FileText size={10} />
+                                   استعادة حبات
                                  </button>
                                )}
                            </div>
@@ -1049,8 +1189,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                    onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
                                    className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm"
                                  >
-                                   <AlertTriangle size={10} />
-                                   يوجد {distributedStock} بالمخازن
+                                   <AlertCircle size={10} />
+                                   استعادة ({distributedStock}) حبة
                                  </button>
                               )}
                            </div>
@@ -1219,6 +1359,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               } else {
                 distributedStockForMobile = warehouseIdsForMobile.reduce((sum, id) => sum + (product.warehouseStock?.[id] || 0), 0);
               }
+              const hasStockInconsistencyForMobile = Number(product.stockQuantity || 0) !== distributedStockForMobile;
+
               return (
                 <div key={product.id} className={`bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right ${isDuplicate ? 'border-amber-400 bg-amber-50/10 dark:border-amber-900/50 dark:bg-amber-900/10' : ''}`} dir="rtl">
                   <div className="flex gap-3">
@@ -1266,9 +1408,61 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                       {product.stockQuantity === null || product.stockQuantity === undefined ? (
                          <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">متاح دائماً</p>
                       ) : (
-                         <div className="flex items-center gap-1.5">
-                            <p className={`text-sm font-black ${product.stockQuantity > 0 ? 'text-slate-900 dark:text-slate-100' : 'text-red-600 dark:text-red-400'}`}>{product.stockQuantity}</p>
-                            {product.stockQuantity < 5 && product.stockQuantity > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
+                         <div className="flex flex-col gap-1 items-start">
+                            <div className="flex items-center gap-1.5">
+                               <p className={`text-sm font-black ${product.stockQuantity > 0 ? 'text-slate-900 dark:text-slate-100' : 'text-red-600 dark:text-red-400'}`}>{product.stockQuantity}</p>
+                               {product.stockQuantity < 5 && product.stockQuantity > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
+                            </div>
+                            {hasStockInconsistencyForMobile && (
+                               <button 
+                                 onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
+                                 className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm"
+                               >
+                                 <AlertCircle size={10} />
+                                 {distributedStockForMobile === 0 ? "توزيع" : "تصحيح (" + distributedStockForMobile + ")"}
+                               </button>
+                            )}
+                            {((product.stockQuantity || 0) !== invoicesStockMap.products[product.id] || (product.variants && product.variants.some(v => (v.stockQuantity || 0) !== invoicesStockMap.variants[v.id]))) && (
+                               <button 
+                                 onClick={(e) => { 
+                                   e.stopPropagation(); 
+                                   showConfirm("استعادة من الفواتير", "سيتم سحب الرصيد من فواتير الشراء لهذا المنتج فقط. استمرار؟", () => {
+                                      const warehouseIds = (settings.warehouses || []).map(w => w.id);
+                                      const defaultWhId = warehouseIds[0];
+                                      const updatedProducts = settings.products.map(p => {
+                                        if (p.id !== product.id) return p;
+                                        let updated = { ...p };
+                                        if (updated.hasVariants && updated.variants) {
+                                          updated.variants = updated.variants.map(v => {
+                                            const invStock = invoicesStockMap.variants[v.id] ?? 0;
+                                            let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
+                                            if (defaultWhId && (vCopy.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
+                                              vCopy.warehouseStock = { ...(vCopy.warehouseStock || {}), [defaultWhId]: invStock };
+                                            }
+                                            return vCopy;
+                                          });
+                                          updated.stockQuantity = updated.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                                        } else {
+                                          const invStock = invoicesStockMap.products[p.id] ?? 0;
+                                          updated.stockQuantity = invStock;
+                                          if (defaultWhId && (updated.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
+                                              updated.warehouseStock = { ...(updated.warehouseStock || {}), [defaultWhId]: invStock };
+                                          }
+                                        }
+                                        updated.stock = updated.stockQuantity;
+                                        updated.inStock = (updated.stockQuantity || 0) > 0;
+                                        return updated;
+                                      });
+                                      setSettings(prev => ({ ...prev, products: updatedProducts }));
+                                      audioSynth.playTone('success');
+                                   });
+                                 }}
+                                 className="text-[9px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-indigo-100 dark:border-indigo-800 transition-all cursor-pointer shadow-sm"
+                               >
+                                 <FileText size={10} />
+                                 استعادة حبات
+                               </button>
+                            )}
                          </div>
                       )}
                     </div>

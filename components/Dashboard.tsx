@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2 } from 'lucide-react';
+import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store } from '../types';
 import { Link } from 'react-router-dom';
 import { motion, Variants } from 'framer-motion';
@@ -311,7 +311,7 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
         
         // Exclude supply wallet categories from liquid cash
         const category = t.category || '';
-        const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply'].includes(category);
+        const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply', 'supply_expense_shipping', 'supply_expense_other'].includes(category);
         if (isSupplyTx) return sum;
 
         if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
@@ -321,13 +321,28 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
 
     const workingCapital = cashBalance + (wallet?.supplyBalance || 0) + totalInventoryValue;
 
+    // Calculate Admin & Operational Expenses
+    const adminExpenses = (wallet?.transactions || [])
+      .filter(t => {
+        const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '');
+        const isManualWithdrawal = t.category === 'manual_withdrawal';
+        const isNotPartnerTx = !t.note?.includes('معاملة شريك');
+        return t.type === 'سحب' && (isExpenseCategory || isManualWithdrawal) && isNotPartnerTx;
+      })
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+    // Calculate Partner Capital Contributions (Total Investment)
+    const totalCapital = (settings?.partnerTransactions || [])
+        .filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage')
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
     // 💡 Pro KPI Calculations
     const totalOrdersCount = (orders || []).length;
     const deliveryRate = totalOrdersCount > 0 ? Math.round((successfulOrdersCount / totalOrdersCount) * 100) : 0;
     const aov = successfulOrdersCount > 0 ? Math.round(actualCollection / successfulOrdersCount) : 0;
     const cancellationRate = totalOrdersCount > 0 ? Math.round((cancelledCount / totalOrdersCount) * 100) : 0;
     const returnRate = totalOrdersCount > 0 ? Math.round((returnedCount / totalOrdersCount) * 100) : 0;
-    const netMargin = actualCollection > 0 ? Math.round(((totalProfit - totalLoss) / actualCollection) * 100) : 0;
+    const netMargin = actualCollection > 0 ? Math.round(((totalProfit - totalLoss - adminExpenses) / actualCollection) * 100) : 0;
 
     // Build unique customer set
     const uniqueCustomerCount = (orders || []).reduce((acc, o) => {
@@ -337,7 +352,9 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
     }, new Set<string>()).size;
 
     return { 
-      net: totalProfit - totalLoss, 
+      net: totalProfit - totalLoss - adminExpenses, 
+      adminExpenses,
+      totalCapital,
       counts, 
       total: totalOrdersCount,
       awaitingDecisionCount,
@@ -661,7 +678,7 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
               </select>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* صافي الأرباح */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
@@ -671,7 +688,7 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
                 <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
                   {stats.net.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">الأرباح المتبقية بعد خصم تكاليف الشحن والمصاريف</p>
+                <p className="text-[10px] text-slate-400 font-bold">الأرباح بعد خصم الشحن ومصاريف المشتريات والمصاريف الإدارية</p>
               </div>
 
               {/* رصيد المحفظة */}
@@ -687,7 +704,7 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
                       
                       // Exclude supply wallet categories
                       const category = t.category || '';
-                      const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply'].includes(category);
+                      const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply', 'supply_expense_shipping', 'supply_expense_other'].includes(category);
                       if (isSupplyTx) return sum;
 
                       if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
@@ -710,6 +727,18 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
                 <p className="text-[10px] text-slate-400 font-bold">إجمالي الأصول (السيولة + محفظة التوريد + البضاعة بالتكلفة)</p>
               </div>
 
+              {/* إجمالي الاستثمار ورأس المال */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <ArrowUpLeft size={16} className="text-teal-500" />
+                  <span>إجمالي الاستثمار والتمويل</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-teal-650 dark:text-teal-400 tabular-nums">
+                  {stats.totalCapital.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold">إمساك رؤوس أموال وتمويلات الشركاء المدخلة</p>
+              </div>
+
               {/* تكلفة البضاعة المباعة COGS */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
@@ -729,7 +758,7 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
                   <span>قيمة المخزون الحالي (بالتكلفة)</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-slate-200 tabular-nums">
-                  {stats.totalInventoryValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.m</span>
+                  {stats.totalInventoryValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">قيمة كل قطعة بضاعة موجودة حالياً بالمخزن بسعر التكلفة</p>
               </div>
@@ -738,12 +767,24 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                   <Truck size={16} className="text-rose-500" />
-                  <span>رسوم شحن ومصاريف تشغيل</span>
+                  <span>رسوم شحن وتوصيل</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-rose-500 dark:text-rose-400 tabular-nums">
                   {(stats.totalShippingPaid + stats.totalReturnedExpenses).toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">إجمالي تكاليف التوصيل + خسائر الشحن للأوردرات الراجعة</p>
+              </div>
+
+              {/* المصاريف الإدارية والتشغيلية */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                  <DollarSign size={16} className="text-rose-600 dark:text-rose-500" />
+                  <span>مصاريف إدارية وتشغيلية</span>
+                </p>
+                <h4 className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400 tabular-nums font-sans">
+                  {stats.adminExpenses.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold">إجمالي المرتبات، الإعلانات، الإيجارات، ومصاريف التوريد والإنفاق الإداري</p>
               </div>
             </div>
           </div>

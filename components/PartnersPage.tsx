@@ -67,7 +67,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     
     const adminExpenses = wallet.transactions
       .filter(t => {
-        const isExpenseCategory = t.category?.startsWith('expense_') || (settings.expenseCategories || []).includes(t.category || '');
+        const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category || '');
         const isManualWithdrawal = t.category === 'manual_withdrawal';
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
         
@@ -113,7 +113,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
   const totals = useMemo(() => {
      return {
-        capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding').reduce((a, b) => a + b.amount, 0),
+        capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((a, b) => a + b.amount, 0),
         loans: transactions.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0),
         advances: transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0),
         repayments: transactions.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0),
@@ -809,7 +809,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                          t.type === 'supply_funding' ? <PackageIcon size={12}/> : <DollarSign size={12}/>}
                                       </div>
                                       <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">
-                                        {t.type === 'loan' ? 'سلفة' : t.type === 'customer_advance' ? 'عربون محصل' : t.type === 'capital_addition' ? 'رأس مال' : t.type === 'shipping_funding' ? 'شحن' : t.type === 'profit_withdrawal' ? 'سحب أرباح' : t.type === 'profit_distribution' ? 'إضافة أرباح' : t.type === 'supply_funding' ? 'تمويل بضاعة' : t.type === 'expense_coverage' ? 'مصروف شخصي' : t.type === 'expense_repayment' ? 'رد مصروفات' : 'سداد'}
+                                        {t.type === 'loan' ? 'سلفة' : t.type === 'customer_advance' ? 'عربون محصل' : t.type === 'capital_addition' ? 'رأس مال' : t.type === 'shipping_funding' ? 'شحن' : t.type === 'profit_withdrawal' ? 'سحب أرباح' : t.type === 'profit_distribution' ? 'إضافة أرباح' : t.type === 'supply_funding' ? 'تمويل بضاعة' : t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'مصاريف توريد' : 'تغطية مصروفات') : t.type === 'expense_repayment' ? 'رد مصروفات' : 'سداد'}
                                       </span>
                                   </div>
                                   <span className={`text-[10px] font-black ${['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type) ? 'text-emerald-600' : 'text-rose-600'}`}>

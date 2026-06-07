@@ -308,7 +308,7 @@ const UserPermissionsModal: React.FC<{
                                                 onClick={() => setEditingEmployee({ store, employee })}
                                                 className={`w-full text-right p-3 rounded-xl flex items-center gap-3 transition-all border ${editingEmployee?.employee.id === employee.id ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-900' : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
                                             >
-                                                <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-black">{employee.name.substring(0,2)}</div>
+                                                <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-black">{(employee.name || "").substring(0,2)}</div>
                                                 <div className="flex-1">
                                                     <p className="font-bold text-sm text-slate-800 dark:text-slate-100">{employee.name}</p>
                                                     <p className="text-[10px] text-slate-500">{employee.email}</p>

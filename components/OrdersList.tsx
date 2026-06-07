@@ -2966,7 +2966,7 @@ const OrderRow = ({
                     <span>{(order.items || []).length} قطع</span>
                 </div>
                 <div className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
-                {(order.items || []).length > 0 ? (order.items || [])[0].name.substring(0, 15) + '...' : '---'}
+                {(order.items || []).length > 0 ? ((order.items || [])[0].name || "").substring(0, 15) + '...' : '---'}
                 </div>
             </div>
         </div>

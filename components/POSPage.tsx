@@ -109,6 +109,12 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
     setCart(newCart);
   };
 
+  const updatePrice = (idx: number, newPrice: number) => {
+    const newCart = [...cart];
+    newCart[idx].price = Math.max(0, newPrice);
+    setCart(newCart);
+  };
+
   const removeFromCart = (idx: number) => {
     const newCart = [...cart];
     newCart.splice(idx, 1);
@@ -326,7 +332,17 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
                <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center gap-3 group">
                   <div className="flex-1 min-w-0">
                      <h4 className="text-xs font-black text-slate-800 dark:text-white truncate uppercase">{item.name}</h4>
-                     <div className="text-[10px] font-black text-indigo-500">{item.price} ج.م لكل قطعة</div>
+                     <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[9px] font-bold text-slate-400">السعر:</span>
+                        <input 
+                           type="number"
+                           value={item.price || ''}
+                           onChange={(e) => updatePrice(idx, parseFloat(e.target.value) || 0)}
+                           className="w-14 h-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-lg text-center text-[10px] font-black text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                           min="0"
+                        />
+                        <span className="text-[9px] font-black text-slate-400">ج.م</span>
+                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                      <button onClick={() => updateQuantity(idx, -1)} className="w-6 h-6 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-rose-500"><Minus size={12}/></button>

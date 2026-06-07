@@ -916,7 +916,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
     const notCollectedOrders = (orders || []).filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed);
     const inShippingOrders = (orders || []).filter(o => o.status === 'قيد_الشحن');
-    const adminExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_'));
+    const adminExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_'));
     const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
     const totalInventoryPurchases = inventoryPurchases.reduce((sum, t) => sum + t.amount, 0);
 
@@ -1140,12 +1140,17 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     // Expense Breakdown
     const expenseCats: Record<string, number> = {};
     adminExpenses.forEach(t => {
-        const cat = t.category?.replace('expense_', '') || 'other';
+        let cat = t.category || 'other';
+        if (cat.startsWith('supply_expense_')) {
+            cat = cat.replace('supply_expense_', 'supply_');
+        } else if (cat.startsWith('expense_')) {
+            cat = cat.replace('expense_', '');
+        }
         expenseCats[cat] = (expenseCats[cat] || 0) + t.amount;
     });
     const expenseCatRows = Object.entries(expenseCats).map(([cat, amount]) => {
         const percent = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0;
-        const catName = cat === 'ads' ? 'إعلانات' : cat === 'salary' ? 'رواتب' : cat === 'rent' ? 'إيجار' : 'أخرى';
+        const catName = cat === 'ads' ? 'إعلانات' : cat === 'salary' ? 'رواتب' : cat === 'rent' ? 'إيجار' : cat === 'supply_shipping' ? 'شحن مشتريات (توريد)' : cat === 'supply_other' ? 'مصاريف توريد أخرى' : 'أخرى';
         return `<tr><td>${catName}</td><td>${amount.toLocaleString()} ج.م</td><td>${percent.toFixed(1)}%</td></tr>`;
     }).join('');
 
