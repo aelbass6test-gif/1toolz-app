@@ -417,19 +417,36 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => !pt.id.startsWith(`supply_pt_${currentOldOrder.id}`));
               }
 
-              editingOrder.items.forEach(oldItem => {
-                  const product = updatedProducts.find(p => p.id === oldItem.productId);
-                  if (product) {
+              currentOldOrder.items.forEach(oldItem => {
+                  const pIdx = updatedProducts.findIndex(p => p.id === oldItem.productId);
+                  if (pIdx > -1) {
                       const receivedQty = oldItem.receivedQuantity !== undefined ? oldItem.receivedQuantity : (oldItem.quantity || 0);
                       const totalQty = receivedQty + (oldItem.bonusQuantity || 0);
-                      product.stockQuantity = (product.stockQuantity || 0) - totalQty;
-                      
-                      // Update warehouse stock if order has warehouseId
-                      const oldWhId = (editingOrder as SupplyOrder).warehouseId;
-                      if (oldWhId) {
-                        if (!product.warehouseStock) product.warehouseStock = {};
-                        product.warehouseStock[oldWhId] = (product.warehouseStock[oldWhId] || 0) - totalQty;
+                      const oldWhId = currentOldOrder.warehouseId;
+
+                      if (oldItem.variantId && updatedProducts[pIdx].variants) {
+                          updatedProducts[pIdx].variants = updatedProducts[pIdx].variants!.map(v => {
+                              if (v.id === oldItem.variantId) {
+                                  let vUpdated = { ...v };
+                                  vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) - totalQty;
+                                  if (oldWhId) {
+                                      vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+                                      vUpdated.warehouseStock[oldWhId] = (vUpdated.warehouseStock[oldWhId] || 0) - totalQty;
+                                  }
+                                  return vUpdated;
+                              }
+                              return v;
+                          });
+                          // Resync product stockQuantity from variants
+                          updatedProducts[pIdx].stockQuantity = updatedProducts[pIdx].variants!.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                      } else {
+                          updatedProducts[pIdx].stockQuantity = (updatedProducts[pIdx].stockQuantity || 0) - totalQty;
+                          if (oldWhId) {
+                              updatedProducts[pIdx].warehouseStock = { ...(updatedProducts[pIdx].warehouseStock || {}) };
+                              updatedProducts[pIdx].warehouseStock[oldWhId] = (updatedProducts[pIdx].warehouseStock[oldWhId] || 0) - totalQty;
+                          }
                       }
+                      updatedProducts[pIdx].inStock = (updatedProducts[pIdx].stockQuantity || 0) > 0;
                   }
               });
           }
@@ -440,14 +457,6 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               if (productIndex > -1) {
                   const receivedQty = newItem.receivedQuantity !== undefined ? newItem.receivedQuantity : newItem.quantity;
                   const totalQty = receivedQty + (newItem.bonusQuantity || 0);
-                  const newQty = (updatedProducts[productIndex].stockQuantity || 0) + totalQty;
-                  
-                  // Update warehouse stock for product
-                  if (selectedWarehouseId) {
-                      if (!updatedProducts[productIndex].warehouseStock) updatedProducts[productIndex].warehouseStock = {};
-                      updatedProducts[productIndex].warehouseStock[selectedWarehouseId] = 
-                        (updatedProducts[productIndex].warehouseStock[selectedWarehouseId] || 0) + totalQty;
-                  }
                   
                   const itemSubtotal = (newItem.cost * (newItem.quantity || 0)) - (newItem.discountType === 'percentage' ? (newItem.cost * (newItem.quantity || 0) * (newItem.discountValue || 0) / 100) : ((newItem.discountValue || 0) * (newItem.quantity || 0)));
                   
@@ -458,49 +467,63 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                       const additionPerUnit = orderTotalUnits > 0 ? (totalAdditions / orderTotalUnits) : 0;
                       itemLandedCost = totalQty > 0 ? ((itemSubtotal / totalQty) + additionPerUnit) : (newItem.cost + additionPerUnit);
                   } else {
-                      // Distribute tax and fees proportionally based on subtotal
                       const feesFactor = itemsSubtotal > 0 ? (grandTotal / itemsSubtotal) : 1;
                       itemLandedCost = totalQty > 0 ? (itemSubtotal * feesFactor / totalQty) : (newItem.cost * feesFactor);
                   }
 
-                  // Get pricing configurations determined in the purchase invoice
                   const currentProd = updatedProducts[productIndex];
                   const shouldUpdatePricing = newItem.updateCatalogPrice !== false;
                   
-                  // Use Landed Cost as the new base cost for pricing if updating
                   let costPrice = shouldUpdatePricing ? itemLandedCost : currentProd.costPrice;
                   let price = currentProd.price || 0;
                   const profitMode = shouldUpdatePricing ? (newItem.profitMode || currentProd.profitMode || 'manual') : (currentProd.profitMode || 'manual');
                   
                   if (shouldUpdatePricing) {
                       if (profitMode === 'manual') {
-                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) {
-                              price = newItem.sellingPrice;
-                          }
+                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) price = newItem.sellingPrice;
                       } else if (profitMode === 'margin') {
                           const margin = newItem.profitPercentage ?? currentProd.profitPercentage ?? 0;
-                          if (margin < 100 && margin >= 0) {
-                              price = costPrice / (1 - (margin / 100));
-                          } else {
-                              price = costPrice;
-                          }
+                          price = (margin < 100 && margin >= 0) ? costPrice / (1 - (margin / 100)) : costPrice;
                       } else if (profitMode === 'commission') {
                           const commission = newItem.commissionPercentage ?? currentProd.commissionPercentage ?? 0;
                           let basePrice = newItem.basePrice || currentProd.basePrice || 0;
-                          if (basePrice === 0 && costPrice > 0 && commission < 100) {
-                              basePrice = costPrice / (1 - (commission / 100));
-                          }
+                          if (basePrice === 0 && costPrice > 0 && commission < 100) basePrice = costPrice / (1 - (commission / 100));
                           price = basePrice;
-                          if (commission >= 0 && commission < 100) {
-                              costPrice = basePrice * (1 - (commission / 100));
+                          if (commission >= 0 && commission < 100) costPrice = basePrice * (1 - (commission / 100));
+                      }
+                  }
+
+                  // Update the actual stock
+                  if (newItem.variantId && currentProd.variants) {
+                      currentProd.variants = currentProd.variants.map(v => {
+                          if (v.id === newItem.variantId) {
+                              let vUpdated = { ...v };
+                              vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + totalQty;
+                              if (selectedWarehouseId) {
+                                  vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+                                  vUpdated.warehouseStock[selectedWarehouseId] = (vUpdated.warehouseStock[selectedWarehouseId] || 0) + totalQty;
+                              }
+                              // Also update variant cost/price if applicable
+                              if (shouldUpdatePricing) {
+                                  vUpdated.costPrice = Number(costPrice);
+                                  vUpdated.price = Number(price.toFixed(2));
+                              }
+                              return vUpdated;
                           }
+                          return v;
+                      });
+                      currentProd.stockQuantity = currentProd.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                  } else {
+                      currentProd.stockQuantity = (currentProd.stockQuantity || 0) + totalQty;
+                      if (selectedWarehouseId) {
+                          currentProd.warehouseStock = { ...(currentProd.warehouseStock || {}) };
+                          currentProd.warehouseStock[selectedWarehouseId] = (currentProd.warehouseStock[selectedWarehouseId] || 0) + totalQty;
                       }
                   }
 
                   updatedProducts[productIndex] = {
                       ...currentProd,
-                      stockQuantity: newQty,
-                      inStock: newQty > 0,
+                      inStock: (currentProd.stockQuantity || 0) > 0,
                       ...(shouldUpdatePricing ? {
                           costPrice: Number(costPrice),
                           price: Number(price.toFixed(2)),
@@ -532,15 +555,47 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                           balance: (updatedPartners[pIdx].balance || 0) + pp.amount
                       };
                       
-                      // Add Partner Transaction
-                      updatedPartnerTransactions.push({
-                          id: `supply_pt_${currentOrderId}_${idx}`,
-                          partnerId: pp.partnerId,
-                          type: 'supply_funding',
-                          amount: pp.amount,
-                          date: new Date().toISOString(),
-                          note: `تمويل مخزون (أمر توريد من ${supplier?.name})`
-                      });
+                      const partnerShareRatio = totalCost > 0 ? (pp.amount / totalCost) : 1;
+                      const partnerShippingShare = Number((shippingFees * partnerShareRatio).toFixed(2));
+                      const partnerOtherFeesShare = Number((otherFees * partnerShareRatio).toFixed(2));
+                      const partnerTaxShare = Number((taxAmount * partnerShareRatio).toFixed(2));
+                      const partnerGoodsShare = pp.amount - partnerShippingShare - partnerOtherFeesShare;
+
+                      // Add Shipping Transaction if exists
+                      if (partnerShippingShare > 0) {
+                          updatedPartnerTransactions.push({
+                              id: `supply_pt_${currentOrderId}_ship_${idx}`,
+                              partnerId: pp.partnerId,
+                              type: 'shipping_funding',
+                              amount: partnerShippingShare,
+                              date: new Date().toISOString(),
+                              note: `شحن بضاعة (أمر توريد من ${supplier?.name}: ${orderReference || currentOrderId})`
+                          });
+                      }
+
+                      // Add Other Fees Transaction if exists
+                      if (partnerOtherFeesShare > 0) {
+                          updatedPartnerTransactions.push({
+                              id: `supply_pt_${currentOrderId}_other_${idx}`,
+                              partnerId: pp.partnerId,
+                              type: 'expense_coverage',
+                              amount: partnerOtherFeesShare,
+                              date: new Date().toISOString(),
+                              note: `مصاريف إضافية توريد (أمر: ${orderReference || currentOrderId})`
+                          });
+                      }
+
+                      // Add Main Goods Funding Transaction
+                      if (partnerGoodsShare > 0 || (partnerShippingShare === 0 && partnerOtherFeesShare === 0)) {
+                          updatedPartnerTransactions.push({
+                              id: `supply_pt_${currentOrderId}_goods_${idx}`,
+                              partnerId: pp.partnerId,
+                              type: 'supply_funding',
+                              amount: partnerGoodsShare > 0 ? partnerGoodsShare : pp.amount,
+                              date: new Date().toISOString(),
+                              note: `تمويل بضاعة (أمر توريد من ${supplier?.name}: ${orderReference || currentOrderId})`
+                          });
+                      }
                   }
               });
           }

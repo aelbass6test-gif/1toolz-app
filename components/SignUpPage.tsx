@@ -139,7 +139,9 @@ CREATE TABLE IF NOT EXISTS supply_orders (
     total_cost NUMERIC NOT NULL,
     date TEXT NOT NULL,
     items JSONB DEFAULT '{}'::jsonb,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    "distributeExpensesEqually" BOOLEAN DEFAULT false,
+    "recordExpensesFormally" BOOLEAN DEFAULT false
 );
 
 -- 8. REVIEWS (مراجعات وآراء التقاطعات)
@@ -475,6 +477,8 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0
 -- تأمين أعمدة الموظفين
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE products DISABLE ROW LEVEL SECURITY;
 ALTER TABLE orders DISABLE ROW LEVEL SECURITY;

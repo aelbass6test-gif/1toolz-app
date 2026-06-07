@@ -1105,10 +1105,7 @@ export const AppComponent = () => {
                 
                 if (loadedUsers.length > 0) {
                     let user = loadedUsers.find((u: User) => u.phone === savedUserPhone);
-                    if (!user && loadedUsers.length > 0) {
-                        user = loadedUsers[0];
-                    }
-
+                    
                     if (user) {
                         setCurrentUser(user);
                         if (savedSessionType === 'employee') {

@@ -109,7 +109,9 @@ CREATE TABLE IF NOT EXISTS supply_orders (
     status TEXT NOT NULL,
     items JSONB DEFAULT '[]'::jsonb,
     notes TEXT,
-    details JSONB DEFAULT '{}'::jsonb
+    details JSONB DEFAULT '{}'::jsonb,
+    "distributeExpensesEqually" BOOLEAN DEFAULT false,
+    "recordExpensesFormally" BOOLEAN DEFAULT false
 );
 
 -- 8. REVIEWS (مراجعات وآراء التقاطعات)
@@ -796,6 +798,8 @@ ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "toAccountId" TEXT;
 -- تأمين جداول الشركاء (Partners)
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
 
 -- إعادة تفعيل الصلاحيات (RLS Disable is enough)
 ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;`;

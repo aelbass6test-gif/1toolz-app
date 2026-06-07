@@ -102,6 +102,103 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     return saved ? new Date(saved) : null;
   });
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  const recalculateAllStock = () => {
+    showConfirm(
+      "مزامنة المخزون الشاملة",
+      "سيقوم هذا الإجراء بإعادة حساب إجمالي المخزون لكل منتج بناءً على مجموع الكميات المسجلة في المستودعات الحالية وتصفية أي بيانات لمستودعات محذوفة. هل تريد الاستمرار؟",
+      () => {
+        const warehouseIds = (settings.warehouses || []).map(w => w.id);
+        const updatedProducts = (settings.products || []).map(product => {
+          let updatedProduct = { ...product };
+          
+          if (updatedProduct.hasVariants && updatedProduct.variants) {
+            const updatedVariants = updatedProduct.variants.map(variant => {
+              // Clean up warehouse stock (only keep active warehouses)
+              const cleanedWhStock: Record<string, number> = {};
+              warehouseIds.forEach(id => {
+                if (variant.warehouseStock?.[id] !== undefined) {
+                  cleanedWhStock[id] = variant.warehouseStock[id];
+                }
+              });
+              
+              const totalFromWarehouses = Object.values(cleanedWhStock).reduce((sum, val) => sum + (val || 0), 0);
+              return {
+                ...variant,
+                warehouseStock: cleanedWhStock,
+                stockQuantity: totalFromWarehouses,
+                stock: totalFromWarehouses
+              };
+            });
+            const totalFromVariants = updatedVariants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+            return {
+              ...updatedProduct,
+              variants: updatedVariants,
+              stockQuantity: totalFromVariants,
+              stock: totalFromVariants,
+              inStock: totalFromVariants > 0
+            };
+          } else {
+            // Clean up warehouse stock (only keep active warehouses)
+            const cleanedWhStock: Record<string, number> = {};
+            warehouseIds.forEach(id => {
+              if (updatedProduct.warehouseStock?.[id] !== undefined) {
+                cleanedWhStock[id] = updatedProduct.warehouseStock[id];
+              }
+            });
+
+            const totalFromWarehouses = Object.values(cleanedWhStock).reduce((sum, val) => sum + (val || 0), 0);
+            return {
+              ...updatedProduct,
+              warehouseStock: cleanedWhStock,
+              stockQuantity: totalFromWarehouses,
+              stock: totalFromWarehouses,
+              inStock: totalFromWarehouses > 0
+            };
+          }
+        });
+
+        setSettings(prev => ({ ...prev, products: updatedProducts }));
+        showAlert("تمت المزامنة", "تمت تصفية بيانات المستودعات المحذوفة وإعادة حساب الأرصدة بنجاح.", "success");
+      }
+    );
+  };
+
+  // Helper to fix a SINGLE product stock
+  const fixProductStock = (productId: string) => {
+    const warehouseIds = (settings.warehouses || []).map(w => w.id);
+    const updatedProducts = settings.products.map(p => {
+        if (p.id !== productId) return p;
+        let updated = { ...p };
+        if (updated.hasVariants && updated.variants) {
+            updated.variants = updated.variants.map(v => {
+                let vCopy = { ...v, warehouseStock: { ...(v.warehouseStock || {}) } };
+                // Clean up deleted warehouses
+                Object.keys(vCopy.warehouseStock).forEach(whId => {
+                    if (!warehouseIds.includes(whId)) delete vCopy.warehouseStock![whId];
+                });
+                vCopy.stockQuantity = Object.values(vCopy.warehouseStock).reduce((sum, val) => sum + (val || 0), 0);
+                vCopy.stock = vCopy.stockQuantity;
+                return vCopy;
+            });
+            updated.stockQuantity = updated.variants.reduce((t, v) => t + (v.stockQuantity || 0), 0);
+            updated.stock = updated.stockQuantity;
+        } else {
+            updated.warehouseStock = { ...(updated.warehouseStock || {}) };
+            // Clean up deleted warehouses
+            Object.keys(updated.warehouseStock).forEach(whId => {
+                if (!warehouseIds.includes(whId)) delete updated.warehouseStock![whId];
+            });
+            updated.stockQuantity = Object.values(updated.warehouseStock).reduce((sum, val) => sum + (val || 0), 0);
+            updated.stock = updated.stockQuantity;
+        }
+        updated.inStock = (updated.stockQuantity || 0) > 0;
+        return updated;
+    });
+    setSettings(prev => ({ ...prev, products: updatedProducts }));
+    audioSynth.playTone('success');
+  };
+
   const [showPostModal, setShowPostModal] = useState(false);
   const [generatedPost, setGeneratedPost] = useState('');
   
@@ -669,6 +766,9 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             <button onClick={handleExportCSV} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
                 <Download size={14} /> تصدير
             </button>
+            <button onClick={recalculateAllStock} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-900 rounded-lg font-bold text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all">
+                <RefreshCw size={14} /> مزامنة المخازن
+            </button>
             {isPlatformConnected && (
               <button
                   onClick={handleFetchSelectableProducts}
@@ -850,8 +950,18 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
                   const isDuplicate = isDuplicateName || isDuplicateSKU;
 
-                  // Calculate distributed stock vs total
-                  const distributedStock = Object.values(product.warehouseStock || {}).reduce((sum, val) => sum + (val || 0), 0);
+                  // Calculate distributed stock vs total (counting only active warehouses)
+                  const warehouseIds = (settings.warehouses || []).map(w => w.id);
+                  let distributedStock = 0;
+                  if (product.hasVariants && product.variants) {
+                    distributedStock = product.variants.reduce((total, v) => {
+                      return total + warehouseIds.reduce((sum, id) => sum + (v.warehouseStock?.[id] || 0), 0);
+                    }, 0);
+                  } else {
+                    distributedStock = warehouseIds.reduce((sum, id) => sum + (product.warehouseStock?.[id] || 0), 0);
+                  }
+
+                  const hasStockInconsistency = distributedStock > 0 && product.stockQuantity !== distributedStock;
                   
                   return (
                   <React.Fragment key={product.id}>
@@ -915,12 +1025,35 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         {product.stockQuantity === null || product.stockQuantity === undefined ? (
                            <span className="px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/50 rounded-full border border-emerald-200 dark:border-emerald-800">متاح دائماً</span>
                         ) : product.stockQuantity > 0 ? (
-                           <div className="flex items-center gap-2">
-                               <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{product.stockQuantity}</span>
-                               {product.stockQuantity < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
+                           <div className="flex flex-col gap-1">
+                               <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{product.stockQuantity}</span>
+                                  {product.stockQuantity < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
+                               </div>
+                               {hasStockInconsistency && (
+                                 <button 
+                                   onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
+                                   className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm animate-pulse"
+                                   title={`فجوة في البيانات! إجمالي المخازن: ${distributedStock} بينما الإجمالي المسجل: ${product.stockQuantity}. اضغط للمزامنة.`}
+                                 >
+                                   <AlertTriangle size={10} />
+                                   فجوة: {distributedStock}
+                                 </button>
+                               )}
                            </div>
                         ) : (
-                           <span className="px-2 py-1 text-xs font-bold text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/50 rounded-full border border-red-200 dark:border-red-800">نفذ</span>
+                           <div className="flex flex-col gap-1">
+                              <span className="px-2 py-1 text-xs font-bold text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/50 rounded-full border border-red-200 dark:border-red-800 w-fit">نفذ</span>
+                              {hasStockInconsistency && distributedStock > 0 && (
+                                 <button 
+                                   onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
+                                   className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm"
+                                 >
+                                   <AlertTriangle size={10} />
+                                   يوجد {distributedStock} بالمخازن
+                                 </button>
+                              )}
+                           </div>
                         )}
                       </td>
                       <td className="px-6 py-4">
@@ -1076,8 +1209,16 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
               const isDuplicate = isDuplicateName || isDuplicateSKU;
 
-              // Calculate distributed stock vs total
-              const distributedStock = Object.values(product.warehouseStock || {}).reduce((sum, val) => sum + (val || 0), 0);
+              // Calculate distributed stock vs total (counting only active warehouses)
+              const warehouseIdsForMobile = (settings.warehouses || []).map(w => w.id);
+              let distributedStockForMobile = 0;
+              if (product.hasVariants && product.variants) {
+                distributedStockForMobile = product.variants.reduce((total, v) => {
+                  return total + warehouseIdsForMobile.reduce((sum, id) => sum + (v.warehouseStock?.[id] || 0), 0);
+                }, 0);
+              } else {
+                distributedStockForMobile = warehouseIdsForMobile.reduce((sum, id) => sum + (product.warehouseStock?.[id] || 0), 0);
+              }
               return (
                 <div key={product.id} className={`bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right ${isDuplicate ? 'border-amber-400 bg-amber-50/10 dark:border-amber-900/50 dark:bg-amber-900/10' : ''}`} dir="rtl">
                   <div className="flex gap-3">
@@ -1142,7 +1283,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         exit={{ opacity: 0, height: 0 }}
                         className="pt-2 border-t border-slate-100 dark:border-slate-800/50 space-y-2 text-right overflow-hidden"
                       >
-                        <div className="text-xs font-bold text-slate-700 dark:text-slate-300">مخزون المستودعات ({distributedStock}):</div>
+                        <div className="text-xs font-bold text-slate-700 dark:text-slate-300">مخزون المستودعات ({distributedStockForMobile}):</div>
                         {(!settings.warehouses || settings.warehouses.length === 0) ? (
                           <p className="text-[10px] text-slate-400">⚠️ لم يتم إضافة مستودعات إضافية بعد.</p>
                         ) : (
