@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order } from '../types';
-import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins } from 'lucide-react';
+import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
+import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer } from 'lucide-react';
 import { calculateOrderProfitLoss } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -10,15 +10,29 @@ interface PartnersPageProps {
   wallet: Wallet;
   setWallet: React.Dispatch<React.SetStateAction<Wallet>>;
   orders: Order[];
+  treasury?: Treasury;
+  setTreasury?: (updater: any) => void;
 }
 
-const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, wallet, setWallet, orders }) => {
+const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
   const [partnerName, setPartnerName] = useState('');
   const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<string | null>(null);
   const [editPartnerName, setEditPartnerName] = useState('');
   const [transactionAmount, setTransactionAmount] = useState('');
   const [transactionType, setTransactionType] = useState<PartnerTransaction['type']>('loan');
+  const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
+
+  // Advanced Modern Systems States
+  const [activeSection, setActiveSection] = useState<'overview' | 'simulator' | 'analytics' | 'transfers'>('overview');
+  const [simProfitAmount, setSimProfitAmount] = useState('');
+  const [reserveRatio, setReserveRatio] = useState<number>(10); // default 10% emergency reserve retention
+  
+  const [fromPartnerId, setFromPartnerId] = useState('');
+  const [toPartnerId, setToPartnerId] = useState('');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferType, setTransferType] = useState<'capital' | 'balance'>('balance');
+  const [transferNotes, setTransferNotes] = useState('');
   
   // Custom dialog states
   const [dialog, setDialog] = useState<{
@@ -112,14 +126,23 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   };
 
   const totals = useMemo(() => {
+     let totalCustody = 0;
+     const partnerHolderIds = partners.map(p => p.id);
+     (settings.cashHolders || []).forEach((h: any) => {
+         if (h.userId?.startsWith('part_') || partnerHolderIds.includes(h.userId)) {
+             totalCustody += (h.currentBalance || 0);
+         }
+     });
+
      return {
-        capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((a, b) => a + b.amount, 0),
+        capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage' || t.type === 'internal_transfer_in').reduce((a, b) => a + b.amount, 0),
         loans: transactions.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0),
         advances: transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0),
         repayments: transactions.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0),
-        withdrawals: transactions.filter(t => t.type === 'profit_withdrawal').reduce((a, b) => a + b.amount, 0)
+        withdrawals: transactions.filter(t => t.type === 'profit_withdrawal').reduce((a, b) => a + b.amount, 0),
+        custody: totalCustody
      };
-  }, [transactions]);
+  }, [transactions, settings.cashHolders, partners]);
 
   const distributeProfit = () => {
     if (undistributedProfit <= 0) {
@@ -242,7 +265,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 const partnerTxs = transactions.filter(t => t.partnerId === partner.id);
                 const computedBalance = partnerTxs.reduce((sum, t) => {
                     const amount = Number(t.amount) || 0;
-                    if (['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type)) {
+                    if (['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type)) {
                         return sum + amount;
                     } else if (t.type === 'pos_collection') {
                         return sum; // Do not affect partner balance with POS collection transactions as they are tracked via cash holders
@@ -263,6 +286,112 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             
             setDialog(null);
             showToast('تمت إعادة مزامنة أرصدة الشركاء من المعاملات بنجاح');
+        }
+    });
+  };
+
+  const executeTransfer = () => {
+    const amount = parseFloat(transferAmount);
+    if (!amount || isNaN(amount) || amount <= 0) {
+       showToast('يرجى إدخال مبلغ صحيح للتحويل', 'error');
+       return;
+    }
+    if (!fromPartnerId || !toPartnerId) {
+        showToast('يرجى اختيار الشريك المحول والمحول إليه', 'error');
+        return;
+    }
+    if (fromPartnerId === toPartnerId) {
+        showToast('لا يمكن التحويل لنفس الشريك', 'error');
+        return;
+    }
+    
+    // Check if moving capital
+    if (transferType === 'capital') {
+        const fromPartner = partners.find(p => p.id === fromPartnerId);
+        const toPartner = partners.find(p => p.id === toPartnerId);
+        if (!fromPartner || !toPartner) return;
+
+        setDialog({
+            isOpen: true,
+            title: 'تأكيد تحويل الحصص الاستثمارية',
+            message: `تحويل حصة بنسبة ${amount}% من ${fromPartner.name} إلى ${toPartner.name}. هل تريد المتابعة؟`,
+            onConfirm: () => {
+                if ((fromPartner.profitRatio || 0) < amount) {
+                    showToast('نسبة الشريك المحول لا تكفي', 'error');
+                    setDialog(null);
+                    return;
+                }
+                const updatedPartners = partners.map(p => {
+                    if (p.id === fromPartnerId) {
+                        return { ...p, profitRatio: (p.profitRatio || 0) - amount };
+                    }
+                    if (p.id === toPartnerId) {
+                        return { ...p, profitRatio: (p.profitRatio || 0) + amount };
+                    }
+                    return p;
+                });
+                updateSettings({...settings, partners: updatedPartners});
+                setTransferAmount('');
+                setDialog(null);
+                showToast('تم نقل وتحديث الحصص الاستثمارية بنجاح');
+            }
+        });
+        return;
+    }
+
+    // Moving normal balance
+    const fromPartner = partners.find(p => p.id === fromPartnerId);
+    if (fromPartner && fromPartner.balance < amount) {
+        showToast(`عفواً، رصيد الشريك المحول لا يكفي لإتمام التحويل. (المتاح: ${fromPartner.balance} ج.م)`, 'error');
+        return;
+    }
+
+    setDialog({
+        isOpen: true,
+        title: 'تأكيد التحويل المالي المشترك',
+        message: `سيتم تحويل مبلغ ${amount.toLocaleString()} ج.م بين الشركاء المحدداً. تابع ليتم تسجيل حركات مدينة ودائنة تلقائياً.`,
+        onConfirm: () => {
+            const dateStr = new Date().toISOString();
+            const txIdBase = Date.now().toString();
+            
+            const fromTx: PartnerTransaction = {
+                id: `T-OUT-${txIdBase}`,
+                partnerId: fromPartnerId,
+                type: 'internal_transfer_out',
+                amount: amount,
+                date: dateStr,
+                note: `تحويل داخلي صادر إلى الشريك: ${partners.find(p=>p.id===toPartnerId)?.name} ${transferNotes ? `| ملاحظات: ${transferNotes}` : ''}`
+            };
+
+            const toTx: PartnerTransaction = {
+                id: `T-IN-${txIdBase}`,
+                partnerId: toPartnerId,
+                type: 'internal_transfer_in',
+                amount: amount,
+                date: dateStr,
+                note: `تحويل داخلي وارد من الشريك: ${partners.find(p=>p.id===fromPartnerId)?.name} ${transferNotes ? `| ملاحظات: ${transferNotes}` : ''}`
+            };
+
+            const updatedPartners = partners.map(p => {
+                if (p.id === fromPartnerId) {
+                    return { ...p, balance: p.balance - amount };
+                }
+                if (p.id === toPartnerId) {
+                    return { ...p, balance: p.balance + amount };
+                }
+                return p;
+            });
+
+            updateSettings({
+                ...settings,
+                partners: updatedPartners,
+                partnerTransactions: [...transactions, fromTx, toTx]
+            });
+            
+            setTransferAmount('');
+            setTransferNotes('');
+            setDialog(null);
+            showToast('تم تنفيذ التحويل الداخلي بنجاح');
         }
     });
   };
@@ -292,12 +421,22 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         return;
     }
 
+    if (selectedTreasuryId && isWithdrawal && setTreasury && treasury) {
+      const selectedAccount = treasury.accounts.find(a => a.id === selectedTreasuryId);
+      if (selectedAccount && selectedAccount.balance < amount) {
+         showToast(`عفواً، رصيد الحساب المالي المختار (${selectedAccount.name}) غير كافٍ. المتاح: ${selectedAccount.balance.toLocaleString()} ج.م`, 'error');
+         return;
+      }
+    }
+
+    const tId = Date.now().toString();
     const newTransaction: PartnerTransaction = {
-      id: Date.now().toString(),
+      id: tId,
       partnerId,
       type: transactionType,
       amount,
       date: new Date().toISOString(),
+      treasuryAccountId: selectedTreasuryId || undefined
     };
 
     const updatedPartners = partners.map(p => {
@@ -326,7 +465,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
             transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع محفظة التوريد)' : 
             transactionType === 'pos_collection' ? 'تحصيل مبيعات نقطة البيع' : 'سداد سلفة'
-        }`,
+        }${selectedTreasuryId && treasury ? ` (عبر ${treasury.accounts.find(a => a.id === selectedTreasuryId)?.name || 'الخزينة'})` : ''}`,
         category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'manual_withdrawal' : 'manual_deposit'),
         status: 'completed'
     } as Transaction;
@@ -336,6 +475,50 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       partners: updatedPartners,
       partnerTransactions: [...transactions, newTransaction]
     });
+
+    // Handle Treasury Account Balance Integration
+    if (selectedTreasuryId && setTreasury && treasury) {
+       const selectedAccount = treasury.accounts.find(a => a.id === selectedTreasuryId);
+       if (selectedAccount) {
+         setTreasury((prev: any) => {
+           if (!prev) return prev;
+           const updatedAccounts = prev.accounts.map((acc: any) => {
+             if (acc.id === selectedTreasuryId) {
+                return {
+                  ...acc,
+                  balance: isWithdrawal ? acc.balance - amount : acc.balance + amount
+                };
+             }
+             return acc;
+           });
+           
+           const newTreasuryTx = {
+             id: `T-PART-${Date.now()}`,
+             date: new Date().toISOString(),
+             type: isWithdrawal ? 'withdrawal' : 'deposit',
+             amount,
+             description: `معاملة متبادلة مع الشريك ${partner.name}: ${
+                 transactionType === 'loan' ? 'سحب سلفة أو سلفة نقدية' : 
+                 transactionType === 'capital_addition' ? 'إيداع استثماري (رأس مال)' : 
+                 transactionType === 'profit_withdrawal' ? 'سحب أرباح نقدية' : 
+                 transactionType === 'shipping_funding' ? 'إيداع تمويل شحن' :
+                 transactionType === 'expense_repayment' ? 'رد مصروفات نقدية' :
+                 transactionType === 'supply_funding' ? 'إيداع لشراء بضاعة ومخزون' : 
+                 transactionType === 'pos_collection' ? 'استلام كاش مبيعات الشريك' : 'استلام تسديد سلفة'
+             }`,
+             toAccountId: isWithdrawal ? undefined : selectedTreasuryId,
+             fromAccountId: isWithdrawal ? selectedTreasuryId : undefined,
+             reference: `pt_${tId}`
+           };
+           
+           return {
+             ...prev,
+             accounts: updatedAccounts,
+             transactions: [newTreasuryTx, ...(prev.transactions || [])]
+           };
+         });
+       }
+    }
 
     const movesRealMoney = transactionType !== 'profit_distribution';
     
@@ -349,7 +532,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     }
     
     setTransactionAmount('');
-    showToast('تم إضافة المعاملة بنجاح');
+    setSelectedTreasuryId('');
+    showToast('تم إضافة المعاملة وتحديث الخزائن بنجاح');
   };
 
   return (
@@ -409,7 +593,15 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
           <p className="text-slate-500 dark:text-slate-400 font-medium">متابعة رؤوس الأموال، السلف، وتوزيع الأرباح</p>
         </div>
         
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+              <button 
+                onClick={() => window.print()}
+                className="bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-6 py-3 rounded-2xl font-bold hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-all flex items-center gap-2"
+                title="طباعة التقرير العام"
+              >
+                <Printer size={18} />
+                طباعة التقرير
+              </button>
               <button 
                 onClick={recalculateSupplyBalance}
                 className="bg-white dark:bg-slate-800 border-2 border-indigo-600/20 text-indigo-600 dark:text-indigo-400 px-6 py-3 rounded-2xl font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center gap-2"
@@ -445,7 +637,24 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="flex bg-slate-200/50 dark:bg-slate-800/80 p-1.5 rounded-2xl w-fit mb-2 overflow-x-auto max-w-full custom-scrollbar">
+          <button 
+            onClick={() => setActiveSection('overview')}
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'overview' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+          ><PieChart size={16}/> نظرة عامة وتوزيع الأرباح</button>
+          <button 
+            onClick={() => setActiveSection('simulator')}
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'simulator' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+          ><Calculator size={16}/> محاكاة الأرباح والاحتمالات</button>
+          <button 
+            onClick={() => setActiveSection('transfers')}
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'transfers' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+          ><ArrowRightLeft size={16}/> التحويلات الداخلية بين الشركاء</button>
+      </div>
+
+      {activeSection === 'overview' && (
+        <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
           <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
             <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-3">
@@ -584,6 +793,17 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   <p className="text-4xl font-black text-teal-600 dark:text-teal-400 tracking-tight">{totals.advances.toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span></p>
                 </div>
             </div>
+
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative group overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10 text-indigo-600 group-hover:scale-110 transition-transform"><WalletIcon size={80}/></div>
+                <div className="relative z-10 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-xl flex items-center justify-center"><WalletIcon size={20}/></div>
+                    <h5 className="font-bold text-slate-500 dark:text-slate-400">إجمالي عهد الشركاء</h5>
+                  </div>
+                  <p className="text-4xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">{totals.custody.toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span></p>
+                </div>
+            </div>
         </div>
       </div>
       
@@ -687,6 +907,23 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                       </p>
                   </div>
               </div>
+
+              {(() => {
+                  const holderId = `part_${partner.id}`;
+                  const holder = (settings.cashHolders || []).find((h: any) => h.userId === holderId || h.userId === partner.id);
+                  const custodyAmt = holder ? holder.currentBalance || 0 : 0;
+                  return (
+                    <div className="mt-3 p-3.5 bg-amber-500/[0.04] dark:bg-amber-500/[0.02] rounded-2xl border border-amber-500/10 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                           <Coins size={14} className="text-amber-500" />
+                           <p className="text-[10px] font-bold text-slate-400">العهدة والنقدية طرف الشريك</p>
+                        </div>
+                        <p className={`text-sm font-black ${custodyAmt > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+                           {custodyAmt.toLocaleString()} ج.م
+                        </p>
+                    </div>
+                  );
+              })()}
             </div>
 
             <div className="flex-1 p-6 space-y-4">
@@ -749,6 +986,25 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                   </button>
                                 ))}
                             </div>
+
+                            {/* Optional Treasury Account Selection */}
+                            {treasury && (
+                              <div className="space-y-1 my-2">
+                                <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 text-right">الحساب المالي المستخدم (نقل حقيقي للأموال)</label>
+                                <select
+                                  value={selectedTreasuryId}
+                                  onChange={(e) => setSelectedTreasuryId(e.target.value)}
+                                  className="w-full bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 p-3 rounded-xl font-bold text-xs focus:outline-none focus:border-indigo-500 text-right"
+                                >
+                                  <option value="">-- نقدي محفظة رقمية فقط (بدون حركة الخزينة) --</option>
+                                  {(treasury.accounts || []).map(acc => (
+                                    <option key={acc.id} value={acc.id}>
+                                      {acc.name} ({acc.balance.toLocaleString()} ج.م)
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
 
                             <button 
                               onClick={() => {
@@ -876,6 +1132,208 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
               );
           })()}
       </div>
+      </div>
+      )}
+
+      {activeSection === 'simulator' && (
+      <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
+        <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-[0.03] text-indigo-600 dark:text-indigo-400 rotate-12 scale-150">
+               <Calculator size={150} />
+            </div>
+            
+            <div className="relative z-10 max-w-4xl space-y-8">
+               <div className="space-y-2">
+                   <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                      <Sparkles className="text-amber-500" /> محاكاة وتوقع الأرباح
+                   </h2>
+                   <p className="text-slate-500 font-medium">قم بإدخال مبلغ أرباح افتراضي لحساب حصة كل شريك بناءً على النسب المحددة حالياً والمبالغ الاحتياطية.</p>
+               </div>
+
+               <div className="grid md:grid-cols-2 gap-8">
+                   <div className="space-y-6 bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800/80">
+                       <div>
+                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">إجمالي الأرباح المتوقعة (ج.م)</label>
+                           <input 
+                               type="number" 
+                               value={simProfitAmount}
+                               onChange={e => setSimProfitAmount(e.target.value)}
+                               placeholder="أدخل مبلغ المحاكاة..."
+                               className="w-full px-6 py-4 bg-white dark:bg-slate-800 border-2 border-transparent focus:border-indigo-600/30 rounded-2xl outline-none transition-all font-black text-xl"
+                           />
+                       </div>
+
+                       <div>
+                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center justify-between">
+                               <span>نسبة الاحتياطي للطوارئ (%)</span>
+                               <span className="text-indigo-600 font-black">{reserveRatio}%</span>
+                           </label>
+                           <input 
+                               type="range"
+                               min="0" max="100" step="1"
+                               value={reserveRatio}
+                               onChange={e => setReserveRatio(Number(e.target.value))}
+                               className="w-full accent-indigo-600"
+                           />
+                           <p className="text-xs text-slate-400 mt-2 font-medium">سيتم استقطاع هذه النسبة قبل توزيع الباقي على الشركاء.</p>
+                       </div>
+                   </div>
+
+                   {(() => {
+                       const amount = Number(simProfitAmount) || 0;
+                       const reserveAmt = (amount * reserveRatio) / 100;
+                       const distributedAmt = amount - reserveAmt;
+
+                       return (
+                       <div className="space-y-6">
+                           <div className="grid grid-cols-2 gap-4">
+                               <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 p-5 rounded-2xl">
+                                  <p className="text-xs font-bold text-amber-600 dark:text-amber-500 mb-1 flex items-center gap-2"><Shield size={14}/> احتياطي محتجز</p>
+                                  <p className="text-2xl font-black text-amber-700 dark:text-amber-400">{reserveAmt.toLocaleString()} <span className="text-sm">ج.م</span></p>
+                               </div>
+                               <div className="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 p-5 rounded-2xl">
+                                  <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1 flex items-center gap-2"><Layers size={14}/> الرصيد الموزع</p>
+                                  <p className="text-2xl font-black text-indigo-700 dark:text-indigo-400">{distributedAmt.toLocaleString()} <span className="text-sm">ج.م</span></p>
+                               </div>
+                           </div>
+
+                           <div className="space-y-3">
+                               <h3 className="text-sm font-black text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 pb-2">حصص الشركاء من التوزيع:</h3>
+                               {partners.map(p => {
+                                   const share = (distributedAmt * (p.profitRatio || 0)) / 100;
+                                   return (
+                                       <div key={p.id} className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500">
+                                                   <User size={14}/>
+                                                </div>
+                                                <div>
+                                                   <p className="font-bold text-slate-800 dark:text-white">{p.name}</p>
+                                                   <p className="text-[10px] text-slate-400 font-black">{p.profitRatio}%</p>
+                                                </div>
+                                            </div>
+                                            <p className="font-black text-emerald-600 dark:text-emerald-400 text-lg">
+                                               {share > 0 ? '+' : ''}{share.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                                            </p>
+                                       </div>
+                                   );
+                               })}
+                               {partners.length === 0 && <p className="text-xs text-slate-400 text-center py-4">لا يوجد شركاء لعرضهم</p>}
+                           </div>
+                       </div>
+                       );
+                   })()}
+               </div>
+            </div>
+        </div>
+      </div>
+      )}
+
+      {activeSection === 'transfers' && (
+      <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
+         <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 opacity-[0.03] text-indigo-600 dark:text-indigo-400 rotate-12 scale-150">
+               <ArrowRightLeft size={150} />
+            </div>
+            
+            <div className="relative z-10 max-w-4xl space-y-8">
+               <div className="space-y-2">
+                   <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                      <ArrowRightLeft className="text-indigo-500" /> التحويلات الداخلية بين الشركاء
+                   </h2>
+                   <p className="text-slate-500 font-medium">تسجيل عملية نقل حصص استثمارية أو تحويل المديونيات والأرصدة من صندوق شريك لآخر بشكل مباشر دون كاش.</p>
+               </div>
+
+               <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800/80 space-y-8">
+                   <div className="grid md:grid-cols-2 gap-6 relative">
+                       {/* Line connector for visual effect */}
+                       <div className="hidden md:block absolute top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white dark:bg-slate-800 rounded-full border-2 border-slate-200 dark:border-slate-700 z-10 flex items-center justify-center text-slate-400">
+                          <ArrowRightLeft size={14} />
+                       </div>
+
+                       <div>
+                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">من الشريك (المُحَوِّل)</label>
+                           <select 
+                               value={fromPartnerId}
+                               onChange={e => setFromPartnerId(e.target.value)}
+                               className="w-full px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-600/30 rounded-2xl outline-none transition-all font-bold"
+                           >
+                               <option value="">-- اختر الشريك --</option>
+                               {partners.map(p => (
+                                   <option key={`from-${p.id}`} value={p.id}>{p.name} (المتاح: {p.balance.toLocaleString()})</option>
+                               ))}
+                           </select>
+                       </div>
+
+                       <div>
+                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">إلى الشريك (المُستَقبِل)</label>
+                           <select 
+                               value={toPartnerId}
+                               onChange={e => setToPartnerId(e.target.value)}
+                               className="w-full px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-600/30 rounded-2xl outline-none transition-all font-bold"
+                           >
+                               <option value="">-- اختر الشريك --</option>
+                               {partners.map(p => (
+                                   <option key={`to-${p.id}`} value={p.id}>{p.name}</option>
+                               ))}
+                           </select>
+                       </div>
+                   </div>
+
+                   <div className="grid md:grid-cols-2 gap-6">
+                       <div>
+                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">نوع التحويل والمبلغ المراد</label>
+                           <div className="flex bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden mb-3">
+                               <button 
+                                   onClick={() => setTransferType('balance')}
+                                   className={`flex-1 py-3 text-sm font-bold transition-colors ${transferType === 'balance' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/80'}`}
+                               >
+                                   رصيد دائن (ج.م)
+                               </button>
+                               <button 
+                                   onClick={() => setTransferType('capital')}
+                                   className={`flex-1 py-3 text-sm font-bold transition-colors border-r border-slate-200 dark:border-slate-700 ${transferType === 'capital' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/80'}`}
+                               >
+                                   حصة رأس مال (%)
+                               </button>
+                           </div>
+                           <div className="relative">
+                               <input 
+                                   type="number" 
+                                   value={transferAmount}
+                                   onChange={e => setTransferAmount(e.target.value)}
+                                   placeholder={`المبلغ بـ ${transferType === 'capital' ? '%' : 'جنيه'}`}
+                                   className="w-full px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-600/30 rounded-2xl outline-none transition-all font-black"
+                               />
+                               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
+                                  {transferType === 'capital' ? '%' : 'ج.م'}
+                               </span>
+                           </div>
+                       </div>
+
+                       <div className="flex flex-col h-full">
+                           <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">ملاحظات وسبب التحويل</label>
+                           <textarea 
+                               value={transferNotes}
+                               onChange={e => setTransferNotes(e.target.value)}
+                               placeholder="شرح سبب النقل والتحويل للتوثيق..."
+                               className="w-full h-full min-h-[100px] px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-indigo-600/30 rounded-2xl outline-none transition-all resize-none text-sm font-medium"
+                           ></textarea>
+                       </div>
+                   </div>
+
+                   <button 
+                       onClick={executeTransfer}
+                       className="w-full py-4 rounded-2xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-xl shadow-indigo-500/25 transition-all outline-none"
+                   >
+                       تأكيد واعتماد التحويل
+                   </button>
+               </div>
+            </div>
+         </div>
+      </div>
+      )}
+
     </div>
   );
 };

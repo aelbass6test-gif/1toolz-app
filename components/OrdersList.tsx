@@ -488,6 +488,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     const isPos = orderToDelete.channel === 'pos' || orderToDelete.id.startsWith('POS-') || orderToDelete.shippingCompany === 'كاشير - بيع مباشر';
     const isStockDeducted = orderToDelete.stockDeducted || isPos;
 
+    let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
+    if (orderNumberToDelete || orderIdToDelete) {
+        updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => {
+            const note = pt.note || '';
+            const matchOrderNumber = orderNumberToDelete ? note.includes(`#${orderNumberToDelete}`) : false;
+            const matchOrderId = orderIdToDelete ? (note.includes(orderIdToDelete) || pt.id.includes(orderIdToDelete)) : false;
+            return !(matchOrderNumber || matchOrderId);
+        });
+    }
+
     if (isStockDeducted) {
         // Return stock to inventory
         let updatedProducts = [...(settings.products || [])];
@@ -537,14 +547,34 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         setSettings(prev => ({
             ...prev,
             products: updatedProducts,
-            posSales: updatedPosSales
+            posSales: updatedPosSales,
+            partnerTransactions: updatedPartnerTransactions
         }));
-    } else if (isPos) {
+    } else {
         let updatedPosSales = (settings.posSales || []).filter(sale => sale.id !== orderIdToDelete);
         setSettings(prev => ({
             ...prev,
-            posSales: updatedPosSales
+            posSales: updatedPosSales,
+            partnerTransactions: updatedPartnerTransactions
         }));
+    }
+
+    // Cascade delete from Treasury if treasury set_treasury is available
+    if (setTreasury && treasury) {
+       setTreasury((prev: any) => {
+           if (!prev) return prev;
+           const updatedTransactions = (prev.transactions || []).filter((tx: any) => {
+               const desc = tx.description || '';
+               const ref = tx.reference || '';
+               const matchOrderNumber = orderNumberToDelete ? (desc.includes(`#${orderNumberToDelete}`) || ref.includes(orderNumberToDelete)) : false;
+               const matchOrderId = orderIdToDelete ? (desc.includes(orderIdToDelete) || ref.includes(orderIdToDelete)) : false;
+               return !(matchOrderNumber || matchOrderId);
+           });
+           return {
+               ...prev,
+               transactions: updatedTransactions
+           };
+       });
     }
     
     // 1. Remove Order from the main orders list
@@ -1375,12 +1405,73 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                 }
             });
             
-            if (listChanged || posSalesChanged) {
-                setSettings(prev => ({
-                    ...prev,
-                    ...(listChanged ? { products: updatedProducts } : {}),
-                    ...(posSalesChanged ? { posSales: updatedPosSales } : {})
-                }));
+            // Filter partner transactions
+            let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
+            ordersBeingDeleted.forEach(orderToDelete => {
+                const orderIdToDelete = orderToDelete.id;
+                const orderNumberToDelete = orderToDelete.orderNumber;
+                if (orderNumberToDelete || orderIdToDelete) {
+                    updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => {
+                        const note = pt.note || '';
+                        const matchOrderNumber = orderNumberToDelete ? note.includes(`#${orderNumberToDelete}`) : false;
+                        const matchOrderId = orderIdToDelete ? (note.includes(orderIdToDelete) || pt.id.includes(orderIdToDelete)) : false;
+                        return !(matchOrderNumber || matchOrderId);
+                    });
+                }
+            });
+
+            setSettings(prev => ({
+                ...prev,
+                products: updatedProducts,
+                posSales: updatedPosSales,
+                partnerTransactions: updatedPartnerTransactions
+            }));
+
+            // Cascade delete from Wallet
+            setWallet(prevWallet => {
+                const currentTransactions = prevWallet.transactions || [];
+                const updatedTransactions = currentTransactions.filter(t => {
+                    const note = t.note || '';
+                    const id = t.id || '';
+                    
+                    const isRelated = ordersBeingDeleted.some(orderToDelete => {
+                        const orderIdToDelete = orderToDelete.id;
+                        const orderNumberToDelete = orderToDelete.orderNumber;
+                        const relatedByNote = orderNumberToDelete ? note.includes(`#${orderNumberToDelete}`) : false;
+                        const relatedByField = t.orderId === orderIdToDelete;
+                        const relatedById = id.endsWith(`_${orderIdToDelete}`);
+                        return relatedByNote || relatedByField || relatedById;
+                    });
+                    
+                    return !isRelated;
+                });
+                return {
+                    ...prevWallet,
+                    transactions: updatedTransactions
+                };
+            });
+
+            // Cascade delete from Treasury
+            if (setTreasury && treasury) {
+               setTreasury((prev: any) => {
+                   if (!prev) return prev;
+                   let txs = [...(prev.transactions || [])];
+                   ordersBeingDeleted.forEach(orderToDelete => {
+                       const orderIdToDelete = orderToDelete.id;
+                       const orderNumberToDelete = orderToDelete.orderNumber;
+                       txs = txs.filter((tx: any) => {
+                           const desc = tx.description || '';
+                           const ref = tx.reference || '';
+                           const matchOrderNumber = orderNumberToDelete ? (desc.includes(`#${orderNumberToDelete}`) || ref.includes(orderNumberToDelete)) : false;
+                           const matchOrderId = orderIdToDelete ? (desc.includes(orderIdToDelete) || ref.includes(orderIdToDelete)) : false;
+                           return !(matchOrderNumber || matchOrderId);
+                       });
+                   });
+                   return {
+                       ...prev,
+                       transactions: txs
+                   };
+               });
             }
 
             setOrders(prevOrders => prevOrders.filter(o => !selectedOrders.includes(o.id)));

@@ -2084,8 +2084,8 @@ export const AppComponent = () => {
                     <Route path="collections-report" element={<CollectionsReportPage {...pageProps} />} />
                     <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings.activityLogs || []} />} />
                     <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
-                    <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} />} />
-                    <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} />} />
+                    <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="pages" element={<PagesManager {...pageProps} />} />
                     <Route path="settings/payment" element={<PaymentSettingsPage {...pageProps} />} />
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />

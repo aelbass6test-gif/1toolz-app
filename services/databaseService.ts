@@ -408,12 +408,55 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     products, suppliers, supplyOrders, reviews, abandonedCarts, activityLogs, employees, discountCodes,
                     collections: collectionsList, customPages, paymentMethods, globalOptions, shippingIntegrations,
                     partners, partnerTransactions,
-                    warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales, cashHolders, cashHandovers,
+                    warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales,
+                    cashHolders: (cashHolders || []).map((ch: any) => ({
+                        ...ch,
+                        userId: ch.userId || ch.user_id || ch.id || '',
+                        userName: ch.userName || ch.user_name || '',
+                        currentBalance: Number(ch.currentBalance ?? ch.current_balance ?? 0),
+                        lastUpdated: ch.lastUpdated || ch.last_updated || new Date().toISOString()
+                    })),
+                    cashHandovers: (cashHandovers || []).map((ch: any) => ({
+                        ...ch,
+                        fromUserId: ch.fromUserId || ch.from_user_id || '',
+                        fromUserName: ch.fromUserName || ch.from_user_name || '',
+                        toUserId: ch.toUserId || ch.to_user_id || '',
+                        toUserName: ch.toUserName || ch.to_user_name || '',
+                        amount: Number(ch.amount ?? 0),
+                        date: ch.date || '',
+                        notes: ch.notes || '',
+                        status: ch.status || ''
+                    })),
                     whatsappTemplates, callScripts
                 },
                 orders,
                 wallet: { balance: 0, transactions },
-                treasury: { accounts: treasuryAccounts, transactions: treasuryTransactions },
+                treasury: { 
+                    accounts: (treasuryAccounts || []).map((acc: any) => ({
+                        ...acc,
+                        id: acc.id,
+                        name: acc.name,
+                        type: acc.type,
+                        balance: Number(acc.balance ?? 0),
+                        currency: acc.currency || 'EGP',
+                        accountNumber: acc.accountNumber || acc.account_number || '',
+                        beneficiaryName: acc.beneficiaryName || acc.beneficiary_name || '',
+                        bankName: acc.bankName || acc.bank_name || '',
+                        walletNumber: acc.walletNumber || acc.wallet_number || '',
+                        walletName: acc.walletName || acc.wallet_name || ''
+                    })), 
+                    transactions: (treasuryTransactions || []).map((tx: any) => ({
+                        ...tx,
+                        id: tx.id,
+                        date: tx.date,
+                        fromAccountId: tx.fromAccountId || tx.from_account_id || '',
+                        toAccountId: tx.toAccountId || tx.to_account_id || '',
+                        amount: Number(tx.amount ?? 0),
+                        type: tx.type,
+                        description: tx.description || '',
+                        reference: tx.reference || ''
+                    }))
+                },
                 cart: [],
                 customers
             };
@@ -571,7 +614,13 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 orderReturns: orderReturns,
                 purchaseReturns: purchaseReturns,
                 posSales: posSales,
-                cashHolders: cashHolders,
+                cashHolders: (cashHolders || []).map((ch: any) => ({
+                    ...ch,
+                    userId: ch.userId || ch.id || '',
+                    userName: ch.userName || ch.user_name || '',
+                    currentBalance: Number(ch.currentBalance ?? ch.current_balance ?? 0),
+                    lastUpdated: ch.lastUpdated || ch.last_updated || new Date().toISOString()
+                })),
                 cashHandovers: cashHandovers,
                 whatsappTemplates: whatsappTemplates,
                 callScripts: callScripts
@@ -717,14 +766,14 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 // 1. Handle Deletions (Relational Sync)
                 // We need to identify items currently in Supabase for this store that are NOT in the incoming 'items' list
                 try {
-                    const idField = table === 'employees' ? 'phone' : 'id';
+                    const idField = table === 'employees' ? 'phone' : (table === 'cash_holders' ? 'user_id' : 'id');
                     const { data: cloudItems, error: fetchError } = await supabase
                         .from(table)
                         .select(idField)
                         .eq('store_id', store.id);
 
                     if (!fetchError && cloudItems) {
-                        const localIds = new Set(items.map(item => String(item[table === 'employees' ? 'phone' : 'id'] || '')));
+                        const localIds = new Set(items.map(item => String(item.phone || item.userId || item.user_id || item.id || '')));
                         const idsToDelete = cloudItems
                             .map((ci: any) => String(ci[idField]))
                             .filter(id => id && !localIds.has(id));
@@ -754,10 +803,106 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         cleanItem.phone = cleanItem.id;
                     }
                     
-                    return { ...cleanItem, store_id: store.id };
+                    let mappedItem = { ...cleanItem, store_id: store.id };
+
+                    if (table === 'cash_holders') {
+                        mappedItem = {
+                            ...mappedItem,
+                            user_id: cleanItem.userId || cleanItem.user_id || cleanItem.id || '',
+                            userid: cleanItem.userId || cleanItem.user_id || cleanItem.id || '',
+                            user_name: cleanItem.userName || cleanItem.user_name || '',
+                            username: cleanItem.userName || cleanItem.user_name || '',
+                            current_balance: Number(cleanItem.currentBalance ?? cleanItem.current_balance ?? 0),
+                            currentbalance: Number(cleanItem.currentBalance ?? cleanItem.current_balance ?? 0),
+                            last_updated: cleanItem.lastUpdated || cleanItem.last_updated || '',
+                            lastupdated: cleanItem.lastUpdated || cleanItem.last_updated || ''
+                        };
+                        delete (mappedItem as any).userId;
+                        delete (mappedItem as any).userName;
+                        delete (mappedItem as any).currentBalance;
+                        delete (mappedItem as any).lastUpdated;
+                    } else if (table === 'cash_handovers') {
+                        mappedItem = {
+                            ...mappedItem,
+                            from_user_id: cleanItem.fromUserId || cleanItem.from_user_id || '',
+                            fromuserid: cleanItem.fromUserId || cleanItem.from_user_id || '',
+                            from_user_name: cleanItem.fromUserName || cleanItem.from_user_name || '',
+                            fromusername: cleanItem.fromUserName || cleanItem.from_user_name || '',
+                            to_user_id: cleanItem.toUserId || cleanItem.to_user_id || '',
+                            touserid: cleanItem.toUserId || cleanItem.to_user_id || '',
+                            to_user_name: cleanItem.toUserName || cleanItem.to_user_name || '',
+                            tousername: cleanItem.toUserName || cleanItem.to_user_name || '',
+                            amount: Number(cleanItem.amount ?? 0),
+                            date: cleanItem.date || '',
+                            notes: cleanItem.notes || '',
+                            status: cleanItem.status || 'completed'
+                        };
+                    } else if (table === 'partners') {
+                        mappedItem = {
+                            ...mappedItem,
+                            name: cleanItem.name || '',
+                            phone: cleanItem.phone || '',
+                            notes: cleanItem.notes || '',
+                            balance: Number(cleanItem.balance ?? 0),
+                            profit_ratio: Number(cleanItem.profitRatio ?? cleanItem.profit_ratio ?? 0),
+                            profitratio: Number(cleanItem.profitRatio ?? cleanItem.profit_ratio ?? 0)
+                        };
+                    } else if (table === 'partner_transactions') {
+                        mappedItem = {
+                            ...mappedItem,
+                            partner_id: cleanItem.partnerId || cleanItem.partner_id || '',
+                            partnerid: cleanItem.partnerId || cleanItem.partner_id || '',
+                            type: cleanItem.type || '',
+                            amount: Number(cleanItem.amount ?? 0),
+                            date: cleanItem.date || '',
+                            note: cleanItem.note || ''
+                        };
+                    } else if (table === 'treasury_accounts') {
+                        mappedItem = {
+                            ...mappedItem,
+                            name: cleanItem.name || '',
+                            type: cleanItem.type || 'safe',
+                            balance: Number(cleanItem.balance ?? 0),
+                            currency: cleanItem.currency || 'EGP',
+                            account_number: cleanItem.accountNumber || cleanItem.account_number || '',
+                            accountNumber: cleanItem.accountNumber || cleanItem.account_number || '',
+                            beneficiary_name: cleanItem.beneficiaryName || cleanItem.beneficiary_name || '',
+                            beneficiaryName: cleanItem.beneficiaryName || cleanItem.beneficiary_name || '',
+                            bank_name: cleanItem.bankName || cleanItem.bank_name || '',
+                            bankName: cleanItem.bankName || cleanItem.bank_name || '',
+                            wallet_number: cleanItem.walletNumber || cleanItem.wallet_number || '',
+                            walletNumber: cleanItem.walletNumber || cleanItem.wallet_number || '',
+                            wallet_name: cleanItem.walletName || cleanItem.wallet_name || '',
+                            walletName: cleanItem.walletName || cleanItem.wallet_name || ''
+                        };
+                    } else if (table === 'treasury_transactions') {
+                        mappedItem = {
+                            ...mappedItem,
+                            date: cleanItem.date || '',
+                            from_account_id: cleanItem.fromAccountId || cleanItem.from_account_id || '',
+                            fromAccountId: cleanItem.fromAccountId || cleanItem.from_account_id || '',
+                            to_account_id: cleanItem.toAccountId || cleanItem.to_account_id || '',
+                            toAccountId: cleanItem.toAccountId || cleanItem.to_account_id || '',
+                            amount: Number(cleanItem.amount ?? 0),
+                            type: cleanItem.type || 'deposit',
+                            description: cleanItem.description || '',
+                            reference: cleanItem.reference || ''
+                        };
+                    }
+                    
+                    return mappedItem;
                 }).filter(item => {
                     if (table === 'employees' && !item.phone) {
                         return false; 
+                    }
+                    if (table === 'cash_holders' && (!item.user_id || item.user_id === 'undefined')) {
+                        return false;
+                    }
+                    if (table === 'cash_handovers' && !item.id) {
+                        return false;
+                    }
+                    if (table === 'partners' && !item.id) {
+                        return false;
                     }
                     return true;
                 });
@@ -768,6 +913,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     let key = '';
                     if (table === 'employees') {
                         key = String(item.phone || '');
+                    } else if (table === 'cash_holders') {
+                        key = String(item.user_id || item.userId || item.id || '');
                     } else {
                         key = String(item.id || '');
                     }
@@ -1029,7 +1176,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             syncCollection('order_returns', orderReturns),
             syncCollection('purchase_returns', purchaseReturns),
             syncCollection('pos_sales', posSales),
-            syncCollection('cash_holders', cashHolders),
+            syncCollection('cash_holders', cashHolders, 'userId'),
             syncCollection('cash_handovers', cashHandovers),
             syncCollection('whatsapp_templates', whatsappTemplates),
             syncCollection('call_scripts', callScripts)

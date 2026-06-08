@@ -10,7 +10,9 @@ import {
   History,
   Search,
   Download,
-  AlertCircle
+  AlertCircle,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { Settings, Treasury, TreasuryAccount, TreasuryTransaction } from '../types';
 
@@ -45,6 +47,86 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
   const [fromAccount, setFromAccount] = useState('');
   const [toAccount, setToAccount] = useState('');
   const [transDesc, setTransDesc] = useState('');
+
+  // Editing state for accounts
+  const [editingAccount, setEditingAccount] = useState<TreasuryAccount | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingBankName, setEditingBankName] = useState('');
+  const [editingAccountNumber, setEditingAccountNumber] = useState('');
+  const [editingBeneficiaryName, setEditingBeneficiaryName] = useState('');
+  const [editingWalletNumber, setEditingWalletNumber] = useState('');
+  const [editingWalletName, setEditingWalletName] = useState('');
+
+  // Custom alert state
+  const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean; title: string; message: string; isError?: boolean } | null>(null);
+
+  const startEditAccount = (acc: TreasuryAccount) => {
+    setEditingAccount(acc);
+    setEditingName(acc.name);
+    setEditingBankName(acc.bankName || '');
+    setEditingAccountNumber(acc.accountNumber || '');
+    setEditingBeneficiaryName(acc.beneficiaryName || '');
+    setEditingWalletNumber(acc.walletNumber || '');
+    setEditingWalletName(acc.walletName || '');
+  };
+
+  const handleSaveEditAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAccount || !editingName.trim()) return;
+
+    if (setTreasury) {
+      setTreasury((prev: Treasury) => ({
+        ...prev,
+        accounts: prev.accounts.map(acc => 
+          acc.id === editingAccount.id 
+            ? {
+                ...acc,
+                name: editingName,
+                bankName: acc.type === 'bank' ? editingBankName : undefined,
+                accountNumber: acc.type === 'bank' ? editingAccountNumber : undefined,
+                beneficiaryName: acc.type === 'bank' ? editingBeneficiaryName : undefined,
+                walletNumber: acc.type === 'wallet' ? editingWalletNumber : undefined,
+                walletName: acc.type === 'wallet' ? editingWalletName : undefined,
+              }
+            : acc
+        )
+      }));
+    }
+
+    setEditingAccount(null);
+  };
+
+  const handleDeleteAccount = (acc: TreasuryAccount) => {
+    if (acc.balance !== 0) {
+      setAlertConfig({
+        isOpen: true,
+        title: 'لا يمكن حذف الحساب',
+        message: `عفواً، لا يمكن حذف الحساب "${acc.name}" لأن رصيده الحالي (${acc.balance.toLocaleString()} ج.م) ليس صفراً. يرجى تصفية أو تحويل الرصيد المتبقي أولاً لضمان سلامة الدفاتر المالية.`,
+        isError: true
+      });
+      return;
+    }
+
+    // Protection to leave at least one account
+    if (accounts.length <= 1) {
+      setAlertConfig({
+        isOpen: true,
+        title: 'إجراء غير مسموح',
+        message: 'يجب أن يحتوي النظام على حساب مالي أو خزينة واحدة تابعة على الأقل.',
+        isError: true
+      });
+      return;
+    }
+
+    if (window.confirm(`هل أنت متأكد من رغبتك في حذف الحساب "${acc.name}" نهائياً من سجلات الخزينة؟`)) {
+      if (setTreasury) {
+        setTreasury((prev: Treasury) => ({
+          ...prev,
+          accounts: prev.accounts.filter(a => a.id !== acc.id)
+        }));
+      }
+    }
+  };
 
   const handleAddAccount = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,14 +167,31 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
     const amount = Number(transAmount);
     if (!amount || amount <= 0) return;
 
+    const fromAccountId = (transactionType === 'withdrawal' || transactionType === 'transfer' || transactionType === 'advance') ? fromAccount : undefined;
+    const toAccountId = (transactionType === 'deposit' || transactionType === 'transfer' || transactionType === 'advance') ? toAccount : undefined;
+
+    // Overdraft safeguard check
+    if (fromAccountId) {
+      const srcAcc = accounts.find(a => a.id === fromAccountId);
+      if (srcAcc && srcAcc.balance < amount) {
+        setAlertConfig({
+          isOpen: true,
+          title: 'رصيد غير كافٍ',
+          message: `عفواً، لا يمكن إتمام العملية لأن رصيد حساب المتبع "${srcAcc.name}" (${srcAcc.balance.toLocaleString()} ج.م) لا يكفي لسحب مبلغ قدره ${amount.toLocaleString()} ج.م.`,
+          isError: true
+        });
+        return;
+      }
+    }
+
     const newTx: TreasuryTransaction = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
       type: transactionType,
       amount,
       description: transDesc,
-      fromAccountId: (transactionType === 'withdrawal' || transactionType === 'transfer' || transactionType === 'advance') ? fromAccount : undefined,
-      toAccountId: (transactionType === 'deposit' || transactionType === 'transfer' || transactionType === 'advance') ? toAccount : undefined,
+      fromAccountId,
+      toAccountId,
     };
 
     if (setTreasury) {
@@ -123,7 +222,11 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
   };
 
   const getTotalBalance = () => accounts.filter(a => a.type !== 'custody').reduce((sum, acc) => sum + acc.balance, 0);
-  const getTotalCustody = () => accounts.filter(a => a.type === 'custody').reduce((sum, acc) => sum + acc.balance, 0);
+  const getTotalCustody = () => {
+    const custodyFromHolders = (settings?.cashHolders || []).reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+    const custodyAccounts = accounts.filter(a => a.type === 'custody').reduce((sum, acc) => sum + acc.balance, 0);
+    return custodyFromHolders + custodyAccounts;
+  };
 
   const getAccountIcon = (type: string) => {
     switch (type) {
@@ -194,8 +297,8 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
           <div className="flex justify-between items-start">
             <div>
               <span className="text-[10px] font-black uppercase text-amber-500 tracking-wider">إجمالي العهد لدى الموظفين</span>
-              <p className="text-4xl font-black tracking-tight mt-1 text-slate-800 dark:text-white">
-                {getTotalCustody().toLocaleString()} <span className="text-lg font-bold text-slate-450 dark:text-slate-500">ج.م</span>
+              <p className="text-4xl font-black tracking-tight mt-1 text-white">
+                {getTotalCustody().toLocaleString()} <span className="text-lg font-bold text-slate-400">ج.م</span>
               </p>
             </div>
             <div className="p-4 bg-amber-500/15 rounded-2xl text-amber-500">
@@ -244,7 +347,25 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                     {acc.type === 'safe' ? 'خزينة' : acc.type === 'bank' ? 'حساب بنكي' : acc.type === 'wallet' ? 'محفظة' : 'عهدة موقتة'}
                   </span>
                 </div>
-                <h4 className="text-slate-800 dark:text-slate-100 font-extrabold text-base mb-2">{acc.name}</h4>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <h4 className="text-slate-800 dark:text-slate-100 font-extrabold text-base truncate" title={acc.name}>{acc.name}</h4>
+                  <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                     <button 
+                       onClick={(e) => { e.stopPropagation(); startEditAccount(acc); }} 
+                       className="p-1.5 bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer" 
+                       title="تعديل الحساب"
+                     >
+                       <Edit2 className="w-3.5 h-3.5" />
+                     </button>
+                     <button 
+                       onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc); }} 
+                       className="p-1.5 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer" 
+                       title="حذف الحساب"
+                     >
+                       <Trash2 className="w-3.5 h-3.5" />
+                     </button>
+                  </div>
+                </div>
                 
                 {acc.type === 'bank' && (
                   <div className="mb-4 space-y-1 bg-slate-50 dark:bg-slate-850/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
@@ -545,6 +666,123 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Editing Account Modal */}
+      {editingAccount && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md shadow-2xl p-6 border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200" dir="rtl">
+            <h3 className="text-xl font-black text-slate-800 dark:text-white mb-6">تعديل بيانات الحساب الجاري</h3>
+            <form onSubmit={handleSaveEditAccount} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">اسم الحساب / الخزينة</label>
+                <input 
+                  type="text" 
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-800 dark:text-white font-bold focus:outline-none focus:border-indigo-500"
+                  required
+                />
+              </div>
+
+              {editingAccount.type === 'bank' && (
+                <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">اسم البنك</label>
+                    <input 
+                      type="text" 
+                      value={editingBankName}
+                      onChange={(e) => setEditingBankName(e.target.value)}
+                      placeholder="مثال: البنك الأهلي المصري"
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">رقم الحساب / IBAN</label>
+                    <input 
+                      type="text" 
+                      value={editingAccountNumber}
+                      onChange={(e) => setEditingAccountNumber(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">اسم المستفيد</label>
+                    <input 
+                      type="text" 
+                      value={editingBeneficiaryName}
+                      onChange={(e) => setEditingBeneficiaryName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editingAccount.type === 'wallet' && (
+                <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">رقم المحفظة</label>
+                    <input 
+                      type="text" 
+                      value={editingWalletNumber}
+                      onChange={(e) => setEditingWalletNumber(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">الاسم بالكامل</label>
+                    <input 
+                      type="text" 
+                      value={editingWalletName}
+                      onChange={(e) => setEditingWalletName(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-slate-800 dark:text-white focus:outline-none focus:border-indigo-500"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  type="submit"
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 font-bold transition-colors"
+                >
+                  حفظ التعديلات
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setEditingAccount(null)}
+                  className="px-6 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold transition-colors"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Alert/Warning Dialog */}
+      {alertConfig && alertConfig.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-[2rem] shadow-2xl p-6 text-right" dir="rtl">
+            <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 mb-2">
+              <AlertCircle className="w-5 h-5" />
+              <h3 className="text-lg font-black">{alertConfig.title}</h3>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 font-bold text-sm mb-6 leading-relaxed">{alertConfig.message}</p>
+            <button 
+              onClick={() => setAlertConfig(null)}
+              className="w-full px-4 py-3 bg-slate-100 hover:bg-slate-250 dark:bg-slate-705 dark:hover:bg-slate-650 text-slate-700 dark:text-white font-black rounded-xl transition-colors"
+            >
+              مفهوم
+            </button>
           </div>
         </div>
       )}

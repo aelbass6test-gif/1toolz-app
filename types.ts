@@ -400,10 +400,11 @@ export interface Partner {
 export interface PartnerTransaction {
   id: string;
   partnerId: string;
-  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment' | 'pos_collection';
+  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment' | 'pos_collection' | 'internal_transfer_out' | 'internal_transfer_in';
   amount: number;
   date: string;
   note?: string;
+  treasuryAccountId?: string;
 }
 
 export interface Supplier {
