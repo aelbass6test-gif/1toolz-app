@@ -1045,7 +1045,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const compFees = settings.companySpecificFees?.[order.shippingCompany];
             const useCustom = compFees?.useCustomFees ?? false;
             const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-            const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+            const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+            const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
             const isInsured = order.isInsured ?? true;
             const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
             const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
@@ -1093,7 +1094,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const useCustom = compFees?.useCustomFees ?? false;
             
             const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-            const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+            const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+            const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
             const isInsured = order.isInsured ?? true;
             const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
             const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;

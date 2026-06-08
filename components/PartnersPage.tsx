@@ -244,6 +244,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     const amount = Number(t.amount) || 0;
                     if (['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type)) {
                         return sum + amount;
+                    } else if (t.type === 'pos_collection') {
+                        return sum; // Do not affect partner balance with POS collection transactions as they are tracked via cash holders
                     } else {
                         return sum - amount;
                     }
@@ -322,7 +324,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
             transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
             transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
-            transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع محفظة التوريد)' : 'سداد سلفة'
+            transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع محفظة التوريد)' : 
+            transactionType === 'pos_collection' ? 'تحصيل مبيعات نقطة البيع' : 'سداد سلفة'
         }`,
         category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'manual_withdrawal' : 'manual_deposit'),
         status: 'completed'

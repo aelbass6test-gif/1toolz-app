@@ -777,21 +777,49 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 }
                 const uniqueItems = Array.from(map.values());
                 
-                const { error } = await supabase.from(table).upsert(uniqueItems);
-                if (error) {
+                let currentItemsToUpsert = [...uniqueItems];
+                let upsertSuccess = false;
+                let attempts = 0;
+                
+                while (!upsertSuccess && attempts < 30) {
+                    const { error } = await supabase.from(table).upsert(currentItemsToUpsert);
+                    if (!error) {
+                        upsertSuccess = true;
+                        break;
+                    }
+                    
                     if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                         console.warn(`Table ${table} not found in Supabase schema. Skipping sync.`);
                         return;
                     }
+                    
                     if (error.code === 'PGRST204') {
-                        console.error(`Column missing in table ${table}: ${error.message}`);
-                        // Return error specifically about columns
+                        console.warn(`Column missing in table ${table}: ${error.message}`);
+                        // Return error specifically about columns so UI can show warning/button
                         (window as any).SUPABASE_SCHEMA_ERROR = {
                             table,
                             message: error.message,
                             code: error.code
                         };
+                        
+                        // Parse missing column name
+                        const match = error.message.match(/Could not find the '([^']+)' column/i) || 
+                                      error.message.match(/column "([^"]+)"/i) ||
+                                      error.message.match(/column '([^']+)'/i);
+                                      
+                        if (match && match[1]) {
+                            const missingCol = match[1];
+                            console.warn(`[SYNC-SELF-HEAL] Stripping missing column '${missingCol}' from table '${table}' payload and retrying...`);
+                            currentItemsToUpsert = currentItemsToUpsert.map(item => {
+                                const copy = { ...item };
+                                delete copy[missingCol];
+                                return copy;
+                            });
+                            attempts++;
+                            continue;
+                        }
                     }
+                    
                     throw error;
                 }
             };

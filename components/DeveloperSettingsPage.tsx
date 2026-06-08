@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS orders (
     date TEXT NOT NULL,
     total_price NUMERIC NOT NULL,
     totalPrice NUMERIC,
+    channel TEXT DEFAULT 'online',
+    warehouse_id TEXT,
+    warehouseId TEXT,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -151,6 +154,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
+    "user" TEXT,
     user_name TEXT,
     userName TEXT,
     action TEXT NOT NULL,
@@ -478,7 +482,7 @@ CREATE TABLE IF NOT EXISTS pos_sales (
     items JSONB DEFAULT '[]'::jsonb,
     total_amount NUMERIC DEFAULT 0,
     totalAmount NUMERIC DEFAULT 0,
-    payment_method TEXT NOT NULL,
+    payment_method TEXT,
     paymentMethod TEXT,
     warehouse_id TEXT,
     warehouseId TEXT,
@@ -769,6 +773,9 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "followUpReminder" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "auditLogs" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "callAttempts" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'online';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
 
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "totalSpent" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyaltyPoints" NUMERIC DEFAULT 0;
@@ -782,8 +789,26 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS governorate TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS city TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC;
 
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS action TEXT;
+
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderName" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_id TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_name TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_address TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerName" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS performed_by TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
 
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "senderId" TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "receiverId" TEXT;
@@ -847,7 +872,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const handleFixDBSchema = () => {
     const instructions = `
 -- انسخ هذا الكود والصقه في SQL Editor في Supabase
--- لتحديث الجداول وإضافة الأعمدة المفقودة (مثل minStockLevel)
+-- لتحديث الجداول وإضافة الأعمدة المفقودة (مثل minStockLevel و warehouseId و customerName)
 
 ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
@@ -864,9 +889,38 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOL
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'online';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
+
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
+
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderName" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_id TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_name TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_address TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerName" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS performed_by TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "saleNumber" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS sale_number TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "totalAmount" NUMERIC DEFAULT 0;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0;
+ALTER TABLE pos_sales ALTER COLUMN payment_method DROP NOT NULL;
+ALTER TABLE pos_sales ALTER COLUMN sale_number DROP NOT NULL;
 `;
     navigator.clipboard.writeText(instructions);
-    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح خطأ (minStockLevel, distributeExpensesEqually, recordExpensesFormally, expensePaidBy).", 'success', 'إصلاح قاعدة البيانات');
+    triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح كود المزامنة (channel, user, cashHolderId, minStockLevel).", 'success', 'إصلاح قاعدة البيانات');
   };
   
   // Custom Database Credentials States

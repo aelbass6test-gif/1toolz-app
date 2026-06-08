@@ -400,7 +400,7 @@ export interface Partner {
 export interface PartnerTransaction {
   id: string;
   partnerId: string;
-  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment';
+  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment' | 'pos_collection';
   amount: number;
   date: string;
   note?: string;

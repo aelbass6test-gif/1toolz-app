@@ -105,6 +105,9 @@ CREATE TABLE IF NOT EXISTS orders (
     date TEXT NOT NULL,
     total_price NUMERIC NOT NULL,
     totalPrice NUMERIC,
+    channel TEXT DEFAULT 'online',
+    warehouse_id TEXT,
+    warehouseId TEXT,
     details JSONB DEFAULT '{}'::jsonb
 );
 
@@ -170,6 +173,7 @@ CREATE TABLE IF NOT EXISTS abandoned_carts (
 CREATE TABLE IF NOT EXISTS activity_logs (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    "user" TEXT,
     user_name TEXT,
     action TEXT NOT NULL,
     details JSONB,
@@ -380,13 +384,13 @@ CREATE TABLE IF NOT EXISTS pos_sales (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
-    sale_number TEXT NOT NULL,
+    sale_number TEXT,
     saleNumber TEXT,
     date TEXT NOT NULL,
     items JSONB DEFAULT '[]'::jsonb,
     total_amount NUMERIC DEFAULT 0,
     totalAmount NUMERIC DEFAULT 0,
-    payment_method TEXT NOT NULL,
+    payment_method TEXT,
     paymentMethod TEXT,
     warehouse_id TEXT,
     warehouseId TEXT,
@@ -479,6 +483,13 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'online';
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderName" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_id TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_name TEXT;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE products DISABLE ROW LEVEL SECURITY;
 ALTER TABLE orders DISABLE ROW LEVEL SECURITY;

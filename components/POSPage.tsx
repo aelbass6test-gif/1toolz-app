@@ -1,4 +1,5 @@
 
+// Testing edit ability
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -58,19 +59,42 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
   const [searchTerm, setSearchTerm] = useState('');
   const [cart, setCart] = useState<POSSaleItem[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState(settings.warehouses?.find(w => w.isDefault)?.id || settings.warehouses?.[0]?.id || '');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'wallet'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [paymentStatusType, setPaymentStatusType] = useState<'paid' | 'credit'>('paid');
-  const [selectedCashHolder, setSelectedCashHolder] = useState(currentUser?.id || (settings.employees?.[0]?.id || settings.partners?.[0]?.id || ''));
+  const [selectedCashHolder, setSelectedCashHolder] = useState('');
   const [customerInfo, setCustomerInfo] = useState({ name: 'عميل نقدي', phone: '', address: '' });
 
   const products = settings.products || [];
   const warehouses = settings.warehouses || [];
   const cashHolders = settings.cashHolders || [];
-  
   const allPossibleHolders = useMemo(() => [
-    ...(settings.employees || []).map((e, index) => ({ id: `emp_${e.id || index}`, name: e.name })),
+    { id: 'admin', name: 'المدير (أنت)' },
+    ...(settings.employees || []).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: e.name })),
     ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: `${p.name} (شريك)` }))
   ], [settings.employees, settings.partners]);
+
+  const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [
+    { id: 'cash', name: 'كاش', logoUrl: '' },
+    { id: 'card', name: 'فيزا', logoUrl: '' },
+    { id: 'wallet', name: 'محفظة', logoUrl: '' }
+  ];
+
+  // Set the default cash holder with exact prefixed ID on load
+  useEffect(() => {
+    if (allPossibleHolders.length > 0) {
+      const match = allPossibleHolders.find(h => 
+        h.id === `emp_${currentUser?.id}` || 
+        h.id === `part_${currentUser?.id}` ||
+        h.id === currentUser?.id ||
+        (currentUser?.role === 'admin' && h.id === 'admin')
+      );
+      if (match) {
+        setSelectedCashHolder(match.id);
+      } else {
+        setSelectedCashHolder(allPossibleHolders[0].id);
+      }
+    }
+  }, [allPossibleHolders, currentUser]);
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm) return products.slice(0, 12);
@@ -134,7 +158,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
       const saleId = `POS-${Date.now()}`;
       const saleNumber = `P-${String((settings.posSales?.length || 0) + 1).padStart(5, '0')}`;
       
-      const receiver = allPossibleHolders.find(h => h.id === selectedCashHolder);
+      const finalCashHolder = selectedCashHolder || allPossibleHolders[0]?.id || 'admin';
+      const receiver = allPossibleHolders.find(h => h.id === finalCashHolder);
       const isCredit = paymentStatusType === 'credit';
       
       const newSale: POSSale = {
@@ -143,13 +168,13 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
         date: new Date().toISOString(),
         items: cart,
         totalAmount,
-        paymentMethod: isCredit ? 'cash' : paymentMethod,
+        paymentMethod: (isCredit ? 'cash' : paymentMethod) as 'cash' | 'card' | 'wallet',
         warehouseId: selectedWarehouse,
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone,
         customerAddress: customerInfo.address,
         performedBy: currentUser?.fullName || currentUser?.email || 'كاشير',
-        cashHolderId: isCredit ? 'credit' : selectedCashHolder,
+        cashHolderId: isCredit ? 'credit' : finalCashHolder,
         cashHolderName: isCredit ? 'حساب أجل' : receiver?.name,
         notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : 'بيع مباشر من المنفذ'}`
       };
@@ -182,18 +207,39 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
 
       // Update Cash Holder Balance
       let updatedHolders = [...(settings.cashHolders || [])];
+      let updatedPartners = [...(settings.partners || [])];
+      let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
+
       if (!isCredit) {
-        const hIdx = updatedHolders.findIndex(h => h.userId === selectedCashHolder);
+        const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(finalCashHolder));
         if (hIdx > -1) {
           updatedHolders[hIdx].currentBalance += totalAmount;
           updatedHolders[hIdx].lastUpdated = new Date().toISOString();
         } else {
           updatedHolders.push({
-            userId: selectedCashHolder,
+            userId: finalCashHolder,
             userName: receiver?.name || 'مستلم',
             currentBalance: totalAmount,
             lastUpdated: new Date().toISOString()
           });
+        }
+
+        // Synchronize directly with Partners tab if selected cash holder is a partner
+        if (finalCashHolder.startsWith('part_')) {
+          const actualPartnerId = finalCashHolder.substring(5);
+          const partnerIdx = updatedPartners.findIndex(p => String(p.id) === String(actualPartnerId));
+          if (partnerIdx > -1) {
+            // Only update balance if it's not a POS collection
+            
+            updatedPartnerTransactions.push({
+              id: `pos-${Date.now()}`,
+              partnerId: actualPartnerId,
+              type: 'pos_collection',
+              amount: totalAmount,
+              date: new Date().toISOString(),
+              note: `استلام عهدة / مبيعات كاشير من نقطة البيع لطلب #${saleNumber}`
+            });
+          }
         }
       }
 
@@ -201,6 +247,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
         ...settings,
         products: updatedProducts,
         cashHolders: updatedHolders,
+        partners: updatedPartners,
+        partnerTransactions: updatedPartnerTransactions,
         posSales: [newSale, ...(settings.posSales || [])],
         activityLogs: [
           {
@@ -237,7 +285,12 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
         date: new Date().toISOString(),
         paymentStatus: isCredit ? 'بانتظار الدفع' : 'مدفوع',
         warehouseId: selectedWarehouse,
-        channel: 'pos'
+        channel: 'pos',
+        stockDeducted: true,
+        includeInspectionFee: false,
+        inspectionFee: 0,
+        isInsured: false,
+        insuranceFee: 0
       };
 
       // Perform a single atomic update to the store data
@@ -395,7 +448,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, upd
                >
                   <label className="text-[10px] font-black text-slate-400 font-bold uppercase tracking-widest mr-1">المستلم (صاحب العهدة/الحساب)</label>
                   <select 
-                    value={selectedCashHolder}
+                    value={selectedCashHolder || (allPossibleHolders[0]?.id || '')}
                     onChange={(e) => setSelectedCashHolder(e.target.value)}
                     className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-xs font-black outline-none focus:ring-2 focus:ring-indigo-500/20"
                   >

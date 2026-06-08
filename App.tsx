@@ -2057,7 +2057,7 @@ export const AppComponent = () => {
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
-                    <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
+                    <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="purchase-returns" element={<PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />

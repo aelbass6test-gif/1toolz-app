@@ -47,8 +47,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   // Combine currentUser and employees for selection
   const allPossibleHolders = [
     { id: 'admin', name: 'المدير (أنت)', role: 'admin' },
-    ...employees.map(e => ({ id: `emp_${e.id}`, name: e.name, role: 'employee' })),
-    ...(settings.partners || []).map(p => ({ id: `part_${p.id}`, name: p.name, role: 'partner' }))
+    ...employees.map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: e.name, role: 'employee' })),
+    ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: p.name, role: 'partner' }))
   ];
 
   const handleExecuteHandover = () => {
@@ -168,9 +168,25 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
                           <User size={24} />
                        </div>
-                       <div className="text-right">
-                          <h4 className="font-black text-slate-800 dark:text-white">{holder.userName}</h4>
-                          <span className="text-[10px] font-bold text-slate-400">آخر تحديث: {new Date(holder.lastUpdated).toLocaleDateString('ar-EG')}</span>
+                       <div className="flex items-center gap-2">
+                          {(currentUser?.isAdmin) && (
+                            <button 
+                              onClick={() => {
+                                if (confirm('هل أنت متأكد من حذف هذه العهدة؟')) {
+                                  const updatedHolders = holders.filter(h => h.userId !== holder.userId);
+                                  updateSettings({ ...settings, cashHolders: updatedHolders });
+                                }
+                              }}
+                              className="text-rose-500 hover:bg-rose-50 p-2 rounded-xl transition-colors"
+                              title="حذف العهدة"
+                            >
+                              <X size={16} />
+                            </button>
+                          )}
+                          <div className="text-right">
+                             <h4 className="font-black text-slate-800 dark:text-white">{holder.userName}</h4>
+                             <span className="text-[10px] font-bold text-slate-400">آخر تحديث: {new Date(holder.lastUpdated).toLocaleDateString('ar-EG')}</span>
+                          </div>
                        </div>
                     </div>
                     
@@ -282,8 +298,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 px-4 rounded-xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10"
                     >
                       <option value="">-- اختر المستلم --</option>
-                      {allPossibleHolders.map(h => (
-                        <option key={h.id} value={h.id}>{h.name} ({h.role})</option>
+                      {allPossibleHolders.map((h, index) => (
+                        <option key={h.id + index} value={h.id}>{h.name} ({h.role})</option>
                       ))}
                     </select>
                  </div>

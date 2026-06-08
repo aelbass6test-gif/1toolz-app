@@ -231,8 +231,10 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
                 cogs += cost * item.quantity;
             });
             shippingRevenue += (o.shippingFee || 0);
-            insuranceFees += (o.insuranceFee || 0);
-            inspectionFees += (o.inspectionFee || 0);
+            if (o.channel !== 'pos' && o.shippingCompany !== 'كاشير - بيع مباشر') {
+                insuranceFees += (o.insuranceFee || 0);
+                inspectionFees += (o.inspectionFee || 0);
+            }
         });
 
         // Expenses from wallet
@@ -901,8 +903,10 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
                 cogs += cost * item.quantity;
             });
             shippingRevenue += (o.shippingFee || 0);
-            insuranceFees += (o.insuranceFee || 0);
-            inspectionFees += (o.inspectionFee || 0);
+            if (o.channel !== 'pos' && o.shippingCompany !== 'كاشير - بيع مباشر') {
+                insuranceFees += (o.insuranceFee || 0);
+                inspectionFees += (o.inspectionFee || 0);
+            }
         });
 
         const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));

@@ -172,7 +172,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
         const compFees = settings.companySpecificFees?.[o.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
         const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+        const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+        const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
         const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
         const bostaVat = calculateBostaVat(o, insuranceFee, settings);
@@ -180,8 +181,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
         const safeDiscount = o.discount || 0;
         const safeAdvance = o.advancePayment || 0;
         const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-        const collectionAmount = o.totalAmountOverride !== undefined ? o.totalAmountOverride : defaultCollectionAmount;
-        const extraAdjustment = o.totalAmountOverride !== undefined ? o.totalAmountOverride - defaultCollectionAmount : 0;
+        const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
+        const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
         
         const netProfit = o.productPrice - safeDiscount - o.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;
         
@@ -205,7 +206,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
       const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-      const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
       
       const codFee = calculateCodFee(o);
       const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
@@ -215,8 +217,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const safeDiscount = o.discount || 0;
       const safeAdvance = o.advancePayment || 0;
       const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-      const collectionAmount = o.totalAmountOverride !== undefined ? o.totalAmountOverride : defaultCollectionAmount;
-      const extraAdjustment = o.totalAmountOverride !== undefined ? o.totalAmountOverride - defaultCollectionAmount : 0;
+      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
+      const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
       
       const shippingDeduction = insuranceFee + inspectionAdjustment + codFee + bostaVat;
       
@@ -256,7 +258,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
       const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-      const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
       const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
       const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
       const bostaVat = calculateBostaVat(o, insuranceFee, settings);
@@ -264,8 +267,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const safeDiscount = o.discount || 0;
       const safeAdvance = o.advancePayment || 0;
       const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-      const collectionAmount = o.totalAmountOverride !== undefined ? o.totalAmountOverride : defaultCollectionAmount;
-      const extraAdjustment = o.totalAmountOverride !== undefined ? o.totalAmountOverride - defaultCollectionAmount : 0;
+      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
+      const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
       
       const netProfit = o.productPrice - safeDiscount - o.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;
       
@@ -292,13 +295,14 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
     const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-    const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+    const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+    const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
     
     const safeDiscount = order.discount || 0;
     const safeAdvance = order.advancePayment || 0;
     const defaultCollectionAmount = order.productPrice + order.shippingFee - safeDiscount - safeAdvance + (order.inspectionFeePaidByCustomer ? inspectionCost : 0);
-    const collectionAmount = order.totalAmountOverride !== undefined ? order.totalAmountOverride : defaultCollectionAmount;
-    const extraAdjustment = order.totalAmountOverride !== undefined ? order.totalAmountOverride - defaultCollectionAmount : 0;
+    const collectionAmount = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! : defaultCollectionAmount;
+    const extraAdjustment = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! - defaultCollectionAmount : 0;
 
     const codFee = calculateCodFee(order);
     const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
@@ -344,7 +348,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
       const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-      const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
       const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
       const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
       const bostaVat = calculateBostaVat(o, insuranceFee, settings);
@@ -352,8 +357,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const safeDiscount = o.discount || 0;
       const safeAdvance = o.advancePayment || 0;
       const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-      const collectionAmount = o.totalAmountOverride !== undefined ? o.totalAmountOverride : defaultCollectionAmount;
-      const extraAdjustment = o.totalAmountOverride !== undefined ? o.totalAmountOverride - defaultCollectionAmount : 0;
+      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
+      const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
       
       const netProfit = o.productPrice - safeDiscount - o.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;
       
@@ -540,7 +545,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
           <div className="flex justify-between items-start">
             <div className="text-right">
               <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">إجمالي المحصل الفعلي (السيولة)</span>
-              <p className="text-2xl font-black text-slate-800 dark:text-white">{(stats.totalGross).toLocaleString('ar-EG')} <span className="text-xs font-bold text-slate-400">ج.م</span></p>
+              <p className="text-2xl font-black text-slate-800 dark:text-white">{(stats.totalGross || 0).toLocaleString('ar-EG')} <span className="text-xs font-bold text-slate-400">ج.م</span></p>
             </div>
             <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 rounded-xl border border-emerald-100 dark:border-emerald-900/50">
               <Banknote size={20} />
@@ -670,11 +675,12 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                 const compCollected = compOrders.reduce((sum, o) => {
                   const compFees = settings.companySpecificFees?.[o.shippingCompany];
                   const useCustom = compFees?.useCustomFees ?? false;
-                  const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+                  const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+                  const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
                   const safeDiscount = o.discount || 0;
                   const safeAdvance = o.advancePayment || 0;
                   const defaultAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-                  return sum + (o.totalAmountOverride !== undefined ? o.totalAmountOverride : defaultAmount);
+                  return sum + ((o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultAmount);
                 }, 0);
                 const pct = stats.totalGross > 0 ? (compCollected / stats.totalGross) * 100 : 0;
 
@@ -760,7 +766,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                   const compFees = settings.companySpecificFees?.[order.shippingCompany];
                   const useCustom = compFees?.useCustomFees ?? false;
                   const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-                  const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+                  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+                  const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
                   const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
                   const inspectionAdjustment = order.inspectionFeePaidByCustomer ? 0 : inspectionCost;
                   const bostaVat = calculateBostaVat(order, insuranceFee, settings);
@@ -768,8 +775,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                   const safeDiscount = order.discount || 0;
                   const safeAdvance = order.advancePayment || 0;
                   const defaultCollectionAmount = order.productPrice + order.shippingFee - safeDiscount - safeAdvance + (order.inspectionFeePaidByCustomer ? inspectionCost : 0);
-                  const collectionAmount = order.totalAmountOverride !== undefined ? order.totalAmountOverride : defaultCollectionAmount;
-                  const extraAdjustment = order.totalAmountOverride !== undefined ? order.totalAmountOverride - defaultCollectionAmount : 0;
+                  const collectionAmount = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! : defaultCollectionAmount;
+                  const extraAdjustment = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! - defaultCollectionAmount : 0;
                   
                   const directFees = insuranceFee + bostaVat + inspectionAdjustment + cod;
                   const netProfit = order.productPrice - safeDiscount - order.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;

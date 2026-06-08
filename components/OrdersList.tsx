@@ -421,7 +421,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       const useCustom = compFees?.useCustomFees ?? false;
       const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
       const insuranceFee = (o.isInsured ?? true) ? calculateInsuranceFee(o, insuranceRate, settings) : 0;
-      const inspectionFee = (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionFee = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
       const codFee = calculateCodFee(o, settings);
       const bostaVatFee = calculateBostaVat(o, insuranceFee, settings);
 
@@ -482,6 +483,69 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     
     const orderIdToDelete = orderToDelete.id;
     const orderNumberToDelete = orderToDelete.orderNumber;
+    
+    // Check if the deleted order indicates whether stock was deducted
+    const isPos = orderToDelete.channel === 'pos' || orderToDelete.id.startsWith('POS-') || orderToDelete.shippingCompany === 'كاشير - بيع مباشر';
+    const isStockDeducted = orderToDelete.stockDeducted || isPos;
+
+    if (isStockDeducted) {
+        // Return stock to inventory
+        let updatedProducts = [...(settings.products || [])];
+        (orderToDelete.items || []).forEach(orderItem => {
+            const pIdx = updatedProducts.findIndex(p => p.id === orderItem.productId);
+            if (pIdx > -1) {
+                const prod = { ...updatedProducts[pIdx] };
+                const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+                
+                // Return to warehouse stock
+                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
+                const whId = orderToDelete.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id;
+                if (whId) {
+                     updatedWhStock[whId] = (updatedWhStock[whId] || 0) + orderItem.quantity;
+                }
+                
+                // Return variant stock if variantId is matched
+                if (orderItem.variantId && prod.variants) {
+                    prod.variants = prod.variants.map(v => {
+                        if (v.id === orderItem.variantId) {
+                            const vUpdated = { ...v };
+                            vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + orderItem.quantity;
+                            vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+                            if (whId) {
+                                vUpdated.warehouseStock[whId] = (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+                            }
+                            return vUpdated;
+                        }
+                        return v;
+                    });
+                }
+                
+                updatedProducts[pIdx] = {
+                    ...prod,
+                    stockQuantity: newQty,
+                    warehouseStock: updatedWhStock
+                };
+            }
+        });
+        
+        // Remove from posSales as well if it was a POS order
+        let updatedPosSales = settings.posSales || [];
+        if (isPos) {
+            updatedPosSales = (settings.posSales || []).filter(sale => sale.id !== orderIdToDelete);
+        }
+        
+        setSettings(prev => ({
+            ...prev,
+            products: updatedProducts,
+            posSales: updatedPosSales
+        }));
+    } else if (isPos) {
+        let updatedPosSales = (settings.posSales || []).filter(sale => sale.id !== orderIdToDelete);
+        setSettings(prev => ({
+            ...prev,
+            posSales: updatedPosSales
+        }));
+    }
     
     // 1. Remove Order from the main orders list
     setOrders(prevOrders => prevOrders.filter(o => o.id !== orderIdToDelete));
@@ -1251,6 +1315,74 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         type: 'danger',
         confirmText: 'حذف نهائي',
         onConfirm: () => {
+            let updatedProducts = [...(settings.products || [])];
+            let listChanged = false;
+            let updatedPosSales = [...(settings.posSales || [])];
+            let posSalesChanged = false;
+            
+            const ordersBeingDeleted = orders.filter(o => selectedOrders.includes(o.id));
+            
+            ordersBeingDeleted.forEach(orderToDelete => {
+                const isPos = orderToDelete.channel === 'pos' || orderToDelete.id.startsWith('POS-') || orderToDelete.shippingCompany === 'كاشير - بيع مباشر';
+                const isStockDeducted = orderToDelete.stockDeducted || isPos;
+                
+                if (isStockDeducted) {
+                    listChanged = true;
+                    (orderToDelete.items || []).forEach(orderItem => {
+                        const pIdx = updatedProducts.findIndex(p => p.id === orderItem.productId);
+                        if (pIdx > -1) {
+                            const prod = { ...updatedProducts[pIdx] };
+                            const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+                            
+                            // Return to warehouse stock
+                            let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
+                            const whId = orderToDelete.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id;
+                            if (whId) {
+                                updatedWhStock[whId] = (updatedWhStock[whId] || 0) + orderItem.quantity;
+                            }
+                            
+                            // Return variant stock if variantId is matched
+                            if (orderItem.variantId && prod.variants) {
+                                prod.variants = prod.variants.map(v => {
+                                    if (v.id === orderItem.variantId) {
+                                        const vUpdated = { ...v };
+                                        vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + orderItem.quantity;
+                                        vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+                                        if (whId) {
+                                            vUpdated.warehouseStock[whId] = (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+                                        }
+                                        return vUpdated;
+                                    }
+                                    return v;
+                                });
+                            }
+                            
+                            updatedProducts[pIdx] = {
+                                ...prod,
+                                stockQuantity: newQty,
+                                warehouseStock: updatedWhStock
+                            };
+                        }
+                    });
+                }
+                
+                if (isPos) {
+                    const originalLength = updatedPosSales.length;
+                    updatedPosSales = updatedPosSales.filter(sale => sale.id !== orderToDelete.id);
+                    if (updatedPosSales.length !== originalLength) {
+                        posSalesChanged = true;
+                    }
+                }
+            });
+            
+            if (listChanged || posSalesChanged) {
+                setSettings(prev => ({
+                    ...prev,
+                    ...(listChanged ? { products: updatedProducts } : {}),
+                    ...(posSalesChanged ? { posSales: updatedPosSales } : {})
+                }));
+            }
+
             setOrders(prevOrders => prevOrders.filter(o => !selectedOrders.includes(o.id)));
             setSelectedOrders([]);
             setConfirmation(prev => ({ ...prev, isOpen: false }));
@@ -2509,7 +2641,8 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
     
     const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
     const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-    const inspectionFee = (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+    const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+    const inspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
     const codFee = calculateCodFee(order, settings);
     const bostaVatFee = calculateBostaVat(order, insuranceFee, settings);
     const currentVatRate = useCustom ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) : (settings?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0));
@@ -2878,7 +3011,8 @@ const OrderRow = ({
   
   const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
   const calculatedInsuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-  const calculatedInspectionFee = (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+  const calculatedInspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
   const calculatedCodFeeAmount = calculateCodFee(order, settings);
   const bostaVatFee = calculateBostaVat(order, calculatedInsuranceFee, settings);
   
