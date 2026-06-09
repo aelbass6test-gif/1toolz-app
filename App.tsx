@@ -297,7 +297,7 @@ const MainLayout = ({
         <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar">
             <Outlet />
         </main>
-        <MobileNavigation />
+        <MobileNavigation activeStoreId={activeStore?.id} />
     </div>
 </div>
     );
@@ -2113,7 +2113,7 @@ export const AppComponent = () => {
                     <Route path="purchase-returns" element={<PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
-                    <Route path="create-order" element={<Navigate to="orders/new" replace />} />
+                    <Route path="create-order" element={<Navigate to="../orders/new" replace />} />
                     <Route path="products" element={<ProductsPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="inventory-transfers" element={<InventoryTransfers settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />

@@ -669,7 +669,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         </div>
         
         <div className="grid grid-cols-2 md:flex items-center gap-3">
-          <Link to="/store-preview" className="glass-card px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+          <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/store-preview`} className="glass-card px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-white/50 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2">
             <PlayCircle size={16} className="text-primary" />
             <span>معاينة</span>
           </Link>
@@ -1290,7 +1290,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               )}
             </div>
             <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
-              <Link to="/customers" className="flex items-center justify-center gap-2 text-xs font-black text-indigo-600 hover:text-indigo-700 transition-colors">
+              <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/customers`} className="flex items-center justify-center gap-2 text-xs font-black text-indigo-600 hover:text-indigo-700 transition-colors">
                 <span>عرض قائمة العملاء بالكامل</span>
                 <ArrowLeft size={14} />
               </Link>
@@ -1302,7 +1302,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             <div className="flex items-center justify-between mb-8 text-right">
               <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">المنتجات الأكثر مبيعاً</h3>
               <div className="flex items-center gap-4">
-                 <Link to="/products" className="text-xs font-bold text-primary hover:underline">إدارة المخزون</Link>
+                 <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/products`} className="text-xs font-bold text-primary hover:underline">إدارة المخزون</Link>
                  <Sparkles size={20} className="text-amber-500" />
               </div>
             </div>
@@ -1392,7 +1392,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 <p className="text-[10px] font-black text-slate-500 uppercase mb-1">المجموع الكلي بالحسابات</p>
                 <p className="text-xl font-black text-slate-800 dark:text-white">{stats.treasuryTotal.toLocaleString()} <span className="text-xs">ج.م</span></p>
               </div>
-              <Link to="/treasury" className="block text-center text-xs font-black text-primary hover:underline pt-2">عرض كافة الخزائن</Link>
+              <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/treasury`} className="block text-center text-xs font-black text-primary hover:underline pt-2">عرض كافة الخزائن</Link>
             </div>
           </div>
         </motion.div>
@@ -1540,7 +1540,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 )}
                 
                 <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/60">
-                    <Link to="/wallet" className="text-[10px] font-black text-primary hover:underline flex items-center gap-1">
+                    <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/wallet`} className="text-[10px] font-black text-primary hover:underline flex items-center gap-1">
                       عرض كافة العمليات المالية من المحفظة <ArrowLeft size={12} />
                     </Link>
                 </div>
@@ -1607,7 +1607,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   })()}
                 </div>
 
-                <Link to="/confirmation-queue" className="mt-6 w-full flex items-center justify-center gap-2 p-3 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-black hover:bg-indigo-50 transition-colors">
+                <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/confirmation-queue`} className="mt-6 w-full flex items-center justify-center gap-2 p-3 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-black hover:bg-indigo-50 transition-colors">
                     غرفة تأكيد الطلبات <Monitor size={14} />
                 </Link>
             </div>
@@ -1706,7 +1706,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                         <p className="text-[9px] font-bold text-slate-400 uppercase">مستحق السداد له</p>
                         <p className="text-xl font-black text-rose-600 dark:text-rose-400 tabular-nums tracking-tighter">{(supplier.balance || 0).toLocaleString()} <span className="text-[10px]">ج.م</span></p>
                      </div>
-                     <Link to="/suppliers" className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
+                     <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/suppliers`} className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
                         <ArrowLeft size={16} />
                      </Link>
                   </div>
@@ -1747,7 +1747,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                         <p className="text-[9px] font-bold text-slate-400 uppercase">الرصيد في عهدته</p>
                         <p className="text-xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{holder.currentBalance.toLocaleString()} <span className="text-[10px]">ج.م</span></p>
                      </div>
-                     <Link to="/cash-management" className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
+                     <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/cash-management`} className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
                         <ArrowLeft size={16} />
                      </Link>
                   </div>

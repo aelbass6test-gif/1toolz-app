@@ -184,10 +184,11 @@ const WaybillModal: React.FC<{ order: Order; onClose: () => void; onSave: (waybi
 const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ orders, setOrders, products, settings, currentUser, setWallet, setSettings, addLoyaltyPointsForOrder, activeStore, customers, setCustomers, onRefresh, treasury, setTreasury, defaultShowAdd }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const storePrefix = activeStore ? `/store/${activeStore.id}` : '';
   const [searchTerm, setSearchTerm] = useState('');
     useEffect(() => {
         if (defaultShowAdd) {
-            navigate('/orders/new', { replace: true });
+            navigate(`${storePrefix}/orders/new`, { replace: true });
         }
     }, [defaultShowAdd, navigate]);
 
@@ -1714,7 +1715,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
           <motion.button 
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => navigate('/orders/new')}
+            onClick={() => navigate(`${storePrefix}/orders/new`)}
             className="lg:hidden bg-indigo-600 text-white p-4 rounded-2xl font-black shadow-xl shadow-indigo-500/20 transition-all flex items-center justify-center shrink-0"
           >
             <Plus size={24} />
@@ -1758,7 +1759,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
           <motion.button 
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => navigate('/orders/new')}
+            onClick={() => navigate(`${storePrefix}/orders/new`)}
             className="hidden lg:flex bg-indigo-600 text-white px-5 py-3 rounded-2xl font-black shadow-xl shadow-indigo-500/25 transition-all items-center gap-3 text-sm shrink-0"
           >
             <Plus size={20} />
