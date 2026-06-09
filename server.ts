@@ -838,21 +838,24 @@ async function startServer() {
     app.use("/*", serveStatic({ root: "dist" }));
 
     // Fallback to index.html for any remaining non-API GET requests (SPA Routing Support)
-    app.get("*", async (c) => {
+    app.notFound(async (c) => {
       const pathName = c.req.path;
-      if (pathName.startsWith("/api/")) {
-        return c.text("Not Found", 404);
-      }
-      try {
-        const htmlPath = path.resolve(process.cwd(), "dist", "index.html");
-        if (fs.existsSync(htmlPath)) {
-          const html = fs.readFileSync(htmlPath, "utf-8");
-          return c.html(html);
+      if (c.req.method === "GET" && !pathName.startsWith("/api/")) {
+        // Exclude asset files to prevent browser console MIME type errors
+        const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|map)$/i.test(pathName);
+        if (!isAsset) {
+          try {
+            const htmlPath = path.resolve(process.cwd(), "dist", "index.html");
+            if (fs.existsSync(htmlPath)) {
+              const html = fs.readFileSync(htmlPath, "utf-8");
+              return c.html(html);
+            }
+          } catch (e) {
+            console.error("Error reading index.html fallback:", e);
+          }
         }
-      } catch (e) {
-        console.error("Error reading index.html fallback:", e);
       }
-      return c.text("App is initializing or index.html not found.", 404);
+      return c.text("Not Found", 404);
     });
   }
 
