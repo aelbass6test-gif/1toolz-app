@@ -24,17 +24,33 @@ app.notFound(async (c) => {
   
   if (!isApi && c.env && c.env.ASSETS) {
     try {
+      const url = new URL(c.req.url);
+      // Normalize hostname to the worker's default domain so that ASSETS fetch works perfectly for custom domains and subdomains
+      url.hostname = "1toolz-app.app1toolz.workers.dev";
+      
+      const headers = new Headers(c.req.raw.headers);
+      headers.set("host", "1toolz-app.app1toolz.workers.dev");
+      
+      const reqInit: RequestInit = {
+        method: c.req.raw.method,
+        headers: headers,
+      };
+      
+      if (c.req.raw.method !== "GET" && c.req.raw.method !== "HEAD") {
+        reqInit.body = c.req.raw.body;
+      }
+
       // 1. Try to serve the exact asset (so custom hostname asset requests work cleanly)
-      const assetRes = await c.env.ASSETS.fetch(c.req.raw);
+      const assetRequest = new Request(url.toString(), reqInit);
+      const assetRes = await c.env.ASSETS.fetch(assetRequest);
       if (assetRes.status !== 404) {
         return assetRes;
       }
       
       // 2. If asset is not found and this is a GET request, fallback to index.html for React Router SPA routes
       if (c.req.method === "GET") {
-        const url = new URL(c.req.url);
         url.pathname = "/index.html";
-        const indexRequest = new Request(url.toString(), c.req.raw);
+        const indexRequest = new Request(url.toString(), reqInit);
         const indexRes = await c.env.ASSETS.fetch(indexRequest);
         if (indexRes.status !== 404) {
           return indexRes;
