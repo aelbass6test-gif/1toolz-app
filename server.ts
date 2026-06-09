@@ -834,16 +834,26 @@ async function startServer() {
 
   // Provide fallback static files for production Hono server
   if (process.env.NODE_ENV === "production") {
-    app.get(
-      "/*",
-      serveStatic({
-        root: "dist",
-        rewriteRequestPath: (path) => {
-          if (fs.existsSync(`./dist${path}`)) return path;
-          return "/index.html"; // SPA Fallback
-        },
-      })
-    );
+    // Serve static files under dist
+    app.use("/*", serveStatic({ root: "dist" }));
+
+    // Fallback to index.html for any remaining non-API GET requests (SPA Routing Support)
+    app.get("*", async (c) => {
+      const pathName = c.req.path;
+      if (pathName.startsWith("/api/")) {
+        return c.text("Not Found", 404);
+      }
+      try {
+        const htmlPath = path.resolve(process.cwd(), "dist", "index.html");
+        if (fs.existsSync(htmlPath)) {
+          const html = fs.readFileSync(htmlPath, "utf-8");
+          return c.html(html);
+        }
+      } catch (e) {
+        console.error("Error reading index.html fallback:", e);
+      }
+      return c.text("App is initializing or index.html not found.", 404);
+    });
   }
 
   // Support Vite Dev Server
