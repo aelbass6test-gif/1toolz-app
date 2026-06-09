@@ -767,16 +767,24 @@ export const AppComponent = () => {
         Object.keys(newAllStoresData).forEach(storeId => {
             const data = newAllStoresData[storeId];
             if (data && data.settings && !data.settings.subdomain && !data.settings.isSubdomainFixed) {
-                const storeName = storeId;
-                const base = storeName.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
-                const random = Math.floor(1000 + Math.random() * 9000).toString();
-                const generatedSubdomain = `${base || 'store'}-${random}`;
+                // Find existing subdomain in users object first
+                const owner = users.find(u => u.stores?.some(s => s.id === storeId));
+                const storeMeta = owner?.stores?.find(s => s.id === storeId);
+                const existingSub = storeMeta?.subdomain;
+
+                const generatedSubdomain = existingSub || (() => {
+                    const storeName = storeId;
+                    const base = storeName.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
+                    const random = Math.floor(1000 + Math.random() * 9000).toString();
+                    return `${base || 'store'}-${random}`;
+                })();
                 
                 newAllStoresData[storeId] = {
                     ...data,
                     settings: {
                         ...data.settings,
-                        subdomain: generatedSubdomain
+                        subdomain: generatedSubdomain,
+                        isSubdomainFixed: true
                     }
                 };
                 changed = true;
@@ -786,7 +794,7 @@ export const AppComponent = () => {
         if (changed) {
             setAllStoresData(newAllStoresData);
         }
-    }, [allStoresData, isInitialLoad]);
+    }, [allStoresData, isInitialLoad, users]);
 
     // Sync domains to users for ALL stores that have loaded data
     useEffect(() => {
@@ -1003,6 +1011,18 @@ export const AppComponent = () => {
 
     useEffect(() => {
         const applyTheme = () => {
+            // If we are on a storefront page, we ALWAYS want light mode (no 'dark' class on element)
+            const isStorefrontPath = isStandaloneStorefront || 
+                location.pathname === '/store' || 
+                location.pathname === '/cart' || 
+                location.pathname === '/checkout' || 
+                location.pathname.startsWith('/order-success');
+
+            if (isStorefrontPath) {
+                document.documentElement.classList.remove('dark');
+                return;
+            }
+
             const themeToApply = theme === 'system' 
                 ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
                 : theme;
@@ -1015,7 +1035,7 @@ export const AppComponent = () => {
         };
         applyTheme();
         localStorage.setItem('theme', theme);
-    }, [theme]);
+    }, [theme, location.pathname, isStandaloneStorefront]);
 
     const loadData = async () => {
         setIsInitialLoad(true);
@@ -1362,6 +1382,8 @@ export const AppComponent = () => {
             orders: [],
             settings: {
                 ...INITIAL_SETTINGS,
+                subdomain: newStore.subdomain,
+                isSubdomainFixed: true,
                 products: oneToolzProducts, 
             },
             wallet: { balance: 0, transactions: [] },
