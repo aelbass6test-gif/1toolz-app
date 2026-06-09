@@ -1,57 +1,58 @@
-import * as htmlToImage from 'html-to-image';
-import { jsPDF } from 'jspdf';
+import html2pdf from 'html2pdf.js';
 
-export async function exportHTMLToPDF(html: string, orientation: 'portrait' | 'landscape', filename: string, isContinuous: boolean = false) {
-    const container = document.createElement('div');
-    container.innerHTML = html;
-    container.style.width = orientation === 'landscape' ? '297mm' : '210mm';
-    container.style.backgroundColor = 'white';
-    container.style.position = 'fixed';
-    container.style.left = '-9999px'; // Changed from -99999px to avoid some browser rendering limits
-    container.style.top = '0';
-    container.style.zIndex = '-9999';
-    document.body.appendChild(container);
+export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orientation: 'portrait' | 'landscape' = 'landscape', filename: string = 'report.pdf', isContinuous: boolean = false) {
+    let container: HTMLElement;
+    let shouldCleanup = false;
+
+    if (typeof elementOrHtml === 'string') {
+        container = document.createElement('div');
+        container.className = 'pdf-container';
+        // Ensure the HTML string is wrapped in a container with explicit white background for rendering
+        container.innerHTML = `<div style="background: white !important; width: 100%; min-height: 100%; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${elementOrHtml}</div>`;
+        
+        // Use visible but off-screen positioning to ensure browser renders it fully
+        container.style.position = 'fixed';
+        container.style.left = '-9999px';
+        container.style.top = '0';
+        container.style.width = orientation === 'landscape' ? '297mm' : '210mm';
+        container.style.zIndex = '-9999';
+        container.style.background = 'white';
+        container.style.opacity = '1';
+        document.body.appendChild(container);
+        shouldCleanup = true;
+    } else {
+        container = elementOrHtml;
+    }
 
     try {
-        await new Promise(r => setTimeout(r, 300)); // Increased delay to ensure fonts/images load
-        
-        const dataUrl = await htmlToImage.toPng(container, { backgroundColor: '#ffffff', pixelRatio: 2 });
-        
-        if (isContinuous) {
-            // Calculate height in mm
-            const heightPx = container.scrollHeight;
-            const widthPx = container.scrollWidth;
-            const widthMm = orientation === 'landscape' ? 297 : 210;
-            const heightMm = (heightPx * widthMm) / widthPx;
-
-            const pdf = new jsPDF(orientation, 'mm', [widthMm, heightMm]);
-            pdf.addImage(dataUrl, 'PNG', 0, 0, widthMm, heightMm);
-            pdf.save(filename);
-        } else {
-            const pdf = new jsPDF(orientation, 'mm', 'a4');
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            const imgProps = pdf.getImageProperties(dataUrl);
-            const imgWidth = pdfWidth;
-            const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-
-            let heightLeft = imgHeight;
-            let position = 0;
-
-            pdf.addImage(dataUrl, 'PNG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pdfHeight;
-
-            while (heightLeft > 0) {
-                position = heightLeft - imgHeight;
-                pdf.addPage();
-                pdf.addImage(dataUrl, 'PNG', 0, position, imgWidth, imgHeight);
-                heightLeft -= pdfHeight;
+        const opt = {
+            margin:       [10, 10, 10, 10] as [number, number, number, number],
+            filename:     filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
+            image:        { type: 'jpeg' as const, quality: 0.98 },
+            html2canvas:  { 
+                scale: 3, 
+                useCORS: true, 
+                letterRendering: true, 
+                backgroundColor: '#ffffff',
+                logging: false,
+                removeContainer: true
+            },
+            jsPDF:        { 
+                unit: 'mm' as const, 
+                format: isContinuous ? [orientation === 'landscape' ? 297 : 210, 800] as [number, number] : 'a4', 
+                orientation: orientation as 'portrait' | 'landscape',
+                compress: true,
+                precision: 16
             }
+        };
 
-            pdf.save(filename);
-        }
+        // Extra wait for any internal browser rendering/fonts/styles
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        await html2pdf().set(opt).from(container).save();
     } finally {
-        document.body.removeChild(container);
+        if (shouldCleanup && container.parentNode) {
+            document.body.removeChild(container);
+        }
     }
 }

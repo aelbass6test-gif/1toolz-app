@@ -4,10 +4,12 @@ import { getLatestProductCost } from '../utils/financials';
 import { 
   BarChart, Wallet as WalletIcon, TrendingUp, Users, Truck, FileText, 
   ArrowDown, ArrowUp, DollarSign, Package, Download, Eye, X, Loader2, Printer, 
-  PieChart, Calendar, Percent, Sparkles, TrendingDown, Layers, CheckCircle2, AlertCircle, ShoppingBag
+  PieChart, Calendar, Percent, Sparkles, TrendingDown, Layers, CheckCircle2, AlertCircle, ShoppingBag, ShoppingCart
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
+import { exportHTMLToPDF } from '../utils/pdfHelper';
+import { printHTMLDirectly } from '../utils/printHelper';
 
 interface Props {
   orders: Order[];
@@ -56,7 +58,7 @@ const isWithinRange = (dateStr: string, filter: string, customStart?: string, cu
 };
 
 export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, activeStore, setSettings, setWallet }) => {
-    const [subTab, setSubTab] = useState<'income' | 'balance_sheet' | 'cash_flow' | 'suppliers' | 'receivables' | 'wallet' | 'product_profitability' | 'partner_equity' | 'marketing_roi' | 'inventory_velocity'>('income');
+    const [subTab, setSubTab] = useState<'income' | 'balance_sheet' | 'cash_flow' | 'suppliers' | 'receivables' | 'wallet' | 'product_profitability' | 'partner_equity' | 'marketing_roi' | 'inventory_velocity' | 'custody'>('income');
     const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom'>('all');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -80,19 +82,7 @@ export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, a
         if (!reportRef.current) return;
         setIsExporting(true);
         try {
-            const dataUrl = await htmlToImage.toPng(reportRef.current, { backgroundColor: '#ffffff' });
-            const pdf = new jsPDF('landscape', 'mm', 'a4');
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            
-            const imgProps = pdf.getImageProperties(dataUrl);
-            const imgWidth = pdfWidth;
-            const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-
-            let position = 0;
-            pdf.addImage(dataUrl, 'PNG', 0, position, imgWidth, imgHeight);
-            
-            pdf.save(`التقرير_المالي_${new Date().toISOString().split('T')[0]}.pdf`);
+            await exportHTMLToPDF(reportRef.current, 'landscape', `التقرير_المالي_${new Date().toISOString().split('T')[0]}.pdf`);
         } catch (error) {
             console.error('PDF generation failed:', error);
             alert('حدث خطأ أثناء تصدير PDF');
@@ -174,6 +164,7 @@ export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, a
                 <TabButton active={subTab === 'inventory_velocity'} onClick={() => setSubTab('inventory_velocity')} icon={<Layers size={16} />} title="دوران المخزون" />
                 <TabButton active={subTab === 'suppliers'} onClick={() => setSubTab('suppliers')} icon={<Users size={16} />} title="حساب الموردين" />
                 <TabButton active={subTab === 'receivables'} onClick={() => setSubTab('receivables')} icon={<Truck size={16} />} title="ذمم الشحن" />
+                <TabButton active={subTab === 'custody'} onClick={() => setSubTab('custody')} icon={<ShoppingBag size={16} />} title="عهد الموظفين والشركاء" />
                 <TabButton active={subTab === 'partner_equity'} onClick={() => setSubTab('partner_equity')} icon={<PieChart size={16} />} title="حقوق الشركاء" />
                 <TabButton active={subTab === 'wallet'} onClick={() => setSubTab('wallet')} icon={<WalletIcon size={16} />} title="حركة الصندوق" />
             </div>
@@ -185,6 +176,7 @@ export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, a
                 {subTab === 'cash_flow' && <CashFlowStatement wallet={filteredWallet} />}
                 {subTab === 'suppliers' && <SupplierLedger settings={settings} />}
                 {subTab === 'receivables' && <ReceivablesAging orders={filteredOrders} />}
+                {subTab === 'custody' && <CustodyLedger settings={settings} />}
                 {subTab === 'wallet' && <WalletLedger wallet={filteredWallet} />}
                 {subTab === 'product_profitability' && <ProductProfitability orders={filteredOrders} settings={settings} />}
                 {subTab === 'partner_equity' && <PartnerEquity settings={settings} wallet={wallet} setSettings={setSettings} setWallet={setWallet} orders={orders} />}
@@ -756,7 +748,119 @@ const ProductProfitability = ({ orders, settings }: { orders: Order[], settings:
     );
 };
 
-// 6. Wallet Ledger Component
+// 6. Custody Ledger Component
+const CustodyLedger = ({ settings }: { settings: Settings }) => {
+    const holders = settings.cashHolders || [];
+
+    const handleExport = (mode: 'print' | 'pdf') => {
+        const total = holders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+        const html = `
+            <div dir="rtl" style="font-family: 'Segoe UI', sans-serif; padding: 40px; background: white;">
+                <h1 style="text-align: center; color: #1e293b;">تقرير أرصدة العهد النقدية</h1>
+                <p style="text-align: center; color: #64748b;">تاريخ التقرير: ${new Date().toLocaleString('ar-EG')}</p>
+                
+                <div style="margin: 30px 0; padding: 20px; border: 2px solid #e2e8f0; border-radius: 12px; background: #f8fafc;">
+                    <div style="font-size: 14px; color: #64748b;">إجمالي العهد لدى الموظفين والشركاء</div>
+                    <div style="font-size: 28px; font-weight: 900; color: #4f46e5;">${total.toLocaleString()} ج.م</div>
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #4f46e5; color: white;">
+                            <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: right;">الاسم / الموظف</th>
+                            <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: right;">الرصيد الحالي</th>
+                            <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: right;">آخر تحديث</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${holders.map(h => `
+                            <tr>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${h.userName}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; font-weight: bold;">${(h.currentBalance || 0).toLocaleString()} ج.م</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${new Date(h.lastUpdated).toLocaleDateString('ar-EG')}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        if (mode === 'print') {
+            printHTMLDirectly(html);
+        } else {
+            exportHTMLToPDF(html, 'portrait', `تقرير_العهد_${new Date().toISOString().split('T')[0]}.pdf`);
+        }
+    };
+    
+    return (
+        <div className="space-y-6">
+            <div className="px-2 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">تقرير العهد والأمانات النقدية</h3>
+                    <p className="text-sm text-slate-500 mt-1">المبالغ المتوفرة حالياً "بعهدة" الموظفين والشركاء من مبيعات الكاشير</p>
+                </div>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={() => handleExport('print')}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/20 hover:scale-105 transition-all"
+                    >
+                        <Printer size={14} />
+                        طباعة
+                    </button>
+                    <button 
+                        onClick={() => handleExport('pdf')}
+                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black hover:bg-slate-700 transition-all"
+                    >
+                        <FileText size={14} />
+                        تحميل PDF
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+               {holders.map(h => (
+                   <div key={h.userId} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/50 group">
+                       <div className="flex items-center justify-between mb-3">
+                           <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
+                               <Users size={20} />
+                           </div>
+                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">بعهدة</span>
+                       </div>
+                       <h4 className="font-black text-slate-800 dark:text-white text-lg truncate" title={h.userName}>{h.userName}</h4>
+                       <div className="mt-3 flex items-baseline gap-1.5 overflow-hidden">
+                           <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{h.currentBalance.toLocaleString()}</span>
+                           <span className="text-xs font-bold text-slate-400">ج.م</span>
+                       </div>
+                       <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                            <span className="text-[9px] text-slate-400 uppercase font-black">آخر تحديث</span>
+                            <span className="text-[10px] font-bold text-slate-500">{new Date(h.lastUpdated).toLocaleDateString('ar-EG')}</span>
+                       </div>
+                   </div>
+               ))}
+               {holders.length === 0 && (
+                   <div className="col-span-full py-20 text-center text-slate-400 italic bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-100 dark:border-slate-800">
+                       <ShoppingCart size={48} className="mx-auto mb-4 opacity-10" />
+                       <p className="font-bold">لا توجد عهد نقدية مسجلة حالياً</p>
+                       <p className="text-xs mt-2">تظهر العهد عند إجراء مبيعات عبر الكاشير واختيار مستلم للنقدية.</p>
+                   </div>
+               )}
+            </div>
+
+            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-5 rounded-2xl flex items-start gap-3 shadow-sm shadow-amber-500/5">
+                <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
+                <div className="space-y-1">
+                    <h5 className="text-sm font-black text-amber-900 dark:text-amber-100">ملاحظة محاسبية هامة</h5>
+                    <p className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed font-bold">
+                        هذه المبالغ تم استلامها من العملاء في نقطة البيع ولكنها لم تورّد بعد للخزينة العامة (المحفظة). 
+                        يتم تصفية العهدة عند قيام الموظف بتوريد المبلغ للمدير يدوياً وتسجيل عملية إيداع للمحفظة.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// 7. Wallet Ledger Component
 const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
     const transactionsWithRunningBalance = useMemo(() => {
         const txs = [...wallet.transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());

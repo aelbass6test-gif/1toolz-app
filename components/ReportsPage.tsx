@@ -255,18 +255,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         if (!reportRef.current) return;
         setIsExporting(true);
         try {
-            const dataUrl = await htmlToImage.toPng(reportRef.current, { backgroundColor: '#ffffff' });
-            const pdf = new jsPDF('landscape', 'mm', 'a4');
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            
-            const imgProps = pdf.getImageProperties(dataUrl);
-            const imgWidth = pdfWidth;
-            const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-
-            let position = 0;
-            pdf.addImage(dataUrl, 'PNG', 0, position, imgWidth, imgHeight);
-            
-            pdf.save(`ملخص_أداء_المبيعات_${new Date().toISOString().split('T')[0]}.pdf`);
+            await exportHTMLToPDF(reportRef.current, 'landscape', `ملخص_أداء_المبيعات_${new Date().toISOString().split('T')[0]}.pdf`);
         } catch (error) {
             console.error('PDF Export Error:', error);
             alert('حدث خطأ أثناء تصدير PDF');
@@ -940,11 +929,12 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                     
                                     const compFees = settings.companySpecificFees?.[order.shippingCompany];
                                     const useCustom = compFees?.useCustomFees ?? false;
+                                    const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
                                     const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-                                    const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+                                    const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
                                     const isInsured = order.isInsured ?? true;
-                                    const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-                                    const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+                                    const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+                                    const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
 
                                     const productsList = (order.items || []).map(i => `${i.name} (الكمية: ${i.quantity})`).join(' + ') || order.productName;
 
@@ -1048,9 +1038,9 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
             const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
             const isInsured = order.isInsured ?? true;
-            const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-            const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
-            const inspectionAdjustment = order.inspectionFeePaidByCustomer ? 0 : inspectionCost;
+            const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+            const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+            const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer) ? 0 : inspectionCost;
 
             totalRevenue += (order.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0) + order.shippingFee;
             totalShippingRevenue += order.shippingFee;
@@ -1097,12 +1087,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
             const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
             const isInsured = order.isInsured ?? true;
-            const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-            const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+            const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+            const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
             
-            const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
+            const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
             const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
-            const inspectionFeeCollected = order.inspectionFeePaidByCustomer ? inspectionCost : 0;
+            const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
 
             totalFailedShipping += order.shippingFee;
             totalFailedInsurance += insuranceFee + bostaVat;

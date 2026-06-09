@@ -436,7 +436,8 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
     orders.forEach(o => {
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
-      const inspectionCost = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
       const totalAmount = o.productPrice + o.shippingFee;
 
       totalGross += totalAmount + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
@@ -727,14 +728,15 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
         
+        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         
         const isInsured = order.isInsured ?? true;
-        const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-        const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
         
-        const codFee = calculateCodFee(order, settings);
+        const codFee = !isPosOrder ? calculateCodFee(order, settings) : 0;
         const { loss } = calculateOrderProfitLoss(order, settings);
         totalLoss += loss;
         totalProductPrice += order.productPrice;
@@ -937,12 +939,13 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
+        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const isInsured = order.isInsured ?? true;
-        const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-        const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
-        const inspectionAdjustment = order.inspectionFeePaidByCustomer ? 0 : inspectionCost;
+        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+        const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer) ? 0 : inspectionCost;
 
         let orderBaseRevenue = 0;
         let orderExtraMarkup = 0;
@@ -1018,15 +1021,16 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
         
+        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const isInsured = order.isInsured ?? true;
-        const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-        const bostaVat = isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
         
-        const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
+        const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
         const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
-        const inspectionFeeCollected = order.inspectionFeePaidByCustomer ? inspectionCost : 0;
+        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
 
         totalFailedShipping += order.shippingFee;
         totalFailedInsurance += insuranceFee + bostaVat;

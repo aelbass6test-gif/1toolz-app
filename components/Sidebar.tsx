@@ -37,11 +37,11 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             type: 'group', 
             title: 'لوحة القيادة والمتابعة العامة', 
             links: [
-                { to: '/', label: 'لوحة التحكم الرئيسية', icon: <LayoutDashboard size={18} /> },
+                { to: 'dashboard', label: 'لوحة التحكم الرئيسية', icon: <LayoutDashboard size={18} /> },
                 { to: '/store', label: 'معاينة المتجر المباشر', icon: <Eye size={18} />, external: true },
-                { to: '/reports', label: 'التحليلات ومؤشرات النمو', icon: <BarChart2 size={18} /> },
-                { to: '/standard-reports', label: 'التقارير وسجلات الطباعة', icon: <FileText size={18} /> },
-                { to: '/activity-logs', label: 'نشاطات العمليات الفورية', icon: <History size={18} /> },
+                { to: 'reports', label: 'التحليلات ومؤشرات النمو', icon: <BarChart2 size={18} /> },
+                { to: 'standard-reports', label: 'التقارير وسجلات الطباعة', icon: <FileText size={18} /> },
+                { to: 'activity-logs', label: 'نشاطات العمليات الفورية', icon: <History size={18} /> },
             ]
         },
         {
@@ -49,97 +49,97 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             title: 'المبيعات الفورية ونقطة الكاشير',
             links: [
                 ...(isPosEnabled ? [{ 
-                    to: '/pos', 
+                    to: 'pos', 
                     label: 'كاشير - نقطة البيع (POS)', 
                     icon: <Monitor size={18} />, 
                     badge: { text: "نشط ⚡", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[9px] font-bold" } 
                 }] : []),
-                { to: '/create-order', label: 'إنشاء طلب جديد', icon: <Plus size={18} /> },
-                { to: '/orders', label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={18} /> },
+                { to: 'create-order', label: 'إنشاء طلب جديد', icon: <Plus size={18} /> },
+                { to: 'orders', label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={18} /> },
                 { 
-                    to: '/confirmation-queue', 
+                    to: 'confirmation-queue', 
                     label: 'تأكيد الطلبات والمعالجة', 
                     icon: <PhoneForwarded size={18} />,
                     badge: { text: "تأكيد", color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/10 text-[9px]" }
                 },
-                { to: '/returns', label: 'إدارة مرتجعات المبيعات', icon: <RotateCcw size={18} /> },
-                { to: '/abandoned-carts', label: 'السلات الشرائية المتروكة', icon: <Archive size={18} /> },
+                { to: 'returns', label: 'إدارة مرتجعات المبيعات', icon: <RotateCcw size={18} /> },
+                { to: 'abandoned-carts', label: 'السلات الشرائية المتروكة', icon: <Archive size={18} /> },
             ]
         },
         {
             type: 'group',
             title: 'كتالوج المنتجات والمستودعات',
             links: [
-                { to: '/products', label: 'المنظومة والمخزون الموحد', icon: <Package size={18} /> },
-                { to: '/collections', label: 'مجموعات وتصنيفات المنتجات', icon: <Grid3x3 size={18} /> },
-                { to: '/product-options', label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={18} /> },
-                { to: '/product-attributes', label: 'خصائص وسمات المنتجات', icon: <ListOrdered size={18} /> },
-                { to: '/inventory-transfers', label: 'نقل وتحويلات المقاصة', icon: <ArrowRightLeft size={18} /> },
-                { to: '/suppliers', label: 'الموردين وأوامر التوريد', icon: <UserCog size={18} /> },
-                { to: '/purchase-returns', label: 'مرتجع فواتير المشتريات', icon: <RotateCw size={18} /> },
-                { to: '/reviews', label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
+                { to: 'products', label: 'المنظومة والمخزون الموحد', icon: <Package size={18} /> },
+                { to: 'collections', label: 'مجموعات وتصنيفات المنتجات', icon: <Grid3x3 size={18} /> },
+                { to: 'product-options', label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={18} /> },
+                { to: 'product-attributes', label: 'خصائص وسمات المنتجات', icon: <ListOrdered size={18} /> },
+                { to: 'inventory-transfers', label: 'نقل وتحويلات المقاصة', icon: <ArrowRightLeft size={18} /> },
+                { to: 'suppliers', label: 'الموردين وأوامر التوريد', icon: <UserCog size={18} /> },
+                { to: 'purchase-returns', label: 'مرتجع فواتير المشتريات', icon: <RotateCw size={18} /> },
+                { to: 'reviews', label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
             ]
         },
         {
             type: 'group',
             title: 'التسويق وعلاقات العملاء CRM',
             links: [
-                { to: '/customers', label: 'قاعدة بيانات العملاء', icon: <Users size={18} /> },
-                { to: '/whatsapp', label: 'إرسال حملات واتساب متكاملة', icon: <MessageSquare size={18} /> },
-                { to: '/team-chat', label: 'دردشة ومناقشات طاقم العمل', icon: <Users2 size={18} /> },
+                { to: 'customers', label: 'قاعدة بيانات العملاء', icon: <Users size={18} /> },
+                { to: 'whatsapp', label: 'إرسال حملات واتساب متكاملة', icon: <MessageSquare size={18} /> },
+                { to: 'team-chat', label: 'دردشة ومناقشات طاقم العمل', icon: <Users2 size={18} /> },
                 { 
-                    to: '/ai-assistant', 
+                    to: 'ai-assistant', 
                     label: 'مستشار الذكاء الاصطناعي (AI)', 
                     icon: <Wand2 size={18} />,
                     badge: { text: "AI ✨", color: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/10 text-[9px] font-bold animate-pulse" }
                 },
-                { to: '/marketing', label: 'توليد الرسائل والمحتوى الإعلاني', icon: <Megaphone size={18} /> },
-                { to: '/discounts', label: 'قسائم التخفيض وكوبونات الترويج', icon: <Percent size={18} /> },
+                { to: 'marketing', label: 'توليد الرسائل والمحتوى الإعلاني', icon: <Megaphone size={18} /> },
+                { to: 'discounts', label: 'قسائم التخفيض وكوبونات الترويج', icon: <Percent size={18} /> },
             ]
         },
         {
             type: 'group',
             title: 'الخزينة والمنظومة المالية والمصروفات',
             links: [
-                { to: '/treasury', label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} />, badge: { text: "رئيسية", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px]" } },
-                { to: '/cash-management', label: 'حركات العُهد وتسليم الوردية', icon: <Handshake size={18} /> },
-                { to: '/expenses', label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
-                { to: '/partners', label: 'حسابات الشركاء والمسحوبات الشخصية', icon: <Users size={18} /> },
-                { to: '/collections-report', label: 'سجلات التحصيل والمقاصة المالية', icon: <Receipt size={18} /> },
-                { to: '/wallet', label: 'المحفظة الإلكترونية لعمولات المتجر', icon: <WalletIcon size={18} /> },
-                { to: '/withdrawals', label: 'معاملات وتفاصيل سحب الأموال', icon: <ArrowRightLeft size={18} /> },
+                { to: 'treasury', label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} />, badge: { text: "رئيسية", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px]" } },
+                { to: 'cash-management', label: 'حركات العُهد وتسليم الوردية', icon: <Handshake size={18} /> },
+                { to: 'expenses', label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
+                { to: 'partners', label: 'حسابات الشركاء والمسحوبات الشخصية', icon: <Users size={18} /> },
+                { to: 'collections-report', label: 'سجلات التحصيل والمقاصة المالية', icon: <Receipt size={18} /> },
+                { to: 'wallet', label: 'المحفظة الإلكترونية لعمولات المتجر', icon: <WalletIcon size={18} /> },
+                { to: 'withdrawals', label: 'معاملات وتفاصيل سحب الأموال', icon: <ArrowRightLeft size={18} /> },
             ]
         },
         {
             type: 'group',
             title: 'قنوات الشحن اللوجستي والتعبئة',
             links: [
-                { to: '/shipping', label: 'شركات وقنوات الشحن اللوجستي', icon: <Truck size={18} /> },
-                { to: '/shipping-wrapping', label: 'مستلزمات التعبئة والتغليف والشحن', icon: <Package size={18} /> },
+                { to: 'shipping', label: 'شركات وقنوات الشحن اللوجستي', icon: <Truck size={18} /> },
+                { to: 'shipping-wrapping', label: 'مستلزمات التعبئة والتغليف والشحن', icon: <Package size={18} /> },
             ]
         },
         {
             type: 'group',
             title: 'الهندسة البرمجية وتصميم ومظهر الويب',
             links: [
-                { to: '/design-templates', label: 'قوالب واجهة المتجر والويب', icon: <LayoutGrid size={18} /> },
-                { to: '/customize-store', label: 'تنسيق الخطوط والألوان والمظهر', icon: <Brush size={18} /> },
-                { to: '/apps', label: 'تثبيت التطبيقات وأدوات التكامل', icon: <AppWindow size={18} /> },
-                { to: '/pages', label: 'مدونة المتجر والصفحات الإضافية', icon: <FileText size={18} /> },
-                { to: '/domain', label: 'ربط النطاق المخصص والدومين', icon: <Globe size={18} /> },
-                { to: '/legal-pages', label: 'السياسات والشروط القانونية', icon: <Shield size={18} /> },
+                { to: 'design-templates', label: 'قوالب واجهة المتجر والويب', icon: <LayoutGrid size={18} /> },
+                { to: 'customize-store', label: 'تنسيق الخطوط والألوان والمظهر', icon: <Brush size={18} /> },
+                { to: 'apps', label: 'تثبيت التطبيقات وأدوات التكامل', icon: <AppWindow size={18} /> },
+                { to: 'pages', label: 'مدونة المتجر والصفحات الإضافية', icon: <FileText size={18} /> },
+                { to: 'domain', label: 'ربط النطاق المخصص والدومين', icon: <Globe size={18} /> },
+                { to: 'legal-pages', label: 'السياسات والشروط القانونية', icon: <Shield size={18} /> },
             ]
         },
         {
             type: 'group',
             title: 'النظام وإعدادات التحكم الشاملة',
             links: [
-                { to: '/settings', label: 'الإعدادات العامة وإدارة المتجر ⚙️', icon: <Settings2 size={18} /> },
-                { to: '/settings/payment', label: 'بوابات وطرق الدفع والتحصيل للعملاء', icon: <CreditCard size={18} /> },
-                { to: '/settings/tax', label: 'الضرائب ورسوم القيمة المضافة للبائع', icon: <Landmark size={18} /> },
-                { to: '/settings/employees', label: 'سجل صلاحيات طاقم العمل والـ CRM', icon: <Users2 size={18} /> },
+                { to: 'settings', label: 'الإعدادات العامة وإدارة المتجر ⚙️', icon: <Settings2 size={18} /> },
+                { to: 'settings/payment', label: 'بوابات وطرق الدفع والتحصيل للعملاء', icon: <CreditCard size={18} /> },
+                { to: 'settings/tax', label: 'الضرائب ورسوم القيمة المضافة للبائع', icon: <Landmark size={18} /> },
+                { to: 'settings/employees', label: 'سجل صلاحيات طاقم العمل والـ CRM', icon: <Users2 size={18} /> },
                 { 
-                    to: '/settings/developer', 
+                    to: 'settings/developer', 
                     label: 'أدوات المطورين والربط السحابي (Cloud Sync)', 
                     icon: <Code size={18} />,
                     badge: { text: "مطور 🛠️", color: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/10 text-[9px] font-medium" }

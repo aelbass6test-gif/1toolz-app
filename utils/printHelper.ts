@@ -19,6 +19,7 @@ export const printHTMLDirectly = (html: string) => {
             setTimeout(() => {
                 if (iframe.contentWindow) {
                     iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
                     
                     // Cleanup after a delay
                     setTimeout(() => {
@@ -39,6 +40,10 @@ export const printHTMLDirectly = (html: string) => {
         if (win) {
             win.document.write(html);
             win.document.close();
+            setTimeout(() => {
+                win.focus();
+                win.print();
+            }, 500);
         } else {
             alert('يرجى السماح بالنوافذ المنبثقة لطباعة التقريرات المعتمدة.');
         }

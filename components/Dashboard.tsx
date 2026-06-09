@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft } from 'lucide-react';
-import { Order, Settings, Wallet, User, CustomerProfile, Store } from '../types';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown } from 'lucide-react';
+import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from '../types';
 import { Link } from 'react-router-dom';
 import { motion, Variants } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
@@ -115,9 +115,11 @@ const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Set
 };
 
 
-const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { orders: Order[], settings: Settings, wallet: Wallet, currentUser: User | null, activeStore: Store | undefined }) => {
+const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStore }: { orders: Order[], settings: Settings, wallet: Wallet, treasury: Treasury | undefined, currentUser: User | null, activeStore: Store | undefined }) => {
   const [showVideoBanner, setShowVideoBanner] = useState(true);
   const [financialFilter, setFinancialFilter] = useState<'all' | 'with' | 'dep'>('all');
+  const [showDetailedStats, setShowDetailedStats] = useState(false);
+  const [showDetailedFinancials, setShowDetailedFinancials] = useState(false);
 
   const [announcementText, setAnnouncementText] = useState<string | null>(() => {
     const text = localStorage.getItem('platform_announcement_text');
@@ -172,23 +174,40 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       });
     });
 
-    // 2. Add deposits (wallet charges)
-    (wallet?.transactions || []).filter(t => t.category === 'wallet_charge').forEach(t => {
+    // 2. Add all completed or pending transactions
+    (wallet?.transactions || []).forEach(t => {
+      let title = t.category === 'wallet_charge' ? 'طلب شحن رصيد' : 
+                  t.type === 'إيداع' ? 'حركة توريد / تحصيل' : 'حركة سحب / مصروف';
+      
       let body = '';
-      if (t.status === 'pending') {
-        body = `طلب شحن رصيد بقيمة ${t.amount.toLocaleString()} ج.م بانتظار التحقق من الإيداع.`;
-      } else if (t.status === 'completed') {
-        body = `جرت بنجاح إضافة مبلغ شحن رصيد ${t.amount.toLocaleString()} ج.م إلى رصيدكم الأساسي.`;
-      } else if (t.status === 'cancelled') {
-        body = `تم رفض/إلغاء لطلب شحن الرصيد بقيمة ${t.amount.toLocaleString()} ج.م.`;
+      const amountStr = t.amount.toLocaleString();
+
+      if (t.category === 'wallet_charge') {
+        if (t.status === 'pending') {
+          body = `طلب شحن رصيد بقيمة ${amountStr} ج.م بانتظار التحقق من الإيداع.`;
+        } else if (t.status === 'completed') {
+          body = `جرت بنجاح إضافة مبلغ شحن رصيد ${amountStr} ج.م إلى رصيدكم الأساسي.`;
+        } else if (t.status === 'cancelled') {
+          body = `تم رفض/إلغاء لطلب شحن الرصيد بقيمة ${amountStr} ج.م.`;
+        }
+      } else if (t.category === 'collection') {
+        body = `تم إيداع مبلغ تحصيل طلب #${t.orderNumber || t.id} بقيمة ${amountStr} ج.م.`;
+      } else if (t.category === 'manual_deposit') {
+        body = `إيداع يدوي بقيمة ${amountStr} ج.م: ${t.note}`;
+      } else if (t.category === 'manual_withdrawal') {
+        body = `سحب يدوي بقيمة ${amountStr} ج.م: ${t.note}`;
+      } else if (t.category?.startsWith('expense_')) {
+        body = `صرف مصروفات التشغيل بقيمة ${amountStr} ج.م: ${t.note}`;
+      } else {
+        body = `${t.note || `عملية ${t.type} بقيمة ${amountStr} ج.م`}`;
       }
 
       list.push({
-        id: `d-${t.id}`,
-        title: `طلب شحن رصيد`,
+        id: `t-${t.id}`,
+        title,
         body,
         date: t.date,
-        type: 'إيداع',
+        type: t.type,
         status: t.status,
         amount: t.amount
       });
@@ -319,7 +338,8 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
         return sum;
     }, 0);
 
-    const workingCapital = cashBalance + (wallet?.supplyBalance || 0) + totalInventoryValue;
+    const treasuryTotal = (treasury?.accounts || []).reduce((sum, acc) => sum + (acc.balance || 0), 0);
+    const workingCapital = treasuryTotal + (wallet?.supplyBalance || 0) + totalInventoryValue;
 
     // Calculate Admin & Operational Expenses
     const adminExpenses = (wallet?.transactions || [])
@@ -335,14 +355,25 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
     const totalCapital = (settings?.partnerTransactions || [])
         .filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage')
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    const bankBalance = (treasury?.accounts || []).filter(a => a.type === 'bank').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+    const safeBalance = (treasury?.accounts || []).filter(a => a.type === 'safe').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+    const digitalWalletBalance = (treasury?.accounts || []).filter(a => a.type === 'wallet').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
 
     // 💡 Pro KPI Calculations
     const totalOrdersCount = (orders || []).length;
-    const deliveryRate = totalOrdersCount > 0 ? Math.round((successfulOrdersCount / totalOrdersCount) * 100) : 0;
-    const aov = successfulOrdersCount > 0 ? Math.round(actualCollection / successfulOrdersCount) : 0;
-    const cancellationRate = totalOrdersCount > 0 ? Math.round((cancelledCount / totalOrdersCount) * 100) : 0;
-    const returnRate = totalOrdersCount > 0 ? Math.round((returnedCount / totalOrdersCount) * 100) : 0;
-    const netMargin = actualCollection > 0 ? Math.round(((totalProfit - totalLoss - adminExpenses) / actualCollection) * 100) : 0;
+    const deliveryRate = totalOrdersCount > 0 ? (successfulOrdersCount / totalOrdersCount) * 100 : 0;
+    const aov = successfulOrdersCount > 0 ? (actualCollection / successfulOrdersCount) : 0;
+    const cancellationRate = totalOrdersCount > 0 ? (cancelledCount / totalOrdersCount) * 100 : 0;
+    const returnRate = totalOrdersCount > 0 ? (returnedCount / totalOrdersCount) * 100 : 0;
+
+    // Calculate Receivables (Credit Sales from POS)
+    const posReceivables = (settings?.posSales || [])
+        .filter(s => s.cashHolderId === 'credit')
+        .reduce((sum, s) => sum + s.totalAmount, 0);
+
+    // Calculate Total Distributed Custody
+    const totalCustodyBalance = (settings?.cashHolders || [])
+        .reduce((sum, h) => sum + (h.currentBalance || 0), 0);
 
     // Build unique customer set
     const uniqueCustomerCount = (orders || []).reduce((acc, o) => {
@@ -351,8 +382,163 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       return acc;
     }, new Set<string>()).size;
 
+    // Calculate Revenue vs Expenses for the last 6 months
+    const financeHistory = (() => {
+       const months = [];
+       for (let i = 5; i >= 0; i--) {
+         const d = new Date();
+         d.setDate(1); // Set to 1st to avoid month rolling issues
+         d.setMonth(d.getMonth() - i);
+         months.push({
+           name: d.toLocaleString('ar-EG', { month: 'short' }),
+           key: `${d.getMonth()}-${d.getFullYear()}`,
+           revenue: 0,
+           expenses: 0
+         });
+       }
+
+       // Simple month-based revenue aggregation
+       (orders || []).forEach(o => {
+         const isSuccessful = ['تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'تم_الاستلام'].includes(o.status);
+         if (isSuccessful) {
+            const d = new Date(o.date);
+            const key = `${d.getMonth()}-${d.getFullYear()}`;
+            const m = months.find(item => item.key === key);
+            if (m) m.revenue += (o.totalPrice || 0);
+         }
+       });
+
+       // Simple month-based expense aggregation
+       (wallet.transactions || []).forEach(t => {
+         const isExpense = t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category === 'manual_withdrawal');
+         if (isExpense) {
+            const d = new Date(t.date);
+            const key = `${d.getMonth()}-${d.getFullYear()}`;
+            const m = months.find(item => item.key === key);
+            if (m) m.expenses += t.amount;
+         }
+       });
+
+       return months;
+    })();
+
+    // Calculate Dead Stock (Products with high stock but no sales in last 30 days)
+    const deadStockCount = (settings?.products || []).filter(p => {
+        const stock = (p.stockQuantity || 0);
+        if (stock < 5) return false; // low stock is not "dead" in this context
+        
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const hasRecentSales = (orders || []).some(o => 
+            o.status !== 'ملغي' && 
+            new Date(o.date) >= thirtyDaysAgo && 
+            (o.items || []).some(item => item.productId === p.id)
+        );
+        
+        return !hasRecentSales;
+    }).length;
+
+    // Calculate Liquidity Coverage (Cash / Avg Monthly Expenses)
+    const avgMonthlyExpense = adminExpenses / Math.max((orders.length > 0 ? (new Date().getTime() - new Date(orders[0].date).getTime()) / (1000 * 60 * 60 * 24 * 30) : 1), 1);
+    const liquidityCoverage = avgMonthlyExpense > 0 ? (cashBalance / avgMonthlyExpense).toFixed(1) : '∞';
+
+    // Top Selling Products logic
+    const topProducts = (settings?.products || []).map(p => {
+        const salesCount = (orders || []).filter(o => 
+            ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status) &&
+            (o.items || []).some(item => item.productId === p.id)
+        ).length;
+        return { ...p, salesCount };
+    }).sort((a, b) => b.salesCount - a.salesCount).slice(0, 5);
+
+    // New Financial Metrics & Consolidation
+    // Calculate POS Profit/COGS for sales that are NOT in the orders list
+    let extraPosProfit = 0;
+    let extraPosCOGS = 0;
+    const extraPosSales = (settings?.posSales || []).filter(s => !(orders || []).some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+    
+    extraPosSales.forEach(s => {
+        (s.items || []).forEach(item => {
+            const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            extraPosCOGS += (cost * (item.quantity || 1));
+            extraPosProfit += ((item.price - cost) * (item.quantity || 1));
+        });
+    });
+
+    const finalRevenue = actualCollection + extraPosSales.reduce((sum, s) => sum + s.totalAmount, 0);
+    const finalCOGS = totalCOGS + extraPosCOGS;
+    const finalProfit = totalProfit + extraPosProfit;
+    const finalSuccessfulCount = successfulOrdersCount + extraPosSales.length;
+    
+    const grossProfit = finalRevenue - finalCOGS;
+    const supplierDebt = (settings?.suppliers || []).reduce((sum, s) => sum + (s.balance || 0), 0);
+    const shippingReceivables = (orders || [])
+        .filter(o => (o.status === 'تم_توصيلها' || o.status === 'مدفوعة' || o.status === 'قيد_الشحن') && !o.collectionProcessed)
+        .reduce((sum, o) => sum + (o.totalPrice || (o.productPrice + o.shippingFee)), 0);
+    
+    const netAvailableLiquidity = treasuryTotal - supplierDebt;
+    const roi = totalCapital > 0 ? ((finalProfit - totalLoss - adminExpenses) / totalCapital) * 100 : 0;
+    const expenseRatio = finalRevenue > 0 ? (adminExpenses / finalRevenue) * 100 : 0;
+    const grossMarginPercentage = finalRevenue > 0 ? (grossProfit / finalRevenue) * 100 : 0;
+    const netMarginPercentage = finalRevenue > 0 ? ((finalProfit - totalLoss - adminExpenses) / finalRevenue) * 100 : 0;
+    const netMargin = Math.round(netMarginPercentage * 10) / 10;
+    
+    // Revenue Growth (Current month vs Previous month)
+    const currentMonthKey = `${new Date().getMonth()}-${new Date().getFullYear()}`;
+    const previousMonth = new Date();
+    previousMonth.setMonth(previousMonth.getMonth() - 1);
+    const prevMonthKey = `${previousMonth.getMonth()}-${previousMonth.getFullYear()}`;
+    const currentMonthRevenue = (financeHistory.find(m => m.key === currentMonthKey)?.revenue || 0);
+    const prevMonthRevenue = (financeHistory.find(m => m.key === prevMonthKey)?.revenue || 0);
+    const revenueGrowth = prevMonthRevenue > 0 ? ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100 : 0;
+
+    // Top Customers Calculation
+    const customerMap = new Map();
+    (orders || []).forEach(o => {
+      if (!['ملغي', 'مرفوض'].includes(o.status)) {
+        const key = o.customerPhone || o.customerName;
+        if (key) {
+           const current = customerMap.get(key) || { id: key, name: o.customerName, phone: o.customerPhone, totalSpend: 0, ordersCount: 0 };
+           current.totalSpend += (o.totalPrice || 0);
+           current.ordersCount += 1;
+           customerMap.set(key, current);
+        }
+      }
+    });
+    const topCustomers = Array.from(customerMap.values())
+      .sort((a: any, b: any) => b.totalSpend - a.totalSpend)
+      .slice(0, 5);
+
+    const inventoryValue = (settings?.products || []).reduce((sum, p) => sum + (Number(p.costPrice || 0) * Number(p.stock || 0)), 0);
+
+    const productSalesMap = new Map();
+    (orders || []).forEach(o => {
+        if (!['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(o.status)) {
+            (o.items || []).forEach(item => {
+                const current = productSalesMap.get(item.productId) || { id: item.productId, name: item.name, quantity: 0, revenue: 0 };
+                current.quantity += (item.quantity || 1);
+                current.revenue += (item.price * (item.quantity || 1));
+                productSalesMap.set(item.productId, current);
+            });
+        }
+    });
+    const topSellingProducts = Array.from(productSalesMap.values())
+        .sort((a: any, b: any) => b.quantity - a.quantity)
+        .slice(0, 5);
+
+    const funnel = {
+        pending: (orders || []).filter(o => o.status === 'جاري_المراجعة' || o.status === 'في_انتظار_المكالمة').length,
+        confirmed: (orders || []).filter(o => o.status === 'قيد_التنفيذ' || o.status === 'تم_الارسال').length,
+        shipping: (orders || []).filter(o => o.status === 'قيد_الشحن').length,
+        delivered: (orders || []).filter(o => o.status === 'تم_توصيلها' || o.status === 'مدفوعة').length,
+        collected: (orders || []).filter(o => o.status === 'تم_التحصيل').length
+    };
+
+    const avgProfitPerOrder = finalSuccessfulCount > 0 ? (finalProfit - totalLoss - adminExpenses) / finalSuccessfulCount : 0;
+
     return { 
-      net: totalProfit - totalLoss - adminExpenses, 
+      net: finalProfit - totalLoss - adminExpenses, 
       adminExpenses,
       totalCapital,
       counts, 
@@ -362,10 +548,10 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       outForDeliveryCount,
       awaitingPickupCount,
       headedToYouCount,
-      successfulOrdersCount,
-      actualCollection,
+      successfulOrdersCount: finalSuccessfulCount,
+      actualCollection: finalRevenue,
       expectedCollection,
-      totalCOGS,
+      totalCOGS: finalCOGS,
       totalShippingPaid,
       totalReturnedExpenses,
       totalInventoryValue,
@@ -384,9 +570,33 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
       cancellationRate,
       returnRate,
       netMargin,
-      uniqueCustomerCount
+      uniqueCustomerCount,
+      posReceivables,
+      totalCustodyBalance,
+      financeHistory,
+      deadStockCount,
+      liquidityCoverage,
+      topProducts: topSellingProducts,
+      totalRevenue: finalRevenue,
+      grossProfit,
+      roi,
+      expenseRatio,
+      supplierDebt,
+      shippingReceivables,
+      grossMarginPercentage,
+      netMarginPercentage,
+      revenueGrowth,
+      treasuryTotal,
+      bankBalance,
+      safeBalance,
+      digitalWalletBalance,
+      netAvailableLiquidity,
+      topCustomers,
+      inventoryValue,
+      funnel,
+      avgProfitPerOrder
     };
-  }, [orders, settings, wallet]);
+  }, [orders, settings, wallet, treasury]);
 
   const channelData = [
     { name: 'مبيعات الكاشير (POS)', value: stats.posRevenue, color: '#6366f1' },
@@ -583,6 +793,90 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
               🔁 معدل الشراء المتكرر: {(stats.successfulOrdersCount > 0 && stats.uniqueCustomerCount > 0 ? (stats.successfulOrdersCount / stats.uniqueCustomerCount).toFixed(1) : 1)}x لكل عميل
             </p>
           </div>
+
+          {/* New KPI 5: POS Receivables */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-orange-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-orange-500/5 rounded-full blur-xl group-hover:bg-orange-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-xl">
+                <AlertCircle size={20} />
+              </div>
+              <span className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 px-2.5 py-1 rounded-full font-black">
+                مديونيات الكاشير
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">مبيعات الكاشير الآجلة (Receivables)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.posReceivables.toLocaleString()}</span>
+              <span className="text-xs font-bold text-slate-400">ج.م مُعلق</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mt-3">
+              ⚠️ مبالغ لدى العملاء لم يتم تحصيلها بعد في الفترات الحالية.
+            </p>
+          </div>
+
+          {/* New KPI 6: Distributed Custody */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-amber-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
+                <ShoppingBag size={20} />
+              </div>
+              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 px-2.5 py-1 rounded-full font-black">
+                العهد الموزعة
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">إجمالي المبالغ بعهدة الموظفين (In Custody)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.totalCustodyBalance.toLocaleString()}</span>
+              <span className="text-xs font-bold text-slate-400">ج.م نقدية</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mt-3">
+              💰 مبالغ "خارج" الخزينة الرئيسية في انتظار التوريد اليدوي.
+            </p>
+          </div>
+
+          {/* New KPI 7: Liquidity Coverage */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-blue-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-blue-500/5 rounded-full blur-xl group-hover:bg-blue-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl">
+                <RefreshCcw size={20} />
+              </div>
+              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 px-2.5 py-1 rounded-full font-black">
+                قدرة السداد
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">معامل السيولة (Liquidity Months)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.liquidityCoverage}</span>
+              <span className="text-xs font-bold text-slate-400">شهور تغطية</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mt-3">
+              📊 عدد الشهور التي تكفيها السيولة الحالية للمصاريف الإدارية.
+            </p>
+          </div>
+
+          {/* New KPI 8: Dead Stock */}
+          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-rose-500/40 transition-all text-right font-sans">
+            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-rose-500/5 rounded-full blur-xl group-hover:bg-rose-500/10 transition-colors" />
+            <div className="flex justify-between items-start mb-4">
+              <div className="p-2 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-xl">
+                <X size={20} />
+              </div>
+              <span className="text-[10px] bg-rose-100 dark:bg-rose-900/30 text-rose-800 dark:text-rose-300 px-2.5 py-1 rounded-full font-black">
+                المخزون الساكن
+              </span>
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">إصناف لم تُبع آخر 30 يوم (Dead Stock)</p>
+            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.deadStockCount}</span>
+              <span className="text-xs font-bold text-slate-400">صنف راكد</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold mt-3">
+              🥀 أصناف عالية المخزون ولكنها لا تحقق مبيعات حالية.
+            </p>
+          </div>
         </div>
       </motion.div>
 
@@ -593,252 +887,513 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
           <h2 className="text-lg font-black text-slate-800 dark:text-slate-100">دورة حياة المبيعات وحالات الطلبات اليومية</h2>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <DashboardStatusCard 
-            title="في إنتظار قرارك" 
-            value={stats.awaitingDecisionCount} 
-            color="text-orange-500"
-          />
-          <DashboardStatusCard 
-            title="الأوردرات الناجحة" 
-            value={`${stats.successfulOrdersCount} / ${stats.total}`} 
-            color="text-emerald-600"
-          />
-          <DashboardStatusCard 
-            title="متجه للعميل" 
-            value={stats.outForDeliveryCount} 
-            color="text-blue-600"
-          />
-          <DashboardStatusCard 
-            title="قيد التنفيذ" 
-            value={stats.processingCount} 
-            color="text-purple-600"
-          />
-          
-          {/* Additional Stats Row */}
-          <DashboardStatusCard 
-            title="المرتجعات" 
-            value={stats.returnedCount} 
-            color="text-rose-600"
-          />
-          <DashboardStatusCard 
-            title="ملغي" 
-            value={stats.cancelledCount} 
-            color="text-slate-500"
-          />
-          <DashboardStatusCard 
-            title="فشل التوصيل" 
-            value={stats.failedCount} 
-            color="text-red-500"
-          />
-          <DashboardStatusCard 
-            title="مؤجل ومجدول" 
-            value={stats.delayedCount} 
-            color="text-amber-500"
-          />
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 font-sans">
+          <DashboardStatusCard title="الأوردرات الناجحة" value={`${stats.successfulOrdersCount} / ${stats.total}`} color="text-emerald-600" />
+          <DashboardStatusCard title="في إنتظار قرارك" value={stats.awaitingDecisionCount} color="text-orange-500" />
+          <DashboardStatusCard title="متجه للعميل" value={stats.outForDeliveryCount} color="text-blue-600" />
+          <DashboardStatusCard title="قيد التنفيذ" value={stats.processingCount} color="text-purple-600" />
+          <DashboardStatusCard title="التحصيل المتوقع" value={`${(stats.expectedCollection).toLocaleString()} ج.م`} color="text-indigo-600" />
+          <DashboardStatusCard title="التحصيل الفعلي" value={`${(stats.actualCollection).toLocaleString()} ج.م`} color="text-emerald-500" />
+        </div>
 
-          {/* Financial collection and pickups */}
-          <DashboardStatusCard 
-            title="التحصيل الفعلي" 
-            value={`${stats.actualCollection.toLocaleString()} ج.م`} 
-            color="text-emerald-600 font-bold"
-            badge={`${stats.total > 0 ? Math.round((stats.successfulOrdersCount / stats.total) * 100) : 0}%`}
-          />
-          <DashboardStatusCard 
-            title="التحصيل المتوقع" 
-            value={`${(stats.expectedCollection).toLocaleString()} ج.م`} 
-            color="text-indigo-600"
-          />
-          <DashboardStatusCard 
-            title="في انتظار الاستلام" 
-            value={stats.awaitingPickupCount} 
-            color="text-slate-700"
-          />
-          <DashboardStatusCard 
-            title="متجه إليك" 
-            value={stats.headedToYouCount} 
-            color="text-rose-500"
-          />
+        <motion.div 
+          initial={false}
+          animate={{ height: showDetailedStats ? 'auto' : 0, opacity: showDetailedStats ? 1 : 0 }}
+          className="overflow-hidden"
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800/50">
+            <DashboardStatusCard title="المرتجعات" value={stats.returnedCount} color="text-rose-600" />
+            <DashboardStatusCard title="فشل التوصيل" value={stats.failedCount} color="text-red-500" />
+            <DashboardStatusCard title="ملغي" value={stats.cancelledCount} color="text-slate-500" />
+            <DashboardStatusCard title="مؤجل ومجدول" value={stats.delayedCount} color="text-amber-500" />
+            <DashboardStatusCard title="في انتظار الاستلام" value={stats.awaitingPickupCount} color="text-slate-700" />
+            <DashboardStatusCard title="متجه إليك" value={stats.headedToYouCount} color="text-rose-500" />
+          </div>
+        </motion.div>
+
+        {/* Toggle button moved below the grid */}
+        <div className="flex justify-center pt-2">
+          <button 
+            type="button"
+            onClick={() => setShowDetailedStats(!showDetailedStats)}
+            className="group flex items-center gap-2 px-6 py-1.5 rounded-full border border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+          >
+            {showDetailedStats ? (
+              <>
+                <ArrowDown className="text-primary rotate-180 transition-transform" size={12} />
+                <span>إخفاء الحالات الإضافية</span>
+              </>
+            ) : (
+              <>
+                <Layers className="text-primary group-hover:animate-bounce" size={12} />
+                <span>عرض كافة حالات الطلبات</span>
+              </>
+            )}
+          </button>
         </div>
       </motion.div>
 
       {/* Bento Grid Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
         
-        {/* Main Stats - Large Card */}
-        <motion.div variants={itemVariants} className="md:col-span-8 glass-card p-8 rounded-3xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-primary/10 transition-colors" />
+        {/* Main Stats - Optimized Layout */}
+        <motion.div variants={itemVariants} className="md:col-span-8 glass-card p-10 rounded-[2.5rem] relative overflow-hidden group border-primary/5 shadow-xl shadow-slate-200/40 dark:shadow-none">
+          <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-primary/10 transition-colors" />
           
-          <div className="relative z-10">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">الأداء المالي</h3>
-              <select className="bg-transparent border-none text-sm font-bold text-slate-500 focus:ring-0 cursor-pointer">
-                <option>آخر 7 أيام</option>
-                <option>آخر 30 يوم</option>
-              </select>
+          <div className="relative z-10 font-sans">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-10 gap-6 text-right">
+              <div className="space-y-1">
+                <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-3">
+                  <TrendingUp className="text-primary p-1.5 bg-primary/10 rounded-xl" size={32} />
+                  الأداء المالي (Financial Performance)
+                </h3>
+                <p className="text-sm font-bold text-slate-400">تحليل الميزانية، الأرباح، والتدفقات النقدية اللحظية</p>
+              </div>
+               <div className="flex items-center gap-3">
+                  <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
+                    <span className="px-4 py-2 text-xs font-black text-slate-500">الفترة:</span>
+                    <select className="bg-white dark:bg-slate-700 text-xs font-black px-4 py-2 rounded-xl outline-none shadow-sm cursor-pointer">
+                      <option>آخر 7 أيام</option>
+                      <option>الشهر الحالي</option>
+                    </select>
+                  </div>
+                  <button 
+                    type="button"
+                    onClick={() => setShowDetailedFinancials(!showDetailedFinancials)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 text-primary text-[10px] font-black hover:bg-primary/20 transition-all border border-primary/10"
+                  >
+                    <ChartIcon size={14} />
+                    <span>{showDetailedFinancials ? 'تقليل العرض' : 'تحليلات تفصيلية'}</span>
+                  </button>
+               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${showDetailedFinancials ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-6 transition-all duration-500`}>
               {/* صافي الأرباح */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <TrendingUp size={16} className="text-emerald-500 animate-bounce" />
-                  <span>صافي الأرباح</span>
+                  <DollarSign size={16} className="text-primary" />
+                  <span>صافي الأرباح (Net Profit)</span>
                 </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                <h4 className={`text-2xl sm:text-3xl font-black tabular-nums ${stats.net >= 0 ? 'text-primary' : 'text-rose-500'}`}>
                   {stats.net.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">الأرباح بعد خصم الشحن ومصاريف المشتريات والمصاريف الإدارية</p>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${stats.revenueGrowth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                    {stats.revenueGrowth >= 0 ? '+' : ''}{stats.revenueGrowth.toFixed(1)}%
+                  </span>
+                  <p className="text-[10px] text-slate-400 font-bold">نمو المبيعات</p>
+                </div>
               </div>
 
-              {/* رصيد المحفظة */}
+              {/* مجمل الأرباح */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <WalletIcon size={16} className="text-indigo-500" />
-                  <span>رصيد المحفظة السائل</span>
+                  <ShoppingBag size={16} className="text-emerald-500" />
+                  <span>مجمل الربح (Gross Profit)</span>
                 </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tabular-nums">
-                  {((wallet?.transactions || []).reduce((sum, t) => {
-                      const amount = Number(t.amount) || 0;
-                      if (t.details?.paidByPartnerId) return sum;
-                      
-                      // Exclude supply wallet categories
-                      const category = t.category || '';
-                      const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply', 'supply_expense_shipping', 'supply_expense_other'].includes(category);
-                      if (isSupplyTx) return sum;
-
-                      if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
-                      if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
-                      return sum;
-                  }, 0) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {stats.grossProfit.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">السيولة النقدية المتاحة للتوزيع والسحب الفوري</p>
+                <p className="text-[10px] text-slate-400 font-bold">الأرباح قبل خصم المصاريف التشغيلية</p>
               </div>
 
-              {/* رأس المال العامل الكلي */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
-                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-1.5">
-                  <Layers size={16} className="text-blue-500" />
-                  <span>رأس المال العامل الكلي</span>
-                </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-blue-605 dark:text-blue-400 tabular-nums animate-pulse-slow">
-                  {stats.workingCapital.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
-                </h4>
-                <p className="text-[10px] text-slate-400 font-bold">إجمالي الأصول (السيولة + محفظة التوريد + البضاعة بالتكلفة)</p>
-              </div>
-
-              {/* إجمالي الاستثمار ورأس المال */}
+              {/* هامش صافي الربح */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <ArrowUpLeft size={16} className="text-teal-500" />
-                  <span>إجمالي الاستثمار والتمويل</span>
+                  <Percent size={16} className="text-emerald-500" />
+                  <span>هامش صافي الربح</span>
                 </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-teal-650 dark:text-teal-400 tabular-nums">
-                  {stats.totalCapital.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {stats.netMarginPercentage.toFixed(1)}%
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">إمساك رؤوس أموال وتمويلات الشركاء المدخلة</p>
+                <p className="text-[10px] text-slate-400 font-bold">نسبة الأرباح النهائية من إجمالي المبيعات</p>
               </div>
 
-              {/* تكلفة البضاعة المباعة COGS */}
+              {/* ROI */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <Package size={16} className="text-amber-500" />
-                  <span>تكلفة البضائع المباعة (COGS)</span>
+                  <ArrowUpLeft size={16} className="text-indigo-500" />
+                  <span>ROI (Return on Investment)</span>
                 </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-slate-200 tabular-nums">
-                  {stats.totalCOGS.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                <h4 className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
+                  {stats.roi.toFixed(1)}%
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">إجمالي تكلفة شراء المنتجات للأوردرات الناجحة</p>
+                <p className="text-[10px] text-slate-400 font-bold">كفاءة العائد على رأس المال المستثمر</p>
               </div>
 
-              {/* قيمة البضائع في المستودع */}
+              {/* قيمة المخزون الحالية */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <Clock size={16} className="text-cyan-500" />
-                  <span>قيمة المخزون الحالي (بالتكلفة)</span>
+                  <Layers size={16} className="text-amber-500" />
+                  <span>قيمة المخزون (Stock Value)</span>
                 </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-slate-200 tabular-nums">
-                  {stats.totalInventoryValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
+                  {stats.inventoryValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">قيمة كل قطعة بضاعة موجودة حالياً بالمخزن بسعر التكلفة</p>
+                <p className="text-[10px] text-slate-400 font-bold">إجمالي تكلفة البضاعة الموجودة بالمستودعات</p>
               </div>
 
-              {/* رسوم ومصاريف التشغيل */}
+              {/* متوسط الأرباح لكل طلب */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <Truck size={16} className="text-rose-500" />
-                  <span>رسوم شحن وتوصيل</span>
+                  <CheckCircle2 size={16} className="text-cyan-500" />
+                  <span>صافي الربح / طلب</span>
                 </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-rose-500 dark:text-rose-400 tabular-nums">
-                  {(stats.totalShippingPaid + stats.totalReturnedExpenses).toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
+                  {Math.round(stats.avgProfitPerOrder).toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
-                <p className="text-[10px] text-slate-400 font-bold">إجمالي تكاليف التوصيل + خسائر الشحن للأوردرات الراجعة</p>
-              </div>
-
-              {/* المصاريف الإدارية والتشغيلية */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
-                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <DollarSign size={16} className="text-rose-600 dark:text-rose-500" />
-                  <span>مصاريف إدارية وتشغيلية</span>
-                </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400 tabular-nums font-sans">
-                  {stats.adminExpenses.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
-                </h4>
-                <p className="text-[10px] text-slate-400 font-bold">إجمالي المرتبات، الإعلانات، الإيجارات، ومصاريف التوريد والإنفاق الإداري</p>
+                <p className="text-[10px] text-slate-400 font-bold">متوسط الربح الصافي المحقق من كل طلب ناجح</p>
               </div>
             </div>
+
+            {/* Expanded Analytical Grid */}
+            <motion.div 
+              initial={false}
+              animate={{ height: showDetailedFinancials ? 'auto' : 0, opacity: showDetailedFinancials ? 1 : 0 }}
+              className="overflow-hidden"
+            >
+               <div className="pt-8 mt-8 border-t border-slate-100 dark:border-slate-800/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">رأس المال العامل</p>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.workingCapital.toLocaleString()} ج.م</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">إجمالي الاستثمارات</p>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCapital.toLocaleString()} ج.م</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">تكلفة البضاعة COGS</p>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCOGS.toLocaleString()} ج.م</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">مصاريف التشغيل</p>
+                    <h5 className="text-sm font-black text-rose-500">{stats.adminExpenses.toLocaleString()} ج.م</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">ديون الموردين</p>
+                    <h5 className="text-sm font-black text-rose-600">{stats.supplierDebt.toLocaleString()} ج.م</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">صافي السيولة المتاحة</p>
+                    <h5 className="text-sm font-black text-emerald-500">{stats.netAvailableLiquidity.toLocaleString()} ج.م</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">معدل الارتجاع (Return)</p>
+                    <h5 className="text-sm font-black text-orange-500">{stats.returnRate.toFixed(1)}%</h5>
+                  </div>
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <p className="text-[10px] font-black text-slate-400 mb-1">إصناف راكدة (Dead Stock)</p>
+                    <h5 className="text-sm font-black text-rose-500">{stats.deadStockCount} صنف</h5>
+                  </div>
+                  <div className="col-span-full mt-4 p-4 rounded-2xl bg-primary/5 border border-primary/10">
+                    <div className="flex items-center justify-between">
+                       <p className="text-[10px] font-black text-primary">تحليل السيولة النقدية والتدفق:</p>
+                       <span className="text-[10px] font-black text-slate-500">معامل التغطية: {stats.liquidityCoverage} شهر</span>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full bg-primary/10 rounded-full overflow-hidden">
+                       <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(Number(stats.liquidityCoverage) * 10, 100)}%` }} />
+                    </div>
+                  </div>
+               </div>
+            </motion.div>
           </div>
         </motion.div>
 
-        {/* Quick Actions / Status - Vertical Bento */}
-        <motion.div variants={itemVariants} className="md:col-span-4 space-y-6">
-          <div className="glass-card p-6 rounded-3xl h-full flex flex-col justify-between">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6">حالات الطلبات</h3>
-            <div className="space-y-4">
-              <StatusItem label="بانتظار تأكيد" value={stats.counts['في_انتظار_المكالمة']} color="bg-cyan-500" />
-              <StatusItem label="قيد المراجعة" value={stats.counts['جاري_المراجعة']} color="bg-purple-500" />
-              <StatusItem label="تم التحصيل" value={stats.counts['تم_التحصيل']} color="bg-emerald-500" />
-              <StatusItem label="مرتجعات" value={stats.counts['مرتجع']} color="bg-rose-500" />
+        {/* Growth & Liquidity Insights - Filling the 4-span space */}
+        <motion.div variants={itemVariants} className="md:col-span-4 glass-card p-10 rounded-[2.5rem] border-primary/5 flex flex-col justify-between overflow-hidden relative group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-emerald-500/10 transition-colors" />
+          <div className="relative z-10 font-sans">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 italic">النمو والسيولة</h3>
+              <Sparkles className="text-amber-500" size={18} />
             </div>
-            <Link to="/orders" className="mt-8 text-center text-sm font-bold text-primary hover:underline">
-              إدارة كافة الطلبات
-            </Link>
+            <p className="text-xs text-slate-400 font-bold mb-8">تحليل التدفق النقدي ومعدلات النمو الشهري</p>
+
+            <div className="h-[220px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.financeHistory}>
+                  <defs>
+                    <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', backdropFilter: 'blur(8px)', direction: 'rtl' }}
+                  />
+                  <Area type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorRev)" />
+                  <Area type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} strokeDasharray="6 6" fill="transparent" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-6 relative z-10 font-sans">
+             <div className="flex justify-between items-center text-xs font-black">
+                <span className="text-slate-500">إجمالي الإيرادات:</span>
+                <span className="text-slate-800 dark:text-white">{stats.totalRevenue.toLocaleString()} ج.م</span>
+             </div>
+             <div className="flex justify-between items-center text-xs font-black">
+                <span className="text-slate-500">صافي المبيعات (نقد):</span>
+                <span className="text-emerald-500">+{stats.actualCollection.toLocaleString()} ج.م</span>
+             </div>
+             <div className="h-px bg-slate-100 dark:bg-slate-800 my-2" />
+             <div className="flex justify-between items-center text-xs font-black">
+                <span className="text-slate-500">كفاءة الإنفاق (Expense Ratio):</span>
+                <span className={`px-2 py-0.5 rounded-full ${stats.expenseRatio < 25 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                  {stats.expenseRatio.toFixed(1)}%
+                </span>
+             </div>
           </div>
         </motion.div>
+      </div>
 
-        {/* Analytics Chart - Bento Card */}
-        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl min-h-[400px]">
+        {/* Sales Funnel & Lifecycle - NEW SECTION */}
+        <motion.div variants={itemVariants} className="md:col-span-12 glass-card p-8 rounded-3xl mb-6">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">توزيع المبيعات (حالات)</h3>
-            <ChartIcon size={20} className="text-slate-400" />
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Layers size={20} className="text-indigo-500" />
+              مراحل دورة المبيعات (Sales Funnel)
+            </h3>
+            <span className="text-[10px] font-black bg-indigo-100 text-indigo-600 px-3 py-1 rounded-full">مباشر</span>
           </div>
-          <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={70}
-                  outerRadius={100}
-                  paddingAngle={8}
-                  dataKey="value"
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} className="outline-none" />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)', 
-                    backdropFilter: 'blur(10px)',
-                    border: 'none',
-                    borderRadius: '16px',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
+               <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center mb-3">
+                 <Clock size={16} className="text-slate-500" />
+               </div>
+               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">قيد المراجعة</p>
+               <p className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.funnel.pending}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/40 flex flex-col items-center text-center">
+               <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-800/30 flex items-center justify-center mb-3">
+                 <Check size={16} className="text-blue-500" />
+               </div>
+               <p className="text-[10px] font-bold text-blue-500 uppercase mb-1">تم التأكيد</p>
+               <p className="text-2xl font-black text-blue-700 dark:text-blue-400 tabular-nums">{stats.funnel.confirmed}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/40 flex flex-col items-center text-center">
+               <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-800/30 flex items-center justify-center mb-3">
+                 <Truck size={16} className="text-amber-500" />
+               </div>
+               <p className="text-[10px] font-bold text-amber-500 uppercase mb-1">قيد الشحن</p>
+               <p className="text-2xl font-black text-amber-700 dark:text-amber-400 tabular-nums">{stats.funnel.shipping}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800/40 flex flex-col items-center text-center">
+               <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-800/30 flex items-center justify-center mb-3">
+                 <ShieldAlert size={16} className="text-emerald-500" />
+               </div>
+               <p className="text-[10px] font-bold text-emerald-500 uppercase mb-1">تم التوصيل</p>
+               <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums">{stats.funnel.delivered}</p>
+            </div>
+            <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800/40 flex flex-col items-center text-center">
+               <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-800/30 flex items-center justify-center mb-3">
+                 <DollarSign size={16} className="text-indigo-500" />
+               </div>
+               <p className="text-[10px] font-bold text-indigo-500 uppercase mb-1">تم التحصيل</p>
+               <p className="text-2xl font-black text-indigo-700 dark:text-indigo-400 tabular-nums">{stats.funnel.collected}</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Monthly Performance & Top Customers - Bento Layout */}
+        <div className="md:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+          {/* Monthly Sales & Profit Trends Chart */}
+          <motion.div variants={itemVariants} className="lg:col-span-8 glass-card p-8 rounded-3xl min-h-[400px]">
+            <div className="flex items-center justify-between mb-8 text-right">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">تحليل الأداء الشهري</h3>
+                <p className="text-xs text-slate-500">مقارنة الإيرادات مقابل المصاريف وللأرباح</p>
+              </div>
+              <TrendingUp size={20} className="text-emerald-500" />
+            </div>
+            <div className="h-[300px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={stats.financeHistory}>
+                  <defs>
+                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis 
+                    dataKey="month" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fontSize: 10, fontWeight: 700}} 
+                    dy={10}
+                  />
+                  <YAxis hide />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                      backdropFilter: 'blur(10px)',
+                      border: 'none',
+                      borderRadius: '16px',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    name="الإيرادات"
+                    stroke="#6366f1" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorRevenue)" 
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="profit" 
+                    name="الأرباح"
+                    stroke="#10b981" 
+                    strokeWidth={3}
+                    fillOpacity={1} 
+                    fill="url(#colorProfit)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </motion.div>
+
+          {/* Top Customers Section */}
+          <motion.div variants={itemVariants} className="lg:col-span-4 glass-card p-8 rounded-3xl flex flex-col">
+            <div className="flex items-center justify-between mb-8 text-right">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">العملاء المميزون (V.I.P)</h3>
+              <Users2 size={20} className="text-indigo-500" />
+            </div>
+            <div className="space-y-4 flex-1">
+              {stats.topCustomers.map((customer: any) => (
+                <div key={customer.id} className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 shadow-sm hover:border-indigo-200 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black">
+                      {stats.topCustomers.indexOf(customer) + 1}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate max-w-[100px]">{customer.name || 'عميل مجهول'}</p>
+                      <p className="text-[10px] font-bold text-slate-400">{customer.ordersCount} طلبات شراء </p>
+                    </div>
+                  </div>
+                  <div className="text-left font-black text-emerald-600 text-sm">
+                    {customer.totalSpend.toLocaleString()} <span className="text-[9px]">ج.م</span>
+                  </div>
+                </div>
+              ))}
+              {stats.topCustomers.length === 0 && (
+                 <div className="text-center py-10 text-slate-400 italic text-sm">لا توجد بيانات عملاء كافية</div>
+              )}
+            </div>
+            <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+              <Link to="/customers" className="flex items-center justify-center gap-2 text-xs font-black text-indigo-600 hover:text-indigo-700 transition-colors">
+                <span>عرض قائمة العملاء بالكامل</span>
+                <ArrowLeft size={14} />
+              </Link>
+            </div>
+          </motion.div>
+
+          {/* Top Products Performance */}
+          <motion.div variants={itemVariants} className="lg:col-span-12 glass-card p-8 rounded-3xl mt-6">
+            <div className="flex items-center justify-between mb-8 text-right">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">المنتجات الأكثر مبيعاً</h3>
+              <div className="flex items-center gap-4">
+                 <Link to="/products" className="text-xs font-bold text-primary hover:underline">إدارة المخزون</Link>
+                 <Sparkles size={20} className="text-amber-500" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+              {stats.topProducts.map((product: any, idx: number) => (
+                <div key={product.id || idx} className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-3 mb-3">
+                     <span className="text-xs font-black text-slate-400">#{idx + 1}</span>
+                     <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate">{product.name}</p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                     <div>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">مباع</p>
+                        <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">{product.quantity} قطعة</p>
+                     </div>
+                     <div className="text-left">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase">إيراد</p>
+                        <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums">{product.revenue.toLocaleString()} <span className="text-[9px]">ج.م</span></p>
+                     </div>
+                  </div>
+                </div>
+              ))}
+              {stats.topProducts.length === 0 && (
+                <div className="col-span-full py-8 text-center text-slate-400 italic text-sm">لا توجد بيانات مبيعات منتجات كافية</div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Status Distribution & Analytics - Modern Bento Grid */}
+        <motion.div variants={itemVariants} className="md:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 glass-card p-8 rounded-3xl border-primary/5">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">توزيع الطلبات حسب الحالة</h3>
+              <ChartIcon size={20} className="text-slate-400" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center h-[300px]">
+              <div className="md:col-span-5 h-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={8}
+                      dataKey="value"
+                    >
+                      {chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} className="outline-none" />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'rgba(255, 255, 255, 0.9)', 
+                        backdropFilter: 'blur(10px)',
+                        border: 'none',
+                        borderRadius: '16px',
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="md:col-span-7">
+                <StatusDistribution data={chartData} />
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-1 glass-card p-8 rounded-3xl border-indigo-500/10">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6 flex items-center justify-between">
+              ملخص السيولة
+              <WalletIcon size={18} className="text-indigo-500" />
+            </h3>
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
+                <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-1">السيولة النقدية (كاش ومحافظ)</p>
+                <p className="text-xl font-black text-emerald-700 dark:text-emerald-300">{(stats.safeBalance + stats.digitalWalletBalance).toLocaleString()} <span className="text-xs">ج.م</span></p>
+              </div>
+              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
+                <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase mb-1">الأرصدة البنكية</p>
+                <p className="text-xl font-black text-blue-700 dark:text-blue-300">{stats.bankBalance.toLocaleString()} <span className="text-xs">ج.م</span></p>
+              </div>
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/80">
+                <p className="text-[10px] font-black text-slate-500 uppercase mb-1">المجموع الكلي بالحسابات</p>
+                <p className="text-xl font-black text-slate-800 dark:text-white">{stats.treasuryTotal.toLocaleString()} <span className="text-xs">ج.م</span></p>
+              </div>
+              <Link to="/treasury" className="block text-center text-xs font-black text-primary hover:underline pt-2">عرض كافة الخزائن</Link>
+            </div>
           </div>
         </motion.div>
 
@@ -1094,7 +1649,117 @@ const Dashboard = ({ orders, settings, wallet, currentUser, activeStore }: { ord
           )}
         </motion.div>
 
-      </div>
+        {/* Top Products - filling gap */}
+        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">الأكثر مبيعاً هدا الشهر</h3>
+              <Sparkles size={20} className="text-indigo-500" />
+            </div>
+            
+            <div className="space-y-4">
+              {stats.topProducts.map((p: any, idx: number) => (
+                <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50/30 dark:bg-slate-800/30 border border-indigo-100/50 dark:border-slate-700/50">
+                   <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center font-black text-xs text-indigo-600 shadow-sm">
+                        {idx + 1}
+                      </div>
+                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate max-w-[150px]">{p.name}</p>
+                   </div>
+                   <div className="text-right">
+                      <p className="text-sm font-black text-indigo-600">{p.salesCount} بيعة</p>
+                   </div>
+                </div>
+              ))}
+              {stats.topProducts.length === 0 && (
+                <div className="text-center py-10 text-slate-400 italic">لا توجد بيانات مبيعات كافية</div>
+              )}
+            </div>
+        </motion.div>
+
+        {/* Supplier Debt (Accounts Payable) - Bento Card */}
+        <motion.div variants={itemVariants} className="md:col-span-12 glass-card p-8 rounded-3xl">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Layers className="text-rose-500" size={24} />
+              ديون الموردين (Accounts Payable)
+            </h3>
+            <div className="text-right">
+                <span className="text-xs font-bold text-slate-400">إجمالي المديونية</span>
+                <p className="text-lg font-black text-rose-600">-{stats.supplierDebt.toLocaleString()} ج.م</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {(settings.suppliers || []).filter(s => (s.balance || 0) > 0).slice(0, 8).map(supplier => (
+               <div key={supplier.id} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:border-rose-200 transition-colors group">
+                  <div className="flex items-center gap-4 mb-4">
+                     <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center font-black text-lg transition-transform group-hover:scale-110">
+                        {supplier.name.charAt(0)}
+                     </div>
+                     <div>
+                        <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate max-w-[120px]">{supplier.name}</p>
+                        <p className="text-[10px] font-bold text-slate-400">مورد خارجي</p>
+                     </div>
+                  </div>
+                  <div className="flex items-end justify-between">
+                     <div className="space-y-0.5">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">مستحق السداد له</p>
+                        <p className="text-xl font-black text-rose-600 dark:text-rose-400 tabular-nums tracking-tighter">{(supplier.balance || 0).toLocaleString()} <span className="text-[10px]">ج.م</span></p>
+                     </div>
+                     <Link to="/suppliers" className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
+                        <ArrowLeft size={16} />
+                     </Link>
+                  </div>
+               </div>
+            ))}
+            {(settings.suppliers || []).filter(s => (s.balance || 0) > 0).length === 0 && (
+                <div className="col-span-full py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-3xl">
+                    <p className="text-sm font-bold italic">لا توجد مديونيات للموردين حالياً</p>
+                </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Distributed Custody - Bento Card */}
+        <motion.div variants={itemVariants} className="md:col-span-12 glass-card p-8 rounded-3xl">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="text-xl font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Users2 className="text-orange-500" size={24} />
+              تفاصيل العهد النقدية الموزعة (الموظفين)
+            </h3>
+            <span className="text-xs font-bold text-slate-400">إجمالي العهد: {stats.totalCustodyBalance.toLocaleString()} ج.م</span>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {(settings.cashHolders || []).slice(0, 8).map(holder => (
+               <div key={holder.userId} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:border-orange-200 transition-colors group">
+                  <div className="flex items-center gap-4 mb-4">
+                     <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center font-black text-lg transition-transform group-hover:scale-110">
+                        {holder.userName.charAt(0)}
+                     </div>
+                     <div>
+                        <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate max-w-[120px]">{holder.userName}</p>
+                        <p className="text-[10px] font-bold text-slate-400">موظف مفوض</p>
+                     </div>
+                  </div>
+                  <div className="flex items-end justify-between">
+                     <div className="space-y-0.5">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">الرصيد في عهدته</p>
+                        <p className="text-xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{holder.currentBalance.toLocaleString()} <span className="text-[10px]">ج.م</span></p>
+                     </div>
+                     <Link to="/cash-management" className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
+                        <ArrowLeft size={16} />
+                     </Link>
+                  </div>
+               </div>
+            ))}
+            {(settings.cashHolders || []).length === 0 && (
+                <div className="col-span-full py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-3xl">
+                    <p className="text-sm font-bold italic">لا توجد عهد موزعة حالياً</p>
+                </div>
+            )}
+          </div>
+        </motion.div>
 
       {/* Footer Branding */}
       <motion.div variants={itemVariants} className="pt-12 border-t border-slate-200 dark:border-slate-800/50">

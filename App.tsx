@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { HashRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData } from './types';
 import * as db from './services/databaseService';
@@ -372,6 +372,8 @@ const OwnerLayoutWrapper = ({
     isSidebarOpen,
     setIsSidebarOpen,
     activeStore,
+    activeStoreId,
+    handleSetActiveStore,
     settings,
     orders = [],
     theme,
@@ -385,6 +387,13 @@ const OwnerLayoutWrapper = ({
     unsavedChanges
 }: any) => {
     const location = useLocation();
+    const { storeId: urlStoreId } = useParams();
+
+    useEffect(() => {
+        if (urlStoreId && urlStoreId !== activeStoreId) {
+            handleSetActiveStore(urlStoreId);
+        }
+    }, [urlStoreId, activeStoreId, handleSetActiveStore]);
 
     useEffect(() => {
         if (!welcomeScreenShown) {
@@ -444,11 +453,20 @@ const OwnerLayoutWrapper = ({
     );
 };
 
-const CatchAllRedirect = ({ currentUser, isEmployeeSession }: any) => {
+const CatchAllRedirect = ({ currentUser, isEmployeeSession, activeStoreId }: any) => {
     if (!currentUser) return <Navigate to="/owner-login" replace />;
     if (isEmployeeSession) return <Navigate to="/employee/dashboard" replace />;
     if (currentUser.isAdmin) return <Navigate to="/admin" replace />;
-    return <Navigate to="/" replace />;
+    
+    if (activeStoreId) {
+        return <Navigate to={`/store/${activeStoreId}/dashboard`} replace />;
+    }
+    
+    if (currentUser.stores && currentUser.stores.length > 0) {
+        return <Navigate to={`/store/${currentUser.stores[0].id}/dashboard`} replace />;
+    }
+
+    return <Navigate to="/create-store" replace />;
 };
 // -------------------------------------------------------------------------------------------------
 
@@ -2039,6 +2057,8 @@ export const AppComponent = () => {
                         isSidebarOpen={isSidebarOpen}
                         setIsSidebarOpen={setIsSidebarOpen}
                         activeStore={activeStore}
+                        activeStoreId={activeStoreId}
+                        handleSetActiveStore={handleSetActiveStore}
                         settings={pageProps.settings}
                         orders={pageProps.orders}
                         theme={theme}
@@ -2052,16 +2072,48 @@ export const AppComponent = () => {
                         unsavedChanges={getUnsavedChanges()}
                     />
                 }>
-                    <Route index element={<Dashboard {...pageProps} />} />
+                    <Route index element={<Navigate to={`/store/${activeStoreId || (currentUser?.stores && currentUser.stores.length > 0 ? currentUser.stores[0].id : '')}/dashboard`} replace />} />
+                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
+                    <Route path="create-store" element={<CreateStorePage currentUser={currentUser} onStoreCreated={handleStoreCreated} />} />
+                    <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
+                </Route>
+
+                <Route path="/store/:storeId" element={
+                    <OwnerLayoutWrapper
+                        currentUser={currentUser}
+                        isEmployeeSession={isEmployeeSession}
+                        welcomeScreenShown={welcomeScreenShown}
+                        setWelcomeScreenShown={setWelcomeScreenShown}
+                        handleLogout={handleLogout}
+                        isSidebarOpen={isSidebarOpen}
+                        setIsSidebarOpen={setIsSidebarOpen}
+                        activeStore={activeStore}
+                        activeStoreId={activeStoreId}
+                        handleSetActiveStore={handleSetActiveStore}
+                        settings={pageProps.settings}
+                        orders={pageProps.orders}
+                        theme={theme}
+                        setTheme={setTheme}
+                        dbSyncMode={dbSyncMode}
+                        setDbSyncMode={setDbSyncMode}
+                        forceSync={forceSync}
+                        forcePullFromCloud={forcePullFromCloud}
+                        saveStatus={saveStatus}
+                        saveMessage={saveMessage}
+                        unsavedChanges={getUnsavedChanges()}
+                    />
+                }>
+                    <Route index element={<Navigate to="dashboard" replace />} />
+                    <Route path="dashboard" element={<Dashboard {...pageProps} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
-                    <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
+                    <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="purchase-returns" element={<PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
-                    <Route path="create-order" element={<Navigate to="/orders/new" replace />} />
+                    <Route path="create-order" element={<Navigate to="orders/new" replace />} />
                     <Route path="products" element={<ProductsPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="inventory-transfers" element={<InventoryTransfers settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
@@ -2069,8 +2121,6 @@ export const AppComponent = () => {
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
                     <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
                     <Route path="shipping" element={<ShippingPage {...pageProps} />} />
-                    <Route path="create-store" element={<CreateStorePage currentUser={currentUser} onStoreCreated={handleStoreCreated} />} />
-                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
                     <Route path="abandoned-carts" element={<AbandonedCartsPage {...pageProps} />} />
                     <Route path="discounts" element={<DiscountsPage {...pageProps} />} />
                     <Route path="reviews" element={<ReviewsPage {...pageProps} />} />
@@ -2091,7 +2141,6 @@ export const AppComponent = () => {
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />
                     <Route path="team-chat" element={<TeamChatPage {...pageProps} activeStoreId={activeStoreId} />} />
                     <Route path="whatsapp" element={<WhatsAppPage {...pageProps} />} />
-                    <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                     <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     
                     {/* Coming Soon Routes */}
@@ -2122,7 +2171,7 @@ export const AppComponent = () => {
                 <Route path="store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
-                <Route path="*" element={<CatchAllRedirect currentUser={currentUser} isEmployeeSession={isEmployeeSession} />} />
+                <Route path="*" element={<CatchAllRedirect currentUser={currentUser} isEmployeeSession={isEmployeeSession} activeStoreId={activeStoreId} />} />
             </Routes>
             {showCongratsModal && (
                 <CongratsModal 
@@ -2146,9 +2195,9 @@ export const AppComponent = () => {
 };
 
 export const AppWrapper = () => (
-    <HashRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
         <AppComponent />
-    </HashRouter>
+    </BrowserRouter>
 );
 
 export default AppWrapper;

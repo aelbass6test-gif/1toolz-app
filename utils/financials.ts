@@ -125,7 +125,10 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): { pr
     return { profit: 0, loss: 0, net: 0 };
   }
 
-  const isPos = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+  const isPos = order.channel === 'pos' || 
+                order.shippingCompany === 'كاشير - بيع مباشر' || 
+                order.shippingArea === 'نقطة البيع' ||
+                (order.id && order.id.startsWith('POS-'));
 
   const compFees = settings.companySpecificFees?.[order.shippingCompany];
   const useCustom = compFees?.useCustomFees ?? false;

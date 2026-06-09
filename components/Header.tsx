@@ -190,8 +190,9 @@ const Header: React.FC<HeaderProps> = ({
 
     const pageTitle = useMemo(() => {
         const path = location.pathname;
-        const title = Object.entries(PATH_TITLES).find(([key, _]) => path.startsWith(key) && key !== '/');
-        return PATH_TITLES[path] || (title ? title[1] : 'الرئيسية');
+        const cleanPath = path.replace(/^\/store\/[^/]+/, '') || '/';
+        const title = Object.entries(PATH_TITLES).find(([key, _]) => cleanPath.startsWith(key) && key !== '/');
+        return PATH_TITLES[cleanPath] || (title ? title[1] : 'الرئيسية');
     }, [location.pathname]);
 
     useEffect(() => {
@@ -614,7 +615,7 @@ const Header: React.FC<HeaderProps> = ({
                             {inventoryAlerts.length > 0 && (
                                 <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800">
                                     <Link 
-                                        to="/inventory-audit" 
+                                        to="inventory-audit" 
                                         onClick={() => setIsAlertsOpen(false)}
                                         className="w-full py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center block hover:bg-slate-100 transition-colors"
                                     >
