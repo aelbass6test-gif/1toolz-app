@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 type Env = {
   CLOUDFLARE_ZONE_ID: string;
   CLOUDFLARE_API_TOKEN: string;
+  ASSETS?: any;
 };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -14,6 +15,37 @@ app.use("/*", cors());
 app.use("*", async (c, next) => {
   console.log(`[WORKER INCOMING] ${c.req.method} ${c.req.url}`);
   await next();
+});
+
+// Provide SPA fallback support for custom domain frontend routing
+app.notFound(async (c) => {
+  const pathName = c.req.path;
+  const isApi = pathName.startsWith("/api/");
+  
+  if (!isApi && c.env && c.env.ASSETS) {
+    try {
+      // 1. Try to serve the exact asset (so custom hostname asset requests work cleanly)
+      const assetRes = await c.env.ASSETS.fetch(c.req.raw);
+      if (assetRes.status !== 404) {
+        return assetRes;
+      }
+      
+      // 2. If asset is not found and this is a GET request, fallback to index.html for React Router SPA routes
+      if (c.req.method === "GET") {
+        const url = new URL(c.req.url);
+        url.pathname = "/index.html";
+        const indexRequest = new Request(url.toString(), c.req.raw);
+        const indexRes = await c.env.ASSETS.fetch(indexRequest);
+        if (indexRes.status !== 404) {
+          return indexRes;
+        }
+      }
+    } catch (e) {
+      console.error("[WORKER SPA FALLBACK ERROR]", e);
+    }
+  }
+  
+  return c.text("Not Found", 404);
 });
 
 app.post("/api/domains/add", async (c) => {
