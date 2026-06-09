@@ -832,28 +832,32 @@ async function startServer() {
     }
   });
 
+  const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.resolve(process.cwd(), "dist/index.html"));
+
   // Provide fallback static files for production Hono server
-  if (process.env.NODE_ENV === "production") {
+  if (isProd) {
     // Serve static files under dist
     app.use("/*", serveStatic({ root: "dist" }));
 
     // Fallback to index.html for any remaining non-API GET requests (SPA Routing Support)
-    app.notFound(async (c) => {
+    app.get("/*", async (c, next) => {
       const pathName = c.req.path;
-      if (c.req.method === "GET" && !pathName.startsWith("/api/")) {
-        // Exclude asset files to prevent browser console MIME type errors
-        const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|map)$/i.test(pathName);
-        if (!isAsset) {
-          try {
-            const htmlPath = path.resolve(process.cwd(), "dist", "index.html");
-            if (fs.existsSync(htmlPath)) {
-              const html = fs.readFileSync(htmlPath, "utf-8");
-              return c.html(html);
-            }
-          } catch (e) {
-            console.error("Error reading index.html fallback:", e);
-          }
+      if (pathName.startsWith("/api/")) {
+        return await next();
+      }
+      // Exclude asset files to prevent browser console MIME type errors
+      const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|map)$/i.test(pathName);
+      if (isAsset) {
+        return c.text("Not Found", 404);
+      }
+      try {
+        const htmlPath = path.resolve(process.cwd(), "dist", "index.html");
+        if (fs.existsSync(htmlPath)) {
+          const html = fs.readFileSync(htmlPath, "utf-8");
+          return c.html(html);
         }
+      } catch (e) {
+        console.error("Error reading index.html fallback:", e);
       }
       return c.text("Not Found", 404);
     });
@@ -861,14 +865,14 @@ async function startServer() {
 
   // Support Vite Dev Server
   let vite: any;
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProd) {
     vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
   }
 
   const honoListener = getRequestListener(app.fetch);
 
   const server = createServer((req, res) => {
-    if (process.env.NODE_ENV !== "production" && vite) {
+    if (!isProd && vite) {
       if (req.url && req.url.startsWith("/api/")) {
         honoListener(req, res);
       } else {
