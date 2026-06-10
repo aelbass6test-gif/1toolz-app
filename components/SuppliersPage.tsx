@@ -1666,7 +1666,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           }`}
         >
           <Layers size={14}/>
-          <span>المستودعات والفروع</span>
+          <span>المستودعات ونقاط البيع (POS)</span>
         </button>
       </div>
 
@@ -2873,7 +2873,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               className="flex items-center gap-2 px-6 py-3 bg-slate-900 dark:bg-amber-600 text-white rounded-2xl font-black text-xs hover:bg-slate-800 dark:hover:bg-amber-500 shadow-lg shadow-slate-900/10 transition-all cursor-pointer"
             >
               <Plus size={16}/>
-              <span>إضافة مستودع / فرع جديد</span>
+              <span>إضافة فرع / نقطة بيع جديدة</span>
             </button>
           </div>
 

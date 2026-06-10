@@ -76,7 +76,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: `${storePrefix}/product-options`, label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={18} /> },
                 { to: `${storePrefix}/product-attributes`, label: 'خصائص وسمات المنتجات', icon: <ListOrdered size={18} /> },
                 { to: `${storePrefix}/inventory-transfers`, label: 'نقل وتحويلات المقاصة', icon: <ArrowRightLeft size={18} /> },
-                { to: `${storePrefix}/suppliers`, label: 'الموردين وأوامر التوريد', icon: <UserCog size={18} /> },
+                { to: `${storePrefix}/suppliers`, label: 'الموردين والفروع والمستودعات', icon: <UserCog size={18} /> },
                 { to: `${storePrefix}/purchase-returns`, label: 'مرتجع فواتير المشتريات', icon: <RotateCw size={18} /> },
                 { to: `${storePrefix}/reviews`, label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
             ]

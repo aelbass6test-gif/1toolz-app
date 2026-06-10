@@ -1,6 +1,6 @@
 
 // Testing edit ability
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Monitor, 
@@ -35,9 +35,11 @@ interface POSPageProps {
   wallet: WalletType;
   updateStoreData: (data: any) => void;
   currentUser: any;
+  activeStore?: any;
+  customers?: any[];
 }
 
-const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wallet, updateStoreData, currentUser }) => {
+const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wallet, updateStoreData, currentUser, activeStore, customers }) => {
   if (settings.isPosEnabled === false) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-12 text-center space-y-6" dir="rtl">
@@ -68,6 +70,30 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
   const [selectedCashHolder, setSelectedCashHolder] = useState('');
   const [customerInfo, setCustomerInfo] = useState({ name: 'عميل نقدي', phone: '', address: '' });
   const [activeTab, setActiveTab] = useState<'checkout' | 'history'>('checkout');
+
+  // Registered Customers Integrations for POS
+  const customersList = customers || [];
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
+  const posCustomerRef = useRef<HTMLDivElement>(null);
+
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch) return [];
+    return customersList.filter(c => 
+      (c.name || '').toLowerCase().includes(customerSearch.toLowerCase()) || 
+      (c.phone || '').includes(customerSearch)
+    ).slice(0, 10);
+  }, [customerSearch, customersList]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (posCustomerRef.current && !posCustomerRef.current.contains(event.target as Node)) {
+        setIsCustomerListOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const products = settings.products || [];
   const warehouses = settings.warehouses || [];
@@ -181,7 +207,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         performedBy: currentUser?.fullName || currentUser?.email || 'كاشير',
         cashHolderId: isCredit ? 'credit' : finalCashHolder,
         cashHolderName: isCredit ? 'حساب أجل' : receiver?.name,
-        notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : 'بيع مباشر من المنفذ'}`
+        notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : `بيع مباشر من منفذ ${activeStore?.name || 'الرئيسي'}`}`
       };
 
       // Update Stocks
@@ -275,7 +301,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone || '0000000000',
         customerAddress: customerInfo.address || 'بيع مباشر - المنفذ',
-        shippingCompany: 'كاشير - بيع مباشر',
+        shippingCompany: activeStore?.name ? `كاشير - ${activeStore.name}` : 'كاشير - بيع مباشر',
         shippingArea: 'نقطة البيع',
         productName: cart.length > 1 ? `${cart[0].name} + ${cart.length - 1} منتجات أخرى` : cart[0]?.name || '',
         productPrice: totalAmount,
@@ -526,22 +552,72 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
                )}
 
                {/* Customer Quick Info */}
-               <div className="grid grid-cols-2 gap-2">
-                 <input 
-                   type="text" 
-                   placeholder="اسم العميل"
-                   value={customerInfo.name}
-                   onChange={(e) => setCustomerInfo({...customerInfo, name: e.target.value})}
-                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
-                 />
-                 <input 
-                   type="text" 
-                   placeholder="موبايل العميل"
-                   value={customerInfo.phone}
-                   onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
-                   className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
-                 />
-               </div>
+                {/* Customer Quick Info with Registered Customers dropdown */}
+                <div className="space-y-1.5 w-full" ref={posCustomerRef}>
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-[9px] font-black text-slate-400 uppercase">بيانات العميل (اختياري)</span>
+                    {customersList.length > 0 && (
+                      <button 
+                        type="button"
+                        onClick={() => setIsCustomerListOpen(!isCustomerListOpen)}
+                        className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                      >
+                        {isCustomerListOpen ? 'إغلاق القائمة' : 'اختيار عميل مسجل'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 relative">
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        placeholder="اسم العميل"
+                        value={customerInfo.name}
+                        onChange={(e) => {
+                          setCustomerInfo({...customerInfo, name: e.target.value});
+                          setCustomerSearch(e.target.value);
+                          setIsCustomerListOpen(true);
+                        }}
+                        onFocus={() => {
+                          setIsCustomerListOpen(true);
+                          setCustomerSearch(customerInfo.name === 'عميل نقدي' ? '' : customerInfo.name);
+                        }}
+                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
+                      />
+                      {/* Customer Dropdown suggestions */}
+                      {isCustomerListOpen && customersList.length > 0 && (
+                        <div className="absolute top-full right-0 left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-755 rounded-2xl shadow-2xl z-50 max-h-48 overflow-y-auto p-1.5 space-y-1 text-right divide-y divide-slate-55 dark:divide-slate-700 font-sans">
+                          <div className="px-2 py-1 text-[8px] font-black text-slate-400 uppercase">
+                            {customerSearch ? 'نتائج البحث' : 'العملاء المسجلين'}
+                          </div>
+                          {(customerSearch ? filteredCustomers : customersList.slice(0, 8)).map(c => (
+                            <button
+                              key={c.phone}
+                              type="button"
+                              onClick={() => {
+                                setCustomerInfo({ name: c.name || '', phone: c.phone || '', address: c.address || '' });
+                                setIsCustomerListOpen(false);
+                              }}
+                              className="w-full p-2 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-right flex flex-col transition-colors border-none"
+                            >
+                              <span className="text-[10px] font-black text-slate-855 dark:text-slate-100">{c.name}</span>
+                              <span className="text-[8px] font-bold text-slate-405 mt-0.5">{c.phone}</span>
+                            </button>
+                          ))}
+                          {customerSearch && filteredCustomers.length === 0 && (
+                            <div className="p-3 text-center text-[9px] text-slate-400 font-bold">لا توجد نتائج مطابقة</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="موبايل العميل"
+                      value={customerInfo.phone}
+                      onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
+                    />
+                  </div>
+                </div>
 
                <div className="space-y-1">
                  <input 

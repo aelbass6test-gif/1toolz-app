@@ -2431,6 +2431,17 @@ const ShipmentTypeBadge: React.FC<{ type?: string }> = ({ type }) => {
   }
 };
 
+const PosSourceBadge: React.FC<{ order: Order }> = ({ order }) => {
+  if (order.channel !== 'pos' && !order.shippingCompany?.startsWith('كاشير -')) return null;
+  const storeName = order.shippingCompany?.replace('كاشير - ', '') || 'بيع مباشر';
+  return (
+    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 whitespace-nowrap">
+      <Building size={12} />
+      <span>{storeName}</span>
+    </span>
+  );
+};
+
 const OrderCard = ({ 
   order, 
   isSelected, 
@@ -2545,7 +2556,8 @@ const OrderCard = ({
               <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
               {statusInfo.label}
           </div>
-          <ShipmentTypeBadge type={order.shipmentType} />
+          {order.channel !== 'pos' && !order.shippingCompany?.startsWith('كاشير -') && <ShipmentTypeBadge type={order.shipmentType} />}
+          <PosSourceBadge order={order} />
       </div>
 
       {/* Profile Section */}
@@ -3163,7 +3175,8 @@ const OrderRow = ({
           </div>
           <div className="text-right">
             <div className="flex items-center gap-2 mb-1 justify-end">
-              <ShipmentTypeBadge type={order.shipmentType} />
+              {order.channel !== 'pos' && !order.shippingCompany?.startsWith('كاشير -') && <ShipmentTypeBadge type={order.shipmentType} />}
+              <PosSourceBadge order={order} />
               <h4 className="text-base font-black text-slate-900 dark:text-white tracking-tighter cursor-pointer hover:text-indigo-600" onClick={(e) => { e.stopPropagation(); onShowDetails(); }}>#{order.orderNumber}</h4>
               <a href={whatsappLink} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-emerald-500 hover:scale-110 transition-transform p-1.5 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
                 <MessageCircle size={14} />
@@ -3412,7 +3425,8 @@ const KanbanView: React.FC<{ orders: Order[]; onStatusChange: (id: string, newSt
                   <div className="flex justify-between items-center mb-3">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">#{order.orderNumber || order.id.slice(0, 4)}</span>
-                      <ShipmentTypeBadge type={order.shipmentType} />
+                      {order.channel !== 'pos' && !order.shippingCompany?.startsWith('كاشير -') && <ShipmentTypeBadge type={order.shipmentType} />}
+                      <PosSourceBadge order={order} />
                     </div>
                     <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button className="p-1.5 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors"><Edit3 size={14}/></button>
