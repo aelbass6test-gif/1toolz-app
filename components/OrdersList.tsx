@@ -3805,7 +3805,14 @@ const OrderModal: React.FC<OrderModalProps> = ({
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
         const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
         
-        const insuranceFee = (orderData.isInsured !== false) ? Math.round((totalCollected * (Number(insuranceRate) / 100)) * 100) / 100 : 0;
+        const mockOrderForInsurance = {
+            ...orderData,
+            productPrice: subtotal - itemDiscounts,
+            shippingFee: Number(orderData.shippingFee) || 0,
+            isInsured: orderData.isInsured !== false,
+            items: orderData.items || []
+        } as any;
+        const insuranceFee = calculateInsuranceFee(mockOrderForInsurance, insuranceRate, settings);
         const effectiveInspectionCost = orderData.includeInspectionFee ? Number(inspectionCost) : 0;
         const codFee = Number(calculateCodFee({ status: 'تم_التحصيل', totalPrice: totalCollected, shippingFee: orderData.shippingFee || 0 } as any, settings)) || 0;
         
@@ -4023,10 +4030,12 @@ const OrderModal: React.FC<OrderModalProps> = ({
                     <div className="flex p-1.5 bg-slate-100/80 dark:bg-slate-800/80 rounded-[1.25rem] border border-slate-200/50 dark:border-slate-700/50 gap-1 overflow-x-auto no-scrollbar">
                         {(() => {
                             const compFees = (settings.companySpecificFees?.[orderData.shippingCompany] || {}) as any;
-                            const tabs = [
-                                { id: 'delivery', label: 'توصيل شحنة', icon: <Truck size={17} /> },
-                                { id: 'partial_delivery', label: 'توصيل جزئي', icon: <Package size={17} />, badge: 'جديد' }
+                            const tabs: { id: string; label: string; icon: React.ReactNode; badge?: string }[] = [
+                                { id: 'delivery', label: 'توصيل شحنة', icon: <Truck size={17} /> }
                             ];
+                            if (compFees.enablePartialDelivery !== false) {
+                                tabs.push({ id: 'partial_delivery', label: 'توصيل جزئي', icon: <Package size={17} />, badge: 'جديد' });
+                            }
                             if (compFees.enableExchange !== false) {
                                 tabs.push({ id: 'exchange', label: 'تبديل شحنات', icon: <ArrowRightLeft size={17} /> });
                             }

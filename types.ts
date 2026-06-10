@@ -184,6 +184,7 @@ export interface CompanyFees {
   enableReturnWithout: boolean;  
   enableExchange: boolean;       
   enableReturn?: boolean;
+  enablePartialDelivery?: boolean;
   enableCashCollection?: boolean;
   enableReturnToSender?: boolean;
   enableFixedReturn: boolean;    

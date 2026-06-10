@@ -4,7 +4,7 @@ import { Plus, Trash2, ChevronDown, Package, Coins, User as UserIcon, Building, 
 import { Order, Settings, OrderItem, Product, CustomerProfile, Store, User } from '../types';
 import { EGYPT_GOVERNORATES } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
-import { calculateCodFee, getLatestProductCost } from '../utils/financials';
+import { calculateCodFee, getLatestProductCost, calculateInsuranceFee } from '../utils/financials';
 
 export interface NewOrderState extends Partial<Omit<Order, 'id'>> {
   items: OrderItem[];
@@ -227,7 +227,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
         const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
         
-        const insuranceFee = (orderData.isInsured !== false) ? Math.round((totalCollected * (Number(insuranceRate) / 100)) * 100) / 100 : 0;
+        const mockOrderForInsurance = {
+            ...orderData,
+            productPrice: subtotal - itemDiscounts,
+            shippingFee: Number(orderData.shippingFee) || 0,
+            isInsured: orderData.isInsured !== false,
+            items: orderData.items || []
+        } as any;
+        const insuranceFee = calculateInsuranceFee(mockOrderForInsurance, insuranceRate, settings);
         const effectiveInspectionCost = orderData.includeInspectionFee ? Number(inspectionCost) : 0;
         const codFee = Number(calculateCodFee({ status: 'تم_التحصيل', totalPrice: totalCollected, shippingFee: orderData.shippingFee || 0 } as any, settings)) || 0;
         
@@ -444,10 +451,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         <div className="p-2 bg-slate-100 dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 flex flex-wrap gap-1">
                              {(() => {
                                 const compFees = (settings.companySpecificFees?.[orderData.shippingCompany!] || {}) as any;
-                                const tabs = [
-                                    { id: 'delivery', label: 'توصيل شحنة', icon: <Truck size={17} /> },
-                                    { id: 'partial_delivery', label: 'توصيل جزئي', icon: <Package size={17} />, badge: 'جديد' }
+                                const tabs: { id: string; label: string; icon: React.ReactNode; badge?: string }[] = [
+                                    { id: 'delivery', label: 'توصيل شحنة', icon: <Truck size={17} /> }
                                 ];
+                                if (compFees.enablePartialDelivery !== false) {
+                                    tabs.push({ id: 'partial_delivery', label: 'توصيل جزئي', icon: <Package size={17} />, badge: 'جديد' });
+                                }
                                 if (compFees.enableExchange !== false) tabs.push({ id: 'exchange', label: 'تبديل شحنات', icon: <ArrowRightLeft size={17} /> });
                                 if (compFees.enableReturn !== false) tabs.push({ id: 'return', label: 'إرجاع شحنة', icon: <RefreshCcw size={17} /> });
                                 if (compFees.enableCashCollection !== false) tabs.push({ id: 'cash_collection', label: 'تحصيل نقدي', icon: <Coins size={17} /> });
@@ -740,6 +749,129 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                     </div>
                                 </div>
                             </div>
+                        ) : isExchange ? (
+                            <>
+                                {/* المنتج المرتجع للتبديل */}
+                                <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm">
+                                    <h4 className="font-extrabold text-slate-800 dark:text-white mb-8 flex items-center gap-3 text-xl">
+                                        <div className="w-12 h-12 bg-orange-50 dark:bg-orange-500/10 rounded-2xl flex items-center justify-center text-orange-600">
+                                            <RefreshCcw size={24} className="animate-spin-slow" />
+                                        </div>
+                                        المنتج المرتجع (الذي سيرجع لمخزننا)
+                                    </h4>
+                                    <div className="space-y-6">
+                                         <div>
+                                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">المنتج المراد استبداله</label>
+                                            <ProductSelect 
+                                                value={orderData.returnProductId || ''} 
+                                                onChange={(val) => {
+                                                    const prod = settings.products.find(p => p.id === val);
+                                                    handleFieldChange('returnProductId', val);
+                                                    handleFieldChange('returnVariantId', undefined);
+                                                    handleFieldChange('returnDescription', prod?.name || '');
+                                                }} 
+                                                products={settings.products} 
+                                                index={999} 
+                                            />
+                                        </div>
+                                        {settings.products.find(p => p.id === orderData.returnProductId)?.hasVariants && (
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">المقاس / اللون للمنتج المرتجع</label>
+                                                <select 
+                                                    value={orderData.returnVariantId || ''} 
+                                                    onChange={(e) => {
+                                                        const varId = e.target.value;
+                                                        const prod = settings.products.find(p => p.id === orderData.returnProductId);
+                                                        const variant = prod?.variants?.find(v => v.id === varId);
+                                                        handleFieldChange('returnVariantId', varId);
+                                                        let desc = prod?.name || '';
+                                                        if (variant) desc += ` (${Object.entries(variant.options || {}).map(([k,v]) => `${k}:${v}`).join(', ')})`;
+                                                        handleFieldChange('returnDescription', desc);
+                                                    }} 
+                                                    className="w-full p-4.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-sm"
+                                                >
+                                                    <option value="">اختر النوع</option>
+                                                    {settings.products.find(p => p.id === orderData.returnProductId)?.variants?.map(v => (
+                                                        <option key={v.id} value={v.id}>{Object.entries(v.options || {}).map(([key, val]) => `${key}: ${val}`).join(' - ')}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">الكمية المرتجعة</label>
+                                                <input type="number" min="1" value={orderData.returnQuantity || 1} onChange={e => handleFieldChange('returnQuantity', Number(e.target.value))} className="w-full p-4.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-center text-lg" />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">سعر الفتح</label>
+                                                <div className="w-full p-4.5 bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-center text-lg">0 ج.م</div>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">سبب الاستبدال / تفاصيل أخرى</label>
+                                            <textarea value={orderData.returnDescription || ''} onChange={e => handleFieldChange('returnDescription', e.target.value)} className="w-full p-5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl h-24 text-sm font-bold resize-none" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* المنتج الجديد البديل المرسل */}
+                                <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm">
+                                    <div className="flex justify-between items-center mb-8">
+                                        <h4 className="font-extrabold text-slate-800 dark:text-white flex items-center gap-3 text-xl">
+                                            <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl flex items-center justify-center text-indigo-600">
+                                                <LayoutList size={24}/>
+                                            </div>
+                                            المنتج الجديد (الذي سنرسله بدلاً منه)
+                                        </h4>
+                                        <button type="button" onClick={addItem} className="flex items-center gap-2 px-6 py-3 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-2xl font-black hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all text-sm group">
+                                            <Plus size={18} className="group-hover:rotate-90 transition-transform" />
+                                            <span>إضافة منتج بديل</span>
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="space-y-6">
+                                        {(orderData.items || []).map((item, idx) => (
+                                            <div key={idx} className="p-6 bg-slate-50 dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700/50 relative group transition-all hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-xl hover:shadow-black/5">
+                                                <button type="button" onClick={() => removeItem(idx)} className="absolute top-4 left-4 p-2.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-all"><Trash2 size={18} /></button>
+                                                <div className="space-y-5">
+                                                    <ProductSelect value={item.productId || ''} onChange={val => handleItemChange(idx, 'productId', val)} products={settings.products} index={idx} />
+                                                    {settings.products.find(p => p.id === item.productId)?.hasVariants && (
+                                                        <div>
+                                                            <label className="text-[10px] text-slate-400 font-black uppercase mb-1.5 block tracking-widest">المقاس / اللون للمنتج الجديد البديل</label>
+                                                            <select value={item.variantId || ''} onChange={e => handleItemChange(idx, 'variantId', e.target.value)} className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-xl font-bold text-sm">
+                                                                <option value="">اختر النوع</option>
+                                                                {settings.products.find(p => p.id === item.productId)?.variants?.map(v => (
+                                                                    <option key={v.id} value={v.id}>{Object.entries(v.options || {}).map(([k, val]) => `${k}:${val}`).join(' - ')}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    )}
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="text-[10px] text-slate-400 font-black uppercase mb-1.5 block tracking-widest">الكمية</label>
+                                                            <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-xl p-1.5">
+                                                                <button type="button" onClick={() => handleItemChange(idx, 'quantity', Math.max(1, (item.quantity||1) - 1))} className="w-9 h-9 flex items-center justify-center text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-all">-</button>
+                                                                <input type="number" min="1" value={item.quantity || 1} onChange={e => handleItemChange(idx, 'quantity', Number(e.target.value))} className="w-full bg-transparent text-center font-black text-lg p-0 border-none outline-none" />
+                                                                <button type="button" onClick={() => handleItemChange(idx, 'quantity', (item.quantity||1) + 1)} className="w-9 h-9 flex items-center justify-center text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-all">+</button>
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] text-slate-400 font-black uppercase mb-1.5 block tracking-widest">السعر</label>
+                                                            <input type="number" value={item.price || 0} onChange={e => handleItemChange(idx, 'price', Number(e.target.value))} className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-xl w-full font-black text-lg text-emerald-600 text-center" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {(!orderData.items || orderData.items.length === 0) && (
+                                            <div className="py-20 text-center bg-slate-50/50 dark:bg-slate-800/30 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-[2.5rem]">
+                                                <p className="text-slate-400 font-bold">لا توجد منتجات بديلة مضافة للطلب بعد</p>
+                                                <button type="button" onClick={addItem} className="mt-4 px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-indigo-500/20">أضف المنتج الأول</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
                         ) : isCashCollection ? (
                              <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm">
                                 <h4 className="font-extrabold text-slate-800 dark:text-white mb-8 flex items-center gap-3 text-xl">

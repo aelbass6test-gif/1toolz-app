@@ -301,6 +301,7 @@ const ShippingPage: React.FC<{
           enableReturnAfter: true, 
           enableReturnWithout: true, 
           enableExchange: true, 
+          enablePartialDelivery: true,
           enableFixedReturn: true, 
           postCollectionReturnRefundsProductPrice: true,
           baseWeight: 1 // إضافة الوزن الافتراضي هنا
@@ -1105,6 +1106,10 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                                 label="تفعيل تسعير الاستبدال" 
                                 description="يضيف عمود 'تبديل' في جدول تسعير المناطق ويفعل خيار الاستبدال في الطلبات."
                                 active={companyFees.enableExchange !== false} onToggle={() => handleCompanyFeeChange('enableExchange', companyFees.enableExchange === false ? true : false)} />
+                            <PolicyToggle 
+                                label="تفعيل تسعير التوصيل الجزئي" 
+                                description="يفعل خيار التوصيل الجزئي في طرود هذه الشركة."
+                                active={companyFees.enablePartialDelivery !== false} onToggle={() => handleCompanyFeeChange('enablePartialDelivery', companyFees.enablePartialDelivery === false ? true : false)} />
                             <PolicyToggle 
                                 label="تفعيل تسعير الإرجاع" 
                                 description="يضيف عمود 'إرجاع' في جدول تسعير المناطق."
