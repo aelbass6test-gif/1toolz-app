@@ -5,7 +5,7 @@ import { Order, Settings, OrderItem, Product, CustomerProfile, Store, User } fro
 import { EGYPT_GOVERNORATES } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CustomerSelectModal } from './CustomerSelectModal';
-import { calculateCodFee, getLatestProductCost, calculateInsuranceFee } from '../utils/financials';
+import { calculateCodFee, getLatestProductCost, calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
 
 export interface NewOrderState extends Partial<Omit<Order, 'id'>> {
   items: OrderItem[];
@@ -245,21 +245,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         // Use company specific insurance rate if available, otherwise global setting
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
         
-        // Product value for insurance
-        let productValue = 0;
-        if (isMaintenance) {
-            productValue = Number(orderData.maintenanceItemValue) || 0;
-        } else {
-            productValue = subtotal - itemDiscounts;
-        }
-
-        if (productValue <= 0) return 0;
-
-        // Smart insurance calculation: some companies have a flat fee or minimum, 
-        // but here we follow the percentage of product value
-        const calculatedFee = (productValue * (insuranceRate / 100));
-        return Math.max(0, Math.round(calculatedFee * 100) / 100);
-    }, [orderData.isInsured, orderData.maintenanceItemValue, isMaintenance, subtotal, itemDiscounts, orderData.shippingCompany, settings]);
+        // Use the centralized method to ensure bosta and other settings are respected perfectly
+        return calculateInsuranceFee({
+            ...orderData as any,
+            productPrice: isMaintenance ? (Number(orderData.maintenanceCost) || 0) : (subtotal - itemDiscounts)
+        }, insuranceRate, settings);
+    }, [orderData.isInsured, orderData.maintenanceItemValue, isMaintenance, orderData.shippingCompany, settings, subtotal, itemDiscounts, orderData.shippingFee, orderData.discount]);
 
     // Smart VAT Calculation (14% default or from settings)
     const activeVatAmount = useMemo(() => {
@@ -267,11 +258,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         const compFees = settings.companySpecificFees?.[company!];
         const useCustom = compFees?.useCustomFees ?? false;
         
+        const hasVat = compFees?.enableVat !== false;
+        if (!hasVat) return 0;
+        
         const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
         const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
         
         // VAT usually applies to the shipping fee + service fees, not the product price itself in logistics
-        const shippingFee = Number(orderData.shippingFee) || 0;
+        const useStandard = orderData.vatOnStandardShipping === true;
+        const shippingFee = useStandard 
+            ? getStandardShippingFee(orderData as Order, settings)
+            : (Number(orderData.shippingFee) || 0);
         const inspectionFeeValue = orderData.includeInspectionFee ? inspectionFee : 0;
         const insuranceValue = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
         
@@ -280,7 +277,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         
         const taxableBase = shippingFee + inspectionFeeValue + serviceBase + insuranceValue;
         return Math.round(taxableBase * (vatRate / 100) * 100) / 100;
-    }, [orderData.shippingCompany, settings, orderData.shippingFee, orderData.includeInspectionFee, inspectionFee, isMaintenance, orderData.maintenanceCost, insuranceFee]);
+    }, [orderData.shippingCompany, settings, orderData.governorate, orderData.shippingArea, orderData.city, orderData.items, orderData.shipmentType, orderData.includeInspectionFee, inspectionFee, isMaintenance, orderData.maintenanceCost, insuranceFee, orderData.shippingFee, orderData.vatOnStandardShipping]);
 
     // Final Amount to Collect (مبلغ التحصيل)
     const finalAmount = useMemo(() => {
@@ -409,9 +406,20 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         return result as any[];
     }, [settings.shippingOptions, orderData.shippingCompany]);
 
+    const isFirstEditLoad = useRef(isEditing);
+
     useEffect(() => {
         const selectedOption = shippingOptions.find(opt => opt.label === (orderData.governorate || orderData.shippingArea));
             if (selectedOption) {
+                if (isFirstEditLoad.current) {
+                    isFirstEditLoad.current = false;
+                    return;
+                }
+
+                // If Manual Shipping is selected, we don't automatically update the shippingFee field 
+                // based on governorate/city changes. The user entered it manually.
+                if (orderData.vatOnStandardShipping !== true) return;
+
                 const getPriceKey = (type?: string): 'deliveryPrice' | 'exchangePrice' | 'returnPrice' | 'cashCollectionPrice' | 'returnToSenderPrice' | 'maintenancePickupPrice' | 'maintenanceReturnPrice' => {
                     if (type === 'exchange') return 'exchangePrice';
                     if (type === 'return') return 'returnPrice';
@@ -456,7 +464,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     handleFieldChange('shippingFee', totalFee);
                 }
             }
-    }, [orderData.governorate, orderData.shippingArea, orderData.city, shippingOptions, orderData.items, orderData.shipmentType]);
+    }, [orderData.governorate, orderData.shippingArea, orderData.city, shippingOptions, orderData.items, orderData.shipmentType, orderData.vatOnStandardShipping]);
 
     // ProductSelect Sub-component
     const ProductSelect = ({ value, onChange, products, index }: { value: string, onChange: (val: string) => void, products: any[], index: number }) => {
@@ -1300,7 +1308,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                    <Banknote size={24}/>
                                </div>
                                ملخص مالي دقيق
-                           </h4>
+                            </h4>
+                            <div className="bg-white/5 border border-white/10 p-4 rounded-2xl space-y-2 mb-4">
+                                <label className="text-white text-xs font-bold block text-right">طريقة حساب ضريبة القيمة المضافة:</label>
+                                <div className="grid grid-cols-2 gap-1 bg-white/10 p-1 rounded-lg">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleFieldChange('vatOnStandardShipping', true)}
+                                        className={`py-2 px-3 rounded-lg text-xs font-black transition-all ${
+                                            orderData.vatOnStandardShipping === true
+                                                ? 'bg-white text-indigo-950 shadow-sm'
+                                                : 'text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        الشحن القياسي بالمدن
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleFieldChange('vatOnStandardShipping', false)}
+                                        className={`py-2 px-3 rounded-lg text-xs font-black transition-all ${
+                                            orderData.vatOnStandardShipping !== true
+                                                ? 'bg-white text-indigo-950 shadow-sm'
+                                                : 'text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        الشحن المدخل بالطلب
+                                    </button>
+                                </div>
+                            </div>
+
                            <div className="space-y-4">
                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                    <div className="space-y-1">

@@ -1078,29 +1078,41 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                                 <option value="base">السعر الأساسي للمنتج</option>
                             </select>
                         </div>
-                        
-                        {/* ضريبة القيمة المضافة لشركة الشحن */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">ضريبة القيمة المضافة لشركة الشحن (%)</label>
-                            <input 
-                                type="number" 
-                                step="1" 
-                                value={companyFees.shippingVatRate !== undefined ? Math.round(companyFees.shippingVatRate * 100) : (isBosta(companyName) ? 14 : 0)} 
-                                onChange={(e) => handleCompanyFeeChange('shippingVatRate', Number(e.target.value) / 100)} 
-                                className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white" 
-                                placeholder="مثلاً 14 لـ 14%" 
+                    </div>
+                    
+                    {/* ضريبة القيمة المضافة لشركة الشحن */}
+                    <div className="bg-blue-50 dark:bg-blue-950/20 p-5 rounded-xl border border-blue-200 dark:border-blue-900/40 space-y-4">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm font-bold text-blue-900 dark:text-blue-300">ضريبة القيمة المضافة لشركة الشحن</span>
+                            <ToggleButton 
+                                active={companyFees.enableVat !== false} 
+                                onToggle={() => handleCompanyFeeChange('enableVat', companyFees.enableVat === false ? true : false)} 
+                                variant="blue" 
                             />
                         </div>
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">تطبيق الضريبة على</label>
-                            <select
-                                value={companyFees.vatBasis || 'shipping_only'}
-                                onChange={(e) => handleCompanyFeeChange('vatBasis', e.target.value)}
-                                className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white"
-                            >
-                                <option value="shipping_only">مصاريف الشحن فقط</option>
-                                <option value="shipping_and_insurance">مصاريف الشحن + التأمين</option>
-                            </select>
+                        <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${companyFees.enableVat === false && 'opacity-40 grayscale pointer-events-none'}`}>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">ضريبة القيمة المضافة لشركة الشحن (%)</label>
+                                <input 
+                                    type="number" 
+                                    step="1" 
+                                    value={companyFees.shippingVatRate !== undefined ? Math.round(companyFees.shippingVatRate * 100) : (isBosta(companyName) ? 14 : 0)} 
+                                    onChange={(e) => handleCompanyFeeChange('shippingVatRate', Number(e.target.value) / 100)} 
+                                    className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white" 
+                                    placeholder="مثلاً 14 لـ 14%" 
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">تطبيق الضريبة على</label>
+                                <select
+                                    value={companyFees.vatBasis || 'shipping_only'}
+                                    onChange={(e) => handleCompanyFeeChange('vatBasis', e.target.value)}
+                                    className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white"
+                                >
+                                    <option value="shipping_only">مصاريف الشحن فقط</option>
+                                    <option value="shipping_and_insurance">مصاريف الشحن + التأمين</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                      <div className="bg-amber-50 dark:bg-amber-950/20 p-5 rounded-xl border border-amber-200 dark:border-amber-900/40 space-y-4">

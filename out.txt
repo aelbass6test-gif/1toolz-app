@@ -1,0 +1,10 @@
+3274:      <td className="p-6 text-center">
+3282:      <td className="p-6 cursor-pointer" onClick={onShowDetails}>
+3328:      <td className="p-6">
+3346:      <td className="p-6">
+3365:      <td className="p-6">
+3382:      <td className="p-6">
+3405:      <td className="p-6">
+3420:      <td className="p-6">
+3431:      <td className="p-6">
+3493:                <td colSpan={7} className="p-0 border-none">

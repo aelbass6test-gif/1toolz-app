@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order, Settings } from '../types';
-import { calculateInsuranceFee } from '../utils/financials';
+import { calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
 import { AlertTriangle } from 'lucide-react';
 
 interface OrderPreConfirmationModalProps {
@@ -21,9 +21,12 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
     const useCustom = compFees?.useCustomFees ?? false;
     const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
     const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
+    const hasVat = compFees?.enableVat !== false;
     const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
-    const taxableBase = order.shippingFee + inspectionFee + insuranceValueForVat;
-    const vatValue = Math.round(taxableBase * (vatRate / 100) * 100) / 100;
+    const useStandard = order.vatOnStandardShipping === true;
+    const standardShippingFee = useStandard ? getStandardShippingFee(order as Order, settings) : (order.shippingFee || 0);
+    const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
+    const vatValue = hasVat ? (Math.round(taxableBase * (vatRate / 100) * 100) / 100) : 0;
 
     const isMaintenance = order.orderType === 'maintenance';
     const basePrice = isMaintenance ? (Number((order as any).maintenanceCost) || 0) : (order.productPrice - (order.discount || 0));

@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { Order, Settings, Store, OrderItem } from '../types';
 import { generateCollectionsReportHTML } from '../utils/reportGenerator';
-import { isBosta, calculateInsuranceFee, calculateBostaVat } from '../utils/financials';
+import { isBosta, calculateInsuranceFee, calculateBostaVat, getOrderCollectionAmount, calculateOrderProfitLoss, calculateCodFee } from '../utils/financials';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { 
   AreaChart, 
@@ -77,27 +77,6 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
   const [endDate, setEndDate] = useState('');
   const [selectedProfitBracket, setSelectedProfitBracket] = useState<'all' | 'profitable' | 'non_profitable'>('all');
 
-  const calculateCodFee = (order: Order) => {
-    const compFees = settings.companySpecificFees?.[order.shippingCompany];
-    const useCustom = compFees?.useCustomFees ?? false;
-    const enabled = useCustom ? (compFees?.enableCodFees ?? true) : true;
-    if (!enabled) return 0;
-
-    const threshold = useCustom ? compFees!.codThreshold : settings.codThreshold;
-    const rate = useCustom ? compFees!.codFeeRate : settings.codFeeRate;
-    const tax = useCustom ? compFees!.codTaxRate : settings.codTaxRate;
-
-    const totalAmount = order.productPrice + order.shippingFee;
-    
-    if (totalAmount <= threshold) return 0;
-
-    const taxableAmount = totalAmount - threshold;
-    const fee = taxableAmount * rate;
-    const totalWithTax = fee * (1 + tax);
-    
-    return totalWithTax;
-  };
-
   // Get list of unique shipping companies
   const shippingCompanies = useMemo(() => {
     const companies = new Set<string>();
@@ -111,7 +90,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
 
   // Master Filter Logic
   const collectedOrders = useMemo(() => {
-    let list = orders.filter(o => o.status === 'تم_التحصيل');
+    let list = orders.filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة');
 
     // 1. Filter by search term
     if (searchTerm) {
@@ -168,25 +147,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     // 5. Filter by profitability
     if (selectedProfitBracket !== 'all') {
       list = list.filter(o => {
-        const cod = calculateCodFee(o);
-        const compFees = settings.companySpecificFees?.[o.shippingCompany];
-        const useCustom = compFees?.useCustomFees ?? false;
-        const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
-        const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-        const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
-        const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
-        const bostaVat = calculateBostaVat(o, insuranceFee, settings);
-        
-        const safeDiscount = o.discount || 0;
-        const safeAdvance = o.advancePayment || 0;
-        const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-        const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
-        const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
-        
-        const netProfit = o.productPrice - safeDiscount - o.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;
-        
-        return selectedProfitBracket === 'profitable' ? netProfit > 0 : netProfit <= 0;
+        const { net } = calculateOrderProfitLoss(o, settings);
+        return selectedProfitBracket === 'profitable' ? net > 0 : net <= 0;
       });
     }
 
@@ -203,31 +165,23 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     let totalDeductions = 0;
 
     collectedOrders.forEach(o => {
+      const collectionAmount = getOrderCollectionAmount(o);
+      const { net, profit, loss } = calculateOrderProfitLoss(o, settings);
+      
+      // Calculate deductions (shipping, insurance, vat, cod, etc.) separately for the stats summary
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
-      const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
-      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-      
-      const codFee = calculateCodFee(o);
+      const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
       const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
-      const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
       const bostaVat = calculateBostaVat(o, insuranceFee, settings);
-      
-      const safeDiscount = o.discount || 0;
-      const safeAdvance = o.advancePayment || 0;
-      const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
-      const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
-      
-      const shippingDeduction = insuranceFee + inspectionAdjustment + codFee + bostaVat;
+      const codFee = o.status === 'مدفوعة' ? 0 : calculateCodFee(o, settings); 
       
       totalGross += collectionAmount;
       totalInsuranceFees += insuranceFee + bostaVat;
       totalCodFees += codFee;
-      totalCOGS += o.productCost || 0;
-      totalDeductions += shippingDeduction;
-      totalNetProfit += (o.productPrice - safeDiscount - o.productCost - insuranceFee - inspectionAdjustment - codFee - bostaVat + extraAdjustment);
+      totalCOGS += (o.productCost || 0);
+      totalDeductions += (collectionAmount - net - (o.productCost || 0));
+      totalNetProfit += net;
     });
 
     const netMarginPercent = totalGross > 0 ? (totalNetProfit / totalGross) * 100 : 0;
@@ -254,23 +208,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       if (!o.date) return;
       const dateStr = o.date.split('T')[0];
       
-      const cod = calculateCodFee(o);
-      const compFees = settings.companySpecificFees?.[o.shippingCompany];
-      const useCustom = compFees?.useCustomFees ?? false;
-      const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
-      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-      const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
-      const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
-      const bostaVat = calculateBostaVat(o, insuranceFee, settings);
-      
-      const safeDiscount = o.discount || 0;
-      const safeAdvance = o.advancePayment || 0;
-      const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
-      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
-      const extraAdjustment = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! - defaultCollectionAmount : 0;
-      
-      const netProfit = o.productPrice - safeDiscount - o.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;
+      const collectionAmount = getOrderCollectionAmount(o);
+      const { net } = calculateOrderProfitLoss(o, settings);
       
       if (!dailyMap[dateStr]) {
         // Human readable date name
@@ -282,7 +221,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       }
       
       dailyMap[dateStr].gross += collectionAmount;
-      dailyMap[dateStr].net += netProfit;
+      dailyMap[dateStr].net += net;
       dailyMap[dateStr].count += 1;
     });
     

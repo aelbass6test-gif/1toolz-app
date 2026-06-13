@@ -358,12 +358,16 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({ currentStoreId, setti
           </div>
         )}
       </AnimatePresence>
-      <ConfirmationModal
-        isOpen={!!deleteId}
-        message="هل أنت متأكد من حذف هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء."
-        onConfirm={performDelete}
-        onCancel={() => setDeleteId(null)}
-      />
+      <AnimatePresence>
+        {!!deleteId && (
+          <ConfirmationModal
+            isOpen={true}
+            message="هل أنت متأكد من حذف هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء."
+            onConfirm={performDelete}
+            onCancel={() => setDeleteId(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

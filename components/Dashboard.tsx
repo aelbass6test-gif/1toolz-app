@@ -5,7 +5,7 @@ import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from 
 import { Link } from 'react-router-dom';
 import { motion, Variants } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
-import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, getOrderCollectionAmount } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -246,7 +246,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     let posRevenue = 0;
     let websiteRevenue = 0;
 
-    let counts: Record<string, number> = {
+    const counts: Record<string, number> = {
       'في_انتظار_المكالمة': 0,
       'جاري_المراجعة': 0, 'قيد_التنفيذ': 0, 'تم_الارسال': 0, 'قيد_الشحن': 0,
       'تم_توصيلها': 0, 'تم_التحصيل': 0, 'مدفوعة': 0, 'مرتجع': 0, 'مرتجع_جزئي': 0,
@@ -257,7 +257,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       if (counts[o.status] !== undefined) counts[o.status]++;
       
       const isPos = o.channel === 'pos' || o.id.startsWith('POS-');
-      const orderRevenue = (o.totalPrice || (o.productPrice + o.shippingFee));
+      const orderRevenue = getOrderCollectionAmount(o);
 
       if (isPos) {
           posSalesCount++;
@@ -292,11 +292,11 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       
       if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها') {
           successfulOrdersCount++;
-          actualCollection += (o.totalPrice || (o.productPrice + o.shippingFee));
+          actualCollection += orderRevenue;
           totalCOGS += safeProductCost;
           totalShippingPaid += safeShippingFee;
       } else if (!['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(o.status)) {
-          expectedCollection += (o.totalPrice || (o.productPrice + o.shippingFee));
+          expectedCollection += orderRevenue;
       }
     });
 
@@ -404,7 +404,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             const d = new Date(o.date);
             const key = `${d.getMonth()}-${d.getFullYear()}`;
             const m = months.find(item => item.key === key);
-            if (m) m.revenue += (o.totalPrice || 0);
+            if (m) m.revenue += getOrderCollectionAmount(o);
          }
        });
 
@@ -475,7 +475,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     const supplierDebt = (settings?.suppliers || []).reduce((sum, s) => sum + (s.balance || 0), 0);
     const shippingReceivables = (orders || [])
         .filter(o => (o.status === 'تم_توصيلها' || o.status === 'مدفوعة' || o.status === 'قيد_الشحن') && !o.collectionProcessed)
-        .reduce((sum, o) => sum + (o.totalPrice || (o.productPrice + o.shippingFee)), 0);
+        .reduce((sum, o) => sum + getOrderCollectionAmount(o), 0);
     
     const netAvailableLiquidity = treasuryTotal - supplierDebt;
     const roi = totalCapital > 0 ? ((finalProfit - totalLoss - adminExpenses) / totalCapital) * 100 : 0;
@@ -500,7 +500,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         const key = o.customerPhone || o.customerName;
         if (key) {
            const current = customerMap.get(key) || { id: key, name: o.customerName, phone: o.customerPhone, totalSpend: 0, ordersCount: 0 };
-           current.totalSpend += (o.totalPrice || 0);
+           current.totalSpend += getOrderCollectionAmount(o);
            current.ordersCount += 1;
            customerMap.set(key, current);
         }

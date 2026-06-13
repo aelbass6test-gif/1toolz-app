@@ -4,6 +4,7 @@ import { Order, Settings, User, CustomerProfile, Store, OrderStatus } from '../t
 import { OrderForm } from './OrderForm';
 import GlobalLoader from './GlobalLoader';
 import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
+import { calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
 
 interface EditOrderPageProps {
     orders: Order[];
@@ -129,6 +130,27 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const totalWeight = items.reduce((sum, item) => sum + (item.weight || 0) * (item.quantity || 1), 0);
         const productNames = items.map(item => item.name).join(', ');
 
+        const compFees = settings?.companySpecificFees?.[editingOrder.shippingCompany];
+        const inspectionFee = editingOrder.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
+        const insuranceRate = editingOrder.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
+        const insuranceFee = calculateInsuranceFee(editingOrder as Order, insuranceRate, settings);
+        const safeAdvance = Number((editingOrder as any).advancePayment) || 0;
+        
+        const useCustom = compFees?.useCustomFees ?? false;
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+        const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
+        const hasVat = compFees?.enableVat !== false;
+        const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+        const useStandard = editingOrder.vatOnStandardShipping === true;
+        const standardShippingFee = useStandard ? getStandardShippingFee(editingOrder as Order, settings) : (editingOrder.shippingFee || 0);
+        const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
+        const vatValue = hasVat ? (Math.round(taxableBase * (vatRate / 100) * 100) / 100) : 0;
+        
+        const isMaintenanceOrder = editingOrder.orderType === 'maintenance';
+        const basePrice = isMaintenanceOrder ? (Number((editingOrder as any).maintenanceCost) || 0) : (totalProductPrice - (editingOrder.discount || 0));
+        const baseTotal = basePrice + editingOrder.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
+        const finalCollectedTotal = editingOrder.totalAmountOverride ?? baseTotal;
+
         const updatedOrder: Order = {
             ...editingOrder,
             items,
@@ -136,6 +158,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             productCost: totalProductCost,
             weight: totalWeight,
             productName: productNames,
+            totalPrice: Math.round(finalCollectedTotal),
         };
 
         // Delta Updates for Advance Payment

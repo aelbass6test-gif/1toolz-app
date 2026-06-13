@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Order, OrderItem, Settings, User, CustomerProfile, Store, OrderStatus, MaintenanceRequest } from '../types';
 import { OrderForm, NewOrderState } from './OrderForm';
 import { INITIAL_SETTINGS } from '../constants';
-import { getLatestProductCost } from '../utils/financials';
+import { getLatestProductCost, calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
 import { OrderPreConfirmationModal } from './OrderPreConfirmationModal';
 import { OrderConfirmationSummary } from './OrderConfirmationSummary';
 import { triggerWebhooks } from '../utils/webhook';
@@ -71,6 +71,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         shipmentType: 'delivery',
         includeInspectionFee: false,
         isInsured: true,
+        vatOnStandardShipping: false,
         source: 'manual',
     });
 
@@ -184,8 +185,35 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
     const handleConfirmAddOrder = () => {
         if (!orderToConfirm) return;
         const orderToAdd = orderToConfirm;
+        
+        // Calculate exact customer billing/collection amount to save in totalPrice
+        const compFees = settings?.companySpecificFees?.[orderToAdd.shippingCompany];
+        const inspectionFee = orderToAdd.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
+        const insuranceRate = orderToAdd.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
+        const insuranceFee = calculateInsuranceFee(orderToAdd as Order, insuranceRate, settings);
+        const safeAdvance = Number((orderToAdd as any).advancePayment) || 0;
+        
+        const useCustom = compFees?.useCustomFees ?? false;
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+        const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
+        const hasVat = compFees?.enableVat !== false;
+        const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+        const useStandard = orderToAdd.vatOnStandardShipping === true;
+        const standardShippingFee = useStandard ? getStandardShippingFee(orderToAdd as Order, settings) : (orderToAdd.shippingFee || 0);
+        const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
+        const vatValue = hasVat ? (Math.round(taxableBase * (vatRate / 100) * 100) / 100) : 0;
+        
+        const isMaintenance = orderToAdd.orderType === 'maintenance';
+        const basePrice = isMaintenance ? (Number((orderToAdd as any).maintenanceCost) || 0) : (orderToAdd.productPrice - (orderToAdd.discount || 0));
+        const baseTotal = basePrice + orderToAdd.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
+        const finalCollectedTotal = orderToAdd.totalAmountOverride ?? baseTotal;
+
         const id = `order-${Date.now()}`;
-        const orderWithId: Order = { ...orderToAdd, id } as Order;
+        const orderWithId: Order = { 
+            ...orderToAdd, 
+            id,
+            totalPrice: Math.round(finalCollectedTotal)
+        } as Order;
 
         // Process Treasury / Partner updates
         const difference = orderWithId.advancePayment || 0;
@@ -298,8 +326,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         }
 
         // --- LINK TO MAINTENANCE CENTER ---
-        const isMaintenance = orderWithId.orderType === 'maintenance' || orderWithId.shipmentType?.startsWith('maintenance_');
-        if (isMaintenance && orderWithId.shipmentType === 'maintenance_pickup') {
+        const isMaintenanceAction = orderWithId.orderType === 'maintenance' || orderWithId.shipmentType?.startsWith('maintenance_');
+        if (isMaintenanceAction && orderWithId.shipmentType === 'maintenance_pickup') {
             const maintenanceRequest: Partial<MaintenanceRequest> = {
                 storeId: activeStore?.id || '',
                 orderNumber: orderWithId.orderNumber,

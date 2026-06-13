@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Wallet as WalletIcon, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { calculateOrderProfitLoss } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getOrderCollectionAmount } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -494,18 +494,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
   const totalCollectedFromCustomers = useMemo(() => {
     return cycleOrders.reduce((sum, o) => {
-      const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
+      const oTotal = getOrderCollectionAmount(o);
       return sum + oTotal;
     }, 0);
   }, [cycleOrders]);
 
   const totalShippingFee = useMemo(() => {
     return cycleOrders.reduce((sum, o) => {
-      const { net } = calculateOrderProfitLoss(o, settings);
-      const productCost = Number(o.productCost) || 0;
-      const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
-      const totalFeesVal = oTotal - productCost - net;
-      const actualShippingFee = totalFeesVal > 0 ? totalFeesVal : (Number(o.shippingFee) || 0);
+      const actualShippingFee = calculateOrderShippingAndFees(o, settings);
       return sum + actualShippingFee;
     }, 0);
   }, [cycleOrders, settings]);
@@ -781,7 +777,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                           <Truck size={16} className="text-amber-500" />
                       </div>
                       <p className="text-3xl font-black text-slate-850 dark:text-white mt-1 font-sans">
-                          {totalShippingFee.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                          {totalShippingFee.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                       </p>
                       <p className="text-[10px] h-4 font-bold text-slate-400 mt-1">تكلفة النقل والتسليم المخصومة بالكامل</p>
                   </div>
@@ -796,7 +792,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                           <TrendingUp size={16} className="text-emerald-500" />
                       </div>
                       <p className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                          {totalNetProfit.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} <span className="text-xs font-bold text-emerald-600/60 font-sans">ج.م</span>
+                          {totalNetProfit.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-emerald-600/60 font-sans">ج.م</span>
                       </p>
                       <p className="text-[10px] h-4 font-bold text-slate-400 opacity-80 mt-1">صافي مكاسبك المقبولة للدفع لك يوم الاثنين</p>
                   </div>
@@ -838,9 +834,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       cycleOrders.map((o) => {
                         const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
                         const { net } = calculateOrderProfitLoss(o, settings);
-                        const productCost = Number(o.productCost) || 0;
-                        const totalFeesVal = (Number(o.productPrice) || 0) - (Number(o.discount) || 0) - productCost - net;
-                        const actualShippingFee = totalFeesVal > 0 ? totalFeesVal : (Number(o.shippingFee) || 0);
+                        const actualShippingFee = calculateOrderShippingAndFees(o, settings);
                         
                         return (
                           <tr key={o.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all font-sans text-right">
@@ -848,9 +842,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             <td className="p-5 font-bold text-slate-700 dark:text-slate-300 text-right">توصيل بضاعة</td>
                             <td className="p-5 text-slate-500 font-medium text-right">{o.governorate}</td>
                             <td className="p-5 font-black text-slate-850 dark:text-white text-right">{oTotal.toLocaleString()} ج.م</td>
-                            <td className="p-5 text-rose-500 font-bold text-right">{actualShippingFee.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} ج.م</td>
+                            <td className="p-5 text-rose-500 font-bold text-right">{actualShippingFee.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             <td className="p-5 text-slate-400 font-bold text-right">{new Date(o.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' })}</td>
-                            <td className={`p-5 font-extrabold text-right ${net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{net.toLocaleString('ar-EG', { maximumFractionDigits: 1 })} ج.م</td>
+                            <td className={`p-5 font-extrabold text-right ${net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{net.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             <td className="p-1 text-center">
                               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black border ${
                                 o.status === 'تم_التحصيل' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10' :
@@ -2180,7 +2174,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             </thead>
                             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                                 {orders.filter(o => (!o.paymentMethod || o.paymentMethod === 'cod') && (o.status === 'تم_توصيلها' || o.status === 'تم_التحصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال' || o.status === 'مدفوعة')).map((o, idx) => {
-                                    const total = o.totalAmountOverride ?? (o.productPrice + o.shippingFee - (o.discount || 0));
+                                    const total = getOrderCollectionAmount(o);
                                     const isCollected = o.status === 'تم_التحصيل';
                                     return (
                                         <tr key={o.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition-all">

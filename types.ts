@@ -203,6 +203,7 @@ export interface CompanyFees {
   insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
   shippingVatRate?: number;
   vatBasis?: 'shipping_only' | 'shipping_and_insurance'; // New field
+  enableVat?: boolean; // Toggle to completely turn off/on VAT for this company
   enableFlexShip?: boolean;
   flexShipFee?: number;
   flexShipCompanyFee?: number;
@@ -592,6 +593,7 @@ export interface Settings {
   codTaxRate: number;
   insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
   shippingVatRate?: number;
+  vatBasis?: 'shipping_only' | 'shipping_and_insurance';
   sku: string; 
   defaultProductPrice: number;
   enableDefaultPrice: boolean;
@@ -946,6 +948,7 @@ export interface Order {
   maintenanceItemValue?: number;
   maintenanceTechnicalReport?: string;
   maintenanceStatus?: 'not_started' | 'received' | 'in_repair' | 'ready_to_ship' | 'delivered' | 'cancelled';
+  vatOnStandardShipping?: boolean;
   originalOrderId?: string;
   confirmationLogs?: ConfirmationLog[];
   cancellationReason?: string;

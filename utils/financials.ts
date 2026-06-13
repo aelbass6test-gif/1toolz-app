@@ -1,4 +1,5 @@
 import { Order, Settings } from '../types';
+import { EGYPT_GOVERNORATES } from '../constants';
 
 export const isBosta = (companyName: string): boolean => {
     if (!companyName) return false;
@@ -17,6 +18,96 @@ export const getOrderProductCost = (order: Order): number => {
         return order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
     }
     return 0;
+};
+
+export const getStandardShippingFee = (order: Order, settings?: Settings): number => {
+    if (!settings) return order.shippingFee || 0;
+    
+    const company = order.shippingCompany;
+    const userOptions = (company && settings.shippingOptions?.[company]) || [];
+    
+    // Fallback options
+    const options = [...userOptions];
+    EGYPT_GOVERNORATES.forEach((gov, index) => {
+        const exists = options.some(o => o.label === gov.name);
+        if (!exists) {
+            options.push({
+                id: `gov_fallback_${index}`,
+                label: gov.name,
+                details: 'شحن قياسي',
+                deliveryPrice: 55,
+                baseWeight: 1,
+                extraKgPrice: 5,
+                returnPrice: 30,
+                exchangePrice: 35,
+                cashCollectionPrice: 0,
+                returnToSenderPrice: 0,
+                active: true,
+                cities: gov.cities.map((city, cIndex) => ({ 
+                    id: `city_fallback_${index}_${cIndex}`, 
+                    name: city,
+                    deliveryPrice: 55,
+                    extraKgPrice: 5,
+                    returnPrice: 30,
+                    exchangePrice: 35,
+                    cashCollectionPrice: 0,
+                    returnToSenderPrice: 0,
+                    useParentFees: true,
+                    active: true
+                }))
+            });
+        }
+    });
+
+    const selectedOption = options.find(opt => opt.label === (order.governorate || order.shippingArea));
+    if (!selectedOption) {
+        return order.shippingFee || 0; // fallback if no gov matched
+    }
+
+    const getPriceKey = (type?: string): 'deliveryPrice' | 'exchangePrice' | 'returnPrice' | 'cashCollectionPrice' | 'returnToSenderPrice' | 'maintenancePickupPrice' | 'maintenanceReturnPrice' => {
+        if (type === 'exchange') return 'exchangePrice';
+        if (type === 'return') return 'returnPrice';
+        if (type === 'maintenance_pickup') return 'returnPrice';
+        if (type === 'maintenance_return') return 'maintenanceReturnPrice' as any;
+        if (type === 'cash_collection') return 'cashCollectionPrice';
+        return 'deliveryPrice';
+    };
+    
+    const priceKey = getPriceKey(order.shipmentType);
+    let fee = (selectedOption[priceKey] as number) || selectedOption.deliveryPrice || 0;
+    let extraKgPrice = selectedOption.extraKgPrice || 0;
+    
+    if (order.city) {
+        const cityOpt = selectedOption.cities?.find(c => c.name === order.city);
+        if (cityOpt) {
+            if (cityOpt.useParentFees) {
+                fee = (selectedOption[priceKey] as number) || selectedOption.deliveryPrice || 0;
+                extraKgPrice = selectedOption.extraKgPrice || 0;
+            } else {
+                const cityFee = cityOpt[priceKey] !== undefined && cityOpt[priceKey] !== null ? cityOpt[priceKey] : cityOpt.deliveryPrice;
+                if (cityFee !== undefined && cityFee !== null) {
+                    fee = cityFee;
+                    extraKgPrice = cityOpt.extraKgPrice || 0;
+                }
+            }
+        }
+    }
+    
+    const compFees = settings.companySpecificFees?.[company];
+    const baseWeight = compFees?.useCustomFees && compFees.baseWeight !== undefined 
+        ? compFees.baseWeight 
+        : (settings.baseWeight !== undefined ? settings.baseWeight : 5);
+        
+    const totalWeight = order.items?.reduce((sum: number, item: any) => {
+        const itemWeight = parseFloat(item.weight?.toString() || '0');
+        const itemQuantity = parseInt(item.quantity?.toString() || '1');
+        return sum + (itemWeight * itemQuantity);
+    }, 0) || 0;
+    
+    const extraWeight = Math.max(0, totalWeight - baseWeight);
+    const totalFee = fee + (Math.ceil(extraWeight) * extraKgPrice);
+    
+    return totalFee;
 };
 
 export const getOrderBasePrice = (order: Order, settings?: Settings): number => {
@@ -54,16 +145,27 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
     const basis = useCustom ? (compFees?.insuranceBasis ?? defaultBasis) : (settings?.insuranceBasis ?? defaultBasis);
     
     let result = 0;
-    if (basis === 'cost') {
-        const productCost = getOrderProductCost(order);
-        result = (productCost * insuranceRate) / 100;
-    } else if (basis === 'price') {
-        result = (order.productPrice * insuranceRate) / 100;
-    } else if (basis === 'base') {
-        const basePrice = getOrderBasePrice(order, settings);
-        result = (basePrice * insuranceRate) / 100;
+    
+    const shippingFeeForInsurance = settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
+    
+    if (isCompanyBosta) {
+        // Bosta insurance is always computed on the COD amount expected from the customer 
+        // regardless of the drop-down (which is often misconfigured to 'cost' or 'base').
+        const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - (Number(order.discount) || 0);
+        result = (Math.max(0, totalAmount) * insuranceRate) / 100;
     } else {
-        result = ((order.productPrice + order.shippingFee) * insuranceRate) / 100;
+        if (basis === 'cost') {
+            const productCost = getOrderProductCost(order);
+            result = (productCost * insuranceRate) / 100;
+        } else if (basis === 'price') {
+            result = (order.productPrice * insuranceRate) / 100;
+        } else if (basis === 'base') {
+            const basePrice = getOrderBasePrice(order, settings);
+            result = (basePrice * insuranceRate) / 100;
+        } else {
+            const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - (Number(order.discount) || 0);
+            result = (Math.max(0, totalAmount) * insuranceRate) / 100;
+        }
     }
     return Math.round(result * 100) / 100;
 };
@@ -73,11 +175,22 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
     
+    // Check if VAT is completely disabled for this shipping company
+    if (useCustom && compFees?.enableVat === false) return 0;
+    
     const isCompanyBosta = isBosta(order.shippingCompany);
     const defaultVatRate = isCompanyBosta ? 0.14 : 0;
     const vatRate = useCustom ? (compFees?.shippingVatRate ?? defaultVatRate) : (settings?.shippingVatRate ?? defaultVatRate);
     
-    const result = (order.shippingFee + insuranceFee) * vatRate;
+    const useStandard = order.vatOnStandardShipping === true; // Default to actual shipping fee if undefined
+    const baseShippingFee = useStandard 
+        ? (settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0))
+        : (order.shippingFee || 0);
+        
+    const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : (settings?.vatBasis || 'shipping_only');
+    const insuranceValue = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+    
+    const result = (baseShippingFee + insuranceValue) * vatRate;
     return Math.round(result * 100) / 100;
 };
 
@@ -88,14 +201,21 @@ export const calculateCodFee = (order: Order, settings: Settings): number => {
     const enabled = useCustom ? (compFees?.enableCodFees ?? true) : settings.enableGlobalCod;
     if (!enabled) return 0;
 
-    const threshold = useCustom ? (compFees?.codThreshold ?? settings.codThreshold) : settings.codThreshold;
+    let threshold = useCustom ? (compFees?.codThreshold ?? settings.codThreshold) : settings.codThreshold;
     const rate = useCustom ? (compFees?.codFeeRate ?? settings.codFeeRate) : settings.codFeeRate;
     const tax = useCustom ? (compFees?.codTaxRate ?? settings.codTaxRate) : settings.codTaxRate;
 
-    const totalAmount = order.productPrice + order.shippingFee;
+    let totalAmount = 0;
+    if (order.source === 'synced' && order.totalPrice != null) {
+        totalAmount = Number(order.totalPrice);
+    } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null) {
+        totalAmount = Number(order.totalAmountOverride);
+    } else {
+        totalAmount = Number(order.productPrice || 0) + Number(order.shippingFee || 0) - Number(order.discount || 0);
+    }
     
-    if (totalAmount <= threshold) return 0;
-    const taxableAmount = totalAmount - threshold;
+    if (totalAmount <= threshold && threshold > 0) return 0;
+    const taxableAmount = Math.max(0, totalAmount);
     const fee = taxableAmount * rate;
     const result = fee * (1 + tax);
     return Math.round(result * 100) / 100;
@@ -121,6 +241,23 @@ export const getLatestProductCost = (productId: string, settings: Settings): num
     }
     
     return settings.products.find(p => p.id === productId)?.costPrice || 0;
+};
+
+export const getOrderCollectionAmount = (order: Order): number => {
+  const safeProductPrice = Number(order.productPrice) || 0;
+  const safeShippingFee = Number(order.shippingFee) || 0;
+  const safeTax = Number(order.tax) || 0;
+  const safeDiscount = Number(order.discount) || 0;
+  const safeAdvance = Number(order.advancePayment) || 0;
+  
+  // Important: Add fees if customer paid them
+  const inspectionFee = order.inspectionFeePaidByCustomer ? (order.inspectionFee || 0) : 0;
+  const flexShipFee = order.flexShipFeePaidByCustomer ? (order.flexShipFee || 0) : 0;
+  
+  const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance + inspectionFee + flexShipFee;
+  const totalAmount = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
+  const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : totalAmount;
+  return displayTotal;
 };
 
 export const calculateOrderProfitLoss = (order: Order, settings: Settings): { profit: number; loss: number; net: number } => {
@@ -162,7 +299,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): { pr
         ? order.totalAmountOverride + safeAdvance
         : (safeProductPrice + safeShippingFee - safeDiscount);
         
-    const totalExpenses = safeProductCost + (isPos ? 0 : safeShippingFee) + insuranceFee + inspectionAdjustment + codFee + bostaVat;
+    const standardShippingFee = getStandardShippingFee(order, settings);
+    const totalExpenses = safeProductCost + (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionAdjustment + codFee + bostaVat;
     
     profit = totalCollected - totalExpenses;
   } else if (order.status === 'مرتجع' || order.status === 'فشل_التوصيل' || order.status === 'تمت_الاعادة_لشركة_الشحن') {
@@ -174,7 +312,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): { pr
     const flexShipCollected = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
     const flexShipCompanyDeduction = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
     
-    loss = (insuranceFee + (isPos ? 0 : order.shippingFee) + effectiveInspectionCost + returnFeeAmount + bostaVat + flexShipCompanyDeduction - inspectionFeeCollected - flexShipCollected);
+    const standardShippingFee = getStandardShippingFee(order, settings);
+    loss = (insuranceFee + (isPos ? 0 : standardShippingFee) + effectiveInspectionCost + returnFeeAmount + bostaVat + flexShipCompanyDeduction - inspectionFeeCollected - flexShipCollected);
   } else if (order.status === 'مرتجع_جزئي') {
     loss = (insuranceFee + effectiveInspectionCost + bostaVat);
   } else if (order.status === 'مرتجع_بعد_الاستلام') {
@@ -184,7 +323,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): { pr
     const inspectionFeeCollected = (order.inspectionFeePaidByCustomer && !isPos) ? effectiveInspectionCost : 0;
     const codFee = isPos ? 0 : calculateCodFee(order, settings);
     
-    loss = (insuranceFee + (isPos ? 0 : order.shippingFee) + effectiveInspectionCost + returnFeeAmount + codFee + bostaVat - inspectionFeeCollected);
+    const standardShippingFee = getStandardShippingFee(order, settings);
+    loss = (insuranceFee + (isPos ? 0 : standardShippingFee) + effectiveInspectionCost + returnFeeAmount + codFee + bostaVat - inspectionFeeCollected);
   }
   
   const finalProfit = Math.round(profit * 100) / 100;
@@ -193,3 +333,55 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): { pr
   
   return { profit: finalProfit, loss: finalLoss, net: finalNet };
 }
+
+export const calculateOrderShippingAndFees = (o: Order, settings: Settings): number => {
+  const isPos = o.channel === 'pos' || 
+                o.shippingCompany === 'كاشير - بيع مباشر' || 
+                o.shippingArea === 'نقطة البيع' ||
+                (o.id && o.id.startsWith('POS-'));
+  if (isPos) return 0;
+
+  const compFees = settings.companySpecificFees?.[o.shippingCompany];
+  const useCustom = compFees?.useCustomFees ?? false;
+  
+  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+  const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+  
+  const insuranceFee = o.insuranceFee ?? calculateInsuranceFee(o, insuranceRate, settings);
+  const effectiveInspectionCost = o.inspectionFee ?? (o.includeInspectionFee ? inspectionCost : 0);
+  const bostaVat = calculateBostaVat(o, insuranceFee, settings);
+  const baseShippingFee = getStandardShippingFee(o, settings);
+
+  let totalFees = baseShippingFee + insuranceFee + bostaVat;
+
+  const inspectionAdjustment = (o.includeInspectionFee && !o.inspectionFeePaidByCustomer) ? effectiveInspectionCost : 0;
+  totalFees += inspectionAdjustment;
+
+  if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها') {
+    const codFee = (o.status === 'مدفوعة') ? 0 : calculateCodFee(o, settings);
+    totalFees += codFee;
+  } else if (o.status === 'مرتجع' || o.status === 'فشل_التوصيل' || o.status === 'تمت_الاعادة_لشركة_الشحن') {
+    const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
+    const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+    
+    const isFlexShipEnabled = o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+    const flexShipCompanyDeduction = (isFlexShipEnabled && o.flexShipFeePaidByCustomer) ? (o.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
+    const flexShipCollected = (isFlexShipEnabled && o.flexShipFeePaidByCustomer) ? (o.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
+
+    totalFees = baseShippingFee + insuranceFee + effectiveInspectionCost + returnFeeAmount + bostaVat + flexShipCompanyDeduction - flexShipCollected;
+  } else if (o.status === 'مرتجع_جزئي') {
+    totalFees = insuranceFee + effectiveInspectionCost + bostaVat;
+  } else if (o.status === 'مرتجع_بعد_الاستلام') {
+    const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
+    const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+    
+    totalFees = baseShippingFee + insuranceFee + effectiveInspectionCost + returnFeeAmount + bostaVat;
+  } else {
+    // For pending statuses, we can assume standard delivery fees
+    const codFee = calculateCodFee(o, settings);
+    totalFees += codFee;
+  }
+  
+  return Math.max(0, Math.round(totalFees * 100) / 100);
+};
+

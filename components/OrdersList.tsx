@@ -9,7 +9,7 @@ import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { generateShippingLabelHTML } from '../utils/shippingLabelGenerator';
 import { generateShippingNote } from '../services/geminiService';
-import { calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat } from '../utils/financials';
+import { calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, calculateOrderShippingAndFees, getStandardShippingFee } from '../utils/financials';
 import { generateOrdersReportHTML } from '../utils/reportGenerator';
 import { triggerWebhooks } from '../utils/webhook';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -202,10 +202,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     companyName: string;
     orderNumber: string;
   } | null>(null);
-  const [pendingInspectionConfirm, setPendingInspectionConfirm] = useState<{
+  const [pendingPaymentCollectionConfirm, setPendingPaymentCollectionConfirm] = useState<{
     order: Order;
     newPaymentStatus: PaymentStatus;
     inspectionFee: number;
+    flexShipFee: number;
+    isFlexShipEnabled: boolean;
+    needsFlexShipConfirm: boolean;
+    needsInspectionConfirm: boolean;
+    inspectionFeePaid?: boolean;
+    flexShipFeePaid?: boolean;
   } | null>(null);
   const [autoWhatsappData, setAutoWhatsappData] = useState<{order: Order, newStatus: string} | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -402,6 +408,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
 
   const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
 
+  const anyFlexShipEnabled = useMemo(() => {
+    return filteredOrders.some(o => {
+      const compFees = settings.companySpecificFees?.[o.shippingCompany];
+      const useCustom = compFees?.useCustomFees ?? false;
+      return o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+    });
+  }, [filteredOrders, settings]);
+
   const filteredMetrics = useMemo(() => {
     let salesTotal = 0;
     let expectedCollection = 0;
@@ -443,10 +457,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       const totalExpenses = safeProductCost + safeShippingFee + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
 
       const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(o.status);
-      const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
-      const flexPaidAmount = o.flexShipFeePaidByCustomer ? (o.flexShipFee || flexFeeValue) : 0;
-      const flexCompanyFeeValue = useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0);
-      const flexCompanyFeePaid = o.flexShipFeePaidByCustomer ? (o.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
+      const isFlexShipEnabled = o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+      const flexFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0)) : 0;
+      const flexPaidAmount = isFlexShipEnabled && o.flexShipFeePaidByCustomer ? (o.flexShipFee || flexFeeValue) : 0;
+      const flexCompanyFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0)) : 0;
+      const flexCompanyFeePaid = isFlexShipEnabled && o.flexShipFeePaidByCustomer ? (o.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
 
       const oProfit = isReturnedOrFailed
           ? (flexPaidAmount - totalCarrierExpenses - flexCompanyFeePaid)
@@ -690,10 +705,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     const useCustom = compFees?.useCustomFees ?? false;
     
     if (newStatus === 'تم_الارسال' && !updatedOrderData.shippingAndInsuranceDeducted) {
+        const standardShippingFee = getStandardShippingFee(orderToUpdate, settings);
         newTransactions.push({ 
             id: `ship_${orderToUpdate.id}`, 
             type: 'سحب', 
-            amount: orderToUpdate.shippingFee, 
+            amount: standardShippingFee, 
             date: new Date().toISOString(), 
             note: `إصدار بوليصة شحن أوردر #${orderToUpdate.orderNumber}`, 
             category: 'shipping', 
@@ -736,8 +752,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
             });
         }
 
+        updatedOrderData.shippingAndInsuranceDeducted = true;
+        
         if (orderToUpdate.includeInspectionFee && !updatedOrderData.inspectionFeeDeducted) {
-            const feeAmount = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+            const feeAmount = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
             if (feeAmount > 0) {
                 newTransactions.push({ 
                     id: `insp_${orderToUpdate.id}`, 
@@ -753,7 +771,6 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                 updatedOrderData.inspectionFeeDeducted = true;
             }
         }
-        updatedOrderData.shippingAndInsuranceDeducted = true;
     }
     
     if ((newStatus === 'مرتجع' || newStatus === 'فشل_التوصيل') && !updatedOrderData.returnFeeDeducted) {
@@ -940,7 +957,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   };
 
   const updateInventoryForOrder = (order: Order, newStatus: OrderStatus, currentProducts: Product[]): { updatedProducts: Product[], stockDeducted: boolean } => {
-    const deductStatuses: OrderStatus[] = ['قيد_التنفيذ', 'تم_الارسال', 'تم_توصيلها'];
+    const deductStatuses: OrderStatus[] = ['قيد_التنفيذ', 'تم_الارسال', 'قيد_الشحن', 'تم_توصيلها', 'تم_التحصيل', 'مدفوعة', 'مؤرشف'];
     // All other statuses are considered "returnable" to stock if they were deducted
     const shouldBeDeducted = deductStatuses.includes(newStatus);
     const isCurrentlyDeducted = order.stockDeducted || false;
@@ -951,15 +968,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         (order.items || []).forEach(orderItem => {
             const pIdx = updatedProducts.findIndex(p => p.id === orderItem.productId);
             if (pIdx > -1) {
-                const prod = updatedProducts[pIdx];
-                const newQty = (prod.stockQuantity || 0) - orderItem.quantity;
+                const prod = { ...updatedProducts[pIdx] };
+                const newQty = Math.max(0, (prod.stockQuantity || 0) - orderItem.quantity);
                 
                 // Deduct from warehouse stock
-                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : undefined;
+                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
                 const whId = order.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id;
                 
-                if (whId && updatedWhStock) {
-                    updatedWhStock[whId] = (updatedWhStock[whId] || 0) - orderItem.quantity;
+                if (whId) {
+                    updatedWhStock[whId] = Math.max(0, (updatedWhStock[whId] || 0) - orderItem.quantity);
+                }
+
+                // Deduct variant stock if variantId is matched
+                if (orderItem.variantId && prod.variants) {
+                    prod.variants = prod.variants.map(v => {
+                        if (v.id === orderItem.variantId) {
+                            const vUpdated = { ...v };
+                            vUpdated.stockQuantity = Math.max(0, (vUpdated.stockQuantity || 0) - orderItem.quantity);
+                            vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+                            if (whId) {
+                                vUpdated.warehouseStock[whId] = Math.max(0, (vUpdated.warehouseStock[whId] || 0) - orderItem.quantity);
+                            }
+                            return vUpdated;
+                        }
+                        return v;
+                    });
                 }
 
                 updatedProducts[pIdx] = {
@@ -974,15 +1007,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         (order.items || []).forEach(orderItem => {
             const pIdx = updatedProducts.findIndex(p => p.id === orderItem.productId);
             if (pIdx > -1) {
-                const prod = updatedProducts[pIdx];
+                const prod = { ...updatedProducts[pIdx] };
                 const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
 
                 // Return to warehouse stock
-                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : undefined;
+                let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
                 const whId = order.warehouseId || settings.warehouses?.find(w => w.isDefault)?.id;
                 
-                if (whId && updatedWhStock) {
+                if (whId) {
                     updatedWhStock[whId] = (updatedWhStock[whId] || 0) + orderItem.quantity;
+                }
+
+                // Return variant stock if variantId is matched
+                if (orderItem.variantId && prod.variants) {
+                    prod.variants = prod.variants.map(v => {
+                        if (v.id === orderItem.variantId) {
+                            const vUpdated = { ...v };
+                            vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + orderItem.quantity;
+                            vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+                            if (whId) {
+                                vUpdated.warehouseStock[whId] = (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+                            }
+                            return vUpdated;
+                        }
+                        return v;
+                    });
                 }
 
                 updatedProducts[pIdx] = {
@@ -1193,23 +1242,34 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   };
 
 
-  const handleCollectAction = (order: Order, customerPaidInspection: boolean) => {
-    if (order.status !== 'تم_توصيلها' || order.collectionProcessed) return;
+  const handleCollectAction = (order: Order, customerPaidInspection: boolean, customerPaidFlexShip: boolean = false) => {
+    const isMaintenance = order.orderType === 'maintenance' || (order.status as string) === 'سحب_للصيانة';
+    const allowedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_الارسال', 'قيد_الشحن', 'تم_التحصيل', 'مدفوعة'];
+    
+    if ((!allowedStatuses.includes(order.status) && !isMaintenance) || order.collectionProcessed) return;
 
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
-    const inspectionFee = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
+    const inspectionFee = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+    const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
 
     const newTransactions: Transaction[] = [];
-    const baseAmountToCollect = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - order.discount);
-    const totalCollected = baseAmountToCollect + (customerPaidInspection ? inspectionFee : 0);
+    const basePrice = isMaintenance ? (Number((order as any).maintenanceCost) || order.productPrice || 0) : order.productPrice;
+    const baseAmountToCollect = order.totalAmountOverride ?? (basePrice + order.shippingFee - order.discount);
     
+    // Total collected includes base amount + requested fees if paid
+    const totalCollected = baseAmountToCollect + (customerPaidInspection ? inspectionFee : 0) + (customerPaidFlexShip ? flexFeeValue : 0);
+    
+    const txnNote = isMaintenance 
+        ? `رصيد من سداد أوردر صيانة #${order.orderNumber}`
+        : `رصيد من الدفع عند الاستلام أوردر #${order.orderNumber}`;
+
     newTransactions.push({ 
         id: `collect_${order.id}`, 
         type: 'إيداع', 
         amount: totalCollected, 
         date: new Date().toISOString(), 
-        note: `رصيد من الدفع عند الاستلام أوردر #${order.orderNumber}`, 
+        note: txnNote, 
         category: 'collection', 
         status: 'completed',
         orderId: order.id,
@@ -1231,7 +1291,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         });
     }
     
-    const updatedOrderData = { ...order, status: 'تم_توصيلها' as OrderStatus, paymentStatus: 'مدفوع' as PaymentStatus, inspectionFeePaidByCustomer: customerPaidInspection, collectionProcessed: true };
+    const updatedOrderData = { 
+        ...order, 
+        status: isMaintenance ? order.status : ('تم_التحصيل' as OrderStatus), 
+        paymentStatus: 'مدفوع' as PaymentStatus, 
+        inspectionFeePaidByCustomer: customerPaidInspection, 
+        flexShipFeePaidByCustomer: customerPaidFlexShip,
+        flexShipFee: flexFeeValue,
+        collectionProcessed: true 
+    };
     
     setWallet(prev => {
         let newBalance = prev.balance || 0;
@@ -1251,20 +1319,32 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   
   const handlePaymentStatusChange = (order: Order, newPaymentStatus: PaymentStatus) => {
     const updatedOrder = {...order, paymentStatus: newPaymentStatus};
+    const isMaintenance = order.orderType === 'maintenance' || (order.status as string) === 'سحب_للصيانة';
+    const allowedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_الارسال', 'قيد_الشحن', 'تم_التحصيل', 'مدفوعة'];
     
-    if (newPaymentStatus === 'مدفوع' && order.status === 'تم_توصيلها') {
+    if (newPaymentStatus === 'مدفوع' && (allowedStatuses.includes(order.status) || isMaintenance)) {
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
-        const inspectionFee = useCustom ? (compFees?.inspectionFee ?? settings.inspectionFee) : settings.inspectionFee;
         
-        if (order.includeInspectionFee && inspectionFee && inspectionFee > 0) {
-            setPendingInspectionConfirm({
+        const inspectionFeeValue = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+        const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+        const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+        
+        const needsInspectionConfirm = order.includeInspectionFee && inspectionFeeValue > 0 && !order.inspectionFeePaidByCustomer;
+        const needsFlexShipConfirm = isFlexShipEnabled && flexFeeValue > 0 && !order.flexShipFeePaidByCustomer;
+
+        if (needsInspectionConfirm || needsFlexShipConfirm) {
+            setPendingPaymentCollectionConfirm({
                 order,
                 newPaymentStatus,
-                inspectionFee
+                inspectionFee: inspectionFeeValue,
+                flexShipFee: flexFeeValue,
+                isFlexShipEnabled,
+                needsFlexShipConfirm,
+                needsInspectionConfirm
             });
         } else {
-            handleCollectAction(updatedOrder, false);
+            handleCollectAction(updatedOrder, order.inspectionFeePaidByCustomer || false, order.flexShipFeePaidByCustomer || false);
         }
     } else {
         updateOrderField(order.id, 'paymentStatus', newPaymentStatus);
@@ -1952,7 +2032,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                           <div className="bg-white dark:bg-slate-900/80 p-3 px-4 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse text-slate-600 dark:text-slate-350">
                               <span className="font-bold flex items-center gap-1.5 flex-row-reverse">
                                  <Briefcase size={14} className="text-slate-400" />
-                                 متوسط تكلفة البضائع المعروضة
+                                 إجمالي تكلفة البضائع المعروضة
                               </span>
                               <span className="font-black text-slate-700 dark:text-slate-300 tabular-nums">{filteredMetrics.productCostTotal.toLocaleString()} ج.م</span>
                           </div>
@@ -2123,7 +2203,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                   <th className="p-6">الطلب والعميل</th>
                   <th className="p-6">المنتجات</th>
                   <th className="p-6">مبلغ التحصيل</th>
-                  <th className="p-6">رسوم فليكس شيب</th>
+                  {anyFlexShipEnabled && <th className="p-6">رسوم فليكس شيب</th>}
                   <th className="p-6">الحالة</th>
                   <th className="p-6">المحاولات</th>
                   <th className="p-6">حالة المبلغ المحصل</th>
@@ -2136,6 +2216,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                     key={order.id} 
                     order={order} 
                     isSelected={selectedOrders.includes(order.id)}
+                    anyFlexShipEnabled={anyFlexShipEnabled}
                     onSelect={() => handleSelectRow(order.id)}
                     onStatusChange={(status) => updateOrderStatus(order.id, status)}
                     onPaymentChange={(status) => handlePaymentStatusChange(order, status)}
@@ -2346,43 +2427,77 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         </div>
       )}
 
-      {pendingInspectionConfirm && (
+      {pendingPaymentCollectionConfirm && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[32px] shadow-2xl p-8 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800" style={{ direction: 'rtl' }}>
                 <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 dark:border-emerald-500/20 shadow-sm">
                     <Coins size={32} />
                 </div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">تأكيد رسوم المعاينة</h3>
+                <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">تأكيد تحصيل الرسوم الإضافية</h3>
                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-6 font-sans leading-relaxed">
-                     الطلب رقم <span className="text-slate-800 dark:text-slate-200 font-extrabold">#{pendingInspectionConfirm.order.orderNumber}</span>.
+                     الطلب رقم <span className="text-slate-800 dark:text-slate-200 font-extrabold">#{pendingPaymentCollectionConfirm.order.orderNumber}</span>.
                      <br />
-                     هل قام العميل بدفع رسوم المعاينة بقيمة <span className="text-emerald-600 dark:text-emerald-400 font-black">{pendingInspectionConfirm.inspectionFee} ج.م</span>؟
+                     يرجى تحديد الرسوم التي تم تحصيلها من العميل:
                 </p>
                 
                 <div className="grid grid-cols-1 gap-2.5">
+                    {pendingPaymentCollectionConfirm.needsInspectionConfirm && (
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">رسوم المعاينة ({pendingPaymentCollectionConfirm.inspectionFee} ج.م)</span>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsInspectionConfirm: false, inspectionFeePaid: true} : null)}
+                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.inspectionFeePaid === true ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}
+                                >تم التحصيل</button>
+                                <button 
+                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsInspectionConfirm: false, inspectionFeePaid: false} : null)}
+                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.inspectionFeePaid === false ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'}`}
+                                >لم يتم التحصيل</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {pendingPaymentCollectionConfirm.needsFlexShipConfirm && (
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">رسوم فليكس شيب ({pendingPaymentCollectionConfirm.flexShipFee} ج.م)</span>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsFlexShipConfirm: false, flexShipFeePaid: true} : null)}
+                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.flexShipFeePaid === true ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}
+                                >تم التحصيل</button>
+                                <button 
+                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsFlexShipConfirm: false, flexShipFeePaid: false} : null)}
+                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.flexShipFeePaid === false ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'}`}
+                                >لم يتم التحصيل</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {(!pendingPaymentCollectionConfirm.needsInspectionConfirm && !pendingPaymentCollectionConfirm.needsFlexShipConfirm) && (
+                        <button 
+                            onClick={() => {
+                                const p = pendingPaymentCollectionConfirm!;
+                                const inspPaid = p.inspectionFeePaid !== undefined ? p.inspectionFeePaid : (p.order.inspectionFeePaidByCustomer || false);
+                                const flexPaid = p.flexShipFeePaid !== undefined ? p.flexShipFeePaid : (p.order.flexShipFeePaidByCustomer || false);
+                                
+                                const updatedOrder = { 
+                                    ...p.order, 
+                                    paymentStatus: p.newPaymentStatus, 
+                                    inspectionFeePaidByCustomer: inspPaid,
+                                    flexShipFeePaidByCustomer: flexPaid
+                                };
+                                handleCollectAction(updatedOrder, inspPaid, flexPaid);
+                                setPendingPaymentCollectionConfirm(null);
+                            }}
+                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
+                        >
+                            <span>تأكيد التحصيل والحفظ</span>
+                        </button>
+                    )}
+
                     <button 
                         onClick={() => {
-                            const updatedOrder = { ...pendingInspectionConfirm.order, paymentStatus: pendingInspectionConfirm.newPaymentStatus, inspectionFeePaidByCustomer: true };
-                            handleCollectAction(updatedOrder, true);
-                            setPendingInspectionConfirm(null);
-                        }}
-                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
-                    >
-                        <span>✓ نعم، العميل سدد كامل رسوم المعاينة</span>
-                    </button>
-                    <button 
-                        onClick={() => {
-                            const updatedOrder = { ...pendingInspectionConfirm.order, paymentStatus: pendingInspectionConfirm.newPaymentStatus, inspectionFeePaidByCustomer: false };
-                            handleCollectAction(updatedOrder, false);
-                            setPendingInspectionConfirm(null);
-                        }}
-                        className="w-full py-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/10 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-extrabold rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
-                    >
-                        <span>✗ لا، لم يسدد رسوم المعاينة بالزيادة</span>
-                    </button>
-                    <button 
-                        onClick={() => {
-                            setPendingInspectionConfirm(null);
+                            setPendingPaymentCollectionConfirm(null);
                         }}
                         className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold rounded-xl transition-all cursor-pointer"
                     >
@@ -2816,6 +2931,9 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
     const safeProductCost = Number(order.productCost) || 0;
     const safeAdvance = Number(order.advancePayment) || 0;
     
+    // Calculate Standard Shipping Fee for expense side
+    const standardShippingFee = getStandardShippingFee(order, settings);
+    
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
     
@@ -2840,15 +2958,16 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
         ? order.totalAmountOverride - ((baseRevenue - safeDiscount) - safeAdvance) 
         : 0;
         
-    const totalExpenses = safeProductCost + safeShippingFee + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
+    const totalExpenses = safeProductCost + standardShippingFee + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
     
     // Dynamic Profit/Loss calculations based on status
-    const carrierCost = safeShippingFee + insuranceFee + bostaVatFee;
+    const carrierCost = standardShippingFee + insuranceFee + bostaVatFee;
     const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(order.status);
-    const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
-    const flexPaidAmount = order.flexShipFeePaidByCustomer ? (order.flexShipFee || flexFeeValue) : 0;
-    const flexCompanyFeeValue = useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0);
-    const flexCompanyFeePaid = order.flexShipFeePaidByCustomer ? (order.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
+    const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+    const flexFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0)) : 0;
+    const flexPaidAmount = isFlexShipEnabled && order.flexShipFeePaidByCustomer ? (order.flexShipFee || flexFeeValue) : 0;
+    const flexCompanyFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0)) : 0;
+    const flexCompanyFeePaid = isFlexShipEnabled && order.flexShipFeePaidByCustomer ? (order.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
 
     const netProfit = isReturnedOrFailed
         ? (flexPaidAmount - carrierCost - flexCompanyFeePaid) // Loss is carrier costs minus what was recouped via Flex Ship
@@ -2914,7 +3033,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                                 </div>
                                 <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                     <span className="text-slate-500 font-bold">تكلفة بوليصة الشحن (للشركة)</span>
-                                    <span className="font-black text-rose-500 tabular-nums">-{safeShippingFee.toLocaleString()} ج.م</span>
+                                    <span className="font-black text-rose-500 tabular-nums">-{standardShippingFee.toLocaleString()} ج.م</span>
                                 </div>
                                 {insuranceFee > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
@@ -2959,7 +3078,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                         <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                             <div className="flex justify-between items-center flex-row-reverse text-sm">
                                 <span className="text-slate-500 font-semibold">بوليصة الشحن (الذهاب):</span>
-                                <span className="font-black text-rose-500">-{safeShippingFee.toLocaleString()} ج.م</span>
+                                <span className="font-black text-rose-500">-{standardShippingFee.toLocaleString()} ج.م</span>
                             </div>
                             {insuranceFee > 0 && (
                                 <div className="flex justify-between items-center flex-row-reverse text-sm">
@@ -3135,7 +3254,8 @@ const OrderRow = ({
   onShowDetails,
   onToggleFlexShipPaid,
   whatsappLink,
-  settings
+  settings,
+  anyFlexShipEnabled
 }: { 
   order: Order, 
   isSelected: boolean, 
@@ -3156,6 +3276,7 @@ const OrderRow = ({
   onToggleFlexShipPaid?: () => void,
   whatsappLink: string,
   settings: Settings,
+  anyFlexShipEnabled?: boolean,
   key?: any
 }) => {
   const navigate = useNavigate();
@@ -3197,6 +3318,7 @@ const OrderRow = ({
   };
   const attemptsCount = (order.callAttempts || []).length;
   const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+  const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
   
   const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
   const calculatedInsuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
@@ -3323,21 +3445,27 @@ const OrderRow = ({
       </td>
 
       {/* 5. رسوم فليكس شيب */}
+      {anyFlexShipEnabled && (
       <td className="p-6">
-        <div className="text-right space-y-0.5">
-            <div className="flex items-center gap-1 justify-end">
-                <span className="cursor-help text-slate-350 hover:text-indigo-600" title="رسوم فليكس شيب المستحقة">
-                    <Info size={11} className="inline-block" />
-                </span>
-                <span className="text-xs font-black text-slate-850 dark:text-slate-200">
-                    {flexFeeValue || 105} ج.م
-                </span>
-            </div>
-            <span className="text-[10px] font-bold block text-slate-400 text-right">
-                {['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(order.status) ? 'مستحق للفصل' : 'غير مستحق بعد'}
-            </span>
-        </div>
+        {isFlexShipEnabled ? (
+          <div className="text-right space-y-0.5">
+              <div className="flex items-center gap-1 justify-end">
+                  <span className="cursor-help text-slate-350 hover:text-indigo-600" title="رسوم فليكس شيب المستحقة">
+                      <Info size={11} className="inline-block" />
+                  </span>
+                  <span className="text-xs font-black text-slate-850 dark:text-slate-200">
+                      {flexFeeValue} ج.م
+                  </span>
+              </div>
+              <span className="text-[10px] font-bold block text-slate-400 text-right">
+                  {['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(order.status) ? 'مستحق للفصل' : 'غير مستحق بعد'}
+              </span>
+          </div>
+        ) : (
+          <div className="text-right font-medium text-slate-300 dark:text-slate-600">-</div>
+        )}
       </td>
+      )}
 
       {/* 6. الحالة */}
       <td className="p-6">
@@ -3451,7 +3579,7 @@ const OrderRow = ({
     <AnimatePresence>
         {isExpanded && (
             <tr>
-                <td colSpan={7} className="p-0 border-none">
+                <td colSpan={12} className="p-0 border-none">
                     <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
@@ -5087,7 +5215,14 @@ const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({ ord
     const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
     const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
     const safeAdvance = Number(order.advancePayment) || 0;
-    const total = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - order.discount - safeAdvance + inspectionFee);
+    
+    // Explicitly use the exact mathematical logic calculated for WalletPage
+    const actualShippingFee = calculateOrderShippingAndFees(order, settings);
+    
+    const total = order.totalAmountOverride ?? (order.productPrice + actualShippingFee - order.discount - safeAdvance + inspectionFee);
+    
+    // ...
+    // Note: To preserve line count and simplicity, I'm replacing just the calculation part first.
     
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
@@ -5109,7 +5244,7 @@ const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({ ord
                                 <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">(الوزن: {order.weight.toFixed(2)} كجم)</span>
                             )}
                         </div>
-                        <span className="font-black text-slate-700 dark:text-slate-200">{order.shippingFee.toLocaleString()} ج.م</span>
+                        <span className="font-black text-slate-700 dark:text-slate-200">{actualShippingFee.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                     </div>
                     {inspectionFee > 0 && (
                         <div className="flex justify-between items-center text-sm">
@@ -5217,7 +5352,10 @@ const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({ o
     const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
     const insuranceFee = calculateInsuranceFee(order as Order, insuranceRate, settings);
     const safeAdvance = Number((order as any).advancePayment) || 0;
-    const total = (order as any).totalAmountOverride ?? (order.productPrice + order.shippingFee - (order.discount || 0) - safeAdvance + inspectionFee);
+    
+    const actualShippingFee = calculateOrderShippingAndFees(order as Order, settings);
+    
+    const total = (order as any).totalAmountOverride ?? (order.productPrice + actualShippingFee - (order.discount || 0) - safeAdvance + inspectionFee);
     
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
@@ -5239,7 +5377,7 @@ const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({ o
                                 <span className="text-[10px] text-slate-400 font-medium">(الوزن: {order.weight.toFixed(2)} كجم)</span>
                             )}
                         </div>
-                        <span className="font-black text-slate-700 dark:text-slate-200">{order.shippingFee.toLocaleString()} ج.م</span>
+                        <span className="font-black text-slate-700 dark:text-slate-200">{actualShippingFee.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                     </div>
                     {inspectionFee > 0 && (
                         <div className="flex justify-between items-center text-sm">
