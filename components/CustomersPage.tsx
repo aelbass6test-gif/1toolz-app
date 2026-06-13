@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Order, CustomerProfile } from '../types';
-import { Search, User, Phone, MapPin, ShoppingBag, TrendingUp, AlertTriangle, Star, ArrowUpRight, ArrowDownRight, LayoutList, X, Save } from 'lucide-react';
+import { Search, User, Phone, MapPin, ShoppingBag, TrendingUp, AlertTriangle, Star, LayoutList, X, Save, DollarSign } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const containerVariants = {
@@ -24,24 +24,26 @@ const itemVariants = {
 interface CustomersPageProps {
   orders: Order[];
   loyaltyData: Record<string, number>;
-  updateCustomerLoyaltyPoints: (phone: string, points: number) => void;
+  customers?: CustomerProfile[];
+  onUpdateCustomer?: (phone: string, updates: Partial<CustomerProfile>) => void;
 }
 
-const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, updateCustomerLoyaltyPoints }) => {
+const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, customers: savedCustomers, onUpdateCustomer }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<keyof CustomerProfile>('lastOrderDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [editingCustomer, setEditingCustomer] = useState<CustomerProfile | null>(null);
 
   const customers = useMemo(() => {
-    const customerMap = new Map<string, CustomerProfile>();
-
+    const computedMap = new Map<string, CustomerProfile>();
+    
+    // Process orders first
     orders.forEach(order => {
       const cleanPhone = (order.customerPhone || '').replace(/\s/g, '').replace('+2', '');
-      if (!cleanPhone) return; // Skip orders without a phone number
+      if (!cleanPhone) return;
       
-      if (!customerMap.has(cleanPhone)) {
-        customerMap.set(cleanPhone, {
+      if (!computedMap.has(cleanPhone)) {
+        computedMap.set(cleanPhone, {
           id: cleanPhone,
           name: order.customerName,
           phone: order.customerPhone || '',
@@ -56,12 +58,12 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
           loyaltyPoints: loyaltyData[cleanPhone] || 0,
           governorate: order.governorate || order.shippingArea || '',
           city: order.city || '',
-          shippingFee: order.shippingFee || 0
+          shippingFee: order.shippingFee || 0,
+          debtBalance: 0
         });
       }
 
-      const customer = customerMap.get(cleanPhone)!;
-      customer.loyaltyPoints = loyaltyData[cleanPhone] || 0;
+      const customer = computedMap.get(cleanPhone)!;
       customer.totalOrders += 1;
       
       if (new Date(order.date) > new Date(customer.lastOrderDate)) {
@@ -85,11 +87,30 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
       }
     });
 
-    return Array.from(customerMap.values()).map(c => ({
+    // Merge with savedCustomers
+    (savedCustomers || []).forEach(savedC => {
+        const cleanPhone = (savedC.phone || '').replace(/\s/g, '').replace('+2', '');
+        if (!cleanPhone) return;
+        
+        if (computedMap.has(cleanPhone)) {
+            const compC = computedMap.get(cleanPhone)!;
+            compC.totalOrders = Math.max(compC.totalOrders, savedC.totalOrders || 0);
+            compC.successfulOrders = Math.max(compC.successfulOrders, savedC.successfulOrders || 0);
+            compC.returnedOrders = Math.max(compC.returnedOrders, savedC.returnedOrders || 0);
+            compC.totalSpent = Math.max(compC.totalSpent, savedC.totalSpent || 0);
+            compC.loyaltyPoints = savedC.loyaltyPoints || compC.loyaltyPoints;
+            compC.debtBalance = savedC.debtBalance || 0;
+            compC.notes = savedC.notes;
+        } else {
+            computedMap.set(cleanPhone, { ...savedC, loyaltyPoints: savedC.loyaltyPoints || loyaltyData[cleanPhone] || 0 });
+        }
+    });
+
+    return Array.from(computedMap.values()).map(c => ({
         ...c,
         averageOrderValue: c.successfulOrders > 0 ? c.totalSpent / c.successfulOrders : 0
     }));
-  }, [orders, loyaltyData]);
+  }, [orders, loyaltyData, savedCustomers]);
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => 
@@ -102,7 +123,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
             return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
         }
         if (typeof valA === 'number' && typeof valB === 'number') {
-            return sortDirection === 'asc' ? valA - valB : valB - valA;
+            return sortDirection === 'asc' ? (valA || 0) - (valB || 0) : (valB || 0) - (valA || 0);
         }
         return 0;
     });
@@ -112,7 +133,8 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
       totalCustomers: customers.length,
       totalLTV: customers.reduce((sum, c) => sum + c.totalSpent, 0),
       vipCustomers: customers.filter(c => c.totalSpent > 5000).length,
-      riskCustomers: customers.filter(c => c.returnedOrders > 2 && (c.returnedOrders / c.totalOrders) > 0.5).length
+      riskCustomers: customers.filter(c => c.returnedOrders > 2 && (c.returnedOrders / c.totalOrders) > 0.5).length,
+      totalDebt: customers.reduce((sum, c) => sum + (c.debtBalance || 0), 0)
   }), [customers]);
 
   const handleSort = (field: keyof CustomerProfile) => {
@@ -124,8 +146,10 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
       }
   };
 
-  const handleSavePoints = (phone: string, points: number) => {
-    updateCustomerLoyaltyPoints(phone, points);
+  const handleSaveCustomer = (phone: string, updates: Partial<CustomerProfile>) => {
+    if (onUpdateCustomer) {
+        onUpdateCustomer(phone, updates);
+    }
     setEditingCustomer(null);
   };
 
@@ -142,13 +166,13 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
                 <User size={32} className="text-indigo-600"/>
                 إدارة العملاء (CRM)
             </h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">تحليل بيانات العملاء، القيمة الدائمة، وتاريخ الطلبات.</p>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">تحليل بيانات العملاء، القيمة الدائمة، والمديونيات.</p>
         </div>
       </motion.div>
 
       <motion.div variants={containerVariants} className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <motion.div variants={itemVariants}><StatCard title="إجمالي العملاء" value={stats.totalCustomers} icon={<User/>} color="blue"/></motion.div>
-          <motion.div variants={itemVariants}><StatCard title="إجمالي الإيرادات (LTV)" value={`${stats.totalLTV.toLocaleString()} ج.م`} icon={<TrendingUp/>} color="emerald"/></motion.div>
+          <motion.div variants={itemVariants}><StatCard title="إجمالي الديون المستحقة" value={`${stats.totalDebt.toLocaleString()} ج.م`} icon={<DollarSign/>} color="red"/></motion.div>
           <motion.div variants={itemVariants}><StatCard title="عملاء VIP" value={stats.vipCustomers} icon={<Star/>} color="amber"/></motion.div>
           <motion.div variants={itemVariants}><StatCard title="عملاء محتمل للمخاطر" value={stats.riskCustomers} icon={<AlertTriangle/>} color="red"/></motion.div>
       </motion.div>
@@ -176,6 +200,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
                     <tr>
                         <th className="px-6 py-4 cursor-pointer hover:text-indigo-600" onClick={() => handleSort('name')}>العميل</th>
                         <th className="px-6 py-4 cursor-pointer hover:text-indigo-600 text-center" onClick={() => handleSort('totalOrders')}>الطلبات</th>
+                        <th className="px-6 py-4 cursor-pointer hover:text-indigo-600 text-center" onClick={() => handleSort('debtBalance' as any)}>المديونية</th>
                         <th className="px-6 py-4 cursor-pointer hover:text-indigo-600 text-center" onClick={() => handleSort('loyaltyPoints')}>نقاط الولاء</th>
                         <th className="px-6 py-4 cursor-pointer hover:text-indigo-600 text-center" onClick={() => handleSort('totalSpent')}>LTV</th>
                         <th className="px-6 py-4 text-center">نسبة النجاح</th>
@@ -185,7 +210,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {filteredCustomers.length === 0 ? (
-                        <tr><td colSpan={7} className="text-center py-12 text-slate-400">لا يوجد عملاء يطابقون البحث.</td></tr>
+                        <tr><td colSpan={8} className="text-center py-12 text-slate-400">لا يوجد عملاء يطابقون البحث.</td></tr>
                     ) : (
                         filteredCustomers.map(customer => {
                             const successRate = customer.totalOrders > 0 ? (customer.successfulOrders / customer.totalOrders) * 100 : 0;
@@ -210,6 +235,11 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
                                             <ShoppingBag size={14}/> {customer.totalOrders}
                                         </div>
                                     </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span onClick={() => setEditingCustomer(customer)} className={`font-black cursor-pointer px-2 py-1 rounded-lg ${customer.debtBalance && customer.debtBalance > 0 ? 'bg-red-50 dark:bg-red-950/30 text-red-600' : 'text-slate-400'}`}>
+                                            {(customer.debtBalance || 0).toLocaleString()} ج.م
+                                        </span>
+                                    </td>
                                     <td className="px-6 py-4 text-center font-bold text-amber-600 dark:text-amber-400 cursor-pointer" onClick={() => setEditingCustomer(customer)}>
                                         {customer.loyaltyPoints.toLocaleString()}
                                     </td>
@@ -231,9 +261,9 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
         </div>
       </motion.div>
       {editingCustomer && (
-          <PointsEditModal
+          <CustomerDetailsModal
               customer={editingCustomer}
-              onSave={handleSavePoints}
+              onSave={handleSaveCustomer}
               onClose={() => setEditingCustomer(null)}
           />
       )}
@@ -241,24 +271,63 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, upda
   );
 };
 
-const PointsEditModal = ({ customer, onSave, onClose }: { customer: CustomerProfile, onSave: (phone: string, points: number) => void, onClose: () => void }) => {
+const CustomerDetailsModal = ({ customer, onSave, onClose }: { customer: CustomerProfile, onSave: (phone: string, updates: Partial<CustomerProfile>) => void, onClose: () => void }) => {
     const [points, setPoints] = useState(customer.loyaltyPoints);
+    const [debt, setDebt] = useState(customer.debtBalance || 0);
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
-            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-6 text-center animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-lg dark:text-white">تعديل نقاط {customer.name}</h3>
-                    <button onClick={onClose}><X className="text-slate-400"/></button>
+            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[2.5rem] p-8 animate-in zoom-in-95 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-8">
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl flex items-center justify-center text-indigo-600">
+                            <User size={24}/>
+                        </div>
+                        <div>
+                            <h3 className="font-black text-xl dark:text-white leading-tight">{customer.name}</h3>
+                            <p className="text-xs text-slate-500 font-bold">{customer.phone}</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"><X className="text-slate-400"/></button>
                 </div>
-                <p className="text-sm text-slate-500 mb-4">أدخل الرصيد الجديد من النقاط لهذا العميل.</p>
-                <input
-                    type="number"
-                    value={points}
-                    onChange={e => setPoints(Number(e.target.value))}
-                    className="w-full text-center text-3xl font-black bg-slate-100 dark:bg-slate-800 rounded-lg p-4 mb-6 focus:ring-2 focus:ring-amber-500 outline-none"
-                    autoFocus
-                />
-                <button onClick={() => onSave(customer.phone, points)} className="w-full py-3 bg-amber-500 text-white rounded-lg font-bold flex items-center justify-center gap-2"><Save size={18}/> حفظ التغييرات</button>
+                
+                <div className="space-y-6">
+                    <div>
+                        <label className="text-xs font-black text-slate-400 uppercase mb-3 block mr-1">رصيد المديونية (ج.م)</label>
+                        <div className="relative">
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 w-2 h-2 bg-red-500 rounded-full"></div>
+                            <input
+                                type="number"
+                                value={debt}
+                                onChange={e => setDebt(Number(e.target.value))}
+                                className="w-full text-right text-2xl font-black bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-red-500 rounded-2xl p-4 pr-10 outline-none transition-all"
+                            />
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-2 font-bold leading-relaxed">
+                            ملاحظة: هذا المبلغ سيظهر كتنبيه عند إنشاء أي طلب جديد لهذا العميل.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="text-xs font-black text-slate-400 uppercase mb-3 block mr-1">نقاط الولاء</label>
+                        <div className="relative">
+                            <Star className="absolute right-4 top-1/2 -translate-y-1/2 text-amber-500" size={20}/>
+                            <input
+                                type="number"
+                                value={points}
+                                onChange={e => setPoints(Number(e.target.value))}
+                                className="w-full text-right text-2xl font-black bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-amber-500 rounded-2xl p-4 pr-12 outline-none transition-all"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <button 
+                    onClick={() => onSave(customer.phone, { loyaltyPoints: points, debtBalance: debt })} 
+                    className="w-full py-4 mt-8 bg-slate-900 dark:bg-white dark:text-slate-950 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-slate-900/10"
+                >
+                    <Save size={20}/> حفظ البيانات
+                </button>
             </div>
         </div>
     );

@@ -64,6 +64,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [taxRate, setTaxRate] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury'>('cash');
   const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
+  const [treasuryPayments, setTreasuryPayments] = useState<{ treasuryAccountId: string, amount: number }[]>([]);
+  const [isSplitTreasury, setIsSplitTreasury] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState(''); 
 
   // Custom Alarm Dialog Modal
@@ -352,9 +354,21 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           showAlert("خطأ", "يرجى التأكد من أن جميع الكميات صحيحة وأكبر من الصفر", "error");
           return;
       }
-      if(paymentMethod === 'treasury' && !selectedTreasuryAccountId) {
-          showAlert("خطأ", "يرجى اختيار حساب الخزينة المراد الخصم منه", "error");
-          return;
+      if(paymentMethod === 'treasury') {
+          if (isSplitTreasury) {
+              const distributedTotal = treasuryPayments.reduce((s, p) => s + p.amount, 0);
+              if (Math.abs(distributedTotal - totalCost) > 0.01) {
+                  showAlert("خطأ", 'عذراً، يجب أن يكون مجموع الدفع من العهد/الخزائن مساوياً لإجمالي الفاتورة: ' + totalCost.toLocaleString() + ' ج.م', "error");
+                  return;
+              }
+              if (treasuryPayments.some(p => !p.treasuryAccountId)) {
+                  showAlert("خطأ", "يرجى التأكد من اختيار عهد/حسابات الخزينة بشكل صحيح", "error");
+                  return;
+              }
+          } else if (!selectedTreasuryAccountId) {
+              showAlert("خطأ", "يرجى اختيار حساب الخزينة المراد الخصم منه", "error");
+              return;
+          }
       }
       
       const currentOrderId = editingOrder ? (editingOrder as any).id : Date.now().toString();
@@ -392,15 +406,19 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               }
 
               // Revert Treasury if was treasury funded
-              if (currentOldOrder.paymentMethod === 'treasury' && currentOldOrder.treasuryAccountId) {
+              if (currentOldOrder.paymentMethod === 'treasury') {
+                const oldTxsIdPrefix = `supply_tx_${currentOldOrder.id}`;
+                const oldTreasuryPayments = currentOldOrder.treasuryPayments || (currentOldOrder.treasuryAccountId ? [{ treasuryAccountId: currentOldOrder.treasuryAccountId, amount: (currentOldOrder.grandTotal || currentOldOrder.totalCost) }] : []);
                 setTreasury((prev: any) => ({
                     ...prev,
-                    accounts: prev.accounts.map((acc: any) => 
-                        acc.id === currentOldOrder.treasuryAccountId 
-                        ? { ...acc, balance: acc.balance + (currentOldOrder.grandTotal || currentOldOrder.totalCost) } 
-                        : acc
-                    ),
-                    transactions: prev.transactions.filter((t: any) => !t.id.startsWith(`supply_tx_${currentOldOrder.id}`))
+                    accounts: prev.accounts.map((acc: any) => {
+                        const pm = oldTreasuryPayments.find(p => p.treasuryAccountId === acc.id);
+                        if (pm) {
+                            return { ...acc, balance: acc.balance + pm.amount };
+                        }
+                        return acc;
+                    }),
+                    transactions: prev.transactions.filter((t: any) => !t.id.startsWith(oldTxsIdPrefix))
                 }));
               }
 
@@ -610,10 +628,25 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           }
 
           // 6. Update Treasury Balance
-          if (paymentMethod === 'treasury' && selectedTreasuryAccountId && setTreasury) {
-             setTreasury((prev: any) => {
-                 const baseAmount = recordExpensesFormally ? (totalCost - shippingFees - otherFees) : totalCost;
+          if (paymentMethod === 'treasury' && setTreasury) {
+              const outerSelectedTreasuryAccountId = selectedTreasuryAccountId;
+              setTreasury((prev: any) => {
+                 const activeTreasuryPayments = isSplitTreasury 
+                   ? treasuryPayments 
+                   : (outerSelectedTreasuryAccountId ? [{ treasuryAccountId: outerSelectedTreasuryAccountId, amount: totalCost }] : []);
+                 
                  let newTxs = [...prev.transactions];
+                  const firstAccountId = activeTreasuryPayments[0]?.treasuryAccountId || '';
+                   const baseAmount = totalCost;
+                  const selectedTreasuryAccountId = firstAccountId || outerSelectedTreasuryAccountId;
+                 let updatedAccounts = [...prev.accounts];
+                  activeTreasuryPayments.forEach((p) => {
+                      prev.accounts = updatedAccounts = updatedAccounts.map((acc: any) => 
+                          acc.id === p.treasuryAccountId 
+                          ? { ...acc, balance: acc.balance - p.amount } 
+                          : acc
+                      );
+                  });
                  if (recordExpensesFormally) {
                      if (shippingFees > 0) {
                          newTxs.unshift({
@@ -682,7 +715,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                  return {
                      ...prev,
                      accounts: prev.accounts.map((acc: any) => 
-                         acc.id === selectedTreasuryAccountId ? { ...acc, balance: acc.balance - totalCost } : acc
+                         acc.id === selectedTreasuryAccountId ? { ...acc, balance: acc.balance - 0 } : acc
                      ),
                      transactions: newTxs
                  };
@@ -709,6 +742,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   expensePaidBy,
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
+                  treasuryPayments: paymentMethod === 'treasury' && isSplitTreasury ? treasuryPayments : undefined,
                   warehouseId: selectedWarehouseId,
                   recordExpensesFormally,
                   distributeExpensesEqually
@@ -735,6 +769,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   status: 'completed',
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
+                  treasuryPayments: paymentMethod === 'treasury' && isSplitTreasury ? treasuryPayments : undefined,
                   warehouseId: selectedWarehouseId,
                   recordExpensesFormally,
                   distributeExpensesEqually
@@ -974,6 +1009,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderItems(itemsHydrated);
       setPaymentMethod(order.paymentMethod as any || 'cash');
       setSelectedTreasuryAccountId(order.treasuryAccountId || '');
+      setTreasuryPayments(order.treasuryPayments || []);
+      setIsSplitTreasury(order.treasuryPayments ? order.treasuryPayments.length > 0 : false);
       setSelectedWarehouseId(order.warehouseId || '');
       setShowOrderModal(true);
   };
@@ -1689,6 +1726,9 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               setTaxRate(0);
               setDistributeExpensesEqually(false);
               setRecordExpensesFormally(false);
+              setSelectedTreasuryAccountId('');
+              setTreasuryPayments([]);
+              setIsSplitTreasury(false);
               const defaultWh = settings.warehouses?.find(w => w.isDefault);
               setSelectedWarehouseId(defaultWh?.id || '');
               setShowOrderModal(true);

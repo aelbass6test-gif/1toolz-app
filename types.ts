@@ -25,6 +25,8 @@ export interface CityOption {
   extraKgPrice: number;
   returnPrice: number;
   exchangePrice: number;
+  maintenancePickupPrice?: number;
+  maintenanceReturnPrice?: number;
   cashCollectionPrice: number;
   returnToSenderPrice: number;
   useParentFees?: boolean; 
@@ -39,6 +41,8 @@ export interface ShippingOption {
   extraKgPrice: number; 
   returnPrice: number;   
   exchangePrice: number;      
+  maintenancePickupPrice?: number;
+  maintenanceReturnPrice?: number;
   cashCollectionPrice: number;
   returnToSenderPrice: number;
   baseWeight: number;
@@ -116,7 +120,7 @@ export interface Product {
   stockThreshold?: number;
 }
 
-export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other';
+export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital';
 
 export type WithdrawStatus = 'pending' | 'accepted' | 'rejected' | 'processing';
 
@@ -183,6 +187,8 @@ export interface CompanyFees {
   enableReturnAfter: boolean;    
   enableReturnWithout: boolean;  
   enableExchange: boolean;       
+  enableMaintenancePickup?: boolean;
+  enableMaintenanceReturn?: boolean;
   enableReturn?: boolean;
   enablePartialDelivery?: boolean;
   enableCashCollection?: boolean;
@@ -196,8 +202,10 @@ export interface CompanyFees {
   postCollectionReturnRefundsProductPrice: boolean;
   insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
   shippingVatRate?: number;
+  vatBasis?: 'shipping_only' | 'shipping_and_insurance'; // New field
   enableFlexShip?: boolean;
   flexShipFee?: number;
+  flexShipCompanyFee?: number;
 }
 
 export const PERMISSIONS = {
@@ -377,6 +385,14 @@ export interface CustomerProfile {
   governorate?: string;
   city?: string;
   shippingFee?: number;
+  debtBalance?: number;
+  debtHistory?: Array<{
+    amount: number;
+    type: 'increase' | 'decrease';
+    reason: string;
+    date: string;
+    orderId?: string;
+  }>;
 }
 
 export interface Review {
@@ -445,6 +461,11 @@ export interface PartnerPayment {
   amount: number;
 }
 
+export interface TreasuryPayment {
+  treasuryAccountId: string;
+  amount: number;
+}
+
 export interface SupplyOrder {
   id: string;
   supplierId: string;
@@ -456,6 +477,7 @@ export interface SupplyOrder {
   status: 'completed' | 'draft' | 'cancelled';
   partnerId?: string;
   partnerPayments?: PartnerPayment[]; // New field for multiple partners
+  treasuryPayments?: TreasuryPayment[]; // New field for multiple treasury/custody accounts
   notes?: string;
   paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury';
   shippingFees?: number;
@@ -554,6 +576,7 @@ export interface Settings {
   enableReturnShipping: boolean; 
   enableFlexShip?: boolean;
   flexShipFee?: number;
+  flexShipCompanyFee?: number;
   enableReturnAfterPrice: boolean;
   enableReturnWithoutPrice: boolean;
   enableExchangePrice: boolean;
@@ -823,6 +846,48 @@ export interface AuditLog {
   timestamp: string;
 }
 
+export interface MaintenancePart {
+  id: string;
+  name: string;
+  cost: number;
+  priceToCustomer: number;
+  purchaseSource?: string;
+  purchaseDate?: string;
+}
+
+export interface MaintenanceRequest {
+  id: string;
+  storeId: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress?: string;
+  governorate?: string;
+  city?: string;
+  
+  itemDescription: string;
+  itemSerial?: string;
+  itemValue?: number;
+  technicalReport?: string;
+  initialProblemDescription: string;
+  
+  status: 'received' | 'inspecting' | 'waiting_for_parts' | 'in_repair' | 'ready' | 'delivered' | 'cancelled';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  
+  parts: MaintenancePart[];
+  laborCost: number;
+  shippingFee?: number;
+  totalCost: number;
+  
+  receivedDate: string;
+  promisedDate?: string;
+  deliveryDate?: string;
+  
+  technicianName?: string;
+  internalNotes?: string;
+  attachments?: string[];
+}
+
 export interface Order {
   id: string;
   store_id?: string;
@@ -873,8 +938,14 @@ export interface Order {
   pointsDiscount?: number;
   loyaltyPointsAwarded?: boolean;
   stockDeducted?: boolean;
-  orderType?: 'standard' | 'exchange';
-  shipmentType?: 'delivery' | 'partial_delivery' | 'exchange' | 'return' | 'cash_collection';
+  orderType?: 'standard' | 'exchange' | 'maintenance';
+  shipmentType?: 'delivery' | 'partial_delivery' | 'exchange' | 'return' | 'cash_collection' | 'maintenance_pickup' | 'maintenance_return';
+  maintenanceCost?: number;
+  maintenanceItemDescription?: string;
+  maintenanceItemSerial?: string;
+  maintenanceItemValue?: number;
+  maintenanceTechnicalReport?: string;
+  maintenanceStatus?: 'not_started' | 'received' | 'in_repair' | 'ready_to_ship' | 'delivered' | 'cancelled';
   originalOrderId?: string;
   confirmationLogs?: ConfirmationLog[];
   cancellationReason?: string;
@@ -908,10 +979,16 @@ export interface Order {
   returnImage?: string;
   enableFlexShip?: boolean;
   flexShipFee?: number;
+  flexShipCompanyFee?: number;
   flexShipFeePaidByCustomer?: boolean;
   warehouseId?: string; // New field for sales order fulfillment
   channel?: 'website' | 'pos';
   createdBy?: string;
+  recordedAsDebt?: boolean;
+  deferPaymentToReturn?: boolean;
+  returnCashToCustomer?: boolean;
+  cashToReturnAmount?: number;
+  creditAmount?: number;
 }
 
 export interface TreasuryAccount {

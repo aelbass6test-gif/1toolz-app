@@ -20,9 +20,11 @@ interface TreasuryPageProps {
   settings: Settings;
   treasury?: Treasury;
   setTreasury?: (updater: any) => void;
+  wallet?: any;
+  setWallet?: (updater: any) => void;
 }
 
-export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury }) => {
+export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury, wallet, setWallet }) => {
   const accounts = treasury?.accounts || [];
   const transactions = treasury?.transactions || [];
   
@@ -202,7 +204,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
             acc.id === newTx.fromAccountId ? { ...acc, balance: acc.balance - amount } : acc
           );
         }
-        if (newTx.toAccountId) {
+        if (newTx.toAccountId && newTx.toAccountId !== 'supply_wallet') {
           updatedAccounts = updatedAccounts.map(acc => 
             acc.id === newTx.toAccountId ? { ...acc, balance: acc.balance + amount } : acc
           );
@@ -210,6 +212,26 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
         return {
           accounts: updatedAccounts,
           transactions: [newTx, ...prev.transactions]
+        };
+      });
+    }
+
+    if (toAccountId === 'supply_wallet' && setWallet) {
+      setWallet((prev: any) => {
+        const sourceAccName = accounts.find(a => a.id === fromAccountId)?.name || 'الخزينة';
+        const walletTx = {
+          id: `TR-TREASURY-${Date.now()}`,
+          type: 'إيداع',
+          amount,
+          date: new Date().toISOString(),
+          note: `شحن محفظة التوريد بتحويل من حساب الخزينة (${sourceAccName}): ${transDesc}`,
+          category: 'supply_funding',
+          status: 'completed'
+        };
+        return {
+          ...prev,
+          supplyBalance: (prev.supplyBalance || 0) + amount,
+          transactions: [walletTx, ...(prev.transactions || [])]
         };
       });
     }
@@ -627,6 +649,9 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                     required
                   >
                     <option value="">-- اختر الحساب --</option>
+                    {(transactionType === 'transfer' || transactionType === 'deposit') && (
+                      <option value="supply_wallet">محفظة التوريد (رأس مال المخزون) - رصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م</option>
+                    )}
                     {accounts.filter(acc => transactionType !== 'advance' || acc.type === 'custody').map(acc => (
                       <option key={acc.id} value={acc.id} disabled={acc.id === fromAccount}>{acc.name} {acc.type === 'custody' ? '(عهدة)' : ''}</option>
                     ))}

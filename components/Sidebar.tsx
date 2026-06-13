@@ -5,7 +5,7 @@ import {
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
     Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, 
     AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake,
-    Search, ChevronDown, Minimize2, Maximize2
+    Search, ChevronDown, Minimize2, Maximize2, Wrench
 } from 'lucide-react';
 import { Store as StoreType, Settings } from '../types';
 
@@ -79,6 +79,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: `${storePrefix}/suppliers`, label: 'الموردين والفروع والمستودعات', icon: <UserCog size={18} /> },
                 { to: `${storePrefix}/purchase-returns`, label: 'مرتجع فواتير المشتريات', icon: <RotateCw size={18} /> },
                 { to: `${storePrefix}/reviews`, label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
+            ]
+        },
+        {
+            type: 'group',
+            title: 'قسم الصيانة والدعم الفني',
+            links: [
+                { to: `${storePrefix}/maintenance`, label: 'مركز إدارة عمليات الصيانة 🛠️', icon: <Wrench size={18} />, badge: { text: "جديد", color: "bg-blue-500/10 text-blue-600 border border-blue-500/10 text-[9px]" } },
+                { to: `${storePrefix}/reports?tab=maintenance`, label: 'تقارير الأداء الفني والتكاليف', icon: <BarChart2 size={18} /> },
             ]
         },
         {
@@ -162,6 +170,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
         return {
             'لوحة القيادة والمتابعة العامة': false,
             'المبيعات الفورية ونقطة الكاشير': false,
+            'قسم الصيانة والدعم الفني': false,
             'كتالوج المنتجات والمستودعات': true,
             'التسويق وعلاقات العملاء CRM': true,
             'الخزينة والمنظومة المالية والمصروفات': true,

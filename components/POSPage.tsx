@@ -1,6 +1,7 @@
 
 // Testing edit ability
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { CustomerSelectModal } from './CustomerSelectModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Monitor, 
@@ -68,32 +69,13 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [paymentStatusType, setPaymentStatusType] = useState<'paid' | 'credit'>('paid');
   const [selectedCashHolder, setSelectedCashHolder] = useState('');
-  const [customerInfo, setCustomerInfo] = useState({ name: 'عميل نقدي', phone: '', address: '' });
+  const [customerInfo, setCustomerInfo] = useState({ name: 'عميل نقدي', phone: '', address: '', debtBalance: 0 });
   const [activeTab, setActiveTab] = useState<'checkout' | 'history'>('checkout');
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
 
   // Registered Customers Integrations for POS
   const customersList = customers || [];
-  const [customerSearch, setCustomerSearch] = useState('');
   const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
-  const posCustomerRef = useRef<HTMLDivElement>(null);
-
-  const filteredCustomers = useMemo(() => {
-    if (!customerSearch) return [];
-    return customersList.filter(c => 
-      (c.name || '').toLowerCase().includes(customerSearch.toLowerCase()) || 
-      (c.phone || '').includes(customerSearch)
-    ).slice(0, 10);
-  }, [customerSearch, customersList]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (posCustomerRef.current && !posCustomerRef.current.contains(event.target as Node)) {
-        setIsCustomerListOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const products = settings.products || [];
   const warehouses = settings.warehouses || [];
@@ -177,7 +159,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
   };
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const totalAmount = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  const totalAmountBeforeDiscount = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  const totalAmount = Math.max(0, totalAmountBeforeDiscount - discountAmount);
 
   const handleCheckout = async () => {
     if (isProcessing) return;
@@ -307,7 +290,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         productPrice: totalAmount,
         productCost: cart.reduce((acc, i) => acc + (i.cost * i.quantity), 0),
         weight: 0,
-        discount: 0,
+        discount: discountAmount,
         preparationStatus: 'جاهز',
         items: cart.map(i => ({ ...i, image: '', weight: 0 })),
         totalPrice: totalAmount,
@@ -324,24 +307,27 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         insuranceFee: 0
       };
 
-      // Create wallet transaction
-      const newTransaction: Transaction = {
-        id: `pos-tx-${Date.now()}`,
-        type: 'إيداع',
-        amount: totalAmount,
-        date: new Date().toISOString(),
-        note: `مبيعات كاشير - طلب #${saleNumber}`,
-        category: 'collection',
-        status: 'completed',
-        orderId: saleId,
-        orderNumber: saleNumber
-      };
+      // Create wallet transaction only if the payment is digital (card or wallet) and NOT cash, and NOT credit.
+      let updatedWallet: WalletType = { ...wallet };
+      if (paymentMethod !== 'cash' && !isCredit) {
+        const newTransaction: Transaction = {
+          id: `pos-tx-${Date.now()}`,
+          type: 'إيداع',
+          amount: totalAmount,
+          date: new Date().toISOString(),
+          note: `مبيعات كاشير (دفع إلكتروني) - طلب #${saleNumber}`,
+          category: 'pos_digital',
+          status: 'completed',
+          orderId: saleId,
+          orderNumber: saleNumber
+        };
 
-      const updatedWallet: WalletType = {
-        ...wallet,
-        balance: (wallet.balance || 0) + totalAmount,
-        transactions: [newTransaction, ...(wallet.transactions || [])]
-      };
+        updatedWallet = {
+          ...wallet,
+          balance: (wallet.balance || 0) + totalAmount,
+          transactions: [newTransaction, ...(wallet.transactions || [])]
+        };
+      }
 
       // Perform a single atomic update to the store data
       updateStoreData({ 
@@ -352,7 +338,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
 
       alert(isCredit ? 'تم تسجيل العملية كطلب أجل بنجاح!' : 'تم إتمام البيع وتحديث المخزن بنجاح!');
       setCart([]);
-      setCustomerInfo({ name: 'عميل نقدي', phone: '', address: '' });
+      setDiscountAmount(0);
+      setCustomerInfo({ name: 'عميل نقدي', phone: '', address: '', debtBalance: 0 });
       setPaymentStatusType('paid');
     } catch (err) {
       console.error('Checkout failed:', err);
@@ -383,48 +370,64 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
       {activeTab === 'checkout' ? (
         <div className="flex flex-col lg:flex-row flex-1 gap-6 p-1 lg:p-0 pb-32 lg:pb-0 overflow-hidden">
           {/* Products Catalog - Left Side */}
-          <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-               <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+          <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50 dark:bg-slate-900/50 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden backdrop-blur-xl">
+            <div className="p-5 border-b border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50">
+               <div className="relative max-w-2xl mx-auto">
+                  <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={22} />
                   <input 
                     type="text"
                     placeholder="ابحث بالاسم أو الباركود..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 pl-12 pr-6 rounded-2xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all"
+                    className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-14 pr-12 pl-6 rounded-2xl text-sm font-black outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
                   />
                </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
-               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
+               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
                   {filteredProducts.map(product => (
-                    <div key={product.id} className="space-y-2">
+                    <div key={product.id} className="space-y-2 flex flex-col">
                        {product.hasVariants ? (
                          product.variants.map(variant => (
                            <button
                              key={variant.id}
                              onClick={() => addToCart(product, variant)}
-                             className="w-full bg-white dark:bg-slate-800 p-3 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-500 shadow-sm transition-all text-right flex flex-col gap-1 active:scale-95"
+                             className="w-full bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden"
                            >
-                              <span className="font-black text-[11px] text-slate-800 dark:text-white line-clamp-2 leading-tight">{product.name}</span>
-                              <span className="text-[10px] font-black text-indigo-500">{Object.values(variant.options).join(' / ')}</span>
-                              <div className="flex items-center justify-between mt-2">
-                                 <span className="text-xs font-black text-slate-900 dark:text-white">{variant.price} <span className="text-[10px]">ج.م</span></span>
-                                 <span className="text-[9px] font-bold text-slate-400">مخزن: {variant.stockQuantity || 0}</span>
+                              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800">
+                                {product.thumbnail || (product.images && product.images[0]) ? (
+                                  <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
+                                ) : (
+                                  <Package size={32} className="text-slate-300 dark:text-slate-600" />
+                                )}
+                              </div>
+                              <span className="font-bold text-xs text-slate-800 dark:text-white line-clamp-2 leading-snug">{product.name}</span>
+                              <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-lg w-fit">{Object.values(variant.options).join(' / ')}</span>
+                              <div className="flex items-end justify-between mt-auto pt-2 w-full">
+                                 <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{variant.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
+                                 <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">مخزن: {variant.stockQuantity || 0}</span>
                               </div>
                            </button>
                          ))
                        ) : (
                          <button
                            onClick={() => addToCart(product)}
-                           className="w-full bg-white dark:bg-slate-800 p-3 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-500 shadow-sm transition-all text-right flex flex-col gap-1 active:scale-95 h-full"
+                           className="w-full flex-1 bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden h-full"
                          >
-                            <span className="font-black text-[11px] text-slate-800 dark:text-white line-clamp-2 leading-tight">{product.name}</span>
-                            <div className="mt-auto flex items-center justify-between pt-2">
-                                <span className="text-xs font-black text-slate-900 dark:text-white">{product.price} <span className="text-[10px]">ج.م</span></span>
-                                <span className="text-[9px] font-bold text-slate-400">مخزن: {product.stockQuantity || 0}</span>
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800">
+                              {product.thumbnail || (product.images && product.images[0]) ? (
+                                <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
+                              ) : (
+                                <Package size={32} className="text-slate-300 dark:text-slate-600" />
+                              )}
+                            </div>
+                            <span className="font-bold text-xs text-slate-800 dark:text-white line-clamp-2 leading-snug">{product.name}</span>
+                            <div className="mt-auto flex items-end justify-between pt-2 w-full">
+                                <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{product.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
+                                <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">مخزن: {product.stockQuantity || 0}</span>
                             </div>
                          </button>
                        )}
@@ -435,49 +438,71 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
           </div>
 
           {/* Cart & Checkout - Right Side */}
-          <div className="w-full lg:w-[400px] flex flex-col bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden shrink-0">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/30 dark:bg-indigo-950/20">
-               <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                 <ShoppingCart className="text-indigo-600" size={20} />
-                 سلة المبيعات
+          <div className="w-full lg:w-[420px] flex flex-col bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-2xl shadow-indigo-500/5 overflow-y-auto shrink-0 relative z-10 no-scrollbar">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+               <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center justify-between">
+                 <div className="flex items-center gap-3">
+                   <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
+                     <ShoppingCart size={20} />
+                   </div>
+                   السلة الفاتورة
+                 </div>
+                 {cart.length > 0 && (
+                   <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs px-3 py-1.5 rounded-lg font-bold">
+                     {cart.length} منتج
+                   </span>
+                 )}
                </h2>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar h-[300px]">
-               {cart.length === 0 ? (
-                 <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-3 italic">
-                   <Package size={48} className="opacity-20" />
-                   <p className="text-sm font-bold">السلة فارغة حالياً</p>
-                 </div>
-               ) : (
-                 cart.map((item, idx) => (
-                   <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center gap-3 group">
-                      <div className="flex-1 min-w-0">
-                         <h4 className="text-xs font-black text-slate-800 dark:text-white truncate uppercase">{item.name}</h4>
-                         <div className="flex items-center gap-1 mt-1">
-                            <span className="text-[9px] font-bold text-slate-400">السعر:</span>
-                            <input 
-                               type="number"
-                               value={item.price || ''}
-                               onChange={(e) => updatePrice(idx, parseFloat(e.target.value) || 0)}
-                               className="w-14 h-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-lg text-center text-[10px] font-black text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                               min="0"
-                            />
-                            <span className="text-[9px] font-black text-slate-400">ج.م</span>
-                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                         <button onClick={() => updateQuantity(idx, -1)} className="w-6 h-6 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-rose-500"><Minus size={12}/></button>
-                         <span className="w-6 text-center text-xs font-black">{item.quantity}</span>
-                         <button onClick={() => updateQuantity(idx, 1)} className="w-6 h-6 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-indigo-600"><Plus size={12}/></button>
-                      </div>
-                      <button onClick={() => removeFromCart(idx)} className="p-1.5 text-slate-300 hover:text-rose-500"><X size={16}/></button>
-                   </div>
-                 ))
-               )}
+            <div className="flex-1 px-6 py-4 space-y-3 shrink-0 min-h-[250px]">
+               <AnimatePresence>
+                 {cart.length === 0 ? (
+                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full min-h-[200px] flex flex-col items-center justify-center text-slate-400 gap-4">
+                     <div className="w-24 h-24 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
+                       <ShoppingCart size={40} className="opacity-20" />
+                     </div>
+                     <p className="text-sm font-bold tracking-tight">ابدأ بإضافة المنتجات إلى الفاتورة</p>
+                   </motion.div>
+                 ) : (
+                   cart.map((item, idx) => (
+                     <motion.div 
+                        initial={{ opacity: 0, y: 10, scale: 0.98 }} 
+                        animate={{ opacity: 1, y: 0, scale: 1 }} 
+                        exit={{ opacity: 0, scale: 0.95, height: 0 }}
+                        key={idx} 
+                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-4 flex flex-col gap-3 group transition-all hover:border-indigo-200 dark:hover:border-indigo-900/40"
+                      >
+                        <div className="flex items-start justify-between">
+                          <h4 className="text-sm font-bold text-slate-800 dark:text-white leading-tight flex-1 pl-4">{item.name}</h4>
+                          <button onClick={() => removeFromCart(idx)} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                        </div>
+                        
+                        <div className="flex items-center justify-between mt-1 pt-3 border-t border-slate-200/50 dark:border-slate-700/50">
+                           <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1 rounded-xl">
+                              <button onClick={() => updateQuantity(idx, 1)} className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 hover:text-indigo-600 transition-colors"><Plus size={14}/></button>
+                              <span className="w-8 text-center text-sm font-black tabular-nums">{item.quantity}</span>
+                              <button onClick={() => updateQuantity(idx, -1)} className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 hover:text-rose-500 transition-colors"><Minus size={14}/></button>
+                           </div>
+
+                           <div className="flex items-center justify-end gap-1.5 text-left">
+                              <input 
+                                 type="number"
+                                 value={item.price || ''}
+                                 onChange={(e) => updatePrice(idx, parseFloat(e.target.value) || 0)}
+                                 className="w-20 h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-center text-sm font-black text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all tabular-nums"
+                                 min="0"
+                              />
+                              <span className="text-xs font-bold text-slate-500">ج.م</span>
+                           </div>
+                        </div>
+                     </motion.div>
+                   ))
+                 )}
+               </AnimatePresence>
             </div>
 
-            <div className="p-5 bg-slate-50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800 space-y-4 pb-20 lg:pb-5">
+            <div className="p-6 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800 space-y-5 pb-24 lg:pb-6 relative z-20 shrink-0">
                {/* Store/Warehouse Select */}
                <div className="space-y-1.5 text-right">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">خصم من مستودع</label>
@@ -491,16 +516,16 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
                </div>
 
                {/* Payment Status (Cash/Credit) */}
-               <div className="grid grid-cols-2 gap-2">
+               <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setPaymentStatusType('paid')}
-                    className={`p-2.5 rounded-xl font-black text-xs transition-all border ${paymentStatusType === 'paid' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
+                    className={`p-3 rounded-2xl font-black text-sm transition-all border-2 ${paymentStatusType === 'paid' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/20' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
                   >
                     بيع نقدي
                   </button>
                   <button
                     onClick={() => setPaymentStatusType('credit')}
-                    className={`p-2.5 rounded-xl font-black text-xs transition-all border ${paymentStatusType === 'credit' ? 'bg-amber-600 text-white border-amber-600 shadow-md' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
+                    className={`p-3 rounded-2xl font-black text-sm transition-all border-2 ${paymentStatusType === 'credit' ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
                   >
                     بيع أجل
                   </button>
@@ -510,16 +535,19 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
                <AnimatePresence>
                  {paymentStatusType === 'paid' && (
                    <motion.div 
-                     initial={{ opacity: 0, height: 0 }}
-                     animate={{ opacity: 1, height: 'auto' }}
-                     exit={{ opacity: 0, height: 0 }}
-                     className="space-y-1.5 text-right overflow-hidden"
+                     initial={{ opacity: 0, height: 0, scale: 0.98 }}
+                     animate={{ opacity: 1, height: 'auto', scale: 1 }}
+                     exit={{ opacity: 0, height: 0, scale: 0.98 }}
+                     className="space-y-2 text-right overflow-hidden"
                    >
-                      <label className="text-[10px] font-black text-slate-400 font-bold uppercase tracking-widest mr-1">المستلم (صاحب العهدة/الحساب)</label>
+                      <label className="text-xs font-black text-slate-500 uppercase flex items-center justify-between">
+                         <span>المستلم (في العهدة)</span>
+                         <User size={14} />
+                      </label>
                       <select 
                         value={selectedCashHolder || (allPossibleHolders[0]?.id || '')}
                         onChange={(e) => setSelectedCashHolder(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-xs font-black outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-12 px-4 rounded-xl text-sm font-black outline-none focus:border-indigo-500 cursor-pointer"
                       >
                         {allPossibleHolders.length > 0 ? (
                           allPossibleHolders.map(h => <option key={h.id} value={h.id}>{h.name}</option>)
@@ -533,115 +561,112 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
 
                {/* Payment Method */}
                {paymentStatusType === 'paid' && (
-                 <div className="grid grid-cols-3 gap-2">
+                 <div className="grid grid-cols-3 gap-3">
                    {[
-                     { id: 'cash', icon: <Banknote size={16}/>, label: 'كاش' },
-                     { id: 'card', icon: <CreditCard size={16}/>, label: 'فيزا' },
-                     { id: 'wallet', icon: <Wallet size={16}/>, label: 'محفظة' }
+                     { id: 'cash', icon: <Banknote size={18}/>, label: 'كاش' },
+                     { id: 'card', icon: <CreditCard size={18}/>, label: 'فيزا' },
+                     { id: 'wallet', icon: <Wallet size={18}/>, label: 'محفظة' }
                    ].map(method => (
                      <button
                        key={method.id}
                        onClick={() => setPaymentMethod(method.id as any)}
-                       className={`flex flex-col items-center justify-center gap-1 p-2 rounded-2xl border transition-all ${paymentMethod === method.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-600/20 scale-105' : 'bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800'}`}
+                       className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border-2 transition-all ${paymentMethod === method.id ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 border-indigo-500 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}`}
                      >
                        {method.icon}
-                       <span className="text-[10px] font-black">{method.label}</span>
+                       <span className="text-xs font-black">{method.label}</span>
                      </button>
                    ))}
                  </div>
                )}
 
-               {/* Customer Quick Info */}
-                {/* Customer Quick Info with Registered Customers dropdown */}
-                <div className="space-y-1.5 w-full" ref={posCustomerRef}>
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[9px] font-black text-slate-400 uppercase">بيانات العميل (اختياري)</span>
-                    {customersList.length > 0 && (
-                      <button 
-                        type="button"
-                        onClick={() => setIsCustomerListOpen(!isCustomerListOpen)}
-                        className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-                      >
-                        {isCustomerListOpen ? 'إغلاق القائمة' : 'اختيار عميل مسجل'}
-                      </button>
-                    )}
+               {/* Customer Quick Info with Registered Customers dropdown */}
+               <div className="space-y-2 w-full bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 p-4 rounded-2xl relative">
+                  <div className="flex items-center justify-between px-1 mb-2">
+                    <span className="text-xs font-black text-slate-500 uppercase flex items-center gap-1.5"><User size={14}/> العميل</span>
+                     <>
+                       <button 
+                         type="button"
+                         onClick={() => setIsCustomerListOpen(true)}
+                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/20 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                       >
+                         <SearchCode size={12}/> اختيار من المسجلين
+                       </button>
+                       <CustomerSelectModal 
+                         isOpen={isCustomerListOpen}
+                         onClose={() => setIsCustomerListOpen(false)}
+                         customers={customersList}
+                         onSelect={(c) => {
+                            setCustomerInfo({ name: c.name || '', phone: c.phone || '', address: c.address || '', debtBalance: c.debtBalance || 0 });
+                            setIsCustomerListOpen(false);
+                         }}
+                       />
+                     </>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 relative">
-                    <div className="relative">
-                      <input 
-                        type="text" 
-                        placeholder="اسم العميل"
-                        value={customerInfo.name}
-                        onChange={(e) => {
-                          setCustomerInfo({...customerInfo, name: e.target.value});
-                          setCustomerSearch(e.target.value);
-                          setIsCustomerListOpen(true);
-                        }}
-                        onFocus={() => {
-                          setIsCustomerListOpen(true);
-                          setCustomerSearch(customerInfo.name === 'عميل نقدي' ? '' : customerInfo.name);
-                        }}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
-                      />
-                      {/* Customer Dropdown suggestions */}
-                      {isCustomerListOpen && customersList.length > 0 && (
-                        <div className="absolute top-full right-0 left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-755 rounded-2xl shadow-2xl z-50 max-h-48 overflow-y-auto p-1.5 space-y-1 text-right divide-y divide-slate-55 dark:divide-slate-700 font-sans">
-                          <div className="px-2 py-1 text-[8px] font-black text-slate-400 uppercase">
-                            {customerSearch ? 'نتائج البحث' : 'العملاء المسجلين'}
-                          </div>
-                          {(customerSearch ? filteredCustomers : customersList.slice(0, 8)).map(c => (
-                            <button
-                              key={c.phone}
-                              type="button"
-                              onClick={() => {
-                                setCustomerInfo({ name: c.name || '', phone: c.phone || '', address: c.address || '' });
-                                setIsCustomerListOpen(false);
-                              }}
-                              className="w-full p-2 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-right flex flex-col transition-colors border-none"
-                            >
-                              <span className="text-[10px] font-black text-slate-855 dark:text-slate-100">{c.name}</span>
-                              <span className="text-[8px] font-bold text-slate-405 mt-0.5">{c.phone}</span>
-                            </button>
-                          ))}
-                          {customerSearch && filteredCustomers.length === 0 && (
-                            <div className="p-3 text-center text-[9px] text-slate-400 font-bold">لا توجد نتائج مطابقة</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <input 
-                      type="text" 
-                      placeholder="موبايل العميل"
-                      value={customerInfo.phone}
-                      onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
-                    />
+                  <div className="grid grid-cols-2 gap-3 relative">
+                     <div className="relative">
+                        <input 
+                           type="text" 
+                           placeholder="اسم العميل"
+                           value={customerInfo.name}
+                           onChange={(e) => setCustomerInfo({...customerInfo, name: e.target.value})}
+                           className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-500" 
+                        />
+                     </div>
+                     <div className="relative">
+                        <input 
+                           type="text" 
+                           placeholder="رقم الموبايل"
+                           value={customerInfo.phone}
+                           onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
+                           className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-500" 
+                        />
+                        {(customerInfo as any).debtBalance > 0 && (
+                           <div className="absolute -top-6 left-0 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse flex items-center gap-1 shadow-sm">
+                              <span className="w-1.5 h-1.5 bg-red-600 rounded-full"></span>
+                              مديونية: {(customerInfo as any).debtBalance} ج.م
+                           </div>
+                        )}
+                     </div>
                   </div>
-                </div>
-
-               <div className="space-y-1">
-                 <input 
-                   type="text" 
-                   placeholder="عنوان العميل بالتفصيل"
-                   value={customerInfo.address}
-                   onChange={(e) => setCustomerInfo({...customerInfo, address: e.target.value})}
-                   className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-[10px] font-bold outline-none" 
-                 />
+                  <input 
+                     type="text" 
+                     placeholder="العنوان وملاحظات التوصيل"
+                     value={customerInfo.address}
+                     onChange={(e) => setCustomerInfo({...customerInfo, address: e.target.value})}
+                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-500 mt-2" 
+                  />
                </div>
 
-               <div className="pt-2">
-                  <div className="flex items-center justify-between mb-4">
-                     <span className="text-sm font-black text-slate-400 uppercase">الإجمالي النهائي</span>
-                     <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{totalAmount} <span className="text-xs">ج.م</span></span>
+               <div className="pt-4 border-t-2 border-slate-200 border-dashed dark:border-slate-700/50 space-y-4">
+                  <div className="flex items-center justify-between">
+                     <span className="text-sm font-black text-slate-500">خصم إضافي</span>
+                     <div className="relative">
+                        <input
+                           type="number"
+                           value={discountAmount || ''}
+                           onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
+                           className="w-24 text-left pr-8 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-sm font-black outline-none focus:border-indigo-500 transition-all tabular-nums"
+                           placeholder="0"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">ج.م</span>
+                     </div>
+                  </div>
+                  
+                  <div className="flex items-end justify-between mb-5">
+                     <span className="text-base font-black text-slate-500">الإجمالي النهائي</span>
+                     <div className="text-left">
+                        <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{totalAmount.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-slate-400 ml-1">ج.م</span>
+                     </div>
                   </div>
                   
                   <button 
                     onClick={handleCheckout}
                     disabled={cart.length === 0}
-                    className={`w-full h-14 rounded-2xl font-black shadow-xl flex items-center justify-center gap-3 transition-all active:scale-95 disabled:grayscale disabled:opacity-50 ${paymentStatusType === 'credit' ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/30' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30'} text-white`}
+                    className={`w-full h-16 rounded-2xl font-black text-lg shadow-xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:grayscale disabled:opacity-50 ${paymentStatusType === 'credit' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20 text-white' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30 text-white'}`}
                   >
                      <CheckCircle2 size={24} />
-                     {paymentStatusType === 'credit' ? 'حفظ كطلب أجل (غير مدفوع)' : 'إتمام البيع واستلام النقدية'}
+                     {paymentStatusType === 'credit' ? 'حفظ كطلب أجل (غير مدفوع)' : 'تأكيد الدفع والاستلام'}
                   </button>
                </div>
             </div>
@@ -703,6 +728,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
   const totalFilteredAmount = filteredSales.reduce((acc, s) => acc + s.totalAmount, 0);
 
   const [editingSale, setEditingSale] = useState<POSSale | null>(null);
+  const [deleteConfirmSale, setDeleteConfirmSale] = useState<POSSale | null>(null);
 
   const handleUpdateSale = (updated: POSSale) => {
      // Find the sale and update it
@@ -730,7 +756,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
   };
 
   const handleDeleteSale = (saleId: string) => {
-    if (!confirm('هل أنت متأكد من حذف هذه العملية؟ سيتم استعادة المخزون تلقائياً.')) return;
+
 
     const sale = sales.find(s => s.id === saleId);
     if (!sale) return;
@@ -761,11 +787,22 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
       }
     });
 
-    // 2. Remove Transaction from Wallet if not credit
+    // 2. Remove Transaction from Wallet if it was a digital payment method (not cash and not credit)
     let updatedWallet = { ...wallet || { balance: 0, transactions: [] } };
-    if (sale.cashHolderId !== 'credit') {
-      updatedWallet.balance = (updatedWallet.balance || 0) - sale.totalAmount;
+    const affectedWallet = sale.paymentMethod !== 'cash' && sale.cashHolderId !== 'credit';
+    if (affectedWallet) {
+      updatedWallet.balance = Math.max(0, (updatedWallet.balance || 0) - sale.totalAmount);
       updatedWallet.transactions = (updatedWallet.transactions || []).filter(t => t.orderId !== sale.id);
+    }
+
+    // Revert the cash holder balance if it's not credit and the payment was cash
+    let updatedHolders = [...(settings.cashHolders || [])];
+    if (sale.cashHolderId !== 'credit' && sale.paymentMethod === 'cash') {
+      const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(sale.cashHolderId));
+      if (hIdx > -1) {
+        updatedHolders[hIdx].currentBalance = Math.max(0, updatedHolders[hIdx].currentBalance - sale.totalAmount);
+        updatedHolders[hIdx].lastUpdated = new Date().toISOString();
+      }
     }
 
     // 3. Remove from POS Sales
@@ -775,7 +812,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
     const newOrders = orders.filter(o => o.id !== saleId);
 
     updateStoreData({
-      settings: { ...settings, products: updatedProducts, posSales: newSales },
+      settings: { ...settings, products: updatedProducts, posSales: newSales, cashHolders: updatedHolders },
       orders: newOrders,
       wallet: updatedWallet
     });
@@ -1005,7 +1042,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                                <Monitor size={16} />
                             </button>
                             <button 
-                               onClick={() => handleDeleteSale(sale.id)}
+                               onClick={() => setDeleteConfirmSale(sale)}
                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
                                title="حذف"
                             >
@@ -1028,6 +1065,74 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
              </tbody>
           </table>
        </div>
+
+        {/* Custom Delete Confirmation Modal */}
+        {deleteConfirmSale && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+             <motion.div 
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
+             >
+                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                   <h3 className="text-xl font-black text-rose-600 dark:text-rose-500 flex items-center gap-2">
+                      <Trash2 size={24} />
+                      تأكيد حذف حركة البيع
+                   </h3>
+                   <button onClick={() => setDeleteConfirmSale(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all text-slate-400"><X size={24}/></button>
+                </div>
+                <div className="p-8 space-y-4" dir="rtl">
+                   <div className="text-center space-y-2">
+                      <div className="w-16 h-16 bg-rose-50 dark:bg-rose-950/30 rounded-full flex items-center justify-center mx-auto mb-2 text-rose-500">
+                         <Trash2 size={32} />
+                      </div>
+                      <p className="text-slate-800 dark:text-slate-200 font-extrabold text-lg">
+                         هل أنت متأكد من حذف حركة البيع؟
+                      </p>
+                      <p className="text-slate-500 dark:text-slate-400 text-xs font-bold leading-relaxed px-4">
+                         سيتم إلغاء العملية واستعادة كميات المخزون لجميع الأصناف تلقائياً إلى المستودع المحدد.
+                      </p>
+                   </div>
+
+                   <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2.5">
+                      <div className="flex justify-between items-center text-xs font-bold font-sans">
+                         <span className="text-slate-400">رقم حركة البيع:</span>
+                         <span className="font-black text-slate-700 dark:text-slate-300">#{deleteConfirmSale.saleNumber}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs font-bold font-sans">
+                         <span className="text-slate-400">قيمة المعاملة:</span>
+                         <span className="font-extrabold text-slate-900 dark:text-white">{deleteConfirmSale.totalAmount.toLocaleString()} ج.م</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs font-bold font-sans">
+                         <span className="text-slate-400 font-sans">العميل:</span>
+                         <span className="font-extrabold text-slate-700 dark:text-slate-300">{deleteConfirmSale.customerName || 'عميل نقدي'}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs font-bold font-sans">
+                         <span className="text-slate-400">طريقة الدفع:</span>
+                         <span className="font-extrabold text-indigo-500">{deleteConfirmSale.paymentMethod === 'cash' ? 'نقداً (كاش)' : deleteConfirmSale.paymentMethod === 'card' ? 'بطاقة ائتمان' : 'محفظة مالية'}</span>
+                      </div>
+                   </div>
+                </div>
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                   <button 
+                      onClick={() => {
+                         handleDeleteSale(deleteConfirmSale.id);
+                         setDeleteConfirmSale(null);
+                      }}
+                      className="flex-1 bg-rose-600 hover:bg-rose-700 text-white h-12 rounded-2xl font-black shadow-lg shadow-rose-600/20 transition-all active:scale-95 font-sans"
+                   >
+                      تأكيد الحذف النهائي
+                   </button>
+                   <button 
+                      onClick={() => setDeleteConfirmSale(null)}
+                      className="px-8 h-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 rounded-2xl font-black hover:bg-slate-50 active:scale-95 font-sans"
+                   >
+                      إلغاء
+                   </button>
+                </div>
+             </motion.div>
+          </div>
+        )}
 
        {/* Edit Sale Modal */}
        {editingSale && (

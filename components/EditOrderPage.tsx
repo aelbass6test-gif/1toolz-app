@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Order, Settings, User, CustomerProfile, Store, OrderStatus } from '../types';
 import { OrderForm } from './OrderForm';
 import GlobalLoader from './GlobalLoader';
+import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
 
 interface EditOrderPageProps {
     orders: Order[];
@@ -15,6 +16,7 @@ interface EditOrderPageProps {
     treasury?: any;
     setTreasury?: React.Dispatch<React.SetStateAction<any>>;
     currentUser: User | null;
+    allStoresData?: Record<string, any>;
 }
 
 const EditOrderPage: React.FC<EditOrderPageProps> = ({ 
@@ -27,7 +29,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
     activeStore, 
     treasury,
     setTreasury,
-    currentUser
+    currentUser,
+    allStoresData
 }) => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -66,15 +69,14 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
     };
 
     useEffect(() => {
+        console.log("DEBUG: EditOrderPage effect, param id:", id, "available orders:", orders.map(o => o.id));
         const order = orders.find(o => o.id === id);
         if (order) {
             setEditingOrder(normalizeSyncedOrder({ ...order }));
-        } else if (orders.length > 0) {
-            navigate('/orders');
         }
-    }, [id, orders, navigate]);
+    }, [id, orders, navigate, activeStore]);
 
-    const handleUpdateOrder = (e: React.FormEvent) => {
+    const handleUpdateOrder = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingOrder) return;
 
@@ -84,6 +86,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const isExchangeCustom = editingOrder.shipmentType === 'exchange' && editingOrder.useProductsForShipment === false;
         const isReturn = editingOrder.shipmentType === 'return';
         const isCashCollection = editingOrder.shipmentType === 'cash_collection';
+        const isMaintenance = editingOrder.orderType === 'maintenance' || editingOrder.shipmentType?.startsWith('maintenance_');
         
         const items = isExchangeCustom
             ? [{
@@ -111,7 +114,15 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                 cost: 0,
                 weight: 1,
                 thumbnail: ''
-            }] : (editingOrder.items || [])));
+            }] : (isMaintenance ? [{
+                productId: 'maintenance-item',
+                name: (editingOrder as any).maintenanceItemDescription || 'منتج صيانة',
+                quantity: 1,
+                price: (editingOrder as any).maintenanceCost || 0,
+                cost: 0,
+                weight: 1,
+                thumbnail: ''
+            }] : (editingOrder.items || []))));
 
         const totalProductPrice = items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
         const totalProductCost = items.reduce((sum, item) => sum + (item.cost || 0) * (item.quantity || 1), 0);
@@ -193,7 +204,10 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         }
 
         setOrders(prev => prev.map(o => o.id === id ? updatedOrder : o));
-        navigate('/orders');
+        
+        if (updatedOrder.orderType === 'maintenance') {
+            await syncMaintenanceStatus(updatedOrder.orderNumber, updatedOrder.status);
+        }
     };
 
     const uniqueCustomers = useMemo(() => {
@@ -216,8 +230,9 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             customers={uniqueCustomers}
             orders={orders}
             onSubmit={handleUpdateOrder}
-            onCancel={() => navigate('/orders')}
+            onCancel={() => navigate(activeStore ? `/store/${activeStore.id}/orders` : '/orders')}
             treasury={treasury}
+            allStoresData={allStoresData}
         />
     );
 };

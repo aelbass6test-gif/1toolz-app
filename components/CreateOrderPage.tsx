@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Order, OrderItem, Settings, User, CustomerProfile, Store, OrderStatus } from '../types';
+import { Order, OrderItem, Settings, User, CustomerProfile, Store, OrderStatus, MaintenanceRequest } from '../types';
 import { OrderForm, NewOrderState } from './OrderForm';
 import { INITIAL_SETTINGS } from '../constants';
 import { getLatestProductCost } from '../utils/financials';
 import { OrderPreConfirmationModal } from './OrderPreConfirmationModal';
 import { OrderConfirmationSummary } from './OrderConfirmationSummary';
 import { triggerWebhooks } from '../utils/webhook';
+import { db } from '../services/firebaseClient';
+import { collection, addDoc } from 'firebase/firestore';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -19,6 +21,7 @@ interface CreateOrderPageProps {
     treasury?: any;
     setTreasury?: React.Dispatch<React.SetStateAction<any>>;
     currentUser: User | null;
+    allStoresData?: Record<string, any>;
 }
 
 const CreateOrderPage: React.FC<CreateOrderPageProps> = ({ 
@@ -31,7 +34,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
     activeStore, 
     treasury,
     setTreasury,
-    currentUser
+    currentUser,
+    allStoresData
 }) => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -87,6 +91,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const isExchangeCustom = orderData.shipmentType === 'exchange' && orderData.useProductsForShipment === false;
         const isReturn = orderData.shipmentType === 'return';
         const isCashCollection = orderData.shipmentType === 'cash_collection';
+        const isMaintenance = orderData.orderType === 'maintenance' || orderData.shipmentType?.startsWith('maintenance_');
         
         const items = isExchangeCustom
             ? [{
@@ -114,7 +119,15 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 cost: 0,
                 weight: 1,
                 thumbnail: ''
-            }] : (orderData.items || [])));
+            }] : (isMaintenance ? [{
+                productId: 'maintenance-item',
+                name: orderData.maintenanceItemDescription || 'منتج صيانة',
+                quantity: 1,
+                price: orderData.maintenanceCost || 0,
+                cost: 0,
+                weight: 1,
+                thumbnail: ''
+            }] : (orderData.items || []))));
         
         if (items.length === 0) {
             alert("يجب إضافة منتج واحد على الأقل.");
@@ -221,6 +234,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         if (cleanPhone) {
             setCustomers(prev => {
                 const existing = prev.find(c => c.phone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
+                const debtToAdd = (orderWithId as any).recordedAsDebt ? (orderWithId.totalAmountOverride || (orderWithId.productPrice + orderWithId.shippingFee - (orderWithId.discount || 0))) : 0;
+
                 if (existing) {
                     return prev.map(c => c.id === existing.id ? { 
                         ...c, 
@@ -229,7 +244,15 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                         governorate: orderToAdd.governorate || orderToAdd.shippingArea || c.governorate,
                         city: orderToAdd.city || c.city,
                         shippingFee: (typeof orderToAdd.shippingFee === 'number' && orderToAdd.shippingFee > 0) ? orderToAdd.shippingFee : c.shippingFee,
-                        lastOrderDate: new Date().toISOString()
+                        lastOrderDate: new Date().toISOString(),
+                        debtBalance: (c.debtBalance || 0) + debtToAdd,
+                        debtHistory: debtToAdd > 0 ? [...(c.debtHistory || []), {
+                            amount: debtToAdd,
+                            type: 'increase' as const,
+                            reason: `دين مسجل من الطلب #${orderWithId.orderNumber}`,
+                            date: new Date().toISOString(),
+                            orderId: orderWithId.id
+                        }] : c.debtHistory
                     } : c);
                 } else {
                     const newCustomer: CustomerProfile = {
@@ -247,7 +270,15 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                         lastOrderDate: new Date().toISOString(),
                         firstOrderDate: new Date().toISOString(),
                         averageOrderValue: 0,
-                        loyaltyPoints: 0
+                        loyaltyPoints: 0,
+                        debtBalance: debtToAdd,
+                        debtHistory: debtToAdd > 0 ? [{
+                            amount: debtToAdd,
+                            type: 'increase' as const,
+                            reason: `دين مسجل من الطلب #${orderWithId.orderNumber}`,
+                            date: new Date().toISOString(),
+                            orderId: orderWithId.id
+                        }] : []
                     };
                     return [newCustomer, ...prev];
                 }
@@ -265,6 +296,35 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         } else {
             setOrders(prev => [orderWithId, ...prev]);
         }
+
+        // --- LINK TO MAINTENANCE CENTER ---
+        const isMaintenance = orderWithId.orderType === 'maintenance' || orderWithId.shipmentType?.startsWith('maintenance_');
+        if (isMaintenance && orderWithId.shipmentType === 'maintenance_pickup') {
+            const maintenanceRequest: Partial<MaintenanceRequest> = {
+                storeId: activeStore?.id || '',
+                orderNumber: orderWithId.orderNumber,
+                customerName: orderWithId.customerName,
+                customerPhone: orderWithId.customerPhone,
+                customerAddress: orderWithId.customerAddress,
+                governorate: orderWithId.governorate,
+                city: orderWithId.city,
+                itemDescription: (orderWithId as any).maintenanceItemDescription || 'منتج صيانة من شحنة',
+                itemSerial: (orderWithId as any).maintenanceItemSerial || '',
+                itemValue: (orderWithId as any).maintenanceItemValue || 0,
+                initialProblemDescription: (orderWithId as any).maintenanceTechnicalReport || 'تم السحب من العميل',
+                status: 'received',
+                priority: (orderWithId as any).priority || 'medium',
+                receivedDate: new Date().toISOString().split('T')[0],
+                totalCost: (orderWithId as any).maintenanceCost || 0,
+                internalNotes: `تم إنشاء الطلب تلقائياً من شحنة سحب صيانة #${orderWithId.orderNumber}`,
+                parts: [],
+                laborCost: 0
+            };
+
+            addDoc(collection(db, 'maintenance_requests'), maintenanceRequest)
+                .catch(err => console.error("Error creating linked maintenance request:", err));
+        }
+        // ----------------------------------
 
         triggerWebhooks(orderWithId, settings);
         
@@ -293,6 +353,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 onSubmit={handleAddOrder}
                 onCancel={() => navigate('/orders')}
                 treasury={treasury}
+                allStoresData={allStoresData}
             />
 
             {orderToConfirm && (

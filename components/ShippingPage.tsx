@@ -451,12 +451,13 @@ const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompa
             <motion.div variants={itemVariants}>
               <SectionCard title="الإعدادات المالية العامة" icon={<Coins size={22} className="text-emerald-600 dark:text-emerald-400" />} action={<ToggleButton active={settings.enableGlobalFinancials} onToggle={() => toggleSetting('enableGlobalFinancials')} variant="emerald" />}>
                   <div className={`space-y-6 transition-all duration-300 ${!settings.enableGlobalFinancials && 'opacity-40 pointer-events-none grayscale'}`}>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                           <FinancialCard label="نسبة التأمين (%)" name="insuranceFeePercent" value={settings.insuranceFeePercent} isActive={settings.enableInsurance} onToggle={() => toggleSetting('enableInsurance')} onChange={handleChange} icon={<ShieldCheck size={16} className="text-blue-500" />} desc="تُخصم من إجمالي الأوردر عند التحصيل." />
                           <FinancialCard label="رسوم المعاينة (ج.م)" name="inspectionFee" value={settings.inspectionFee} isActive={settings.enableInspection} onToggle={() => toggleSetting('enableInspection')} onChange={handleChange} icon={<Eye size={16} className="text-emerald-500" />} desc="رسوم مقابل فحص المنتج عند الاستلام." />
                           <FinancialCard label="شحن المرتجع (ج.م)" name="returnShippingFee" value={settings.returnShippingFee} isActive={settings.enableReturnShipping} onToggle={() => toggleSetting('enableReturnShipping')} onChange={handleChange} icon={<RefreshCcw size={16} className="text-red-500" />} desc="مبلغ إضافي يُحسب كخسارة في المرتجع." />
                           <FinancialCard label="السعر الافتراضي (ج.م)" name="defaultProductPrice" value={settings.defaultProductPrice} isActive={settings.enableDefaultPrice} onToggle={() => toggleSetting('enableDefaultPrice')} onChange={handleChange} icon={<Package size={16} className="text-indigo-500" />} desc="السعر التلقائي عند تسجيل أوردر جديد." />
                           <FinancialCard label="رسوم فليكس شيب (ج.م)" name="flexShipFee" value={settings.flexShipFee || 0} isActive={settings.enableFlexShip || false} onToggle={() => toggleSetting('enableFlexShip')} onChange={handleChange} icon={<Truck size={16} className="text-violet-500" />} desc="رسوم إضافية تُطلب من المستلم عند رفض الاستلام." />
+                          <FinancialCard label="خصم الشركة من فليكس شيب (ج.م)" name="flexShipCompanyFee" value={settings.flexShipCompanyFee || 0} isActive={settings.enableFlexShip || false} onToggle={() => toggleSetting('enableFlexShip')} onChange={handleChange} icon={<Truck size={16} className="text-rose-500" />} desc="الجزء الذي تخصمه شركة الشحن لنفسها من الفليكس شيب المحصل." />
                           <div className="p-5 rounded-2xl border bg-white dark:bg-slate-800/30 border-slate-300 dark:border-slate-700 transition-all">
                               <div className="flex items-center justify-between mb-4">
                                   <label className="text-sm font-black text-slate-800 dark:text-slate-300 flex items-center gap-2"><Package size={16} className="text-orange-500" /> الوزن الافتراضي (كجم)</label>
@@ -1090,6 +1091,17 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                                 placeholder="مثلاً 14 لـ 14%" 
                             />
                         </div>
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">تطبيق الضريبة على</label>
+                            <select
+                                value={companyFees.vatBasis || 'shipping_only'}
+                                onChange={(e) => handleCompanyFeeChange('vatBasis', e.target.value)}
+                                className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white"
+                            >
+                                <option value="shipping_only">مصاريف الشحن فقط</option>
+                                <option value="shipping_and_insurance">مصاريف الشحن + التأمين</option>
+                            </select>
+                        </div>
                     </div>
                      <div className="bg-amber-50 dark:bg-amber-950/20 p-5 rounded-xl border border-amber-200 dark:border-amber-900/40 space-y-4">
                         <div className="flex justify-between items-center"><span className="text-sm font-bold text-amber-900 dark:text-amber-300">رسوم COD</span><ToggleButton active={companyFees.enableCodFees} onToggle={() => handleCompanyFeeChange('enableCodFees', !companyFees.enableCodFees)} variant="amber" /></div>
@@ -1133,15 +1145,27 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                                 active={companyFees.enableFlexShip || false} 
                                 onToggle={() => handleCompanyFeeChange('enableFlexShip', !companyFees.enableFlexShip)} />
                             {companyFees.enableFlexShip && (
-                                <div className="mr-6 space-y-1.5 p-3 bg-violet-50 dark:bg-violet-950/20 rounded-xl border border-violet-100 dark:border-violet-900/30 animate-in slide-in-from-top-2 duration-200">
-                                    <label className="text-xs font-bold text-violet-800 dark:text-violet-400">رسوم خدمة فليكس شيب الإضافية عند رفض الاستلام (ج.م)</label>
-                                    <input 
-                                        type="number" 
-                                        value={companyFees.flexShipFee || 0} 
-                                        onChange={(e) => handleCompanyFeeChange('flexShipFee', Number(e.target.value))} 
-                                        className="w-full max-w-xs p-3 bg-white dark:bg-slate-800 border border-violet-200 dark:border-violet-850 rounded-xl font-bold text-slate-850 dark:text-white" 
-                                        placeholder="مثلاً 50"
-                                    />
+                                <div className="mr-6 space-y-4 p-3 bg-violet-50 dark:bg-violet-950/20 rounded-xl border border-violet-100 dark:border-violet-900/30 animate-in slide-in-from-top-2 duration-200">
+                                    <div>
+                                        <label className="text-xs font-bold text-violet-800 dark:text-violet-400 block mb-1">رسوم خدمة فليكس شيب الإضافية عند رفض الاستلام (ج.م)</label>
+                                        <input 
+                                            type="number" 
+                                            value={companyFees.flexShipFee || 0} 
+                                            onChange={(e) => handleCompanyFeeChange('flexShipFee', Number(e.target.value))} 
+                                            className="w-full max-w-xs p-3 bg-white dark:bg-slate-800 border border-violet-200 dark:border-violet-850 rounded-xl font-bold text-slate-850 dark:text-white" 
+                                            placeholder="مثلاً 50"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-rose-800 dark:text-rose-400 block mb-1">استقطاع شركة الشحن من رسوم فليكس شيب (ج.م)</label>
+                                        <input 
+                                            type="number" 
+                                            value={companyFees.flexShipCompanyFee || 0} 
+                                            onChange={(e) => handleCompanyFeeChange('flexShipCompanyFee', Number(e.target.value))} 
+                                            className="w-full max-w-xs p-3 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-900 rounded-xl font-bold text-slate-850 dark:text-white" 
+                                            placeholder="مثلاً 10"
+                                        />
+                                    </div>
                                 </div>
                             )}
                         </div>

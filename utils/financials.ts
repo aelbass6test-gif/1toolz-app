@@ -7,6 +7,9 @@ export const isBosta = (companyName: string): boolean => {
 };
 
 export const getOrderProductCost = (order: Order): number => {
+    if (order.maintenanceItemValue && order.maintenanceItemValue > 0) {
+        return order.maintenanceItemValue;
+    }
     if (order.productCost && order.productCost > 0) {
         return order.productCost;
     }
@@ -17,6 +20,9 @@ export const getOrderProductCost = (order: Order): number => {
 };
 
 export const getOrderBasePrice = (order: Order, settings?: Settings): number => {
+    if (order.maintenanceItemValue && order.maintenanceItemValue > 0) {
+        return order.maintenanceItemValue;
+    }
     if (order.items && order.items.length > 0 && settings?.products) {
         return order.items.reduce((sum, item) => {
             const product = settings.products.find(p => p.id === item.productId || p.sku === item.productId);
@@ -164,10 +170,11 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): { pr
     const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
     const inspectionFeeCollected = (order.inspectionFeePaidByCustomer && !isPos) ? effectiveInspectionCost : 0;
     
-    const isFlexShipEnabled = isPos ? false : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+    const isFlexShipEnabled = isPos ? false : (order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false)));
     const flexShipCollected = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
+    const flexShipCompanyDeduction = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
     
-    loss = (insuranceFee + (isPos ? 0 : order.shippingFee) + effectiveInspectionCost + returnFeeAmount + bostaVat - inspectionFeeCollected - flexShipCollected);
+    loss = (insuranceFee + (isPos ? 0 : order.shippingFee) + effectiveInspectionCost + returnFeeAmount + bostaVat + flexShipCompanyDeduction - inspectionFeeCollected - flexShipCollected);
   } else if (order.status === 'مرتجع_جزئي') {
     loss = (insuranceFee + effectiveInspectionCost + bostaVat);
   } else if (order.status === 'مرتجع_بعد_الاستلام') {

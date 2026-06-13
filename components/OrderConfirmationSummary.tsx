@@ -15,11 +15,29 @@ interface OrderConfirmationSummaryProps {
 
 export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({ order, settings, onClose, storeName }) => {
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
-    const inspectionFee = order.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
-    const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
-    const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
+    const inspectionFee = order.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+    
+    // Insurance
+    const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0)) : 0;
+    const productValueForInsurance = order.productPrice - (order.discount || 0);
+    const insuranceFee = productValueForInsurance > 0 ? Math.max(0, Math.round((productValueForInsurance * (insuranceRate / 100)) * 100) / 100) : 0;
+    
+    // VAT (Logistics)
+    const vatRate = compFees?.useCustomFees ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+    const taxableBase = order.shippingFee + inspectionFee;
+    const vatAmount = Math.round(taxableBase * (vatRate / 100) * 100) / 100;
+    
     const safeAdvance = Number(order.advancePayment) || 0;
-    const total = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - (order.discount || 0) - safeAdvance + inspectionFee);
+    const credit = (order as any).creditAmount || 0;
+    
+    // Total calculation
+    let total = order.productPrice + order.shippingFee + inspectionFee + insuranceFee + vatAmount - (order.discount || 0) - safeAdvance - credit;
+    
+    if (order.returnCashToCustomer && (order as any).cashToReturnAmount) {
+        total -= Number((order as any).cashToReturnAmount);
+    }
+    
+    const finalTotal = order.totalAmountOverride ?? Math.max(0, Math.round(total));
     
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
@@ -52,7 +70,19 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                     {insuranceFee > 0 && (
                         <div className="flex justify-between items-center text-sm">
                             <span className="font-bold text-slate-500">رسوم التأمين ({insuranceRate}%):</span>
-                            <span className="font-black text-slate-700 dark:text-slate-200">{insuranceFee.toFixed(2)} ج.م</span>
+                            <span className="font-black text-slate-700 dark:text-slate-200">{insuranceFee.toLocaleString()} ج.م</span>
+                        </div>
+                    )}
+                    {vatAmount > 0 && (
+                        <div className="flex justify-between items-center text-sm">
+                            <span className="font-bold text-slate-500">ضريبة القيمة المضافة ({vatRate}%):</span>
+                            <span className="font-black text-slate-700 dark:text-slate-200">{vatAmount.toLocaleString()} ج.م</span>
+                        </div>
+                    )}
+                    {(order as any).creditAmount > 0 && (
+                        <div className="flex justify-between items-center text-sm text-amber-600">
+                             <span className="font-bold">رصيد مستخدم:</span>
+                             <span className="font-black">-{Number((order as any).creditAmount).toLocaleString()} ج.م</span>
                         </div>
                     )}
                     {order.discount > 0 && (
@@ -64,7 +94,7 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                     <div className="border-t border-slate-200 dark:border-slate-700 my-2"></div>
                     <div className="flex justify-between items-center text-xl">
                         <span className="font-black text-indigo-600 dark:text-indigo-400">الإجمالي المطلوب تحصيله:</span>
-                        <span className="font-black text-indigo-600 dark:text-indigo-400">{total.toLocaleString()} ج.م</span>
+                        <span className="font-black text-indigo-600 dark:text-indigo-400">{finalTotal.toLocaleString()} ج.م</span>
                     </div>
                     {order.totalAmountOverride !== undefined && order.totalAmountOverrideReason && (
                         <div className="mt-3 text-right">

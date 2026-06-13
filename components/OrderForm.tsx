@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, ChevronDown, Package, Coins, User as UserIcon, Building, Truck, CheckCircle, RefreshCcw, ArrowRightLeft, Image as ImageIcon, X, ExternalLink, Link as LinkIcon, ShoppingBag, Info, Calculator, ArrowLeft, Percent, Save, FileText, LayoutList, Banknote, TrendingUp, Settings as SettingsIcon, Wand2, Shield, CreditCard } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, Package, Coins, User as UserIcon, Building, Truck, CheckCircle, RefreshCcw, ArrowRightLeft, Image as ImageIcon, X, ExternalLink, Link as LinkIcon, ShoppingBag, Info, Calculator, ArrowLeft, Percent, Save, FileText, LayoutList, Banknote, TrendingUp, Settings as SettingsIcon, Wand2, Shield, CreditCard, Star, AlertCircle } from 'lucide-react';
 import { Order, Settings, OrderItem, Product, CustomerProfile, Store, User } from '../types';
 import { EGYPT_GOVERNORATES } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CustomerSelectModal } from './CustomerSelectModal';
 import { calculateCodFee, getLatestProductCost, calculateInsuranceFee } from '../utils/financials';
 
 export interface NewOrderState extends Partial<Omit<Order, 'id'>> {
@@ -14,10 +15,12 @@ export interface NewOrderState extends Partial<Omit<Order, 'id'>> {
   creditAmount?: number;
   totalAmountOverrideReason?: string;
   advancePayment?: number;
+  maintenanceItemValue?: number;
   advancePaymentPartnerId?: string;
   advancePaymentTreasuryId?: string;
   advancePaymentRecipientPhone?: string;
   advancePaymentSenderDetails?: string;
+  recordedAsDebt?: boolean;
 }
 
 interface OrderFormProps {
@@ -30,6 +33,7 @@ interface OrderFormProps {
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
   treasury?: any;
+  allStoresData?: Record<string, any>;
 }
 
 export const OrderForm: React.FC<OrderFormProps> = ({
@@ -41,37 +45,65 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   orders,
   onSubmit,
   onCancel,
-  treasury
+  treasury,
+  allStoresData
 }) => {
     const navigate = useNavigate();
     const isExchange = (orderData as NewOrderState).orderType === 'exchange' || (orderData as NewOrderState).shipmentType === 'exchange';
     const isReturn = (orderData as NewOrderState).shipmentType === 'return';
     const isCashCollection = (orderData as NewOrderState).shipmentType === 'cash_collection';
+    const isMaintenance = (orderData as NewOrderState).orderType === 'maintenance' || (orderData as NewOrderState).shipmentType === 'maintenance_pickup' || (orderData as NewOrderState).shipmentType === 'maintenance_return';
     let creditAmount = (orderData as NewOrderState).creditAmount || 0;
 
     // Customer Search State
-    const [customerSearch, setCustomerSearch] = useState('');
     const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
-    const customerSearchRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (customerSearchRef.current && !customerSearchRef.current.contains(event.target as Node)) {
-                setIsCustomerListOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const filteredCustomers = useMemo(() => {
-        if (!customerSearch) return [];
-        return customers.filter(c => 
-            (c.name || '').toLowerCase().includes(customerSearch.toLowerCase()) || 
-            (c.phone || '').includes(customerSearch)
-        );
-    }, [customerSearch, customers]);
     
+    const globalCustomerStats = useMemo(() => {
+        if (!allStoresData || !orderData.customerPhone) return null;
+        let totalOrders = 0;
+        let successfulOrders = 0;
+        let debtBalance = 0;
+        const cleanPhone = orderData.customerPhone.replace(/\s/g, '').replace('+2', '');
+        
+        if (cleanPhone.length < 8) return null; 
+
+        Object.values(allStoresData).forEach((storeData: any) => {
+            const storeCustomers = storeData.customers || [];
+            const storeOrders = storeData.orders || [];
+            
+            const matchingOrders = storeOrders.filter((o: any) => o.customerPhone && o.customerPhone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
+            let dynamicTotal = matchingOrders.length;
+            let dynamicSuccess = matchingOrders.filter((o: any) => ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'].includes(o.status)).length;
+            
+            const matchingCustomer = storeCustomers.find((c: any) => c.phone && c.phone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
+            if (matchingCustomer) {
+                dynamicTotal = Math.max(dynamicTotal, matchingCustomer.totalOrders || 0);
+                dynamicSuccess = Math.max(dynamicSuccess, matchingCustomer.successfulOrders || 0);
+                debtBalance += (matchingCustomer.debtBalance || 0);
+            }
+            
+            totalOrders += dynamicTotal;
+            successfulOrders += dynamicSuccess;
+        });
+
+        if (totalOrders === 0 && debtBalance === 0) {
+            return {
+                isNew: true,
+                totalOrders: 0,
+                successfulOrders: 0,
+                successRate: 0,
+                debtBalance: 0
+            };
+        }
+        return {
+            isNew: false,
+            totalOrders,
+            successfulOrders,
+            successRate: (successfulOrders / totalOrders) * 100,
+            debtBalance
+        };
+    }, [allStoresData, orderData.customerPhone]);
+
     if (isEditing && isExchange && !creditAmount && orderData.originalOrderId) {
         const originalOrder = orders.find(o => o.id === orderData.originalOrderId);
         if (originalOrder) {
@@ -107,7 +139,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             city: customer.city || prev.city || '',
             shippingFee: typeof customer.shippingFee === 'number' ? customer.shippingFee : prev.shippingFee || 0
         }));
-        setCustomerSearch('');
         setIsCustomerListOpen(false);
     };
 
@@ -203,8 +234,78 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         return useCustom ? (compFees?.inspectionFee || 0) : (settings.enableInspection ? settings.inspectionFee : 0);
     }, [orderData.includeInspectionFee, orderData.shippingCompany, settings]);
 
-    const totalBeforeCredit = useMemo(() => subtotal - itemDiscounts + (orderData.shippingFee || 0) - (orderData.discount || 0) + inspectionFee, [subtotal, itemDiscounts, orderData.shippingFee, orderData.discount, inspectionFee]);
-    const finalAmount = totalBeforeCredit - creditAmount - (orderData.advancePayment || 0);
+    // Smart Calculation for Insurance Fee
+    const insuranceFee = useMemo(() => {
+        if (orderData.isInsured === false) return 0;
+        
+        const company = orderData.shippingCompany;
+        const compFees = settings.companySpecificFees?.[company!];
+        const useCustom = compFees?.useCustomFees ?? false;
+        
+        // Use company specific insurance rate if available, otherwise global setting
+        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+        
+        // Product value for insurance
+        let productValue = 0;
+        if (isMaintenance) {
+            productValue = Number(orderData.maintenanceItemValue) || 0;
+        } else {
+            productValue = subtotal - itemDiscounts;
+        }
+
+        if (productValue <= 0) return 0;
+
+        // Smart insurance calculation: some companies have a flat fee or minimum, 
+        // but here we follow the percentage of product value
+        const calculatedFee = (productValue * (insuranceRate / 100));
+        return Math.max(0, Math.round(calculatedFee * 100) / 100);
+    }, [orderData.isInsured, orderData.maintenanceItemValue, isMaintenance, subtotal, itemDiscounts, orderData.shippingCompany, settings]);
+
+    // Smart VAT Calculation (14% default or from settings)
+    const activeVatAmount = useMemo(() => {
+        const company = orderData.shippingCompany;
+        const compFees = settings.companySpecificFees?.[company!];
+        const useCustom = compFees?.useCustomFees ?? false;
+        
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+        const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
+        
+        // VAT usually applies to the shipping fee + service fees, not the product price itself in logistics
+        const shippingFee = Number(orderData.shippingFee) || 0;
+        const inspectionFeeValue = orderData.includeInspectionFee ? inspectionFee : 0;
+        const insuranceValue = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+        
+        // In maintenance, cost of maintenance might also be taxed if it's handled through the carrier
+        const serviceBase = isMaintenance ? (Number(orderData.maintenanceCost) || 0) : 0;
+        
+        const taxableBase = shippingFee + inspectionFeeValue + serviceBase + insuranceValue;
+        return Math.round(taxableBase * (vatRate / 100) * 100) / 100;
+    }, [orderData.shippingCompany, settings, orderData.shippingFee, orderData.includeInspectionFee, inspectionFee, isMaintenance, orderData.maintenanceCost, insuranceFee]);
+
+    // Final Amount to Collect (مبلغ التحصيل)
+    const finalAmount = useMemo(() => {
+        if (orderData.shipmentType === 'maintenance_pickup' && orderData.deferPaymentToReturn) {
+            return 0; // Customer pays everything upon return
+        }
+
+        const basePrice = isMaintenance ? (Number(orderData.maintenanceCost) || 0) : (subtotal - itemDiscounts);
+        const shipping = Number(orderData.shippingFee) || 0;
+        const inspection = orderData.includeInspectionFee ? inspectionFee : 0;
+        const insurance = insuranceFee;
+        const vat = activeVatAmount;
+        const discount = Number(orderData.discount) || 0;
+        const advance = Number(orderData.advancePayment) || 0;
+        const credit = Number(creditAmount) || 0;
+
+        let total = basePrice + shipping + inspection + insurance + vat - discount - advance - credit;
+        
+        // Handle "Return cash to customer" (إرجاع مبالغ نقدية)
+        if (orderData.returnCashToCustomer && orderData.cashToReturnAmount) {
+            total -= Number(orderData.cashToReturnAmount);
+        }
+
+        return Math.max(0, Math.round(total));
+    }, [orderData.shipmentType, orderData.deferPaymentToReturn, orderData.maintenanceCost, isMaintenance, subtotal, itemDiscounts, orderData.shippingFee, orderData.includeInspectionFee, inspectionFee, insuranceFee, activeVatAmount, orderData.discount, orderData.advancePayment, creditAmount, orderData.returnCashToCustomer, orderData.cashToReturnAmount]);
 
     const liveProfitMargin = useMemo(() => {
         const costOfItems = (orderData.items || []).reduce((sum: number, item: any) => {
@@ -221,55 +322,101 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             ? Number(orderData.totalAmountOverride)
             : Number(finalAmount || 0);
 
-        const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
-        const useCustom = compFees?.useCustomFees ?? false;
-        
-        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
-        
-        const mockOrderForInsurance = {
-            ...orderData,
-            productPrice: subtotal - itemDiscounts,
-            shippingFee: Number(orderData.shippingFee) || 0,
-            isInsured: orderData.isInsured !== false,
-            items: orderData.items || []
-        } as any;
-        const insuranceFee = calculateInsuranceFee(mockOrderForInsurance, insuranceRate, settings);
-        const effectiveInspectionCost = orderData.includeInspectionFee ? Number(inspectionCost) : 0;
         const codFee = Number(calculateCodFee({ status: 'تم_التحصيل', totalPrice: totalCollected, shippingFee: orderData.shippingFee || 0 } as any, settings)) || 0;
-        
-        const totalExpenses = costOfItems + Number(orderData.shippingFee || 0) + insuranceFee + effectiveInspectionCost + codFee;
+        const totalExpenses = costOfItems + Number(orderData.shippingFee || 0) + insuranceFee + inspectionFee + codFee + activeVatAmount;
         const profit = totalCollected - totalExpenses;
         
         return {
             costOfItems,
             insuranceFee,
-            effectiveInspectionCost,
+            effectiveInspectionCost: inspectionFee,
             codFee,
             totalExpenses,
             profit,
             profitPercent: totalCollected > 0 ? Math.round((profit / totalCollected) * 100) : 0
         };
-    }, [orderData.items, orderData.totalAmountOverride, orderData.shippingFee, orderData.discount, orderData.isInsured, orderData.includeInspectionFee, orderData.shippingCompany, finalAmount, settings]);
+    }, [orderData.items, orderData.totalAmountOverride, orderData.shippingFee, orderData.discount, orderData.isInsured, orderData.includeInspectionFee, orderData.shippingCompany, finalAmount, settings, insuranceFee, activeVatAmount]);
 
-    const activeCompanies = Object.keys(settings.shippingOptions || {}).filter(company => settings.activeCompanies?.[company] !== false);
+    // FIX: Optimized and simplified companies calculation to prevent "missing carriers" issue
+    const activeCompanies = useMemo(() => {
+        const carrierKeys = Object.keys(settings.shippingOptions || {});
+        return carrierKeys.filter(company => settings.activeCompanies?.[company] !== false);
+    }, [settings.shippingOptions, settings.activeCompanies]);
+    
+    const isFlexShipConfigured = useMemo(() => {
+        const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
+        const useCustom = compFees?.useCustomFees ?? false;
+        return useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false);
+    }, [orderData.shippingCompany, settings]);
+
+    const orderFlexShipActive = useMemo(() => {
+        return orderData.enableFlexShip !== undefined ? orderData.enableFlexShip : isFlexShipConfigured;
+    }, [orderData.enableFlexShip, isFlexShipConfigured]);
+
+    const activeFlexShipFee = useMemo(() => {
+        const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
+        const useCustom = compFees?.useCustomFees ?? false;
+        const defaultFlexShipFee = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+        return orderData.flexShipFee !== undefined && orderData.flexShipFee !== null ? orderData.flexShipFee : defaultFlexShipFee;
+    }, [orderData.flexShipFee, orderData.shippingCompany, settings]);
+
+    const activeFlexShipCompanyFee = useMemo(() => {
+        const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
+        const useCustom = compFees?.useCustomFees ?? false;
+        const defaultFlexShipCompanyFee = useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0);
+        return orderData.flexShipCompanyFee !== undefined && orderData.flexShipCompanyFee !== null ? orderData.flexShipCompanyFee : defaultFlexShipCompanyFee;
+    }, [orderData.flexShipCompanyFee, orderData.shippingCompany, settings]);
     
     const shippingOptions = useMemo(() => {
-        const options = settings.shippingOptions?.[orderData.shippingCompany!] || [];
-        if (options.length > 0) return options;
-        return EGYPT_GOVERNORATES.map((gov, index) => ({
-            id: `gov_fallback_${index}`,
-            label: gov.name,
-            cities: gov.cities.map((city, cIndex) => ({ id: `city_fallback_${index}_${cIndex}`, name: city }))
-        })) as any[];
+        const company = orderData.shippingCompany;
+        const userOptions = (company && settings.shippingOptions?.[company]) || [];
+        
+        // 1. Start with all user-defined options
+        const result = [...userOptions];
+        
+        // 2. Add missing default governorates from EGYPT_GOVERNORATES
+        EGYPT_GOVERNORATES.forEach((gov, index) => {
+            const exists = result.some(o => o.label === gov.name);
+            if (!exists) {
+                result.push({
+                    id: `gov_fallback_${index}`,
+                    label: gov.name,
+                    details: 'شحن قياسي',
+                    deliveryPrice: 55,
+                    baseWeight: 1,
+                    extraKgPrice: 5,
+                    returnPrice: 30,
+                    exchangePrice: 35,
+                    cashCollectionPrice: 0,
+                    returnToSenderPrice: 0,
+                    active: true,
+                    cities: gov.cities.map((city, cIndex) => ({ 
+                        id: `city_fallback_${index}_${cIndex}`, 
+                        name: city,
+                        deliveryPrice: 55,
+                        extraKgPrice: 5,
+                        returnPrice: 30,
+                        exchangePrice: 35,
+                        cashCollectionPrice: 0,
+                        returnToSenderPrice: 0,
+                        useParentFees: true,
+                        active: true
+                    }))
+                });
+            }
+        });
+        
+        return result as any[];
     }, [settings.shippingOptions, orderData.shippingCompany]);
 
     useEffect(() => {
         const selectedOption = shippingOptions.find(opt => opt.label === (orderData.governorate || orderData.shippingArea));
             if (selectedOption) {
-                const getPriceKey = (type?: string): 'deliveryPrice' | 'exchangePrice' | 'returnPrice' | 'cashCollectionPrice' | 'returnToSenderPrice' => {
+                const getPriceKey = (type?: string): 'deliveryPrice' | 'exchangePrice' | 'returnPrice' | 'cashCollectionPrice' | 'returnToSenderPrice' | 'maintenancePickupPrice' | 'maintenanceReturnPrice' => {
                     if (type === 'exchange') return 'exchangePrice';
                     if (type === 'return') return 'returnPrice';
+                    if (type === 'maintenance_pickup') return 'returnPrice';
+                    if (type === 'maintenance_return') return 'maintenanceReturnPrice';
                     if (type === 'cash_collection') return 'cashCollectionPrice';
                     return 'deliveryPrice';
                 };
@@ -457,9 +604,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                 if (compFees.enablePartialDelivery !== false) {
                                     tabs.push({ id: 'partial_delivery', label: 'توصيل جزئي', icon: <Package size={17} />, badge: 'جديد' });
                                 }
-                                if (compFees.enableExchange !== false) tabs.push({ id: 'exchange', label: 'تبديل شحنات', icon: <ArrowRightLeft size={17} /> });
-                                if (compFees.enableReturn !== false) tabs.push({ id: 'return', label: 'إرجاع شحنة', icon: <RefreshCcw size={17} /> });
-                                if (compFees.enableCashCollection !== false) tabs.push({ id: 'cash_collection', label: 'تحصيل نقدي', icon: <Coins size={17} /> });
+                                 if (compFees.enableExchange !== false) tabs.push({ id: 'exchange', label: 'تبديل شحنة', icon: <ArrowRightLeft size={17} /> });
+                                 if (compFees.enableReturn !== false) tabs.push({ id: 'return', label: 'إرجاع شحنة', icon: <RefreshCcw size={17} /> });
+                                 if (compFees.enableCashCollection !== false) tabs.push({ id: 'cash_collection', label: 'تحصيل نقدي', icon: <Coins size={17} /> });
+                                tabs.push({ id: 'maintenance_pickup', label: 'سحب منتج للصيانة', icon: <SettingsIcon size={17} /> });
+                                tabs.push({ id: 'maintenance_return', label: 'توصيل منتج صيانة', icon: <Wand2 size={17} /> });
                                 return tabs;
                             })().map(tab => {
                                 const isActive = (orderData.shipmentType || 'delivery') === tab.id;
@@ -467,7 +616,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                     <button
                                         key={tab.id}
                                         type="button"
-                                        onClick={() => handleFieldChange('shipmentType', tab.id)}
+                                        onClick={() => {
+                                            handleFieldChange('shipmentType', tab.id);
+                                            if (tab.id.startsWith('maintenance_')) {
+                                                handleFieldChange('orderType', 'maintenance');
+                                            } else if (tab.id === 'exchange') {
+                                                handleFieldChange('orderType', 'exchange');
+                                            } else {
+                                                handleFieldChange('orderType', 'standard');
+                                            }
+                                        }}
                                         className={`relative flex items-center gap-2.5 py-3 px-6 rounded-2xl text-xs font-black transition-all duration-300 shrink-0 ${
                                             isActive
                                                 ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-white shadow-xl shadow-black/5 ring-1 ring-slate-200 dark:ring-slate-700'
@@ -491,23 +649,61 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                 بيانات العميل
                             </h4>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div className="relative" ref={customerSearchRef}>
-                                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">اسم العميل</label>
-                                    <input type="text" placeholder="اسم العميل أو رقم الهاتف" required value={customerSearch || orderData.customerName || ''} onChange={e => { setCustomerSearch(e.target.value); handleFieldChange('customerName', e.target.value); }} onFocus={() => setIsCustomerListOpen(true)} className="p-4.5 bg-slate-50/50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all dark:text-white font-black text-lg" />
-                                    {isCustomerListOpen && filteredCustomers.length > 0 && (
-                                        <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl shadow-2xl z-20 max-h-64 overflow-y-auto custom-scrollbar p-2">
-                                            {filteredCustomers.map(c => (
-                                                <div key={c.phone} onClick={() => handleCustomerSelect(c)} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-2xl cursor-pointer transition-colors">
-                                                    <p className="font-black text-slate-800 dark:text-slate-200">{c.name}</p>
-                                                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-bold">{c.phone}</p>
-                                                </div>
-                                            ))}
+                                <div className="relative">
+                                    <div className="flex items-center justify-between mb-2">
+                                       <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mr-1 tracking-wider uppercase">اسم العميل</label>
+                                       <button 
+                                         type="button"
+                                         onClick={() => setIsCustomerListOpen(true)}
+                                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/20 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                                       >
+                                         <UserIcon size={12}/> اختيار من المسجلين
+                                       </button>
+                                    </div>
+                                    <input type="text" placeholder="اسم العميل" required value={orderData.customerName || ''} onChange={e => handleFieldChange('customerName', e.target.value)} className="p-4.5 bg-slate-50/50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all dark:text-white font-black text-lg" />
+                                    
+                                    {/* Debt Notification */}
+                                    {orderData.customerPhone && (customers || []).find(c => c.phone === orderData.customerPhone)?.debtBalance! > 0 && (
+                                        <div className="mt-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-2xl flex items-center gap-3 animate-pulse">
+                                            <AlertCircle className="text-red-600 shrink-0" size={20} />
+                                            <div>
+                                                <p className="text-red-700 dark:text-red-400 text-xs font-black">تنبيه: مديونية مسجلة</p>
+                                                <p className="text-red-600 dark:text-red-300 text-[10px] font-bold">العميل عليه دين بقيمة <span className="underline font-black text-xs">{(customers || []).find(c => c.phone === orderData.customerPhone)?.debtBalance} ج.م</span></p>
+                                            </div>
                                         </div>
                                     )}
+                                    
+                                    <CustomerSelectModal 
+                                       isOpen={isCustomerListOpen}
+                                       onClose={() => setIsCustomerListOpen(false)}
+                                       customers={customers}
+                                       onSelect={(c) => {
+                                          handleCustomerSelect(c);
+                                          setIsCustomerListOpen(false);
+                                       }}
+                                    />
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">رقم الهاتف الأساسي</label>
                                     <input type="tel" placeholder="01xxxxxxxxx" required value={orderData.customerPhone || ''} onChange={e => handleFieldChange('customerPhone', e.target.value)} className="p-4.5 bg-slate-50/50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all dark:text-white font-black text-lg text-right tracking-widest" dir="ltr" />
+                                    {globalCustomerStats && (
+                                        <div className={`mt-3 text-xs flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border ${globalCustomerStats.isNew ? 'bg-emerald-50/80 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-indigo-50/80 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300'}`}>
+                                            {globalCustomerStats.isNew ? (
+                                                <span className="font-bold flex items-center gap-1.5"><Star size={14} className="fill-current"/>عميل جديد</span>
+                                            ) : (
+                                                <>
+                                                    <span className="font-bold flex items-center gap-1.5"><Star size={14} className="fill-current"/>نسبة نجاح العميل: <span className="font-black text-sm">{Math.round(globalCustomerStats.successRate)}%</span></span>
+                                                    {globalCustomerStats.debtBalance > 0 && (
+                                                       <span className="font-bold flex items-center gap-1.5 px-3 py-1 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-lg animate-pulse">
+                                                         <div className="w-2 h-2 bg-red-600 rounded-full"></div>
+                                                         مديونية سابقة: <span className="font-black text-sm">{globalCustomerStats.debtBalance} ج.م</span>
+                                                       </span>
+                                                     )}
+                                                     <span className="font-medium opacity-80 backdrop-blur-sm">({globalCustomerStats.successfulOrders} طلب ناجح / {globalCustomerStats.totalOrders} إجمالي) بجميع متاجرك</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-6">
@@ -863,12 +1059,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                                 </div>
                                             </div>
                                         ))}
-                                        {(!orderData.items || orderData.items.length === 0) && (
-                                            <div className="py-20 text-center bg-slate-50/50 dark:bg-slate-800/30 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-[2.5rem]">
-                                                <p className="text-slate-400 font-bold">لا توجد منتجات بديلة مضافة للطلب بعد</p>
-                                                <button type="button" onClick={addItem} className="mt-4 px-8 py-3 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-indigo-500/20">أضف المنتج الأول</button>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </>
@@ -881,16 +1071,168 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                     تفاصيل التحصيل النقدي
                                 </h4>
                                 <div className="space-y-6">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">المبلغ المطلوب تحصيله</label>
-                                        <input type="number" min="0" value={orderData.customShipmentPrice || 0} onChange={e => handleFieldChange('customShipmentPrice', Number(e.target.value))} className="w-full p-6 bg-slate-50 dark:bg-slate-800 border-2 border-amber-100 dark:border-amber-900/30 rounded-[2rem] font-black text-3xl text-center text-amber-600 focus:border-amber-500 outline-none transition-all" />
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">غرض التحصيل / ملاحظات</label>
-                                        <textarea value={orderData.shipmentDescription || ''} onChange={e => handleFieldChange('shipmentDescription', e.target.value)} className="w-full p-5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] h-28 text-sm font-bold resize-none" placeholder="مثال: تحصيل مديونية، عربون، دفعة مقدمة..." />
+                                     <p className="text-slate-500 font-bold p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-center">هذا الطلب مخصص لتحصيل مبالغ نقدية فقط بدون منتجات.</p>
+                                </div>
+                            </div>
+                        ) : isMaintenance ? (
+                            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                {/* Technical Info Card */}
+                                <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
+                                    
+                                    <h4 className="font-extrabold text-slate-800 dark:text-white mb-10 flex items-center gap-4 text-xl justify-between relative">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+                                                {orderData.shipmentType === 'maintenance_pickup' ? <SettingsIcon size={24}/> : <Wand2 size={24}/>}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-lg">{orderData.shipmentType === 'maintenance_pickup' ? 'سحب منتج للصيانة' : 'توصيل منتج من الصيانة'}</span>
+                                            </div>
+                                        </div>
+                                        <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${orderData.shipmentType === 'maintenance_pickup' ? 'bg-indigo-500/10 text-indigo-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                                            {orderData.shipmentType === 'maintenance_pickup' ? 'سحب فني' : 'توصيل فني'}
+                                        </div>
+                                    </h4>
+                                    
+                                    <div className="space-y-10 relative">
+                                        {/* Group 1: Identify Product */}
+                                        <div className="space-y-6">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">بيانات المنتج الأساسية</span>
+                                            </div>
+                                            <div className="space-y-6">
+                                                <div>
+                                                    <label className="text-xs font-black text-slate-500 mb-3 block mr-1">وصف المنتج (خارج البراند)</label>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="مثال: سماعة ابل ايربودز الجيل الثالث" 
+                                                        value={orderData.maintenanceItemDescription || ''} 
+                                                        onChange={e => handleFieldChange('maintenanceItemDescription', e.target.value)} 
+                                                        className="w-full p-4.5 bg-slate-50/50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl font-bold dark:text-white transition-all focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none" 
+                                                    />
+                                                </div>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <div>
+                                                        <label className="text-xs font-black text-slate-500 mb-3 block mr-1">الرقم التسلسلي / S.N</label>
+                                                        <input 
+                                                            type="text" 
+                                                            placeholder="S/N: xxxxxxxx" 
+                                                            value={orderData.maintenanceItemSerial || ''} 
+                                                            onChange={e => handleFieldChange('maintenanceItemSerial', e.target.value)} 
+                                                            className="w-full p-4.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl font-bold dark:text-white text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none" 
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-black text-slate-500 mb-3 block mr-1">تقرير العطل / المشكلة</label>
+                                                        <input 
+                                                            type="text" 
+                                                            placeholder="وصف المشكلة المذكورة" 
+                                                            value={orderData.maintenanceTechnicalReport || ''} 
+                                                            onChange={e => handleFieldChange('maintenanceTechnicalReport', e.target.value)} 
+                                                            className="w-full p-4.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl font-bold dark:text-white text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none" 
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Group 2: Financial Estimates */}
+                                        <div className="bg-slate-50/50 dark:bg-slate-800/20 p-8 rounded-[2.5rem] border border-slate-100 dark:border-slate-800/50 space-y-8">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-1 h-4 bg-emerald-500 rounded-full"></div>
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">التقديرات المالية والتحصيل</span>
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                                <div className="space-y-4">
+                                                    <label className="text-xs font-black text-slate-500 flex items-center gap-2 mr-1">
+                                                        <span>قيمة المنتج (للتأمين)</span>
+                                                        <Info size={14} className="text-indigo-400" />
+                                                    </label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="number" 
+                                                            value={orderData.maintenanceItemValue || ''} 
+                                                            onChange={e => handleFieldChange('maintenanceItemValue', Number(e.target.value))} 
+                                                            className="w-full p-5 pl-14 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-black text-2xl text-slate-900 dark:text-white focus:border-indigo-500 outline-none transition-all" 
+                                                            placeholder="0"
+                                                        />
+                                                        <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-slate-300">ج.م</span>
+                                                        <div className="absolute -top-3 right-4 bg-indigo-600 text-white text-[9px] px-3 py-1 font-black rounded-lg shadow-lg">تأمين: {insuranceFee} ج.م</div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-4">
+                                                    <label className="text-xs font-black text-slate-500 mr-1">تكلفة الصيانة المقدرة</label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="number" 
+                                                            value={orderData.maintenanceCost || ''} 
+                                                            onChange={e => handleFieldChange('maintenanceCost', Number(e.target.value))} 
+                                                            className="w-full p-5 pl-14 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl font-black text-2xl text-emerald-600 focus:border-emerald-500 outline-none transition-all" 
+                                                            placeholder="0"
+                                                        />
+                                                        <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-slate-300">ج.م</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="pt-8 border-t border-slate-200 dark:border-slate-700/50 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => {
+                                                        handleFieldChange('returnCashToCustomer', !orderData.returnCashToCustomer);
+                                                        if (!orderData.returnCashToCustomer) handleFieldChange('deferPaymentToReturn', false);
+                                                    }}
+                                                    className={`p-5 rounded-2xl border-2 transition-all text-right flex flex-col gap-1.5 group ${orderData.returnCashToCustomer ? 'border-rose-500 bg-rose-50 dark:bg-rose-500/10' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'}`}
+                                                >
+                                                    <div className="flex justify-between items-center w-full">
+                                                        <span className={`text-[10px] font-black uppercase tracking-wider ${orderData.returnCashToCustomer ? 'text-rose-600' : 'text-slate-400'}`}>التحصيل المالي</span>
+                                                        <div className={`w-2 h-2 rounded-full ${orderData.returnCashToCustomer ? 'bg-rose-500 animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
+                                                    </div>
+                                                    <span className="text-sm font-black">إرجاع مبلغ نقدى للعميل</span>
+                                                </button>
+
+                                                {orderData.shipmentType === 'maintenance_pickup' && (
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => {
+                                                            handleFieldChange('deferPaymentToReturn', !orderData.deferPaymentToReturn);
+                                                            handleFieldChange('recordedAsDebt', !orderData.deferPaymentToReturn);
+                                                            if (!orderData.deferPaymentToReturn) handleFieldChange('returnCashToCustomer', false);
+                                                        }}
+                                                        className={`p-5 rounded-2xl border-2 transition-all text-right flex flex-col gap-1.5 group ${orderData.deferPaymentToReturn ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm'}`}
+                                                    >
+                                                        <div className="flex justify-between items-center w-full">
+                                                            <span className={`text-[10px] font-black uppercase tracking-wider ${orderData.deferPaymentToReturn ? 'text-amber-600' : 'text-slate-400'}`}>موعد الدفع</span>
+                                                            <div className={`w-2 h-2 rounded-full ${orderData.deferPaymentToReturn ? 'bg-amber-500 animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
+                                                        </div>
+                                                        <span className="text-sm font-black">الدفع عند التوصيل لاحقاً</span>
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {orderData.returnCashToCustomer && (
+                                                <div className="mt-4 p-6 bg-rose-50 dark:bg-rose-500/5 rounded-3xl border border-rose-100 dark:border-rose-900/30 animate-in zoom-in-95 duration-300">
+                                                    <label className="text-[10px] font-black text-rose-500 mb-2 block mr-1 uppercase">المبلغ المرتجع للعميل نقداً</label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="number" 
+                                                            placeholder="0" 
+                                                            value={orderData.cashToReturnAmount || ''} 
+                                                            onChange={e => handleFieldChange('cashToReturnAmount', Number(e.target.value))}
+                                                            className="w-full p-4.5 pl-14 bg-white dark:bg-slate-900 border-2 border-rose-200 dark:border-rose-900/40 rounded-2xl font-black text-2xl text-rose-500 text-center focus:border-rose-500 outline-none shadow-sm" 
+                                                        />
+                                                        <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-rose-200">ج.م</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                             </div>
+                            </div>
                         ) : (
                             <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm">
                                 <div className="flex justify-between items-center mb-8">
@@ -980,10 +1322,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                </div>
 
                                {[
-                                   { label: 'سعر المنتجات', value: subtotal },
+                                   { label: isMaintenance ? 'سعر الصيانة' : 'سعر المنتجات', value: isMaintenance ? (orderData.maintenanceCost || 0) : subtotal },
+                                   { label: 'الشحن', value: orderData.shippingFee || 0 },
+                                   { label: 'الخصم', value: -(orderData.discount || 0) },
                                    { label: 'المعاينة', value: inspectionFee },
-                                   { label: 'التأمين', value: liveProfitMargin.insuranceFee },
-                                   { label: 'الضريبة', value: 0 } // Assuming 0 as not implemented
+                                   { label: 'التأمين', value: insuranceFee },
+                                   { label: 'ضريبة القيمة المضافة', value: activeVatAmount },
+                                   ...(orderData.returnCashToCustomer ? [{ label: 'مبلغ مرتجع للعميل', value: -(orderData.cashToReturnAmount || 0) }] : [])
                                ].map((row, idx) => (
                                    <div key={idx} className="flex justify-between font-bold text-slate-300 text-sm">
                                        <span>{row.label}</span>
@@ -1021,7 +1366,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                                <div className="pt-6 border-t border-white/10 mt-2 flex flex-col gap-1">
                                    <div className="flex justify-between items-center">
-                                       <span className="text-slate-400 font-black text-xs uppercase tracking-widest">المبلغ النهائي</span>
+                                       <span className="text-slate-400 font-black text-xs uppercase tracking-widest">مبلغ التحصيل (المطلوب من العميل)</span>
                                        <div className="text-3xl font-black text-white flex items-baseline gap-2">
                                            {(orderData.totalAmountOverride !== undefined && orderData.totalAmountOverride !== null && (orderData.totalAmountOverride as any) !== '') ? Number(orderData.totalAmountOverride).toLocaleString() : finalAmount.toLocaleString()}
                                            <span className="text-sm font-bold text-slate-400">ج.م</span>
@@ -1152,7 +1497,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                 </div>
                                 خيارات الطلب الإضافية
                             </h4>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                            <div className={`grid grid-cols-1 sm:grid-cols-${isFlexShipConfigured && orderData.includeInspectionFee ? '3' : '2'} gap-5`}>
                                 <button type="button" onClick={() => handleFieldChange('includeInspectionFee', !orderData.includeInspectionFee)} className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col items-start gap-3 relative overflow-hidden group ${orderData.includeInspectionFee ? 'bg-indigo-50 dark:bg-indigo-500/10 border-indigo-500 text-indigo-700 dark:text-indigo-400 shadow-lg' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent text-slate-500'}`}>
                                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${orderData.includeInspectionFee ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'}`}>
                                         <Wand2 size={20} />
@@ -1174,7 +1519,41 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                     </div>
                                     {orderData.isInsured !== false && <CheckCircle className="absolute top-4 left-4" size={24} />}
                                 </button>
+
+                                {isFlexShipConfigured && orderData.includeInspectionFee && (
+                                    <button type="button" onClick={() => handleFieldChange('enableFlexShip', !orderFlexShipActive)} className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col items-start gap-3 relative overflow-hidden group ${orderFlexShipActive ? 'bg-violet-50 dark:bg-violet-500/10 border-violet-500 text-violet-700 dark:text-violet-400 shadow-lg' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent text-slate-500'}`}>
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${orderFlexShipActive ? 'bg-violet-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-400'}`}>
+                                            <Truck size={20} />
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-black text-base">خدمة فليكس شيب</p>
+                                            <p className="text-xs font-bold opacity-70 mt-1">تحصيل رسوم من المستلم في حال الرفض</p>
+                                        </div>
+                                        {orderFlexShipActive && <CheckCircle className="absolute top-4 left-4" size={24} />}
+                                    </button>
+                                )}
                             </div>
+
+                            {/* Custom Flex Ship Amounts inside Order */}
+                            {isFlexShipConfigured && orderData.includeInspectionFee && orderFlexShipActive && (
+                                <motion.div 
+                                    initial={{ opacity: 0, height: 0 }} 
+                                    animate={{ opacity: 1, height: 'auto' }} 
+                                    exit={{ opacity: 0, height: 0 }}
+                                    className="mt-6 p-6 bg-violet-50/50 dark:bg-violet-950/10 rounded-[2rem] border border-violet-100 dark:border-violet-900/30 grid grid-cols-1 gap-4 text-right"
+                                >
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-black text-violet-800 dark:text-violet-400 block mb-1">تحديد رسوم فليكس شيب للعميل (ج.م)</label>
+                                        <input 
+                                            type="number" 
+                                            value={activeFlexShipFee} 
+                                            onChange={(e) => handleFieldChange('flexShipFee', Number(e.target.value))} 
+                                            className="w-full p-4 bg-white dark:bg-slate-800 border border-violet-200 dark:border-violet-800 rounded-2xl font-black text-slate-850 dark:text-white focus:ring-4 focus:ring-violet-500/10 focus:border-violet-500 outline-none transition-all text-right" 
+                                            placeholder="مثلاً 50"
+                                        />
+                                    </div>
+                                </motion.div>
+                            )}
                         </div>
                      </div>
                 </div>

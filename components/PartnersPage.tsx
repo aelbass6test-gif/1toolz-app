@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer } from 'lucide-react';
 import { calculateOrderProfitLoss } from '../utils/financials';
@@ -15,6 +16,7 @@ interface PartnersPageProps {
 }
 
 const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
+  const { storeId } = useParams<{ storeId: string }>();
   const [partnerName, setPartnerName] = useState('');
   const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<string | null>(null);
@@ -416,7 +418,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     const isWithdrawal = transactionType === 'loan' || transactionType === 'profit_withdrawal' || transactionType === 'expense_repayment';
     const isSupplyFunding = transactionType === 'supply_funding';
 
-    if (isWithdrawal && amount > wallet.balance) {
+    if (!selectedTreasuryId && isWithdrawal && amount > wallet.balance) {
         showToast('عفواً، الرصيد المتاح في المحفظة غير كافٍ لإتمام السحب', 'error');
         return;
     }
@@ -453,7 +455,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     });
 
     const walletTransaction: Transaction = {
-        id: Date.now().toString() + 'w',
+        id: `pt_w_${tId}`,
         type: (isWithdrawal) ? 'سحب' : 'إيداع',
         amount: amount,
         date: new Date().toISOString(),
@@ -859,7 +861,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     ) : (
                       <div className="flex flex-col">
                         <h3 className="text-xl font-black text-slate-800 dark:text-white leading-none">
-                            <a href={`#/partners/${partner.id}`} className="hover:text-indigo-600 transition-colors">{partner.name}</a>
+                            <Link to={`/store/${storeId}/partners/${partner.id}`} className="hover:text-indigo-600 transition-colors">{partner.name}</Link>
                         </h3>
                         <div className="flex items-center gap-2 mt-2">
                            <span className="text-[10px] font-black bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full">شريك مؤسس</span>
@@ -1044,7 +1046,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   <div className="space-y-3 pt-2">
                       <div className="flex justify-between items-center px-1">
                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">آخر 3 معاملات</p>
-                          <a href={`#/partners/${partner.id}`} className="text-[10px] font-black text-indigo-600 hover:underline">عرض الكل</a>
+                          <Link to={`/store/${storeId}/partners/${partner.id}`} className="text-[10px] font-black text-indigo-600 hover:underline">عرض الكل</Link>
                       </div>
                       <div className="space-y-2">
                         {transactions

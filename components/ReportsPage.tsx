@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store } from '../types';
 import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, Coins, Monitor, ShoppingBasket } from 'lucide-react';
 import { AccountingReports } from './AccountingReports';
@@ -1992,6 +1993,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 };
 
 const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore, dateRangeText }) => {
+    const { storeId } = useParams<{ storeId: string }>();
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -2184,7 +2186,11 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                             ) : (
                                 stats.partnerDetails.map(p => (
                                     <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                                        <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">{p.name}</td>
+                                        <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">
+                                            <Link to={`/store/${storeId}/partners/${p.id}`} className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline transition-colors">
+                                                {p.name}
+                                            </Link>
+                                        </td>
                                         <td className="px-4 py-3"><span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
                                         <td className="px-4 py-3 font-mono">{p.capital.toLocaleString()}</td>
                                         <td className="px-4 py-3 font-mono text-emerald-600">+{p.distributions.toLocaleString()}</td>

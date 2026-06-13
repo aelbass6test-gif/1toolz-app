@@ -124,7 +124,11 @@
     },
     "/customers/{id}": {
       "schema": "object",
-      "description": "Customer profiles"
+      "description": "Customer profiles",
+      "properties": {
+        "debtBalance": { "type": "number" },
+        "debtHistory": { "type": "array" }
+      }
     },
     "/global_options/{id}": {
       "schema": "object",
@@ -181,6 +185,10 @@
     "/call_scripts/{id}": {
       "schema": "object",
       "description": "Call Scripts"
+    },
+    "/maintenance_requests/{id}": {
+      "schema": "object",
+      "description": "Maintenance requests"
     }
   }
 }

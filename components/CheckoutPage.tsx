@@ -41,7 +41,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
   const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [];
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>(activePaymentMethods[0]?.id || 'cod');
 
-  const activeCompanies = useMemo(() => Object.keys(settings.shippingOptions).filter(c => settings.activeCompanies[c]), [settings]);
+  const activeCompanies = useMemo(() => Object.keys(settings.shippingOptions).filter(c => settings.activeCompanies[c] !== false), [settings]);
   const [shippingCompany, setShippingCompany] = useState(activeCompanies[0] || '');
   const [shippingArea, setShippingArea] = useState('');
 

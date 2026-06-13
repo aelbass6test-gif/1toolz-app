@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
-import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData } from './types';
+import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb } from './services/firebaseClient';
@@ -39,6 +39,7 @@ import ExpensesPage from './components/ExpensesPage';
 import MarketingPage from './components/MarketingPage';
 import AnalyticsPage from './components/AnalyticsPage';
 import AdminPage from './components/AdminPage';
+import MaintenancePage from './src/pages/MaintenancePage';
 import EmployeeLayout from './components/EmployeeLayout';
 import EmployeeDashboardPage from './components/EmployeeDashboardPage';
 import EmployeeAccountSettingsPage from './components/EmployeeAccountSettingsPage';
@@ -745,7 +746,7 @@ export const AppComponent = () => {
         if (snapStore) {
             const keysToCompare = [
                 'store_name', 'phone', 'address', 'currency', 'taxNumber', 'commercialRegister', 'shippingVatRate',
-                'enableInsurance', 'enableInspection', 'enableReturnShipping', 'enableFlexShip', 'flexShipFee',
+                'enableInsurance', 'enableInspection', 'enableReturnShipping', 'enableFlexShip', 'flexShipFee', 'flexShipCompanyFee',
                 'enableReturnAfterPrice', 'enableExchangePrice', 'enableGlobalCod', 'insuranceFeePercent'
             ];
             const settingsChanged = keysToCompare.some(k => currentStore.settings?.[k as keyof Settings] !== snapStore.settings?.[k as keyof Settings]);
@@ -2127,18 +2128,38 @@ export const AppComponent = () => {
                 }>
                     <Route index element={<Navigate to="dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard {...pageProps} />} />
+                    <Route path="maintenance" element={<MaintenancePage currentStoreId={activeStoreId!} settings={pageProps.settings} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />} />
-                    <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} />} />
                     <Route path="purchase-returns" element={<PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
                     <Route path="create-order" element={<Navigate to="../orders/new" replace />} />
                     <Route path="products" element={<ProductsPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="inventory-transfers" element={<InventoryTransfers settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
-                    <Route path="customers" element={<CustomersPage orders={pageProps.orders} loyaltyData={{}} updateCustomerLoyaltyPoints={() => {}} />} />
+                    <Route path="customers" element={
+                      <CustomersPage 
+                        orders={pageProps.orders} 
+                        loyaltyData={{}} 
+                        customers={pageProps.customers}
+                        onUpdateCustomer={(phone, updates) => {
+                          pageProps.setCustomers((prev: CustomerProfile[]) => {
+                            // Check if customer exists in current list
+                            const exists = prev.some(c => c.phone === phone);
+                            if (exists) {
+                              return prev.map(c => c.phone === phone ? { ...c, ...updates } : c);
+                            } else {
+                              // If they don't exist yet (dynamically created in view), add them explicitly
+                              const customerFromOrders = pageProps.customers.find((c: any) => c.phone === phone);
+                              return [...prev, { ...customerFromOrders, ...updates, phone, id: phone }];
+                            }
+                          });
+                        }}
+                      />
+                    } />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
                     <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
@@ -2163,7 +2184,7 @@ export const AppComponent = () => {
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />
                     <Route path="team-chat" element={<TeamChatPage {...pageProps} activeStoreId={activeStoreId} />} />
                     <Route path="whatsapp" element={<WhatsAppPage {...pageProps} />} />
-                    <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} />} />
                     
                     {/* Coming Soon Routes */}
                     <Route path="product-attributes" element={<ComingSoonPage />} />

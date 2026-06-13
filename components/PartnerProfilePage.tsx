@@ -19,7 +19,7 @@ interface PartnerProfilePageProps {
 }
 
 const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
-  const { partnerId } = useParams<{ partnerId: string }>();
+  const { storeId, partnerId } = useParams<{ storeId: string; partnerId: string }>();
   const navigate = useNavigate();
   const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
   
@@ -305,6 +305,34 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           }
         }
 
+        // Revert global Wallet transaction and balance
+        if (setWallet && t.type !== 'profit_distribution') {
+          setWallet((prev: any) => {
+            if (!prev) return prev;
+            const walletTxId = `pt_w_${t.id}`;
+            const updatedTransactions = (prev.transactions || []).filter((tx: any) => tx.id !== walletTxId);
+            
+            const isWithdrawal = t.type === 'loan' || t.type === 'profit_withdrawal' || t.type === 'expense_repayment';
+            const isSupplyFunding = t.type === 'supply_funding';
+            
+            let newBalance = prev.balance;
+            let newSupplyBalance = prev.supplyBalance || 0;
+            
+            if (isSupplyFunding) {
+              newSupplyBalance = Math.max(0, newSupplyBalance - t.amount);
+            } else {
+              newBalance = isWithdrawal ? newBalance + t.amount : newBalance - t.amount;
+            }
+            
+            return {
+              ...prev,
+              balance: newBalance,
+              supplyBalance: newSupplyBalance,
+              transactions: updatedTransactions
+            };
+          });
+        }
+
         setDialog(null);
       }
     });
@@ -542,7 +570,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
            <User size={40} />
         </div>
         <h2 className="text-2xl font-black text-slate-800">الشريك غير موجود</h2>
-        <button onClick={() => navigate('/partners')} className="text-indigo-600 font-bold hover:underline">العودة للشركاء</button>
+        <button onClick={() => navigate(`/store/${storeId}/partners`)} className="text-indigo-600 font-bold hover:underline">العودة للشركاء</button>
       </div>
     );
   }
@@ -584,7 +612,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
       )}
       <div className="flex items-center justify-between">
         <button 
-          onClick={() => navigate('/partners')} 
+          onClick={() => navigate(`/store/${storeId}/partners`)} 
           className="group flex items-center gap-2 text-slate-500 font-bold hover:text-indigo-600 transition-colors"
         >
           <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-indigo-50 transition-colors">

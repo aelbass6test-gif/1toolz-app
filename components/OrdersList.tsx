@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Search, Trash2, Edit3, ChevronDown, Package, MapPin, Coins, FileSearch, AlertCircle, ShieldCheck, ShieldAlert, Banknote, ShoppingBag, Save, XCircle, Info, UploadCloud, User as UserIcon, Building, Download, Filter, Truck, CheckCircle, RefreshCcw, Briefcase, ChevronLeft, ChevronRight, MoreVertical, Percent, Lock, Unlock, Receipt, AlertTriangle, MessageCircle, Printer, Wand2, FileText, Phone, Archive, ArrowRightLeft, Image as ImageIcon, FileDown, LayoutList, LayoutGrid, Settings as SettingsIcon, X, PhoneForwarded, Users, ExternalLink, Link as LinkIcon, MessageSquare, Clock, Shield, Check, TrendingUp, TrendingDown, Sparkles, Calculator, ArrowLeft } from 'lucide-react';
+import { db } from '../services/firebaseClient';
+import { collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { Order, Settings, OrderStatus, Wallet, Transaction, PaymentStatus, PreparationStatus, OrderItem, Product, CustomerProfile, Store, Employee, User, AuditLog } from '../types';
 import { ORDER_STATUSES, EGYPT_GOVERNORATES, ORDER_STATUS_METADATA, generateEgyptShippingOptions } from '../constants';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
@@ -343,7 +345,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
 
 
   const handleEditOrder = (order: Order) => {
-    navigate(`/orders/edit/${order.id}`);
+    navigate(`${storePrefix}/orders/edit/${order.id}`);
   };
 
   useEffect(() => {
@@ -443,9 +445,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(o.status);
       const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
       const flexPaidAmount = o.flexShipFeePaidByCustomer ? (o.flexShipFee || flexFeeValue) : 0;
+      const flexCompanyFeeValue = useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0);
+      const flexCompanyFeePaid = o.flexShipFeePaidByCustomer ? (o.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
 
       const oProfit = isReturnedOrFailed
-          ? (flexPaidAmount - totalCarrierExpenses)
+          ? (flexPaidAmount - totalCarrierExpenses - flexCompanyFeePaid)
           : (amountCollectedFromCustomer - totalExpenses);
 
       salesTotal += safeProductPrice;
@@ -476,10 +480,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     };
   }, [filteredOrders, settings]);
 
-    const handleDeleteOrder = () => {
+    const handleDeleteOrder = (deleteRelated?: boolean) => {
     if (!orderToDelete) {
         console.error("handleDeleteOrder called with no order to delete.");
         return;
+    }
+    
+    // Logic for deleting related maintenance request...
+    if (deleteRelated && orderToDelete.orderType === 'maintenance') {
+        const maintenanceQuery = query(collection(db, 'maintenance_requests'), where("orderNumber", "==", orderToDelete.orderNumber));
+        getDocs(maintenanceQuery).then(snapshot => {
+            snapshot.forEach(doc => {
+                deleteDoc(doc.ref);
+            });
+        }).catch(err => console.error("Error deleting maintenance request:", err));
     }
     
     const orderIdToDelete = orderToDelete.id;
@@ -489,15 +503,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     const isPos = orderToDelete.channel === 'pos' || orderToDelete.id.startsWith('POS-') || orderToDelete.shippingCompany === 'كاشير - بيع مباشر';
     const isStockDeducted = orderToDelete.stockDeducted || isPos;
 
+    // Do not delete from partner transactions as per user request
     let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
-    if (orderNumberToDelete || orderIdToDelete) {
-        updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => {
-            const note = pt.note || '';
-            const matchOrderNumber = orderNumberToDelete ? note.includes(`#${orderNumberToDelete}`) : false;
-            const matchOrderId = orderIdToDelete ? (note.includes(orderIdToDelete) || pt.id.includes(orderIdToDelete)) : false;
-            return !(matchOrderNumber || matchOrderId);
-        });
-    }
 
     if (isStockDeducted) {
         // Return stock to inventory
@@ -576,6 +583,61 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                transactions: updatedTransactions
            };
        });
+    }
+
+    // Preserve the customer's current stats before deleting the order so we don't lose the success rate!
+    if (setCustomers && orderToDelete) {
+        setCustomers((prev: CustomerProfile[]) => {
+            const cleanPhone = (orderToDelete.customerPhone || '').replace(/\s/g, '').replace('+2', '');
+            if (!cleanPhone) return prev;
+            
+            // First, calculate the current customer stats from ALL existing orders (BEFORE DELETION)
+            let currentTotal = 0;
+            let currentSuccess = 0;
+            let currentReturn = 0;
+            let currentSpent = 0;
+            
+            orders.forEach(o => {
+                const p = (o.customerPhone || '').replace(/\s/g, '').replace('+2', '');
+                if (p === cleanPhone) {
+                    currentTotal++;
+                    if (['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'].includes(o.status)) {
+                        currentSuccess++;
+                        currentSpent += (o.productPrice + o.shippingFee) - (o.discount || 0);
+                    } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)) {
+                        currentReturn++;
+                    }
+                }
+            });
+
+            const existingIdx = prev.findIndex(c => c.phone && c.phone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
+            if (existingIdx >= 0) {
+                const updated = [...prev];
+                updated[existingIdx] = {
+                    ...updated[existingIdx],
+                    totalOrders: Math.max(updated[existingIdx].totalOrders || 0, currentTotal),
+                    successfulOrders: Math.max(updated[existingIdx].successfulOrders || 0, currentSuccess),
+                    returnedOrders: Math.max(updated[existingIdx].returnedOrders || 0, currentReturn),
+                    totalSpent: Math.max(updated[existingIdx].totalSpent || 0, currentSpent),
+                };
+                return updated;
+            } else {
+                return [...prev, {
+                    id: `cust-${Date.now()}`,
+                    name: orderToDelete.customerName || '',
+                    phone: orderToDelete.customerPhone || '',
+                    address: orderToDelete.customerAddress || '',
+                    totalOrders: currentTotal,
+                    successfulOrders: currentSuccess,
+                    returnedOrders: currentReturn,
+                    totalSpent: currentSpent,
+                    lastOrderDate: orderToDelete.date,
+                    firstOrderDate: orderToDelete.date,
+                    averageOrderValue: currentSuccess > 0 ? currentSpent / currentSuccess : 0,
+                    loyaltyPoints: 0
+                }];
+            }
+        });
     }
     
     // 1. Remove Order from the main orders list
@@ -947,8 +1009,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
 
     const compSpecificFees = settings.companySpecificFees?.[orderToUpdate.shippingCompany];
     const useCustomFees = compSpecificFees?.useCustomFees ?? false;
-    const isFlexShipEnabled = useCustomFees ? (compSpecificFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false);
-    const configuredFlexShipFee = useCustomFees ? (compSpecificFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+    const isFlexShipEnabled = orderToUpdate.enableFlexShip !== undefined ? orderToUpdate.enableFlexShip : (useCustomFees ? (compSpecificFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+    const configuredFlexShipFee = orderToUpdate.flexShipFee !== undefined ? orderToUpdate.flexShipFee : (useCustomFees ? (compSpecificFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0));
 
     let isFlexShipPaid = false;
     if (['مرتجع', 'فشل_التوصيل'].includes(newStatus) && isFlexShipEnabled && configuredFlexShipFee > 0 && !orderToUpdate.flexShipFeePaidByCustomer && forcePaidFlexShip === undefined) {
@@ -968,7 +1030,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
 
     const orderWithFlexShip = {
         ...orderToUpdate,
-        ...(isFlexShipPaid ? { flexShipFeePaidByCustomer: true, flexShipFee: configuredFlexShipFee } : {})
+        ...(isFlexShipPaid ? { 
+            flexShipFeePaidByCustomer: true, 
+            flexShipFee: orderToUpdate.flexShipFee !== undefined ? orderToUpdate.flexShipFee : configuredFlexShipFee,
+            flexShipCompanyFee: orderToUpdate.flexShipCompanyFee !== undefined ? orderToUpdate.flexShipCompanyFee : (useCustomFees ? (compSpecificFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))
+        } : {})
     };
     
     // 1. Sync Inventory
@@ -1406,20 +1472,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                 }
             });
             
-            // Filter partner transactions
+            // Keep partner transactions intact as per user request
             let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
-            ordersBeingDeleted.forEach(orderToDelete => {
-                const orderIdToDelete = orderToDelete.id;
-                const orderNumberToDelete = orderToDelete.orderNumber;
-                if (orderNumberToDelete || orderIdToDelete) {
-                    updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => {
-                        const note = pt.note || '';
-                        const matchOrderNumber = orderNumberToDelete ? note.includes(`#${orderNumberToDelete}`) : false;
-                        const matchOrderId = orderIdToDelete ? (note.includes(orderIdToDelete) || pt.id.includes(orderIdToDelete)) : false;
-                        return !(matchOrderNumber || matchOrderId);
-                    });
-                }
-            });
 
             setSettings(prev => ({
                 ...prev,
@@ -2227,7 +2281,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
           onClose={() => setShowDetailsModal(null)}
         />
       )}
-      {orderToDelete && ( <ConfirmationModal title="حذف الطلب؟" description={`هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟`} onConfirm={handleDeleteOrder} onCancel={() => setOrderToDelete(null)} /> )}
+      {orderToDelete && ( 
+          <ConfirmationModal 
+            title="حذف الطلب؟" 
+            description={`هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟`} 
+            onConfirm={handleDeleteOrder} 
+            onCancel={() => setOrderToDelete(null)}
+            checkboxLabel={orderToDelete.orderType === 'maintenance' ? "حذف طلب الصيانة المرتبط أيضاً" : undefined}
+          /> 
+      )}
       {orderForWaybill && orderForModal && ( <WaybillModal order={orderForModal} onClose={() => setOrderForWaybill(null)} onSave={handleSaveWaybill} /> )}
       
       {autoWhatsappData && (
@@ -2418,6 +2480,20 @@ const ShipmentTypeBadge: React.FC<{ type?: string }> = ({ type }) => {
         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-emerald-55/60 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-205 dark:border-emerald-850 whitespace-nowrap">
           <Coins size={12} />
           <span>تحصيل نقدي</span>
+        </span>
+      );
+    case 'maintenance_pickup':
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-orange-50 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800/50 whitespace-nowrap">
+          <SettingsIcon size={12} />
+          <span>سحب للصيانة</span>
+        </span>
+      );
+    case 'maintenance_return':
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-cyan-50 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800/50 whitespace-nowrap">
+          <Wand2 size={12} />
+          <span>توصيل صيانة</span>
         </span>
       );
     case 'delivery':
@@ -2771,9 +2847,11 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
     const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(order.status);
     const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
     const flexPaidAmount = order.flexShipFeePaidByCustomer ? (order.flexShipFee || flexFeeValue) : 0;
+    const flexCompanyFeeValue = useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0);
+    const flexCompanyFeePaid = order.flexShipFeePaidByCustomer ? (order.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
 
     const netProfit = isReturnedOrFailed
-        ? (flexPaidAmount - carrierCost) // Loss is carrier costs minus what was recouped via Flex Ship
+        ? (flexPaidAmount - carrierCost - flexCompanyFeePaid) // Loss is carrier costs minus what was recouped via Flex Ship
         : (amountCollectedFromCustomer - totalExpenses);
 
     const profitLabel = isReturnedOrFailed 
@@ -2915,6 +2993,12 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                                     <span>خسارة بوليصة الذهاب:</span>
                                     <span>-{carrierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
                                 </div>
+                                {flexCompanyFeePaid > 0 && (
+                                    <div className="flex justify-between items-center flex-row-reverse text-rose-500">
+                                        <span>استقطاع شركة الشحن من فليكس شيب:</span>
+                                        <span>-{flexCompanyFeePaid.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between items-center flex-row-reverse text-emerald-600 dark:text-emerald-400">
                                     <span>الفليكس شيب المسترد من العميل:</span>
                                     <span>+{flexPaidAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
@@ -2929,7 +3013,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                             </div>
                             <div className="text-[10px] text-slate-450 dark:text-slate-500 font-bold leading-normal text-right mt-1 bg-white/50 dark:bg-slate-900/40 p-2 rounded-xl">
                                 {flexPaidAmount > 0 ? (
-                                    <span className="text-emerald-600 font-black">✓ فليكس الكابتن نشط! لقد وفرت {Math.round((flexPaidAmount / carrierCost) * 100)}% من تكلفة البوليصة بفضل تحصيل الرسوم من العميل.</span>
+                                    <span className="text-emerald-600 font-black">✓ فليكس الكابتن نشط! لقد وفرت {Math.round(((flexPaidAmount - flexCompanyFeePaid) / carrierCost) * 100)}% من تكلفة البوليصة بفضل تحصيل الرسوم من العميل (بعد عمولة شركة الشحن).</span>
                                 ) : (
                                     <span className="text-rose-600 font-black">ℹ️ العميل لم يدفع فليكس شيب (رفض السداد)، لذا تتحمل الشركة خسارة الشحن كاملة بقيمة {carrierCost.toLocaleString()} ج.م.</span>
                                 )}
@@ -2970,6 +3054,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                 {(() => {
                     const isFlexEnabled = useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false);
                     const flexFee = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+                    const flexCompanyFee = useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0);
                     if (isFlexEnabled && flexFee > 0 && !isReturnedOrFailed) {
                         return (
                             <div className="p-4 bg-violet-50 dark:bg-violet-950/20 rounded-2xl border border-violet-100 dark:border-violet-900/40 text-xs text-right mt-4 flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200">
@@ -2978,7 +3063,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                                     <span className="bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 rounded-full text-[10px]">نشط</span>
                                 </div>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-bold">
-                                    يُطالب المستلم بدفع رسوم إضافية بقيمة <strong className="text-violet-700 dark:text-violet-400 font-black">{flexFee} ج.م</strong> إذا رفض استلام الشحنة.
+                                    يُطالب المستلم بدفع رسوم إضافية بقيمة <strong className="text-violet-700 dark:text-violet-400 font-black">{flexFee} ج.م</strong> إذا رفض استلام الشحنة، ويستقطع منها لشركة الشحن <strong className="text-rose-700 dark:text-rose-400 font-black">{flexCompanyFee} ج.م</strong>.
                                 </p>
                             </div>
                         );
@@ -3183,7 +3268,15 @@ const OrderRow = ({
               </a>
             </div>
             <div className="group/customer relative inline-block text-right">
-              <div className="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-help">{order.customerName}</div>
+              <div className="flex items-center gap-1.5 justify-end">
+                  {order.recordedAsDebt && (
+                      <div className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black border border-rose-100 dark:border-rose-500/20">
+                          <Banknote size={10} />
+                          <span>دين</span>
+                      </div>
+                  )}
+                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-help">{order.customerName}</div>
+              </div>
               <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-2 justify-end mt-0.5">
                   <span className="tabular-nums">{order.customerPhone}</span>
                   <span className="w-1 h-1 bg-slate-200 rounded-full"></span>
@@ -3338,7 +3431,13 @@ const OrderRow = ({
                             تعيين موظف <UserIcon size={16} className="text-purple-500" />
                         </button>
                         <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-2 mx-4" />
-                        <button onClick={(e) => { e.stopPropagation(); setShowOps(false); onDelete(); }} className="w-full h-12 text-right px-4 text-xs font-black text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors">
+                        <button onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setShowOps(false); 
+                            if (confirm('هل أنت متأكد من حذف هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء.')) {
+                                onDelete(); 
+                            }
+                        }} className="w-full h-12 text-right px-4 text-xs font-black text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors">
                             حذف الطلب <Trash2 size={16} />
                         </button>
                     </div>
@@ -5076,25 +5175,41 @@ const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({ ord
         </div>
     );
 };
-const ConfirmationModal: React.FC<{ title: string; description: string; onConfirm: () => void; onCancel: () => void; }> = ({ title, description, onConfirm, onCancel }) => (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-        <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl p-6 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800">
-            <div className="w-16 h-16 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <AlertCircle size={32} />
-            </div>
-            <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{title}</h3>
-            <p className="text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">{description}</p>
-            <div className="flex flex-col gap-2">
-                <button onClick={onConfirm} className="w-full py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-sm hover:shadow">
-                    تأكيد الحذف
-                </button>
-                <button onClick={onCancel} className="w-full py-3 text-slate-500 dark:text-slate-400 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all">
-                    تراجع
-                </button>
+const ConfirmationModal: React.FC<{ title: string; description: string; onConfirm: (deleteRelated?: boolean) => void; onCancel: () => void; checkboxLabel?: string; }> = ({ title, description, onConfirm, onCancel, checkboxLabel }) => {
+    const [deleteRelated, setDeleteRelated] = React.useState(false);
+    return (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl p-6 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800">
+                <div className="w-16 h-16 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">{title}</h3>
+                <p className="text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">{description}</p>
+                
+                {checkboxLabel && (
+                    <label className="flex items-center gap-2 mb-6 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 p-3 rounded-xl transition-all">
+                        <input 
+                            type="checkbox" 
+                            checked={deleteRelated}
+                            onChange={(e) => setDeleteRelated(e.target.checked)}
+                            className="w-5 h-5 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                        />
+                        <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{checkboxLabel}</span>
+                    </label>
+                )}
+                
+                <div className="flex flex-col gap-2">
+                    <button onClick={() => onConfirm(deleteRelated)} className="w-full py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-sm hover:shadow">
+                        تأكيد الحذف
+                    </button>
+                    <button onClick={onCancel} className="w-full py-3 text-slate-500 dark:text-slate-400 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all">
+                        تراجع
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 interface OrderPreConfirmationModalProps { order: Omit<Order, 'id'>; settings: Settings; onConfirm: () => void; onCancel: () => void; }
 const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({ order, settings, onConfirm, onCancel }) => {
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
