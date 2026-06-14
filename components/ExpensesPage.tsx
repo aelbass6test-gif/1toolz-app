@@ -401,10 +401,10 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                                 }
 
                                 if (fundingPartners.length === 0 && exp.details?.expensePaidBy) {
-                                    const isPartner = settings.partners?.some(p => p.name.trim() === exp.details.expensePaidBy?.trim());
+                                    const isPartner = settings.partners?.some(p => (p.name || '').trim() === (exp.details?.expensePaidBy || '').trim());
                                     fundingPartners.push({ name: exp.details.expensePaidBy, isPartner: !!isPartner });
                                 } else if (fundingPartners.length === 0 && exp.details?.note) {
-                                    const p = settings.partners?.find(p => p.name.trim() === exp.details.note?.trim());
+                                    const p = settings.partners?.find(p => (p.name || '').trim() === (exp.details?.note || '').trim());
                                     if (p) fundingPartners.push({ name: p.name, isPartner: true });
                                 }
 

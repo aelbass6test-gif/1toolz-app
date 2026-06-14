@@ -67,6 +67,9 @@ interface UpgradedBreakdownDetails {
 }
 
 const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, settings, activeStore }) => {
+  if (!settings) {
+    return <div className="p-20 text-center"><RefreshCw className="animate-spin mx-auto text-slate-400" size={32} /></div>;
+  }
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBreakdown, setSelectedBreakdown] = useState<UpgradedBreakdownDetails | null>(null);
   
@@ -169,9 +172,9 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       const { net, profit, loss } = calculateOrderProfitLoss(o, settings);
       
       // Calculate deductions (shipping, insurance, vat, cod, etc.) separately for the stats summary
-      const compFees = settings.companySpecificFees?.[o.shippingCompany];
+      const compFees = settings?.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
-      const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+      const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings?.enableInsurance ? settings.insuranceFeePercent : 0);
       const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
       const bostaVat = calculateBostaVat(o, insuranceFee, settings);
       const codFee = o.status === 'مدفوعة' ? 0 : calculateCodFee(o, settings); 
@@ -231,6 +234,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
   }, [collectedOrders, settings]);
 
   const showBreakdown = (order: Order) => {
+    if (!settings) return;
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
     const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
@@ -243,7 +247,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     const collectionAmount = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! : defaultCollectionAmount;
     const extraAdjustment = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! - defaultCollectionAmount : 0;
 
-    const codFee = calculateCodFee(order);
+    const codFee = calculateCodFee(order, settings);
     const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
     const inspectionAdjustment = order.inspectionFeePaidByCustomer ? 0 : inspectionCost;
     const bostaVat = calculateBostaVat(order, insuranceFee, settings);
@@ -283,7 +287,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     // Generate CSV contents
     const headers = ["رقم الأوردر", "اسم العميل", "شركة الشحن", "المبلغ المحصل", "تكلفة السلع", "الخصم", "التأمين والضريبة", "عمولة COD", "صافي الربح", "التاريخ"];
     const rows = collectedOrders.map(o => {
-      const cod = calculateCodFee(o);
+      const cod = calculateCodFee(o, settings);
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
       const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
@@ -701,7 +705,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                 </tr>
               ) : (
                 collectedOrders.map(order => {
-                  const cod = calculateCodFee(order);
+                  const cod = calculateCodFee(order, settings);
                   const compFees = settings.companySpecificFees?.[order.shippingCompany];
                   const useCustom = compFees?.useCustomFees ?? false;
                   const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);

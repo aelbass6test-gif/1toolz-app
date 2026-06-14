@@ -549,6 +549,7 @@ const CompanyManager: React.FC<any> = ({ companyName, settings, setSettings, onB
 
 // ... (Rest of components remain the same, just receiving `setSettings` which is actually `setLocalSettings`)
 const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
+  if (!settings) return null;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
   const [managingZoneId, setManagingZoneId] = useState<string | null>(null);

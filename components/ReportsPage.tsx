@@ -155,17 +155,18 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
 
     // Income Statement Breakdown
     const incomeStatement = useMemo(() => {
-        const grossSales = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status)).reduce((sum, o) => {
-            const itemsRevenue = (o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
-            return sum + (itemsRevenue + o.shippingFee - (o.discount || 0));
-        }, 0);
-        
+        let grossSales = 0;
         let totalCogs = 0;
         let returnsLoss = 0;
+        let successfulShippingOperations = 0;
+
         orders.forEach(order => {
-            const { loss } = calculateOrderProfitLoss(order, settings);
+            const { profit, loss, net, breakdown: financials } = calculateOrderProfitLoss(order, settings);
+            
             if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(order.status)) {
-                totalCogs += getOrderProductCost(order);
+                grossSales += financials.revenue;
+                totalCogs += financials.productCost;
+                successfulShippingOperations += (financials.totalExpenses - financials.productCost);
             }
             if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(order.status)) {
                 returnsLoss += loss;
@@ -179,19 +180,6 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             .reduce((sum, t) => sum + t.amount, 0);
 
         const otherAdmin = totalExpenses - marketingAds;
-        
-        let successfulShippingOperations = 0;
-        orders.forEach(order => {
-            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(order.status)) {
-                const { profit } = calculateOrderProfitLoss(order, settings);
-                const safeProductCost = getOrderProductCost(order);
-                const itemsRevenue = (order.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
-                const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
-                    ? order.totalAmountOverride + (order.advancePayment || 0)
-                    : (itemsRevenue + order.shippingFee - order.discount);
-                successfulShippingOperations += Math.max(0, totalCollected - profit - safeProductCost);
-            }
-        });
 
         const realNetProfit = reportData.netFinancial;
         const marginRate = grossSales > 0 ? (realNetProfit / grossSales) * 100 : 0;

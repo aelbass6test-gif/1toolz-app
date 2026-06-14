@@ -12,6 +12,7 @@ interface OrderDetailsModalProps {
 }
 
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, settings, onClose }) => {
+  if (!settings) return null;
   const [activeTab, setActiveTab] = useState<'details' | 'tracking'>('details');
 
   const safeProductPrice = Number(order.productPrice) || 0;

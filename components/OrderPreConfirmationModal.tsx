@@ -11,6 +11,7 @@ interface OrderPreConfirmationModalProps {
 }
 
 export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({ order, settings, onConfirm, onCancel }) => {
+    if (!settings) return null;
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
     const inspectionFee = order.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
     const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;

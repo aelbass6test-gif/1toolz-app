@@ -184,6 +184,9 @@ const WaybillModal: React.FC<{ order: Order; onClose: () => void; onSave: (waybi
 
 
 const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ orders, setOrders, products, settings, currentUser, setWallet, setSettings, addLoyaltyPointsForOrder, activeStore, customers, setCustomers, onRefresh, treasury, setTreasury, defaultShowAdd }) => {
+  if (!settings) {
+     return <div className="p-20 text-center"><RefreshCcw className="animate-spin mx-auto mb-4 text-slate-400" size={32} /></div>;
+  }
   const navigate = useNavigate();
   const location = useLocation();
   const storePrefix = activeStore ? `/store/${activeStore.id}` : '';
@@ -453,8 +456,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
           ? o.totalAmountOverride + safeAdvance 
           : (baseRevenue - safeDiscount);
 
-      const totalCarrierExpenses = safeShippingFee + insuranceFee + bostaVatFee;
-      const totalExpenses = safeProductCost + safeShippingFee + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
+      const standardShippingFee = getStandardShippingFee(o, settings);
+      const totalCarrierExpenses = (isPosOrder ? 0 : standardShippingFee) + insuranceFee + bostaVatFee;
+      const totalExpenses = safeProductCost + (isPosOrder ? 0 : standardShippingFee) + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
 
       const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(o.status);
       const isFlexShipEnabled = o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
@@ -1242,11 +1246,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   };
 
 
-  const handleCollectAction = (order: Order, customerPaidInspection: boolean, customerPaidFlexShip: boolean = false) => {
+  const handleCollectAction = (order: Order, customerPaidInspection: boolean, customerPaidFlexShip: boolean = false, updateStatus: boolean = true) => {
     const isMaintenance = order.orderType === 'maintenance' || (order.status as string) === 'سحب_للصيانة';
     const allowedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_الارسال', 'قيد_الشحن', 'تم_التحصيل', 'مدفوعة'];
     
-    if ((!allowedStatuses.includes(order.status) && !isMaintenance) || order.collectionProcessed) return;
+    if (((!allowedStatuses.includes(order.status) && !isMaintenance && order.paymentStatus !== 'مدفوع') || order.collectionProcessed) && updateStatus) return;
 
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
@@ -1293,7 +1297,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     
     const updatedOrderData = { 
         ...order, 
-        status: isMaintenance ? order.status : ('تم_التحصيل' as OrderStatus), 
+        status: isMaintenance ? order.status : (updateStatus ? ('تم_التحصيل' as OrderStatus) : order.status), 
         paymentStatus: 'مدفوع' as PaymentStatus, 
         inspectionFeePaidByCustomer: customerPaidInspection, 
         flexShipFeePaidByCustomer: customerPaidFlexShip,
@@ -1344,7 +1348,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                 needsInspectionConfirm
             });
         } else {
-            handleCollectAction(updatedOrder, order.inspectionFeePaidByCustomer || false, order.flexShipFeePaidByCustomer || false);
+            handleCollectAction(updatedOrder, order.inspectionFeePaidByCustomer || false, order.flexShipFeePaidByCustomer || false, false);
         }
     } else {
         updateOrderField(order.id, 'paymentStatus', newPaymentStatus);

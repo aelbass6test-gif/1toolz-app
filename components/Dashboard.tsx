@@ -228,6 +228,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     let totalLoss = 0;
     let totalCOGS = 0;
     let totalShippingPaid = 0;
+    let totalInsurancePaid = 0;
     let totalReturnedExpenses = 0;
     
     // Additional metrics for the new requested cards
@@ -267,12 +268,9 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           websiteRevenue += orderRevenue;
       }
 
-      const { profit, loss } = calculateOrderProfitLoss(o, settings);
+      const { profit, loss, breakdown: financials } = calculateOrderProfitLoss(o, settings);
       totalProfit += profit;
       totalLoss += loss;
-
-      const safeProductCost = getOrderProductCost(o) || 0;
-      const safeShippingFee = Number(o.shippingFee) || 0;
 
       // Mapping for the 8 requested cards
       if (o.status === 'جاري_المراجعة' || o.status === 'في_انتظار_المكالمة') {
@@ -293,8 +291,9 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها') {
           successfulOrdersCount++;
           actualCollection += orderRevenue;
-          totalCOGS += safeProductCost;
-          totalShippingPaid += safeShippingFee;
+          totalCOGS += financials.productCost;
+          totalShippingPaid += financials.shippingPaid;
+          totalInsurancePaid += (financials.insurance + financials.vat);
       } else if (!['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(o.status)) {
           expectedCollection += orderRevenue;
       }
@@ -553,6 +552,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       expectedCollection,
       totalCOGS: finalCOGS,
       totalShippingPaid,
+      totalInsurancePaid,
       totalReturnedExpenses,
       totalInventoryValue,
       workingCapital,

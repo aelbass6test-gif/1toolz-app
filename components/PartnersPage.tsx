@@ -69,13 +69,11 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     let returnsLosses = 0;
 
     orders.forEach(order => {
-        const { profit, loss } = calculateOrderProfitLoss(order, settings);
+        const { net, profit, loss, breakdown: financials } = calculateOrderProfitLoss(order, settings);
         
-        if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة') {
-            const totalItemsRevenue = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const totalItemsCost = order.items.reduce((sum, item) => sum + (item.cost * item.quantity), 0);
-            grossMargin += (totalItemsRevenue - totalItemsCost);
-            operationalFees += (totalItemsRevenue - totalItemsCost) - profit;
+        if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || order.status === 'تم_توصيلها') {
+            grossMargin += (financials.productRevenue - financials.productCost);
+            operationalFees += (financials.totalExpenses - financials.productCost);
         } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(order.status)) {
             returnsLosses += loss;
         }

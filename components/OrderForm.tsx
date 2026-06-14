@@ -48,6 +48,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   treasury,
   allStoresData
 }) => {
+    if (!settings) {
+        return <div className="p-20 text-center"><RefreshCcw className="animate-spin mx-auto text-slate-400" size={32} /></div>;
+    }
     const navigate = useNavigate();
     const isExchange = (orderData as NewOrderState).orderType === 'exchange' || (orderData as NewOrderState).shipmentType === 'exchange';
     const isReturn = (orderData as NewOrderState).shipmentType === 'return';
