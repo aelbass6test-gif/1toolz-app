@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { Order, Settings, Store, OrderItem } from '../types';
 import { generateCollectionsReportHTML } from '../utils/reportGenerator';
-import { isBosta, calculateInsuranceFee, calculateBostaVat, getOrderCollectionAmount, calculateOrderProfitLoss, calculateCodFee } from '../utils/financials';
+import { isBosta, calculateInsuranceFee, calculateBostaVat, calculateOrderProfitLoss, calculateCodFee } from '../utils/financials';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { 
   AreaChart, 
@@ -67,11 +67,10 @@ interface UpgradedBreakdownDetails {
 }
 
 const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, settings, activeStore }) => {
-  if (!settings) {
-    return <div className="p-20 text-center"><RefreshCw className="animate-spin mx-auto text-slate-400" size={32} /></div>;
-  }
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBreakdown, setSelectedBreakdown] = useState<UpgradedBreakdownDetails | null>(null);
+
+  if (!settings) return null;
   
   // Custom Filter States
   const [selectedCompany, setSelectedCompany] = useState('all');
@@ -79,6 +78,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedProfitBracket, setSelectedProfitBracket] = useState<'all' | 'profitable' | 'non_profitable'>('all');
+
+
 
   // Get list of unique shipping companies
   const shippingCompanies = useMemo(() => {
@@ -93,7 +94,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
 
   // Master Filter Logic
   const collectedOrders = useMemo(() => {
-    let list = orders.filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة');
+    let list = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
 
     // 1. Filter by search term
     if (searchTerm) {
@@ -150,8 +151,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     // 5. Filter by profitability
     if (selectedProfitBracket !== 'all') {
       list = list.filter(o => {
-        const { net } = calculateOrderProfitLoss(o, settings);
-        return selectedProfitBracket === 'profitable' ? net > 0 : net <= 0;
+        const { profit } = calculateOrderProfitLoss(o, settings);
+        return selectedProfitBracket === 'profitable' ? profit > 0 : profit <= 0;
       });
     }
 
@@ -168,23 +169,32 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     let totalDeductions = 0;
 
     collectedOrders.forEach(o => {
-      const collectionAmount = getOrderCollectionAmount(o);
-      const { net, profit, loss } = calculateOrderProfitLoss(o, settings);
+      const { profit } = calculateOrderProfitLoss(o, settings);
       
-      // Calculate deductions (shipping, insurance, vat, cod, etc.) separately for the stats summary
-      const compFees = settings?.companySpecificFees?.[o.shippingCompany];
+      const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
-      const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings?.enableInsurance ? settings.insuranceFeePercent : 0);
+      const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      
+      const codFee = calculateCodFee(o, settings);
       const insuranceFee = calculateInsuranceFee(o, insuranceRate, settings);
+      const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionCost;
       const bostaVat = calculateBostaVat(o, insuranceFee, settings);
-      const codFee = o.status === 'مدفوعة' ? 0 : calculateCodFee(o, settings); 
+      
+      const safeDiscount = o.discount || 0;
+      const safeAdvance = o.advancePayment || 0;
+      const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
+      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
+      
+      const shippingDeduction = insuranceFee + inspectionAdjustment + codFee + bostaVat;
       
       totalGross += collectionAmount;
-      totalInsuranceFees += insuranceFee + bostaVat;
+      totalInsuranceFees += insuranceFee;
       totalCodFees += codFee;
-      totalCOGS += (o.productCost || 0);
-      totalDeductions += (collectionAmount - net - (o.productCost || 0));
-      totalNetProfit += net;
+      totalCOGS += o.productCost || 0;
+      totalDeductions += shippingDeduction;
+      totalNetProfit += profit;
     });
 
     const netMarginPercent = totalGross > 0 ? (totalNetProfit / totalGross) * 100 : 0;
@@ -211,8 +221,19 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       if (!o.date) return;
       const dateStr = o.date.split('T')[0];
       
-      const collectionAmount = getOrderCollectionAmount(o);
-      const { net } = calculateOrderProfitLoss(o, settings);
+      const { profit } = calculateOrderProfitLoss(o, settings);
+      
+      const compFees = settings.companySpecificFees?.[o.shippingCompany];
+      const useCustom = compFees?.useCustomFees ?? false;
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      
+      const safeDiscount = o.discount || 0;
+      const safeAdvance = o.advancePayment || 0;
+      const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
+      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
+      
+      const netProfit = profit;
       
       if (!dailyMap[dateStr]) {
         // Human readable date name
@@ -224,7 +245,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
       }
       
       dailyMap[dateStr].gross += collectionAmount;
-      dailyMap[dateStr].net += net;
+      dailyMap[dateStr].net += netProfit;
       dailyMap[dateStr].count += 1;
     });
     
@@ -234,10 +255,10 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
   }, [collectedOrders, settings]);
 
   const showBreakdown = (order: Order) => {
-    if (!settings) return;
+    const { profit } = calculateOrderProfitLoss(order, settings);
+    
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
-    const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
     const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
     const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
     
@@ -248,10 +269,10 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
     const extraAdjustment = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! - defaultCollectionAmount : 0;
 
     const codFee = calculateCodFee(order, settings);
+    const insuranceRate = useCustom ? compFees!.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
     const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
-    const inspectionAdjustment = order.inspectionFeePaidByCustomer ? 0 : inspectionCost;
     const bostaVat = calculateBostaVat(order, insuranceFee, settings);
-    const net = order.productPrice - safeDiscount - order.productCost - insuranceFee - inspectionAdjustment - codFee - bostaVat + extraAdjustment;
+    const net = profit;
 
     setSelectedBreakdown({
       orderNumber: order.orderNumber,
@@ -705,6 +726,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                 </tr>
               ) : (
                 collectedOrders.map(order => {
+                  const { profit } = calculateOrderProfitLoss(order, settings);
+                  
                   const cod = calculateCodFee(order, settings);
                   const compFees = settings.companySpecificFees?.[order.shippingCompany];
                   const useCustom = compFees?.useCustomFees ?? false;
@@ -722,7 +745,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                   const extraAdjustment = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! - defaultCollectionAmount : 0;
                   
                   const directFees = insuranceFee + bostaVat + inspectionAdjustment + cod;
-                  const netProfit = order.productPrice - safeDiscount - order.productCost - insuranceFee - inspectionAdjustment - cod - bostaVat + extraAdjustment;
+                  const netProfit = profit;
                   
                   return (
                     <tr key={order.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
@@ -923,8 +946,8 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                        </div>
                      )}
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
-                       <span>تأمين الشحنة {selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? "والضريبة (+ ضريبة بوسطة 14%)" : "والضريبة"}:</span>
-                       <span className="text-rose-500">-{selectedBreakdown.insuranceOnlyFee !== undefined && selectedBreakdown.insuranceOnlyFee > 0 ? `${selectedBreakdown.insuranceOnlyFee.toLocaleString()} ج.م${selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? ` + ${selectedBreakdown.bostaVat.toLocaleString()} ج.م ضريبة بوسطة 14%` : ''}` : selectedBreakdown.insuranceFee.toLocaleString() + ' ج.م'}</span>
+                       <span>تأمين الشحنة {selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? "والضريبة (+ ضريبة الشحن 14%)" : "والضريبة"}:</span>
+                       <span className="text-rose-500">-{selectedBreakdown.insuranceOnlyFee !== undefined && selectedBreakdown.insuranceOnlyFee > 0 ? `${selectedBreakdown.insuranceOnlyFee.toLocaleString()} ج.م${selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? ` + ${selectedBreakdown.bostaVat.toLocaleString()} ج.م ضريبة 14%` : ''}` : selectedBreakdown.insuranceFee.toLocaleString() + ' ج.م'}</span>
                      </div>
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                        <span>رسوم COD:</span>
@@ -936,10 +959,10 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                          <span>{selectedBreakdown.extraAdjustment.toLocaleString()} ج.م</span>
                        </div>
                      )}
-                     {selectedBreakdown.inspectionCost > 0 && !selectedBreakdown.inspectionPaid && (
+                     {selectedBreakdown.inspectionCost > 0 && (
                        <div className="flex justify-between text-xs font-bold text-slate-600">
-                         <span>رسوم معاينة بوسطة:</span>
-                         <span className="text-rose-500">-{selectedBreakdown.inspectionCost} ج.م</span>
+                         <span>رسوم معاينة ({selectedBreakdown.shippingCompany}): <span className="text-[10px] text-slate-400 font-normal mr-1 border border-slate-200 dark:border-slate-700 px-1 rounded-sm">{selectedBreakdown.inspectionPaid ? 'تحملها العميل' : 'تحملتها الشركة'}</span></span>
+                         <span className={selectedBreakdown.inspectionPaid ? 'text-slate-400 line-through' : 'text-rose-500'}>-{selectedBreakdown.inspectionCost} ج.م</span>
                        </div>
                      )}
                    </div>

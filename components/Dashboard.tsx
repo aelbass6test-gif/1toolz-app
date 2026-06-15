@@ -5,7 +5,7 @@ import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from 
 import { Link } from 'react-router-dom';
 import { motion, Variants } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
-import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, getOrderCollectionAmount } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from '../utils/financials';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -228,7 +228,6 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     let totalLoss = 0;
     let totalCOGS = 0;
     let totalShippingPaid = 0;
-    let totalInsurancePaid = 0;
     let totalReturnedExpenses = 0;
     
     // Additional metrics for the new requested cards
@@ -247,11 +246,33 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     let posRevenue = 0;
     let websiteRevenue = 0;
 
-    const counts: Record<string, number> = {
+    let counts: Record<string, number> = {
       'في_انتظار_المكالمة': 0,
       'جاري_المراجعة': 0, 'قيد_التنفيذ': 0, 'تم_الارسال': 0, 'قيد_الشحن': 0,
-      'تم_توصيلها': 0, 'تم_التحصيل': 0, 'مدفوعة': 0, 'مرتجع': 0, 'مرتجع_جزئي': 0,
+      'تم_توصيلها': 0, 'تم_التوصيل': 0, 'تم_التحصيل': 0, 'مدفوعة': 0, 'مرتجع': 0, 'مرتجع_جزئي': 0,
       'فشل_التوصيل': 0, 'تمت_الاعادة_لشركة_الشحن': 0, 'ملغي': 0, 'مؤجل': 0, 'مجدول': 0
+    };
+
+    const getOrderCollectionAmount = (order: Order) => {
+      if (!settings) return 0;
+      const safeProductPrice = Number(order.productPrice) || 0;
+      const safeShippingFee = Number(order.shippingFee) || 0;
+      const safeTax = Number(order.tax) || 0;
+      const safeDiscount = Number(order.discount) || 0;
+      const safeAdvance = Number(order.advancePayment) || 0;
+      
+      const compFees = settings.companySpecificFees?.[order.shippingCompany];
+      const useCustom = compFees?.useCustomFees ?? false;
+      const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+      const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+      const insuranceFee = (isPosOrder ? 0 : ((order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0));
+      const inspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const bostaVatFee = isPosOrder ? 0 : calculateBostaVat(order, insuranceFee, settings);
+      
+      const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
+      const totalAmount = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
+      const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : totalAmount;
+      return displayTotal;
     };
 
     (orders || []).forEach((o: Order) => {
@@ -268,9 +289,12 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           websiteRevenue += orderRevenue;
       }
 
-      const { profit, loss, breakdown: financials } = calculateOrderProfitLoss(o, settings);
+      const { profit, loss } = calculateOrderProfitLoss(o, settings);
       totalProfit += profit;
       totalLoss += loss;
+
+      const safeProductCost = getOrderProductCost(o, settings) || 0;
+      const safeShippingFee = Number(o.shippingFee) || 0;
 
       // Mapping for the 8 requested cards
       if (o.status === 'جاري_المراجعة' || o.status === 'في_انتظار_المكالمة') {
@@ -288,12 +312,11 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           totalReturnedExpenses += loss;
       }
       
-      if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها') {
+      if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') {
           successfulOrdersCount++;
           actualCollection += orderRevenue;
-          totalCOGS += financials.productCost;
-          totalShippingPaid += financials.shippingPaid;
-          totalInsurancePaid += (financials.insurance + financials.vat);
+          totalCOGS += safeProductCost;
+          totalShippingPaid += safeShippingFee;
       } else if (!['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(o.status)) {
           expectedCollection += orderRevenue;
       }
@@ -445,7 +468,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     // Top Selling Products logic
     const topProducts = (settings?.products || []).map(p => {
         const salesCount = (orders || []).filter(o => 
-            ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status) &&
+            ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status) &&
             (o.items || []).some(item => item.productId === p.id)
         ).length;
         return { ...p, salesCount };
@@ -470,17 +493,38 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     const finalProfit = totalProfit + extraPosProfit;
     const finalSuccessfulCount = successfulOrdersCount + extraPosSales.length;
     
-    const grossProfit = finalRevenue - finalCOGS;
+    // Gross Profit (Product Margin) = Revenue - Product Cost (COGS)
+    // This represents the direct profit from products before shipping and fees, now including shipping markups and rounding markups
+    const grossProfit = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).reduce((sum, o) => {
+        const itemProfit = (o.items || []).reduce((iSum, item) => {
+            const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            return iSum + ((item.price - cost) * (item.quantity || 1));
+        }, 0);
+
+        const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+        const standardShipping = isPosOrder ? 0 : getStandardShippingFee(o, settings);
+        const shippingMarkup = isPosOrder ? 0 : Math.max(0, o.shippingFee - standardShipping);
+
+        const safeProductPrice = Number(o.productPrice) || 0;
+        const safeShippingFee = Number(o.shippingFee) || 0;
+        const safeDiscount = Number(o.discount) || 0;
+        const baseTotalExpected = safeProductPrice + safeShippingFee - safeDiscount;
+
+        return sum + itemProfit + shippingMarkup;
+    }, 0) + extraPosProfit;
+    
     const supplierDebt = (settings?.suppliers || []).reduce((sum, s) => sum + (s.balance || 0), 0);
     const shippingReceivables = (orders || [])
-        .filter(o => (o.status === 'تم_توصيلها' || o.status === 'مدفوعة' || o.status === 'قيد_الشحن') && !o.collectionProcessed)
+        .filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'مدفوعة' || o.status === 'قيد_الشحن') && !o.collectionProcessed)
         .reduce((sum, o) => sum + getOrderCollectionAmount(o), 0);
     
-    const netAvailableLiquidity = treasuryTotal - supplierDebt;
-    const roi = totalCapital > 0 ? ((finalProfit - totalLoss - adminExpenses) / totalCapital) * 100 : 0;
+    const netAvailableLiquidity = (treasuryTotal || 0) - supplierDebt;
+    const netProfit = finalProfit - totalLoss - adminExpenses;
+    
+    const roi = totalCapital > 0 ? (netProfit / totalCapital) * 100 : 0;
     const expenseRatio = finalRevenue > 0 ? (adminExpenses / finalRevenue) * 100 : 0;
     const grossMarginPercentage = finalRevenue > 0 ? (grossProfit / finalRevenue) * 100 : 0;
-    const netMarginPercentage = finalRevenue > 0 ? ((finalProfit - totalLoss - adminExpenses) / finalRevenue) * 100 : 0;
+    const netMarginPercentage = finalRevenue > 0 ? (netProfit / finalRevenue) * 100 : 0;
     const netMargin = Math.round(netMarginPercentage * 10) / 10;
     
     // Revenue Growth (Current month vs Previous month)
@@ -530,14 +574,14 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         pending: (orders || []).filter(o => o.status === 'جاري_المراجعة' || o.status === 'في_انتظار_المكالمة').length,
         confirmed: (orders || []).filter(o => o.status === 'قيد_التنفيذ' || o.status === 'تم_الارسال').length,
         shipping: (orders || []).filter(o => o.status === 'قيد_الشحن').length,
-        delivered: (orders || []).filter(o => o.status === 'تم_توصيلها' || o.status === 'مدفوعة').length,
+        delivered: (orders || []).filter(o => o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'مدفوعة').length,
         collected: (orders || []).filter(o => o.status === 'تم_التحصيل').length
     };
 
-    const avgProfitPerOrder = finalSuccessfulCount > 0 ? (finalProfit - totalLoss - adminExpenses) / finalSuccessfulCount : 0;
+    const avgProfitPerOrder = finalSuccessfulCount > 0 ? netProfit / finalSuccessfulCount : 0;
 
     return { 
-      net: finalProfit - totalLoss - adminExpenses, 
+      net: netProfit, 
       adminExpenses,
       totalCapital,
       counts, 
@@ -552,7 +596,6 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       expectedCollection,
       totalCOGS: finalCOGS,
       totalShippingPaid,
-      totalInsurancePaid,
       totalReturnedExpenses,
       totalInventoryValue,
       workingCapital,
@@ -735,7 +778,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</span>
               <span className="text-xs font-black text-slate-400">ج.م / طلب</span>
             </div>
             <p className="text-[9px] text-slate-400 font-bold mt-3.5">
@@ -976,7 +1019,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>صافي الأرباح (Net Profit)</span>
                 </p>
                 <h4 className={`text-2xl sm:text-3xl font-black tabular-nums ${stats.net >= 0 ? 'text-primary' : 'text-rose-500'}`}>
-                  {stats.net.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.net.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <div className="flex items-center gap-2">
                   <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${stats.revenueGrowth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
@@ -993,7 +1036,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>مجمل الربح (Gross Profit)</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                  {stats.grossProfit.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">الأرباح قبل خصم المصاريف التشغيلية</p>
               </div>
@@ -1029,7 +1072,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>قيمة المخزون (Stock Value)</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                  {stats.inventoryValue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">إجمالي تكلفة البضاعة الموجودة بالمستودعات</p>
               </div>
@@ -1041,7 +1084,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>صافي الربح / طلب</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                  {Math.round(stats.avgProfitPerOrder).toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">متوسط الربح الصافي المحقق من كل طلب ناجح</p>
               </div>
@@ -1056,23 +1099,23 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                <div className="pt-8 mt-8 border-t border-slate-100 dark:border-slate-800/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">رأس المال العامل</p>
-                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.workingCapital.toLocaleString()} ج.م</h5>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.workingCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">إجمالي الاستثمارات</p>
-                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCapital.toLocaleString()} ج.م</h5>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">تكلفة البضاعة COGS</p>
-                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCOGS.toLocaleString()} ج.م</h5>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCOGS.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">مصاريف التشغيل</p>
-                    <h5 className="text-sm font-black text-rose-500">{stats.adminExpenses.toLocaleString()} ج.م</h5>
+                    <h5 className="text-sm font-black text-rose-500">{stats.adminExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">ديون الموردين</p>
-                    <h5 className="text-sm font-black text-rose-600">{stats.supplierDebt.toLocaleString()} ج.م</h5>
+                    <h5 className="text-sm font-black text-rose-600">{stats.supplierDebt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">صافي السيولة المتاحة</p>

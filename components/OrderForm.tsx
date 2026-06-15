@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, ChevronDown, Package, Coins, User as UserIcon, Building, Truck, CheckCircle, RefreshCcw, ArrowRightLeft, Image as ImageIcon, X, ExternalLink, Link as LinkIcon, ShoppingBag, Info, Calculator, ArrowLeft, Percent, Save, FileText, LayoutList, Banknote, TrendingUp, Settings as SettingsIcon, Wand2, Shield, CreditCard, Star, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, Package, Coins, User as UserIcon, Building, Truck, CheckCircle, RefreshCcw, ArrowRightLeft, Image as ImageIcon, X, ExternalLink, Link as LinkIcon, ShoppingBag, Info, Calculator, ArrowLeft, Percent, Save, FileText, LayoutList, Banknote, TrendingUp, Settings as SettingsIcon, Wand2, Shield, CreditCard, Star, AlertCircle, Loader2 } from 'lucide-react';
 import { Order, Settings, OrderItem, Product, CustomerProfile, Store, User } from '../types';
 import { EGYPT_GOVERNORATES } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -48,10 +48,15 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   treasury,
   allStoresData
 }) => {
-    if (!settings) {
-        return <div className="p-20 text-center"><RefreshCcw className="animate-spin mx-auto text-slate-400" size={32} /></div>;
-    }
     const navigate = useNavigate();
+    
+    if (!settings) return (
+        <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+            <Loader2 size={32} className="animate-spin mb-4" />
+            <p className="text-sm font-bold">جاري تحميل الإعدادات...</p>
+        </div>
+    );
+
     const isExchange = (orderData as NewOrderState).orderType === 'exchange' || (orderData as NewOrderState).shipmentType === 'exchange';
     const isReturn = (orderData as NewOrderState).shipmentType === 'return';
     const isCashCollection = (orderData as NewOrderState).shipmentType === 'cash_collection';
@@ -264,7 +269,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         const hasVat = compFees?.enableVat !== false;
         if (!hasVat) return 0;
         
-        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
         const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
         
         // VAT usually applies to the shipping fee + service fees, not the product price itself in logistics
@@ -279,7 +284,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         const serviceBase = isMaintenance ? (Number(orderData.maintenanceCost) || 0) : 0;
         
         const taxableBase = shippingFee + inspectionFeeValue + serviceBase + insuranceValue;
-        return Math.round(taxableBase * (vatRate / 100) * 100) / 100;
+        return Math.round(taxableBase * vatRate * 100) / 100;
     }, [orderData.shippingCompany, settings, orderData.governorate, orderData.shippingArea, orderData.city, orderData.items, orderData.shipmentType, orderData.includeInspectionFee, inspectionFee, isMaintenance, orderData.maintenanceCost, insuranceFee, orderData.shippingFee, orderData.vatOnStandardShipping]);
 
     // Final Amount to Collect (مبلغ التحصيل)

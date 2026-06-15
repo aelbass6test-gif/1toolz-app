@@ -11,7 +11,6 @@ interface OrderPreConfirmationModalProps {
 }
 
 export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({ order, settings, onConfirm, onCancel }) => {
-    if (!settings) return null;
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
     const inspectionFee = order.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
     const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
@@ -20,14 +19,14 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
     
     // Logic matching OrderForm VAT
     const useCustom = compFees?.useCustomFees ?? false;
-    const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+    const vatRate = useCustom ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
     const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
     const hasVat = compFees?.enableVat !== false;
     const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
     const useStandard = order.vatOnStandardShipping === true;
     const standardShippingFee = useStandard ? getStandardShippingFee(order as Order, settings) : (order.shippingFee || 0);
     const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
-    const vatValue = hasVat ? (Math.round(taxableBase * (vatRate / 100) * 100) / 100) : 0;
+    const vatValue = (hasVat && vatRate > 0) ? (Math.round(taxableBase * vatRate * 100) / 100) : 0;
 
     const isMaintenance = order.orderType === 'maintenance';
     const basePrice = isMaintenance ? (Number((order as any).maintenanceCost) || 0) : (order.productPrice - (order.discount || 0));
@@ -77,7 +76,7 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
                     )}
                     {vatValue > 0 && (
                         <div className="flex justify-between items-center text-sm text-blue-600 dark:text-blue-400">
-                             <span className="font-bold">ضريبة القيمة المضافة ({vatRate}%):</span>
+                             <span className="font-bold">ضريبة القيمة المضافة ({Math.round(vatRate * 100)}%):</span>
                              <span className="font-black">{vatValue.toFixed(2)} ج.م</span>
                         </div>
                     )}

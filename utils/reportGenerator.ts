@@ -207,7 +207,7 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
     `;
 };
 
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat } from './financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from './financials';
 
 export const generateInvoiceHTML = (order: Order, settings: Settings, storeName: string) => {
   const totalAmount = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - order.discount);
@@ -338,10 +338,10 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
 
 export const generateOrdersReportHTML = (orders: Order[], settings: Settings, storeName: string, dateRangeText?: string): string => {
   
-    const tableRows = orders.map(order => {
-        const amountToCollect = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - (order.discount || 0));
-        const { net } = calculateOrderProfitLoss(order, settings);
-        const totalQuantity = (order.items || []).reduce((sum, item) => sum + (item.quantity || 1), 0);
+  const tableRows = orders.map(order => {
+    const amountToCollect = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - (order.discount || 0));
+    const { net } = calculateOrderProfitLoss(order, settings);
+    const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
 
     const getStatusColor = (status: string, type: 'status' | 'payment') => {
         const paymentIsPaid = ['مدفوع'].includes(status);
@@ -434,22 +434,29 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
     let totalNetProfit = 0;
 
     orders.forEach(o => {
-      if (!settings) return;
-      const { net, breakdown: financials } = calculateOrderProfitLoss(o, settings);
-      totalGross += financials.revenue;
+      const compFees = settings.companySpecificFees?.[o.shippingCompany];
+      const useCustom = compFees?.useCustomFees ?? false;
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+      const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const totalAmount = o.productPrice + o.shippingFee;
+
+      totalGross += totalAmount + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
+
+      const { net } = calculateOrderProfitLoss(o, settings);
       totalNetProfit += net;
     });
 
     const tableRows = orders.map(order => {
-        const { net, breakdown: financials } = calculateOrderProfitLoss(order, settings);
+        const { net } = calculateOrderProfitLoss(order, settings);
+        const totalAmount = order.productPrice + order.shippingFee;
         
         return `
             <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px;">${order.orderNumber}</td>
                 <td style="padding: 8px;">${order.customerName}</td>
                 <td style="padding: 8px; font-family: monospace;">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
-                <td style="padding: 8px;">${financials.revenue.toLocaleString()}</td>
-                <td style="padding: 8px;">${financials.productCost.toLocaleString()}</td>
+                <td style="padding: 8px;">${totalAmount.toLocaleString()}</td>
+                <td style="padding: 8px;">${order.productCost.toLocaleString()}</td>
                 <td style="padding: 8px; font-weight: bold; color: ${net >= 0 ? '#15803d' : '#b91c1c'};">${net.toLocaleString()}</td>
             </tr>
         `;
@@ -718,13 +725,24 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
     let totalProductCost = 0;
 
     const tableRows = orders.map(order => {
-        const { net, loss, breakdown: financials } = calculateOrderProfitLoss(order, settings);
+        const compFees = settings.companySpecificFees?.[order.shippingCompany];
+        const useCustom = compFees?.useCustomFees ?? false;
         
+        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+        
+        const isInsured = order.isInsured ?? true;
+        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+        
+        const codFee = !isPosOrder ? calculateCodFee(order, settings) : 0;
+        const { loss } = calculateOrderProfitLoss(order, settings);
         totalLoss += loss;
-        totalProductPrice += financials.productRevenue;
-        totalShippingFee += financials.shippingRevenue;
-        totalInsuranceInspection += (financials.insurance + financials.inspection + financials.vat);
-        totalProductCost += financials.productCost;
+        totalProductPrice += order.productPrice;
+        totalShippingFee += order.shippingFee;
+        totalInsuranceInspection += (insuranceFee + inspectionCost + bostaVat);
+        totalProductCost += order.productCost;
 
         const products = order.items.map(i => i.name).join(' + ') || order.productName;
         const quantities = order.items.map(i => i.quantity).join(' + ') || '1';
@@ -736,14 +754,14 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
                 <td style="padding: 8px;">${products}</td>
                 <td style="padding: 8px; text-align: center;">${quantities}</td>
                 <td style="padding: 8px;">${prices}</td>
-                <td style="padding: 8px;">${financials.shippingPaid.toLocaleString()}</td>
-                <td style="padding: 8px;">${(financials.insurance + financials.inspection + financials.vat).toLocaleString()}</td>
-                <td style="padding: 8px;">${financials.productCost.toLocaleString()}</td>
+                <td style="padding: 8px;">${order.shippingFee.toLocaleString()}</td>
+                <td style="padding: 8px;">${(insuranceFee + inspectionCost + bostaVat).toLocaleString()}</td>
+                <td style="padding: 8px;">${order.productCost.toLocaleString()}</td>
                 <td style="padding: 8px;">${order.status.replace(/_/g, ' ')}</td>
                 <td style="padding: 8px;">${order.paymentStatus}</td>
                 <td style="padding: 8px; font-weight: bold; color: #b91c1c;">
                     -${loss.toLocaleString()}
-                    ${financials.cod > 0 ? `<br/><small style="color: #6b7280; font-weight: normal;">(تحصيل: ${financials.cod.toLocaleString()})</small>` : ''}
+                    ${codFee > 0 ? `<br/><small style="color: #6b7280; font-weight: normal;">(تحصيل: ${codFee.toLocaleString()})</small>` : ''}
                 </td>
             </tr>
         `;
@@ -896,7 +914,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
 };
 
 export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string): string => {
-    const collectedOrders = (orders || []).filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة');
+    const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
     const notCollectedOrders = (orders || []).filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed);
     const inShippingOrders = (orders || []).filter(o => o.status === 'قيد_الشحن');
@@ -905,8 +923,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const totalInventoryPurchases = inventoryPurchases.reduce((sum, t) => sum + t.amount, 0);
 
     let totalProductRevenue = 0;
+    let totalProductExtraMarkup = 0;
     let totalExtraMarkup = 0;
     let totalShippingRevenue = 0;
+    let totalActualShipping = 0;
+    let totalShippingMarkup = 0;
     let totalCogs = 0;
     let totalInsuranceFees = 0;
     let totalInspectionFees = 0;
@@ -916,49 +937,79 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalCommissionProfit = 0;
 
     const collectedRows = collectedOrders.map(order => {
-        const { profit, breakdown: financials } = calculateOrderProfitLoss(order, settings);
+        const { profit } = calculateOrderProfitLoss(order, settings);
+        const codFee = calculateCodFee(order, settings);
         
+        const compFees = settings.companySpecificFees?.[order.shippingCompany];
+        const useCustom = compFees?.useCustomFees ?? false;
         const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
-        
+        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+        const isInsured = order.isInsured ?? true;
+        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
+        const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer) ? 0 : inspectionCost;
+
+        const safeProductPrice = Number(order.productPrice) || 0;
+        const safeShippingFee = Number(order.shippingFee) || 0;
+        const safeDiscount = Number(order.discount) || 0;
+        const safeAdvance = Number(order.advancePayment) || 0;
+
+        const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
+            ? order.totalAmountOverride + safeAdvance
+            : (safeProductPrice + safeShippingFee - safeDiscount);
+
+        totalShippingRevenue += order.shippingFee;
+
+        const standardShipping = isPosOrder ? 0 : getStandardShippingFee(order, settings);
+        totalActualShipping += standardShipping;
+
+        const shippingMarkup = isPosOrder ? 0 : Math.max(0, order.shippingFee - standardShipping);
+        totalShippingMarkup += shippingMarkup;
+
         let orderBaseRevenue = 0;
-        let orderExtraMarkup = 0;
+        let orderProductExtraMarkup = 0;
 
         order.items.forEach(item => {
-            const product = settings.products.find(p => p.id === item.productId);
+            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+            const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const itemProfit = (item.price - actualCost) * item.quantity;
+
             if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                 const basePrice = product.basePrice;
                 orderBaseRevenue += basePrice * item.quantity;
-                orderExtraMarkup += (item.price - basePrice) * item.quantity;
+                orderProductExtraMarkup += (item.price - basePrice) * item.quantity;
+                totalCommissionProfit += itemProfit;
             } else {
                 orderBaseRevenue += item.price * item.quantity;
+                if (product?.profitMode === 'commission') {
+                    totalCommissionProfit += itemProfit;
+                } else {
+                    totalPercentageProfit += itemProfit;
+                }
             }
         });
 
-        const isMultiProfitOrder = orderExtraMarkup > 0;
+        const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
         totalProductRevenue += orderBaseRevenue;
-        totalExtraMarkup += orderExtraMarkup;
-        totalShippingRevenue += order.shippingFee;
-        totalCogs += financials.productCost;
-        totalInsuranceFees += financials.insurance + financials.vat;
-        totalInspectionFees += financials.inspection;
-        totalCodFees += financials.cod;
+        totalProductExtraMarkup += orderProductExtraMarkup;
+        totalExtraMarkup += (orderProductExtraMarkup + shippingMarkup);
+        
+        const actualOrderCogs = (order.items || []).reduce((sum, item) => {
+            const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            return sum + (costVal * item.quantity);
+        }, 0);
+        totalCogs += actualOrderCogs;
+        
+        totalInsuranceFees += insuranceFee;
+        totalInspectionFees += inspectionAdjustment;
+        totalCodFees += codFee;
         totalProfit += profit;
 
-        // Calculate item-level profits based on profitMode
-        order.items.forEach(item => {
-            const product = settings.products.find(p => p.id === item.productId);
-            const itemProfit = (item.price - item.cost) * item.quantity;
-            if (product?.profitMode === 'commission' && product.basePrice !== undefined && product.commissionPercentage !== undefined) {
-                totalCommissionProfit += (product.basePrice * (product.commissionPercentage / 100)) * item.quantity;
-            } else {
-                totalPercentageProfit += itemProfit;
-            }
-        });
-
         const productDetails = order.items.map(item => {
-            const product = settings.products.find(p => p.id === item.productId);
+            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
             const isMulti = product?.profitMode === 'commission' && product.basePrice !== undefined && item.price > product.basePrice;
             return `
                 <div style="margin-bottom: 4px; line-height: 1.4;">
@@ -975,10 +1026,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td class="col-products">${productDetails}</td>
                 <td>${order.productPrice.toLocaleString()}</td>
                 <td>${order.shippingFee.toLocaleString()}</td>
-                <td>${financials.productCost.toLocaleString()}</td>
-                <td>${(financials.insurance + financials.vat).toLocaleString()}</td>
-                <td>${financials.inspection.toLocaleString()}</td>
-                <td>${financials.cod.toLocaleString()}</td>
+                <td>${order.productCost.toLocaleString()}</td>
+                <td>${insuranceFee.toLocaleString()}</td>
+                <td>${inspectionAdjustment.toLocaleString()}</td>
+                <td>${codFee.toLocaleString()}</td>
                 <td style="color: #15803d; font-weight: bold;">${profit.toLocaleString()}</td>
             </tr>`;
     }).join('');
@@ -990,12 +1041,25 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalLoss = 0;
 
     const failedRows = failedOrders.map(order => {
-        const { loss, breakdown: financials } = calculateOrderProfitLoss(order, settings);
+        const { loss } = calculateOrderProfitLoss(order, settings);
+        const compFees = settings.companySpecificFees?.[order.shippingCompany];
+        const useCustom = compFees?.useCustomFees ?? false;
         
-        totalFailedShipping += financials.shippingPaid;
-        totalFailedInsurance += financials.insurance + financials.vat;
-        totalFailedInspection += financials.inspection;
-        totalReturnFees += financials.returnFee;
+        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+        const isInsured = order.isInsured ?? true;
+        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
+        
+        const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
+        const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
+
+        totalFailedShipping += order.shippingFee;
+        totalFailedInsurance += insuranceFee;
+        totalFailedInspection += (inspectionCost - inspectionFeeCollected);
+        totalReturnFees += returnFeeAmount;
         totalLoss += loss;
 
         const productDetails = order.items.map(item => `<div style="margin-bottom: 4px; line-height: 1.4;"><strong>${item.name}</strong> (${item.quantity})</div>`).join('');
@@ -1006,10 +1070,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td>${order.customerName}</td>
                 <td class="col-products">${productDetails}</td>
                 <td>${order.status.replace(/_/g, ' ')}</td>
-                <td>${financials.shippingPaid.toLocaleString()}</td>
-                <td>${(financials.insurance + financials.vat).toLocaleString()}</td>
-                <td>${financials.inspection.toLocaleString()}</td>
-                <td>${financials.returnFee.toLocaleString()}</td>
+                <td>${order.shippingFee.toLocaleString()}</td>
+                <td>${insuranceFee.toLocaleString()}</td>
+                <td>${(inspectionCost - inspectionFeeCollected).toLocaleString()}</td>
+                <td>${returnFeeAmount.toLocaleString()}</td>
                 <td style="color: #b91c1c; font-weight: bold;">-${loss.toLocaleString()}</td>
             </tr>`;
     }).join('');
@@ -1020,6 +1084,25 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         return `<tr><td>${new Date(t.date).toLocaleDateString('ar-EG')}</td><td>${t.note}</td><td style="color: #b91c1c;">-${t.amount.toLocaleString()}</td></tr>`;
     }).join('');
 
+    const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+    let extraPosProfit = 0;
+    let extraPosRevenue = 0;
+    let extraPosCOGS = 0;
+    extraPosSales.forEach(s => {
+        (s.items || []).forEach(item => {
+            const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            extraPosCOGS += (cost * (item.quantity || 1));
+            extraPosRevenue += (item.price * (item.quantity || 1));
+            const itemProfit = (item.price - cost) * (item.quantity || 1);
+            extraPosProfit += itemProfit;
+            totalPercentageProfit += itemProfit; // Add to percentage profit out of simplicity
+        });
+    });
+
+    totalProductRevenue += extraPosRevenue;
+    totalCogs += extraPosCOGS;
+    totalProfit += extraPosProfit;
+
     const finalNet = totalProfit - totalLoss - totalExpenses;
 
     // --- NEW CALCULATIONS ---
@@ -1028,13 +1111,13 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const lossRatio = grossProfit > 0 ? (totalLoss / grossProfit) * 100 : 0;
     const avgProfitPerOrder = orders.length > 0 ? finalNet / orders.length : 0;
 
-    // Carrier Performance
+    // Carrier Performance (Filter to processed orders only)
     const carrierStats: Record<string, { count: number, success: number, shipping: number, profit: number }> = {};
-    orders.forEach(o => {
+    orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)).forEach(o => {
         const name = o.shippingCompany || 'غير محدد';
         if (!carrierStats[name]) carrierStats[name] = { count: 0, success: 0, shipping: 0, profit: 0 };
         carrierStats[name].count++;
-        if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') carrierStats[name].success++;
+        if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) carrierStats[name].success++;
         carrierStats[name].shipping += o.shippingFee;
         const { net } = calculateOrderProfitLoss(o, settings);
         carrierStats[name].profit += net;
@@ -1057,7 +1140,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         o.items.forEach(item => {
             if (!productStats[item.name]) productStats[item.name] = { revenue: 0, extra: 0, cost: 0, sold: 0, returns: 0 };
             if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
-                const product = settings.products.find(p => p.id === item.productId);
+                const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                 if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                     productStats[item.name].revenue += product.basePrice * item.quantity;
                     productStats[item.name].extra += (item.price - product.basePrice) * item.quantity;
@@ -1556,7 +1639,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         </div>
         <div class="metrics-grid no-break" style="grid-template-columns: repeat(2, 1fr);">
           <div class="metric-box"><h4>مستحقات الموردين</h4><p style="color: #475569;">${totalCogs.toLocaleString()}</p></div>
-          <div class="metric-box"><h4>مصاريف شحن الذهاب</h4><p style="color: #dc2626;">-${totalShippingRevenue.toLocaleString()}</p></div>
+          <div class="metric-box"><h4>مصاريف شحن الذهاب</h4><p style="color: #dc2626;">-${totalActualShipping.toLocaleString()}</p></div>
         </div>
 
         <!-- Stage 3 -->
@@ -1628,19 +1711,19 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
           <table class="income-statement no-break">
             <tr class="group-header"><td colspan="2">1. الإيرادات (Revenues)</td></tr>
             <tr><td class="indent">إجمالي مبيعات المنتجات (بالسعر الأساسي)</td><td style="color: #10b981;">+${totalProductRevenue.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">الزيادة في السعر (ربح إضافي)</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">إيرادات الزيادة في السعر وفرق الشحن</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
             <tr><td class="indent">إجمالي تحصيل الشحن من العملاء</td><td style="color: #10b981;">+${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
             <tr class="total-line"><td>(=) إجمالي الإيرادات (Total Revenue)</td><td>${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue).toLocaleString()} ج.م</td></tr>
 
             <tr class="group-header"><td colspan="2">2. تكلفة المبيعات (Cost of Goods Sold)</td></tr>
             <tr><td class="indent">(-) إجمالي مستحقات الموردين (ثمن البضاعة)</td><td style="color: #dc2626;">-${totalCogs.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">(-) إجمالي مصاريف شحن الذهاب (لشركات الشحن)</td><td style="color: #dc2626;">-${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">(-) إجمالي مصاريف شحن الذهاب (لشركات الشحن)</td><td style="color: #dc2626;">-${totalActualShipping.toLocaleString()} ج.م</td></tr>
             
             <tr class="group-header"><td colspan="2">3. إجمالي الربح التشغيلي (Gross Profit)</td></tr>
-            <tr><td class="indent">تفصيل الربح: ربح العمولات</td><td style="color: #10b981;">+${totalCommissionProfit.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">تفصيل الربح: ربح الزيادة في السعر</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">تفصيل الربح: ربح المبيعات الأساسي</td><td style="color: #10b981;">+${totalPercentageProfit.toLocaleString()} ج.م</td></tr>
-            <tr class="total-line"><td>(=) إجمالي الربح التشغيلي</td><td>${(totalCommissionProfit + totalPercentageProfit + totalExtraMarkup).toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">تفصيل الربح: ربح العمولة</td><td style="color: #10b981;">+${(totalCommissionProfit - totalProductExtraMarkup).toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">تفصيل الربح: الزيادة في السعر وفرق الشحن</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">تفصيل الربح: ربح المبيعات</td><td style="color: #10b981;">+${totalPercentageProfit.toLocaleString()} ج.م</td></tr>
+            <tr class="total-line"><td>(=) إجمالي الربح التشغيلي</td><td>${(totalCommissionProfit + totalPercentageProfit + totalShippingMarkup).toLocaleString()} ج.م</td></tr>
 
             <tr class="group-header"><td colspan="2">4. الخسائر والمصروفات (Losses & Expenses)</td></tr>
             <tr><td class="indent">(-) إجمالي رسوم التأمين والمعاينة والتحصيل</td><td style="color: #dc2626;">-${(totalInsuranceFees + totalInspectionFees + totalCodFees).toLocaleString(undefined, {maximumFractionDigits: 2})} ج.م</td></tr>

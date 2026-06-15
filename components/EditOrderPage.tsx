@@ -37,6 +37,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
     const navigate = useNavigate();
     const [editingOrder, setEditingOrder] = useState<Order | null>(null);
 
+    if (!settings) return <GlobalLoader />;
+
     // Normalization logic for synced orders
     const normalizeSyncedOrder = (order: Order): Order => {
         if (order.source !== 'synced') return order;
@@ -137,14 +139,14 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const safeAdvance = Number((editingOrder as any).advancePayment) || 0;
         
         const useCustom = compFees?.useCustomFees ?? false;
-        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
         const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
         const hasVat = compFees?.enableVat !== false;
         const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
         const useStandard = editingOrder.vatOnStandardShipping === true;
         const standardShippingFee = useStandard ? getStandardShippingFee(editingOrder as Order, settings) : (editingOrder.shippingFee || 0);
         const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
-        const vatValue = hasVat ? (Math.round(taxableBase * (vatRate / 100) * 100) / 100) : 0;
+        const vatValue = hasVat ? (Math.round(taxableBase * vatRate * 100) / 100) : 0;
         
         const isMaintenanceOrder = editingOrder.orderType === 'maintenance';
         const basePrice = isMaintenanceOrder ? (Number((editingOrder as any).maintenanceCost) || 0) : (totalProductPrice - (editingOrder.discount || 0));

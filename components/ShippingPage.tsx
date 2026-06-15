@@ -239,6 +239,7 @@ const ShippingPage: React.FC<{
   wallet?: any,
   setWallet?: (updater: any) => void
 }> = ({ settings, setSettings, treasury, setTreasury, wallet, setWallet }) => {
+  if (!settings) return null;
   const [localSettings, setLocalSettings] = useState(settings);
   const [isDirty, setIsDirty] = useState(false);
 
@@ -549,7 +550,6 @@ const CompanyManager: React.FC<any> = ({ companyName, settings, setSettings, onB
 
 // ... (Rest of components remain the same, just receiving `setSettings` which is actually `setLocalSettings`)
 const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
-  if (!settings) return null;
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
   const [managingZoneId, setManagingZoneId] = useState<string | null>(null);
@@ -1033,7 +1033,19 @@ const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
 };
 const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
     const companyFees = settings?.companySpecificFees?.[companyName] || { useCustomFees: false };
-    const handleCompanyFeeChange = (field: keyof CompanyFees, value: any) => { setSettings((prev: Settings) => ({ ...prev, companySpecificFees: { ...prev.companySpecificFees, [companyName]: { ...prev.companySpecificFees[companyName], [field]: value } } })); };
+    const handleCompanyFeeChange = (field: keyof CompanyFees, value: any) => { 
+        setSettings((prev: Settings) => {
+            const currentFees = prev.companySpecificFees || {};
+            const itemFees = currentFees[companyName] || {};
+            return { 
+                ...prev, 
+                companySpecificFees: { 
+                    ...currentFees, 
+                    [companyName]: { ...itemFees, [field]: value } 
+                } 
+            };
+        }); 
+    };
     return (
         <SectionCard title={`الإعدادات المالية لـ ${companyName}`} icon={<Wallet size={22} />}>
             <div className="space-y-6">

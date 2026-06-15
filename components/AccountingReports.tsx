@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Order, Settings, Wallet, Store, OrderStatus, TransactionCategory } from '../types';
-import { getLatestProductCost } from '../utils/financials';
+import { calculateOrderProfitLoss, getLatestProductCost, getStandardShippingFee, calculateInsuranceFee, calculateBostaVat, calculateCodFee, isBosta } from '../utils/financials';
 import { 
   BarChart, Wallet as WalletIcon, TrendingUp, Users, Truck, FileText, 
   ArrowDown, ArrowUp, DollarSign, Package, Download, Eye, X, Loader2, Printer, 
@@ -213,39 +213,91 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
         let productRevenue = 0;
         let shippingRevenue = 0;
         let cogs = 0;
+        let totalOrderProfit = 0;
         let insuranceFees = 0;
         let inspectionFees = 0;
+        let carrierShippingFees = 0;
+
+        let totalShippingMarkup = 0;
 
         completedOrders.forEach(o => {
+            const { profit } = calculateOrderProfitLoss(o, settings);
+            totalOrderProfit += profit;
+
             (o.items || []).forEach(item => {
-                productRevenue += item.price * item.quantity;
-                const cost = getLatestProductCost(item.productId, settings);
-                cogs += cost * item.quantity;
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                productRevenue += (item.price * item.quantity);
+                cogs += (cost * item.quantity);
             });
             shippingRevenue += (o.shippingFee || 0);
+
+            const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+            const standardShipping = isPosOrder ? 0 : getStandardShippingFee(o, settings);
+            const shippingMarkup = isPosOrder ? 0 : Math.max(0, o.shippingFee - standardShipping);
+            totalShippingMarkup += shippingMarkup;
+
+            const safeProductPrice = Number(o.productPrice) || 0;
+            const safeShippingFee = Number(o.shippingFee) || 0;
+            const safeDiscount = Number(o.discount) || 0;
+            const baseTotalExpected = safeProductPrice + safeShippingFee - safeDiscount;
+
             if (o.channel !== 'pos' && o.shippingCompany !== 'كاشير - بيع مباشر') {
-                insuranceFees += (o.insuranceFee || 0);
-                inspectionFees += (o.inspectionFee || 0);
+                const compFees = settings.companySpecificFees?.[o.shippingCompany];
+                const useCustom = compFees?.useCustomFees ?? false;
+                const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+                const isInsured = o.isInsured ?? true;
+                
+                const insFee = isInsured ? calculateInsuranceFee(o, insuranceRate, settings) : 0;
+                insuranceFees += insFee;
+                
+                const inspectionCost = (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+                inspectionFees += inspectionCost;
+
+                const bostaVat = isBosta(o.shippingCompany) ? calculateBostaVat(o, insFee, settings) : 0;
+                const codFee = calculateCodFee(o, settings);
+                const standardShippingFee = getStandardShippingFee(o, settings);
+                
+                carrierShippingFees += (standardShippingFee + bostaVat + codFee);
             }
         });
+
+        // Add standalone POS sales profit/revenue/cogs to match Dashboard
+        let extraPosRevenue = 0;
+        let extraPosCOGS = 0;
+        let extraPosProfit = 0;
+        const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+        extraPosSales.forEach(s => {
+            (s.items || []).forEach(item => {
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                extraPosCOGS += (cost * (item.quantity || 1));
+                extraPosRevenue += (item.price * (item.quantity || 1));
+                extraPosProfit += ((item.price - cost) * (item.quantity || 1));
+            });
+        });
+
+        productRevenue += extraPosRevenue;
+        cogs += extraPosCOGS;
 
         // Expenses from wallet
         const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));
         const totalExpenses = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
 
-        // Losses from returns
-        const returnTxs = (wallet?.transactions || []).filter(t => t.category === 'return' && t.type === 'سحب');
-        const totalReturnFees = returnTxs.reduce((sum, t) => sum + t.amount, 0);
+        // Losses from returns/failures
+        const lossFromReturnOrders = orders
+            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status))
+            .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
 
         const totalRevenue = productRevenue + shippingRevenue;
-        const grossProfit = totalRevenue - cogs;
-        const netProfit = grossProfit - totalExpenses - totalReturnFees - insuranceFees - inspectionFees;
+        const grossProfit = productRevenue - cogs + totalShippingMarkup; // This perfectly represents product gross profit including shipping markups
+        
+        // Net profit matches the precise final financial logic (including extra POS sales profit!)
+        const netProfit = totalOrderProfit + extraPosProfit - totalExpenses - lossFromReturnOrders;
 
         return { 
             productRevenue, shippingRevenue, totalRevenue, 
-            cogs, grossProfit, totalExpenses, totalReturnFees, 
-            insuranceFees, inspectionFees, netProfit,
-            margin: totalRevenue > 0 ? (grossProfit / totalRevenue) * 105 - 5 : 0 // slight mathematical scaling
+            cogs, grossProfit, totalExpenses, totalReturnFees: lossFromReturnOrders, 
+            insuranceFees, inspectionFees, carrierShippingFees, netProfit,
+            margin: productRevenue > 0 ? (grossProfit / productRevenue) * 100 : 0
         };
     }, [orders, settings, wallet]);
 
@@ -253,11 +305,11 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
         <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <SummaryCard title="إجمالي الإيرادات" value={stats.totalRevenue} color="indigo" icon={<TrendingUp size={20} />} />
-                <SummaryCard title="إجمالي الربح" value={stats.grossProfit} color="emerald" icon={<DollarSign size={20} />} />
+                <SummaryCard title="مجمل الربح" value={stats.grossProfit} color="emerald" icon={<DollarSign size={20} />} />
                 <SummaryCard title="صافي الدخل" value={stats.netProfit} color="purple" icon={<BarChart size={20} />} />
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm max-w-3xl mx-auto space-y-6">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm max-w-3xl mx-auto space-y-6 animate-fade-in">
                 <div className="flex items-center justify-between border-b pb-4">
                     <h3 className="text-xl font-bold text-slate-800 dark:text-white">قائمة الدخل للفترة الحالية</h3>
                     <div className="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-xs font-bold rounded-full">استحقاق تقديري</div>
@@ -265,24 +317,27 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
                 
                 <div className="space-y-4">
                     <ReportRow label="إيرادات المنتجات" value={stats.productRevenue} />
-                    <ReportRow label="إيرادات خدمات الشحن" value={stats.shippingRevenue} />
+                    <ReportRow label="إيرادات خدمات الشحن من العملاء" value={stats.shippingRevenue} />
                     <ReportRow label="إجمالي الإيرادات" value={stats.totalRevenue} isBold />
                     
-                    <div className="pt-4 space-y-3">
+                    <div className="pt-4 border-t border-dashed space-y-3">
                         <ReportRow label="تكلفة البضاعة المباعة (COGS)" value={-stats.cogs} color="red" />
-                        <ReportRow label="إجمالي الربح (الربح الإجمالي)" value={stats.grossProfit} isBold highlight />
+                        <ReportRow label="مجمل الربح" value={stats.grossProfit} isBold highlight />
                     </div>
 
-                    <div className="pt-4 space-y-3">
-                        <ReportRow label="المصروفات التشغيلية" value={-stats.totalExpenses} color="red" />
-                        <ReportRow label="رسوم المرتجعات والخسائر" value={-stats.totalReturnFees} color="red" />
-                        <ReportRow label="مصاريف التأمين والمعاينة" value={-(stats.insuranceFees + stats.inspectionFees)} color="red" />
+                    <div className="pt-4 border-t border-dashed space-y-3">
+                        <div className="text-xs font-extrabold text-slate-400 mb-1">مصاريف وتكاليف التشغيل والشحن:</div>
+                        <ReportRow label="تكاليف ومصاريف شركات الشحن المباشرة" value={-stats.carrierShippingFees} color="red" />
+                        <ReportRow label="رسوم تأمين شحنات الناقل" value={-stats.insuranceFees} color="red" />
+                        <ReportRow label="رسوم معاينة شحنات الناقل" value={-stats.inspectionFees} color="red" />
+                        <ReportRow label="المصروفات التشغيلية والإدارية (المحفظة)" value={-stats.totalExpenses} color="red" />
+                        <ReportRow label="خسائر وتكاليف شحن المرتجعات" value={-stats.totalReturnFees} color="red" />
                     </div>
 
                     <div className="pt-6 border-t font-sans">
                         <ReportRow label="صافي الربح / (الخسارة)" value={stats.netProfit} isBold isLarge highlight color={stats.netProfit >= 0 ? 'emerald' : 'red'} />
                         <div className="flex justify-between items-center mt-2 text-xs text-slate-500">
-                            <span>نسبة هامش الربح الإجمالي</span>
+                            <span>نسبة هامش مجمل الربح للمنتجات</span>
                             <span className="font-bold">{Math.max(0, stats.margin).toFixed(1)}%</span>
                         </div>
                     </div>
@@ -306,7 +361,7 @@ const SummaryCard = ({ title, value, color, icon }: { title: string; value: numb
                 <span className="text-sm font-bold opacity-80">{title}</span>
                 {icon}
             </div>
-            <p className="text-2xl font-black">{Math.abs(value).toLocaleString('ar-EG')} <span className="text-xs">ج.م</span></p>
+            <p className="text-2xl font-black">{Math.abs(value).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs">ج.م</span></p>
         </div>
     );
 };
@@ -323,7 +378,7 @@ const ReportRow = ({ label, value, isBold, isLarge, highlight, color = 'slate' }
         <div className={`flex justify-between items-center py-2 px-3 rounded-xl transition-colors ${highlight ? 'bg-slate-50 dark:bg-slate-800/50' : ''}`}>
             <span className={`${isBold ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-500'} ${isLarge ? 'text-lg' : 'text-sm'}`}>{label}</span>
             <span className={`${textColors[color]} ${isBold ? 'font-black' : 'font-mono'} ${isLarge ? 'text-xl' : 'text-md'}`}>
-                {value < 0 ? '(' : ''}{Math.abs(value).toLocaleString('ar-EG')}{value < 0 ? ')' : ''} ج.م
+                {value < 0 ? '(' : ''}{Math.abs(value).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{value < 0 ? ')' : ''} ج.م
             </span>
         </div>
     );
@@ -992,36 +1047,31 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
         });
 
         // Compute Operational profits
+        let totalOrderProfit = 0;
         const completedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'];
         const completedOrders = orders.filter(o => completedStatuses.includes(o.status));
-        let productRevenue = 0;
-        let cogs = 0;
-        let shippingRevenue = 0;
-        let insuranceFees = 0;
-        let inspectionFees = 0;
-
         completedOrders.forEach(o => {
-            (o.items || []).forEach(item => {
-                productRevenue += item.price * item.quantity;
-                const cost = getLatestProductCost(item.productId, settings);
-                cogs += cost * item.quantity;
+            const { profit } = calculateOrderProfitLoss(o, settings);
+            totalOrderProfit += profit;
+        });
+
+        const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+        let extraPosProfit = 0;
+        extraPosSales.forEach(s => {
+            (s.items || []).forEach(item => {
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                extraPosProfit += ((item.price - cost) * (item.quantity || 1));
             });
-            shippingRevenue += (o.shippingFee || 0);
-            if (o.channel !== 'pos' && o.shippingCompany !== 'كاشير - بيع مباشر') {
-                insuranceFees += (o.insuranceFee || 0);
-                inspectionFees += (o.inspectionFee || 0);
-            }
         });
 
         const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));
         const totalExpenses = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
 
-        const returnTxs = (wallet?.transactions || []).filter(t => t.category === 'return' && t.type === 'سحب');
-        const totalReturnFees = returnTxs.reduce((sum, t) => sum + t.amount, 0);
+        const lossFromReturnOrders = orders
+            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status))
+            .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
 
-        const totalRevenue = productRevenue + shippingRevenue;
-        const grossProfit = totalRevenue - cogs;
-        const netProfit = grossProfit - totalExpenses - totalReturnFees - insuranceFees - inspectionFees;
+        const netProfit = totalOrderProfit + extraPosProfit - totalExpenses - lossFromReturnOrders;
 
         const totalDistributed = partnerTransactions
             .filter(t => t.type === 'profit_distribution')

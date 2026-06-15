@@ -10,6 +10,7 @@ const statusInfo: Record<OrderStatusType, { label: string; color: string; icon: 
   تم_الارسال: { label: 'تم الارسال', color: 'sky', icon: <Truck size={12}/> },
   قيد_الشحن: { label: 'قيد الشحن', color: 'blue', icon: <Truck size={12}/> },
   تم_توصيلها: { label: 'تم توصيلها', color: 'teal', icon: <CheckCircle size={12}/> },
+  تم_التوصيل: { label: 'تم التوصيل', color: 'emerald', icon: <CheckCircle size={12}/> },
   تم_التحصيل: { label: 'تم التحصيل', color: 'emerald', icon: <CheckCircle size={12}/> },
   مرتجع: { label: 'مرتجع', color: 'red', icon: <RefreshCcw size={12}/> },
   مرتجع_جزئي: { label: 'مرتجع جزئي', color: 'orange', icon: <RefreshCcw size={12}/> },

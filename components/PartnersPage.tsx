@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer } from 'lucide-react';
-import { calculateOrderProfitLoss } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface PartnersPageProps {
@@ -51,31 +51,33 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       setTimeout(() => setToast(null), 3000);
   };
 
-  const partners = useMemo(() => settings.partners || [], [settings.partners]);
-  const transactions = useMemo(() => settings.partnerTransactions || [], [settings.partnerTransactions]);
+  const partners = useMemo(() => settings?.partners || [], [settings?.partners]);
+  const transactions = useMemo(() => settings?.partnerTransactions || [], [settings?.partnerTransactions]);
   
   // Calculate Profit
   const { 
-      grossMargin, 
+      totalSuccessfulNet, 
       totalExpenses, 
-      operationalFees,
       returnsLosses, 
       adminExpenses,
       allTimeNetProfit,
-      undistributedProfit
+      undistributedProfit,
+      otherIncome
   } = useMemo(() => {
-    let grossMargin = 0;
-    let operationalFees = 0;
+    if (!settings) return { 
+        totalSuccessfulNet: 0, totalExpenses: 0, returnsLosses: 0, adminExpenses: 0, 
+        allTimeNetProfit: 0, undistributedProfit: 0, otherIncome: 0 
+    };
+    let totalSuccessfulNet = 0;
     let returnsLosses = 0;
 
     orders.forEach(order => {
-        const { net, profit, loss, breakdown: financials } = calculateOrderProfitLoss(order, settings);
+        const { net } = calculateOrderProfitLoss(order, settings);
         
         if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || order.status === 'تم_توصيلها') {
-            grossMargin += (financials.productRevenue - financials.productCost);
-            operationalFees += (financials.totalExpenses - financials.productCost);
+            totalSuccessfulNet += net;
         } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(order.status)) {
-            returnsLosses += loss;
+            returnsLosses += Math.abs(net);
         }
     });
     
@@ -88,9 +90,16 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         return t.type === 'سحب' && (isExpenseCategory || isManualWithdrawal) && isNotPartnerTx;
       })
       .reduce((sum, t) => sum + t.amount, 0);
+
+    const otherIncome = wallet.transactions
+      .filter(t => {
+        const isNotPartnerTx = !t.note?.includes('معاملة شريك');
+        return t.type === 'إيداع' && t.category === 'manual_deposit' && isNotPartnerTx;
+      })
+      .reduce((sum, t) => sum + t.amount, 0);
       
-    const totalExpenses = operationalFees + returnsLosses + adminExpenses;
-    const allTimeNetProfit = grossMargin - totalExpenses;
+    const totalExpenses = returnsLosses + adminExpenses;
+    const allTimeNetProfit = totalSuccessfulNet + otherIncome - totalExpenses;
     
     const distributed = transactions
       .filter(t => t.type === 'profit_distribution')
@@ -99,13 +108,13 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     const undistributedProfit = Math.max(0, allTimeNetProfit - distributed);
     
     return { 
-        grossMargin, 
+        totalSuccessfulNet, 
         totalExpenses, 
-        operationalFees,
         returnsLosses, 
         adminExpenses,
         allTimeNetProfit,
-        undistributedProfit
+        undistributedProfit,
+        otherIncome
     };
   }, [orders, wallet.transactions, settings, transactions]);
 
@@ -398,7 +407,10 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
   const addTransaction = (partnerId: string) => {
     const amount = parseFloat(transactionAmount);
-    if (!amount || isNaN(amount)) return;
+    if (!amount || isNaN(amount) || amount <= 0) {
+        showToast('يرجى إدخال مبلغ صحيح أكبر من الصفر', 'error');
+        return;
+    }
     const partner = partners.find(p => p.id === partnerId);
     if (!partner) return;
 
@@ -413,7 +425,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         }
     }
 
-    const isWithdrawal = transactionType === 'loan' || transactionType === 'profit_withdrawal' || transactionType === 'expense_repayment';
+    const isWithdrawal = ['loan', 'profit_withdrawal', 'expense_repayment'].includes(transactionType);
     const isSupplyFunding = transactionType === 'supply_funding';
 
     if (!selectedTreasuryId && isWithdrawal && amount > wallet.balance) {
@@ -442,7 +454,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     const updatedPartners = partners.map(p => {
         if (p.id === partnerId) {
             let newBalance = p.balance;
-            if (transactionType === 'loan' || transactionType === 'profit_withdrawal' || transactionType === 'expense_repayment') {
+            if (['loan', 'profit_withdrawal', 'expense_repayment', 'customer_advance', 'internal_transfer_out'].includes(transactionType)) {
                 newBalance -= amount;
             } else {
                 newBalance += amount;
@@ -520,7 +532,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
        }
     }
 
-    const movesRealMoney = transactionType !== 'profit_distribution';
+    const movesRealMoney = !['profit_distribution', 'customer_advance'].includes(transactionType);
     
     if (movesRealMoney) {
         setWallet(prev => ({ 
@@ -673,39 +685,48 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     <div className="bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 p-6 rounded-3xl group transition-all hover:border-indigo-300">
                         <div className="flex justify-between items-start mb-4">
                           <p className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-                              <DollarSign size={18} /> إجمالي الربح التشغيلي
+                              <DollarSign size={18} /> صافي الأرباح (بعد المصاريف التشغيلية)
                           </p>
                           <TrendingUp className="text-indigo-300 dark:text-indigo-700" size={24} />
                         </div>
-                        <div className="space-y-1">
-                            <h3 className="text-3xl font-black text-slate-900 dark:text-white">{grossMargin.toLocaleString()} <span className="text-sm font-normal text-slate-400">ج.م</span></h3>
-                            <p className="text-xs text-slate-400 font-medium">قبل خصم المصاريف والخسائر</p>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-end border-b border-indigo-100 dark:border-indigo-900/30 pb-3">
+                                <h3 className="text-3xl font-black text-slate-900 dark:text-white">{totalSuccessfulNet.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-slate-400">ج.م</span></h3>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">من الطلبات الناجحة</p>
+                            </div>
+                            
+                            {otherIncome > 0 && (
+                                <div className="flex justify-between text-sm text-slate-500 font-medium">
+                                    <span>إيرادات إضافية (أخرى)</span>
+                                    <span className="text-emerald-600 font-bold">+{otherIncome.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between text-sm text-slate-500 font-medium font-black border-t border-indigo-100 dark:border-indigo-900/30 pt-2">
+                                <span>صـافـي الأربـاح</span>
+                                <span className="text-indigo-600">{(totalSuccessfulNet + otherIncome).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
+                            </div>
                         </div>
                     </div>
 
                     <div className="bg-rose-50/50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 p-6 rounded-3xl transition-all hover:border-rose-300">
                         <div className="flex justify-between items-start mb-4">
                           <p className="font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
-                              <ArrowDownRight size={18} /> إجمالي الخسائر والمصروفات
+                              <ArrowDownRight size={18} /> إجمالي الخسائر والمصروفات الإدارية
                           </p>
                           <Activity className="text-rose-300 dark:text-rose-700" size={24} />
                         </div>
                         <div className="space-y-3">
                             <div className="flex justify-between text-sm text-slate-500 font-medium">
-                                <span>رسوم لوجستية (تأمين/تحصيل)</span>
-                                <span className="text-rose-600 font-bold">-{operationalFees.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between text-sm text-slate-500 font-medium">
                                 <span>فشل توصيل ومرتجعات</span>
-                                <span className="text-rose-600 font-bold">-{returnsLosses.toLocaleString()}</span>
+                                <span className="text-rose-600 font-bold">-{returnsLosses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div className="flex justify-between text-sm text-slate-500 font-medium">
-                                <span>مصاريف إدارية وتشغيلية</span>
-                                <span className="text-rose-600 font-bold">-{adminExpenses.toLocaleString()}</span>
+                                <span>مصروفات إدارية وتشغيلية</span>
+                                <span className="text-rose-600 font-bold">-{adminExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
                             </div>
                             <div className="flex justify-between text-sm text-slate-500 font-medium font-black border-t border-rose-100 dark:border-rose-900/30 pt-2">
                                 <span>صافي المصروفات</span>
-                                <span className="text-rose-600">{totalExpenses.toLocaleString()} ج.م</span>
+                                <span className="text-rose-600">{totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                             </div>
                         </div>
                     </div>
@@ -969,7 +990,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                   { key: 'capital_addition', label: 'إيداع رأس مال', icon: ArrowUpLeft, color: 'hover:border-emerald-300 hover:text-emerald-600' },
                                   { key: 'shipping_funding', label: 'إيداع مصاريف شحن', icon: Truck, color: 'hover:border-blue-300 hover:text-blue-600' },
                                   { key: 'profit_withdrawal', label: 'سحب من الأرباح', icon: DollarSign, color: 'hover:border-amber-300 hover:text-amber-600' },
-                                  { key: 'repayment', label: 'سداد سداد قرض/سلفة', icon: Check, color: 'hover:border-blue-300 hover:text-blue-600' },
+                                  { key: 'repayment', label: 'سداد سلفة/قرض', icon: Check, color: 'hover:border-blue-300 hover:text-blue-600' },
                                   { key: 'supply_funding', label: 'تمويل شراء بضاعة', icon: PackageIcon, color: 'hover:border-indigo-300 hover:text-indigo-600' }
                                 ].map(type => (
                                   <button 

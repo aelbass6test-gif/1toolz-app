@@ -43,22 +43,12 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
     const [orderToConfirm, setOrderToConfirm] = useState<Omit<Order, 'id'> | null>(null);
     const [showSummaryModal, setShowSummaryModal] = useState<Order | null>(null);
 
-    useEffect(() => {
-        const state = location.state as { exchangeData?: any };
-        if (state?.exchangeData) {
-            setNewOrder(prev => ({
-                ...prev,
-                ...state.exchangeData
-            }));
-        }
-    }, [location.state]);
-
     const [newOrder, setNewOrder] = useState<NewOrderState>({
         customerName: '',
         customerPhone: '',
         customerAddress: '',
         items: [],
-        shippingCompany: Object.keys(settings.shippingOptions || {})[0] || 'بوسطة',
+        shippingCompany: Object.keys(settings?.shippingOptions || {})[0] || 'بوسطة',
         governorate: '',
         city: '',
         shippingFee: 0,
@@ -74,6 +64,18 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         vatOnStandardShipping: false,
         source: 'manual',
     });
+
+    if (!settings) return null;
+
+    useEffect(() => {
+        const state = location.state as { exchangeData?: any };
+        if (state?.exchangeData) {
+            setNewOrder(prev => ({
+                ...prev,
+                ...state.exchangeData
+            }));
+        }
+    }, [location.state]);
 
     const getNextOrderNumber = () => {
         const nums = orders
@@ -194,14 +196,14 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const safeAdvance = Number((orderToAdd as any).advancePayment) || 0;
         
         const useCustom = compFees?.useCustomFees ?? false;
-        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
         const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
         const hasVat = compFees?.enableVat !== false;
         const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
         const useStandard = orderToAdd.vatOnStandardShipping === true;
         const standardShippingFee = useStandard ? getStandardShippingFee(orderToAdd as Order, settings) : (orderToAdd.shippingFee || 0);
         const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
-        const vatValue = hasVat ? (Math.round(taxableBase * (vatRate / 100) * 100) / 100) : 0;
+        const vatValue = hasVat ? (Math.round(taxableBase * vatRate * 100) / 100) : 0;
         
         const isMaintenance = orderToAdd.orderType === 'maintenance';
         const basePrice = isMaintenance ? (Number((orderToAdd as any).maintenanceCost) || 0) : (orderToAdd.productPrice - (orderToAdd.discount || 0));

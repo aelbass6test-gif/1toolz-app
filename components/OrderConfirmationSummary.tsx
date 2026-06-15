@@ -18,19 +18,20 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
     const inspectionFee = order.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
     
     // Insurance
-    const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : (settings.enableInsurance ? settings.insuranceFeePercent : 0)) : 0;
-    const productValueForInsurance = order.productPrice - (order.discount || 0);
-    const insuranceFee = productValueForInsurance > 0 ? Math.max(0, Math.round((productValueForInsurance * (insuranceRate / 100)) * 100) / 100) : 0;
+    const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : (settings?.enableInsurance ? settings.insuranceFeePercent : 0)) : 0;
+    const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
     
     // VAT (Logistics)
     const useCustomFees = compFees?.useCustomFees ?? false;
-    const vatRate = useCustomFees ? (compFees?.shippingVatRate ?? 14) : (settings.shippingVatRate ?? 14);
+    const vatRate = useCustomFees ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
+    const isVatEnabled = compFees?.enableVat !== false;
+    console.log("VAT DEBUG:", { shippingCompany: order.shippingCompany, compFees, useCustomFees, vatRate, isVatEnabled });
     const vatBasis = useCustomFees ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
     const useStandard = order.vatOnStandardShipping === true;
     const standardShippingFee = useStandard ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
     const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
     const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
-    const vatAmount = Math.round(taxableBase * (vatRate / 100) * 100) / 100;
+    const vatAmount = (isVatEnabled && vatRate > 0) ? Math.round(taxableBase * vatRate * 100) / 100 : 0;
     
     const safeAdvance = Number(order.advancePayment) || 0;
     const credit = (order as any).creditAmount || 0;
@@ -80,7 +81,7 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                     )}
                     {vatAmount > 0 && (
                         <div className="flex justify-between items-center text-sm">
-                            <span className="font-bold text-slate-500">ضريبة القيمة المضافة ({vatRate}%):</span>
+                            <span className="font-bold text-slate-500">ضريبة القيمة المضافة ({Math.round(vatRate * 100)}%):</span>
                             <span className="font-black text-slate-700 dark:text-slate-200">{vatAmount.toLocaleString()} ج.م</span>
                         </div>
                     )}

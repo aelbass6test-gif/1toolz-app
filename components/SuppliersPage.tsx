@@ -30,6 +30,9 @@ interface SuppliersPageProps {
 
 const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wallet, setWallet, treasury, setTreasury, currentUser, orders }) => {
   const [activeTab, setActiveTab] = useState<'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses'>('orders');
+  
+  if (!settings) return null;
+
   const [showSupplierModal, setShowSupplierModal] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showWarehouseModal, setShowWarehouseModal] = useState(false);

@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store } from '../types';
 import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, Coins, Monitor, ShoppingBasket } from 'lucide-react';
 import { AccountingReports } from './AccountingReports';
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML } from '../utils/reportGenerator';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -54,6 +54,7 @@ const ReportCard: React.FC<{ title: string; value: string; icon: React.ReactNode
 
 const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ orders, settings, wallet }) => {
     const reportData = useMemo(() => {
+        if (!settings) return null;
         const now = new Date();
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
@@ -70,13 +71,13 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
         });
 
-        const getRevenue = (os: Order[]) => os.filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة').reduce((sum, o) => sum + ((o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0) + o.shippingFee - (o.discount || 0)), 0);
+        const getRevenue = (os: Order[]) => os.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).reduce((sum, o) => sum + ((o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0) + o.shippingFee - (o.discount || 0)), 0);
         
         const currentRevenue = getRevenue(currentMonthOrders);
         const prevRevenue = getRevenue(prevMonthOrders);
         const revenueGrowth = prevRevenue > 0 ? ((currentRevenue - prevRevenue) / prevRevenue) * 100 : 0;
 
-        const collectedOrders = orders.filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة');
+        const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
         const totalProductRevenue = collectedOrders.reduce((sum, o) => sum + (o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0), 0);
         const totalRevenue = collectedOrders.reduce((sum, o) => sum + ((o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0) + o.shippingFee - (o.discount || 0)), 0);
         const totalOrders = orders.length;
@@ -155,18 +156,18 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
 
     // Income Statement Breakdown
     const incomeStatement = useMemo(() => {
-        let grossSales = 0;
+        if (!settings || !reportData) return null;
+        const grossSales = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status)).reduce((sum, o) => {
+            const itemsRevenue = (o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
+            return sum + (itemsRevenue + o.shippingFee - (o.discount || 0));
+        }, 0);
+        
         let totalCogs = 0;
         let returnsLoss = 0;
-        let successfulShippingOperations = 0;
-
         orders.forEach(order => {
-            const { profit, loss, net, breakdown: financials } = calculateOrderProfitLoss(order, settings);
-            
+            const { loss } = calculateOrderProfitLoss(order, settings);
             if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(order.status)) {
-                grossSales += financials.revenue;
-                totalCogs += financials.productCost;
-                successfulShippingOperations += (financials.totalExpenses - financials.productCost);
+                totalCogs += getOrderProductCost(order, settings);
             }
             if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(order.status)) {
                 returnsLoss += loss;
@@ -180,6 +181,19 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             .reduce((sum, t) => sum + t.amount, 0);
 
         const otherAdmin = totalExpenses - marketingAds;
+        
+        let successfulShippingOperations = 0;
+        orders.forEach(order => {
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(order.status)) {
+                const { profit } = calculateOrderProfitLoss(order, settings);
+                const safeProductCost = getOrderProductCost(order, settings);
+                const itemsRevenue = (order.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
+                const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
+                    ? order.totalAmountOverride + (order.advancePayment || 0)
+                    : (itemsRevenue + order.shippingFee - order.discount);
+                successfulShippingOperations += Math.max(0, totalCollected - profit - safeProductCost);
+            }
+        });
 
         const realNetProfit = reportData.netFinancial;
         const marginRate = grossSales > 0 ? (realNetProfit / grossSales) * 100 : 0;
@@ -257,6 +271,15 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         window.print();
     };
 
+    if (!reportData || !incomeStatement) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل التقارير المالية...</p>
+            </div>
+        );
+    }
+
     return (
          <div className="space-y-6 animate-in fade-in-5 duration-300" ref={reportRef}>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -302,11 +325,11 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                <ReportCard title="إجمالي الأرباح" value={`${reportData.totalProfit.toLocaleString('ar-EG')} ج.م`} icon={<ArrowUp size={24}/>} color='emerald' tooltip="مجموع الأرباح الصافية من جميع الطلبات الناجحة (بعد خصم تكلفة المنتجات ومصاريف الشحن والرسوم)." />
-                <ReportCard title="إجمالي الخسائر" value={`${reportData.totalLoss.toLocaleString('ar-EG')} ج.م`} icon={<ArrowDown size={24}/>} color='red' tooltip="مجموع مصاريف الشحن والارتجاع الضائع للطلبات المرتجعة والفاشلة." />
-                <ReportCard title="مبيعات المنتجات" value={`${reportData.totalProductRevenue.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color='blue' tooltip="إجمالي قيمة المنتجات المباعة في الطلبات الناجحة بدون الشحن." />
-                <ReportCard title="إجمالي المصروفات" value={`${reportData.totalExpenses.toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color='amber' tooltip="مجموع المصروفات الإدارية المسجلة بالخزنة كإعلانات وصيانة ورواتب لتخصم من الأرباح الكلية." />
-                <ReportCard title="الصافي الفعلي الحقيقي" value={`${reportData.netFinancial.toLocaleString('ar-EG')} ج.م`} icon={<PieChartIcon size={24}/>} color='blue' tooltip="الربح الباقي النهائي والحقيقي بعد طرح إجمالي الخسائر وإجمالي المصاريف من أصل الربح." />
+                <ReportCard title="إجمالي الأرباح" value={`${reportData.totalProfit.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<ArrowUp size={24}/>} color='emerald' tooltip="مجموع الأرباح الصافية من جميع الطلبات الناجحة (بعد خصم تكلفة المنتجات ومصاريف الشحن والرسوم)." />
+                <ReportCard title="إجمالي الخسائر" value={`${reportData.totalLoss.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<ArrowDown size={24}/>} color='red' tooltip="مجموع مصاريف الشحن والارتجاع الضائع للطلبات المرتجعة والفاشلة." />
+                <ReportCard title="مبيعات المنتجات" value={`${reportData.totalProductRevenue.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<Package size={24}/>} color='blue' tooltip="إجمالي قيمة المنتجات المباعة في الطلبات الناجحة بدون الشحن." />
+                <ReportCard title="إجمالي المصروفات" value={`${reportData.totalExpenses.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<DollarSign size={24}/>} color='amber' tooltip="مجموع المصروفات الإدارية المسجلة بالخزنة كإعلانات وصيانة ورواتب لتخصم من الأرباح الكلية." />
+                <ReportCard title="الصافي الفعلي الحقيقي" value={`${reportData.netFinancial.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<PieChartIcon size={24}/>} color='blue' tooltip="الربح الباقي النهائي والحقيقي بعد طرح إجمالي الخسائر وإجمالي المصاريف من أصل الربح." />
             </div>
 
             {/* Income Statement & Net Profit Margin Board */}
@@ -323,7 +346,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                             <div>
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">إجمالي حجم المبيعات الناجحة (إيرادات المبيعات + التوصيل)</span>
-                                    <span>{incomeStatement.grossSales.toLocaleString('ar-EG')} ج.م (100%)</span>
+                                    <span>{incomeStatement.grossSales.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م (100%)</span>
                                 </div>
                                 <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                                     <div className="h-full bg-blue-500" style={{ width: '100%' }}></div>
@@ -334,7 +357,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">تكلفة شراء البضاعة المباعة الأصلية (COGS)</span>
                                     <span className="text-red-500">
-                                        {incomeStatement.totalCogs.toLocaleString('ar-EG')} ج.م
+                                        {incomeStatement.totalCogs.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.totalCogs / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -347,7 +370,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">تكاليف التسويق والإعلانات الممولة</span>
                                     <span className="text-orange-500">
-                                        {incomeStatement.marketingAds.toLocaleString('ar-EG')} ج.m
+                                        {incomeStatement.marketingAds.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.marketingAds / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -360,7 +383,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">أتعاب وتكاليف خدمات التوصيل والتحصيل للطلبات الناجحة</span>
                                     <span className="text-amber-500">
-                                        {incomeStatement.successfulShippingOperations.toLocaleString('ar-EG')} ج.م
+                                        {incomeStatement.successfulShippingOperations.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.successfulShippingOperations / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -373,7 +396,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">خسائر التوصيل والارتجاع للطلبيات المرجوعة</span>
                                     <span className="text-red-500">
-                                        {incomeStatement.returnsLoss.toLocaleString('ar-EG')} ج.م
+                                        {incomeStatement.returnsLoss.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.returnsLoss / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -386,7 +409,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">أي مصروفات تشغيلية ورواتب ومصاريف إدارية أخرى</span>
                                     <span className="text-purple-500">
-                                        {incomeStatement.otherAdmin.toLocaleString('ar-EG')} ج.م
+                                        {incomeStatement.otherAdmin.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.otherAdmin / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -406,7 +429,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                             <span className="text-2xl font-black text-emerald-500 tabular-nums">
                                 {incomeStatement.marginRate.toFixed(1)}% 🚀
                             </span>
-                            <div className="text-xs text-slate-400 font-bold">({incomeStatement.realNetProfit.toLocaleString('ar-EG')} ج.م)</div>
+                            <div className="text-xs text-slate-400 font-bold">({incomeStatement.realNetProfit.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م)</div>
                         </div>
                     </div>
                 </div>
@@ -922,8 +945,8 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                     const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
                                     const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
                                     const isInsured = order.isInsured ?? true;
-                                    const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-                                    const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+                                    const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+                                    const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
 
                                     const productsList = (order.items || []).map(i => `${i.name} (الكمية: ${i.quantity})`).join(' + ') || order.productName;
 
@@ -1002,13 +1025,16 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
     
     const stats = useMemo(() => {
-        const collectedOrders = orders.filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة');
+        const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
         const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
 
         let totalRevenue = 0;
         let totalProductRevenue = 0;
+        let totalProductExtraMarkup = 0;
         let totalExtraMarkup = 0;
         let totalShippingRevenue = 0;
+        let totalActualShipping = 0;
+        let totalShippingMarkup = 0;
         let totalCogs = 0;
         let totalInsuranceFees = 0;
         let totalInspectionFees = 0;
@@ -1027,28 +1053,48 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
             const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
             const isInsured = order.isInsured ?? true;
-            const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-            const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+            const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
             const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer) ? 0 : inspectionCost;
 
-            totalRevenue += (order.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0) + order.shippingFee;
+            const safeProductPrice = Number(order.productPrice) || 0;
+            const safeShippingFee = Number(order.shippingFee) || 0;
+            const safeDiscount = Number(order.discount) || 0;
+            const safeAdvance = Number(order.advancePayment) || 0;
+
+            const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
+                ? order.totalAmountOverride + safeAdvance
+                : (safeProductPrice + safeShippingFee - safeDiscount);
+
+            totalRevenue += totalCollected;
             totalShippingRevenue += order.shippingFee;
-            totalCogs += (order.items || []).reduce((sum, item) => sum + (item.cost * item.quantity), 0);
-            totalInsuranceFees += insuranceFee + bostaVat;
+
+            const standardShipping = isPosOrder ? 0 : getStandardShippingFee(order, settings);
+            totalActualShipping += standardShipping;
+
+            const shippingMarkup = isPosOrder ? 0 : Math.max(0, order.shippingFee - standardShipping);
+            totalShippingMarkup += shippingMarkup;
+
+            totalCogs += (order.items || []).reduce((sum, item) => {
+                const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                return sum + (actualCost * item.quantity);
+            }, 0);
+            totalInsuranceFees += insuranceFee;
             totalInspectionFees += inspectionAdjustment;
             totalCodFees += codFee;
             totalProfit += profit;
 
             // Calculate item-level profits and separate base revenue from markup
+            let orderProductExtraMarkup = 0;
             order.items.forEach(item => {
-                const product = settings.products.find(p => p.id === item.productId);
-                const itemProfit = (item.price - item.cost) * item.quantity;
+                const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+                const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                const itemProfit = (item.price - actualCost) * item.quantity;
                 
                 if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                     const basePriceRevenue = product.basePrice * item.quantity;
                     const extraMarkup = (item.price - product.basePrice) * item.quantity;
                     totalProductRevenue += basePriceRevenue;
-                    totalExtraMarkup += extraMarkup;
+                    orderProductExtraMarkup += extraMarkup;
                     totalCommissionProfit += itemProfit;
                 } else {
                     totalProductRevenue += item.price * item.quantity;
@@ -1059,6 +1105,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     }
                 }
             });
+            totalProductExtraMarkup += orderProductExtraMarkup;
+            totalExtraMarkup += (orderProductExtraMarkup + shippingMarkup);
         });
 
         let totalLoss = 0;
@@ -1076,22 +1124,42 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
             const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
             const isInsured = order.isInsured ?? true;
-            const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate) : 0;
-            const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
+            const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+            const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
             
             const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
             const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
             const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
 
             totalFailedShipping += order.shippingFee;
-            totalFailedInsurance += insuranceFee + bostaVat;
+            totalFailedInsurance += insuranceFee;
             totalFailedInspection += (inspectionCost - inspectionFeeCollected);
             totalReturnFees += returnFeeAmount;
             totalLoss += loss;
         });
 
+        const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+        let extraPosProfit = 0;
+        let extraPosRevenue = 0;
+        let extraPosCOGS = 0;
+        extraPosSales.forEach(s => {
+            (s.items || []).forEach(item => {
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                extraPosCOGS += (cost * (item.quantity || 1));
+                extraPosRevenue += (item.price * (item.quantity || 1));
+                const itemProfit = (item.price - cost) * (item.quantity || 1);
+                extraPosProfit += itemProfit;
+                totalPercentageProfit += itemProfit; // Add to percentage profit out of simplicity
+            });
+        });
+
+        totalRevenue += extraPosRevenue;
+        totalProductRevenue += extraPosRevenue;
+        totalCogs += extraPosCOGS;
+        totalProfit += extraPosProfit;
+
         const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
-        
+
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
         // --- NEW CALCULATIONS ---
@@ -1100,15 +1168,15 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         const lossRatio = grossProfit > 0 ? (totalLoss / grossProfit) * 100 : 0;
         const avgProfitPerOrder = orders.length > 0 ? finalNet / orders.length : 0;
 
-        // Geographic Analysis
+        // Demographic Analysis (Exclude cancelled/draft/reviewing orders for accurate success rates & profits)
         const geoStats: Record<string, { count: number, success: number, revenue: number, loss: number, netProfit: number }> = {};
-        orders.forEach(o => {
+        orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)).forEach(o => {
             const area = o.governorate || o.shippingArea || 'غير محدد';
             if (!geoStats[area]) geoStats[area] = { count: 0, success: 0, revenue: 0, loss: 0, netProfit: 0 };
             geoStats[area].count++;
             const { net, loss } = calculateOrderProfitLoss(o, settings);
             geoStats[area].netProfit += net;
-            if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) {
                 geoStats[area].success++;
                 geoStats[area].revenue += (o.items.reduce((sum, item) => sum + (item.price * item.quantity), 0) + o.shippingFee);
             }
@@ -1117,7 +1185,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
         const geoData = Object.entries(geoStats).map(([name, s]) => ({
             name,
-            successRate: (s.success / s.count) * 100,
+            successRate: s.count > 0 ? (s.success / s.count) * 100 : 0,
             revenue: s.revenue,
             loss: s.loss,
             net: s.netProfit
@@ -1133,13 +1201,13 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             { name: 'أخرى', value: (wallet?.transactions || []).filter(t => t.category === 'expense_other').reduce((sum, t) => sum + t.amount, 0), color: '#ec4899' },
         ].filter(c => c.value > 0);
 
-        // Carrier Performance
+        // Carrier Performance (Filter to processed orders only)
         const carrierStats: Record<string, { count: number, success: number, shipping: number, profit: number }> = {};
-        orders.forEach(o => {
+        orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)).forEach(o => {
             const name = o.shippingCompany || 'غير محدد';
             if (!carrierStats[name]) carrierStats[name] = { count: 0, success: 0, shipping: 0, profit: 0 };
             carrierStats[name].count++;
-            if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') carrierStats[name].success++;
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) carrierStats[name].success++;
             carrierStats[name].shipping += o.shippingFee;
             const { net } = calculateOrderProfitLoss(o, settings);
             carrierStats[name].profit += net;
@@ -1151,7 +1219,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             o.items.forEach(item => {
                 if (!productStats[item.name]) productStats[item.name] = { revenue: 0, extra: 0, cost: 0, sold: 0, returns: 0 };
                 if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
-                    const product = settings.products.find(p => p.id === item.productId);
+                    const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                     if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                         productStats[item.name].revenue += product.basePrice * item.quantity;
                         productStats[item.name].extra += (item.price - product.basePrice) * item.quantity;
@@ -1232,7 +1300,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         }, 0);
 
         return { 
-            totalRevenue, totalProductRevenue, totalExtraMarkup, totalShippingRevenue, totalCogs, 
+            totalRevenue, totalProductRevenue, totalProductExtraMarkup, totalExtraMarkup, totalShippingRevenue, totalActualShipping, totalShippingMarkup, totalCogs, 
             totalInsuranceFees, totalInspectionFees, totalCodFees, totalProfit, 
             totalLoss, totalFailedShipping, totalFailedInsurance, totalFailedInspection, 
             totalReturnFees, totalExpenses, finalNet, totalPercentageProfit, totalCommissionProfit,
@@ -1455,17 +1523,17 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div className="bg-emerald-50 dark:bg-emerald-900/10 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-800">
                         <h4 className="font-bold text-emerald-800 dark:text-emerald-400 mb-1 flex items-center gap-2"><WalletIcon size={18}/> النقدية المحققة</h4>
-                        <p className="text-2xl font-black text-emerald-600">{(stats.totalCogs + stats.finalNet).toLocaleString()} ج.م</p>
-                        <p className="text-[10px] text-emerald-500 mt-1">تكلفة البضاعة المباعة + صافي الربح النهائي</p>
+                        <p className="text-2xl font-black text-emerald-600">{(stats.totalCogs + (stats.totalProfit - stats.totalLoss)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
+                        <p className="text-[10px] text-emerald-500 mt-1">تكلفة البضاعة المباعة + صافي الربح التشغيلي</p>
                     </div>
                     <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-200 dark:border-blue-800">
                         <h4 className="font-bold text-blue-800 dark:text-blue-400 mb-1 flex items-center gap-2"><Truck size={18}/> مستحقات الشحن</h4>
-                        <p className="text-2xl font-black text-blue-600">{stats.pendingCollection.toLocaleString()} ج.م</p>
+                        <p className="text-2xl font-black text-blue-600">{stats.pendingCollection.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
                         <p className="text-[10px] text-blue-400 mt-1">مبالغ تم توصيلها ولم تُحصل بعد</p>
                     </div>
                     <div className="bg-amber-50 dark:bg-amber-900/10 p-6 rounded-2xl border border-amber-200 dark:border-amber-800">
                         <h4 className="font-bold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-2"><Package size={18}/> قيمة المخزون</h4>
-                        <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString()} ج.م</p>
+                        <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
                         <p className="text-[10px] text-amber-500 mt-1">قيمة البضاعة المتاحة في المخزن</p>
                     </div>
                 </div>
@@ -1577,12 +1645,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                         <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                             <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">{p.name}</td>
                                             <td className="px-4 py-3"><span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
-                                            <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-red-600">-{p.netLoan.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString() : '0'}</td>
+                                            <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
+                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
+                                            <td className="px-4 py-3 font-mono text-red-600">-{p.netLoan.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
+                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : '0'}</td>
                                             <td className={`px-4 py-3 font-black ${p.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                {p.currentBalance.toLocaleString()} ج.م
+                                                {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
                                             </td>
                                         </tr>
                                     ))
@@ -1611,19 +1679,19 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="إجمالي قيمة المنتجات المباعة بالسعر الأساسي.">إجمالي مبيعات المنتجات (بالسعر الأساسي)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalProductRevenue.toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalProductRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
                             </tr>
                             <tr>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="إجمالي الأرباح الناتجة عن بيع المنتجات بسعر أعلى من سعرها الأساسي.">(+) الزيادة في السعر (ربح إضافي)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalExtraMarkup.toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="الفروقات الإيجابية الناتجة عن تعلية السعر وتجاوز رسوم الشحن المدخلة بالطلب.">(+) إيرادات الزيادة في السعر وفرق الشحن</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalExtraMarkup.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="إجمالي رسوم الشحن التي دفعها العملاء.">إجمالي تحصيل الشحن من العملاء</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalShippingRevenue.toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalShippingRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
                             </tr>
                             <tr className="bg-slate-50 dark:bg-slate-800/50 font-bold">
                                 <td className="p-3 border border-slate-200 dark:border-slate-700" title="مجموع الإيرادات بالكامل.">(=) إجمالي الإيرادات (Total Revenue)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700">{(stats.totalProductRevenue + stats.totalExtraMarkup + stats.totalShippingRevenue).toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700">{(stats.totalProductRevenue + stats.totalExtraMarkup + stats.totalShippingRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
                             </tr>
 
                             <tr className="bg-slate-100 dark:bg-slate-800 font-bold">
@@ -1635,7 +1703,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="مصاريف الشحن المدفوعة لشركات الشحن للطلبات الناجحة.">(-) إجمالي مصاريف شحن الذهاب (لشركات الشحن)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-red-600 font-bold">-${stats.totalShippingRevenue.toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-red-600 font-bold">-${stats.totalActualShipping.toLocaleString()} ج.م</td>
                             </tr>
 
                             <tr className="bg-blue-50 dark:bg-blue-900/20 font-bold">
@@ -1643,10 +1711,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8 text-sm text-slate-500" title="الربح الأساسي من نظام العمولة.">تفصيل الربح: ربح العمولة</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold text-sm">+{(stats.totalCommissionProfit - stats.totalExtraMarkup).toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold text-sm">+{(stats.totalCommissionProfit - stats.totalProductExtraMarkup).toLocaleString()} ج.م</td>
                             </tr>
                             <tr>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8 text-sm text-slate-500" title="الربح الإضافي من بيع المنتجات بسعر أعلى من الأساسي.">تفصيل الربح: ربح الزيادة في السعر</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8 text-sm text-slate-500" title="الأثر المالي لتجاوز سعر الشحن الفعلي بناءً على الشحن المدخل بالطلب.">تفصيل الربح: الزيادة في السعر وفرق الشحن</td>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold text-sm">+{stats.totalExtraMarkup.toLocaleString()} ج.م</td>
                             </tr>
                             <tr>
@@ -1655,7 +1723,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr className="bg-blue-100 dark:bg-blue-900/40 font-bold">
                                 <td className="p-3 border border-slate-200 dark:border-slate-700" title="مجموع الأرباح التشغيلية.">(=) إجمالي الربح التشغيلي</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-blue-700 dark:text-blue-300">{(stats.totalCommissionProfit + stats.totalPercentageProfit).toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-blue-700 dark:text-blue-300">{(stats.totalCommissionProfit + stats.totalPercentageProfit + stats.totalShippingMarkup).toLocaleString()} ج.م</td>
                             </tr>
 
                             <tr className="bg-red-50 dark:bg-red-900/20 font-bold">
@@ -1839,7 +1907,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     const { profit } = calculateOrderProfitLoss(order, settings);
                                     let orderExtraMarkup = 0;
                                     order.items.forEach(item => {
-                                        const product = settings.products.find(p => p.id === item.productId);
+                                        const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                                         if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                                             orderExtraMarkup += Math.max(0, (item.price - product.basePrice) * item.quantity);
                                         }
@@ -1851,7 +1919,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                             <td className="p-2 border border-slate-100 dark:border-slate-800">{order.customerName}</td>
                                             <td className="p-2 border border-slate-100 dark:border-slate-800">
                                                 {order.items.map((item, idx) => {
-                                                    const p = settings.products.find(prod => prod.id === item.productId);
+                                                    const p = settings.products.find(prod => prod.id === item.productId || prod.variants?.some(v => v.id === item.productId));
                                                     const isItemMulti = p?.profitMode === 'commission' && p.basePrice !== undefined && item.price > p.basePrice;
                                                     return (
                                                         <div key={`${order.id}-${item.productId}-${idx}`} className="mb-1">
@@ -2583,7 +2651,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
 
 const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore }) => {
     const stats = useMemo(() => {
-        const collectedOrders = orders.filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة');
+        const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
         const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
 
         let totalProductRevenue = 0;
@@ -2596,11 +2664,14 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
             const { profit } = calculateOrderProfitLoss(order, settings);
             totalProductRevenue += (order.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
             totalShippingRevenue += order.shippingFee;
-            totalCogs += (order.items || []).reduce((sum, item) => sum + (item.cost * item.quantity), 0);
+            totalCogs += (order.items || []).reduce((sum, item) => {
+                const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                return sum + (actualCost * item.quantity);
+            }, 0);
             totalProfit += profit;
             
             (order.items || []).forEach(item => {
-                const product = settings.products.find(p => p.id === item.productId);
+                const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                 if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                     totalExtraMarkup += (item.price - product.basePrice) * item.quantity;
                 }

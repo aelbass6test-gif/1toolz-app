@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Copy, MapPin, Phone, User as UserIcon, Package, AlertCircle, Wallet } from 'lucide-react';
 import { Order, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
-import { calculateCodFee, calculateInsuranceFee, calculateBostaVat, isBosta } from '../utils/financials';
+import { calculateCodFee, calculateInsuranceFee, calculateBostaVat, isBosta, calculateOrderProfitLoss } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 
 interface OrderDetailsModalProps {
@@ -12,8 +12,11 @@ interface OrderDetailsModalProps {
 }
 
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, settings, onClose }) => {
-  if (!settings) return null;
   const [activeTab, setActiveTab] = useState<'details' | 'tracking'>('details');
+
+  if (!settings) return null;
+
+  const { profit, loss, carrierFees, productCost: safeProductCost, netRevenue } = calculateOrderProfitLoss(order, settings);
 
   const safeProductPrice = Number(order.productPrice) || 0;
   const safeShippingFee = Number(order.shippingFee) || 0;
@@ -25,13 +28,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
   
   const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
   const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-  const inspectionFee = (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+  const inspectionAdjustment = (order.includeInspectionFee ?? true) ? (order.inspectionFeePaidByCustomer ? 0 : (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0))) : 0;
   const bostaVatFee = calculateBostaVat(order, insuranceFee, settings);
+  const codFee = calculateCodFee(order, settings);
   const currentVatRate = useCustom ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) : (settings?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0));
   
-  const bostaDues = safeShippingFee + insuranceFee + bostaVatFee;
+  const totalCarrierFees = carrierFees;
   
-  const computedTotal = safeProductPrice + safeShippingFee - safeDiscount - safeAdvance + inspectionFee;
+  const computedTotal = safeProductPrice + safeShippingFee - safeDiscount - safeAdvance + (order.inspectionFeePaidByCustomer ? inspectionAdjustment : 0);
   const totalAmountToCollect = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
   
   const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
@@ -254,7 +258,23 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                 {/* Main Collection Amount */}
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-right">
                     <p className="text-slate-500 text-sm mb-1">مبلغ التحصيل</p>
-                    <p className="text-2xl font-black text-slate-800 dark:text-white">{totalAmountToCollect.toLocaleString()} ج.م</p>
+                    <p className="text-2xl font-black text-slate-800 dark:text-white">{totalAmountToCollect.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
+                </div>
+
+                {/* Net Profit Summary Card */}
+                <div className={`rounded-2xl border p-4 text-right transition-all sm:hover:scale-[1.02] ${profit >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800' : 'bg-rose-50 dark:bg-rose-900/20 border-rose-100 dark:border-rose-800'}`}>
+                    <div className="flex items-center justify-end gap-2 mb-1">
+                        <p className={`text-sm font-bold ${profit >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+                            {profit >= 0 ? 'الصافي الربحي المتوقع' : 'صافي الخسارة المتوقعة'}
+                        </p>
+                        <Wallet size={16} className={profit >= 0 ? 'text-emerald-500' : 'text-rose-500'} />
+                    </div>
+                    <p className={`text-2xl font-black ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        {profit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                    </p>
+                    {loss > 0 && (
+                        <p className="text-[10px] text-rose-500 mt-1 font-bold">يتضمن رسوم مرتجع/فشل شحن بقيمة {loss.toFixed(2)} ج.م</p>
+                    )}
                 </div>
 
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-right">
@@ -264,38 +284,54 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
 
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-right">
                     <p className="text-slate-500 text-sm mb-1">تطبيق فليكس شيب</p>
-                    <p className="font-bold text-slate-700 dark:text-slate-200">{flexFeeValue} ج.م</p>
+                    <p className="font-bold text-slate-700 dark:text-slate-200">{Number(flexFeeValue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                 </div>
 
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-right">
-                    <p className="text-slate-500 text-sm mb-1">قيمة المنتج</p>
-                    <p className="font-bold text-slate-700 dark:text-slate-200">{safeProductPrice.toLocaleString()} ج.م</p>
+                    <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] font-bold text-slate-400">التكلفة: {safeProductCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
+                        <p className="text-slate-500 text-sm">قيمة المنتج</p>
+                    </div>
+                    <p className="font-bold text-slate-700 dark:text-slate-200">{safeProductPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                     
-                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-end gap-4">
-                        <button className="text-xs font-bold text-teal-600 flex items-center gap-1"><Copy size={14}/> تبديل الإثبات</button>
-                        <button className="text-xs font-bold text-teal-600 flex items-center gap-1"><Copy size={14}/> تحميل الإثبات</button>
+                    <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-end gap-3 flex-wrap">
+                        <button className="text-[10px] font-bold text-teal-600 bg-teal-50 dark:bg-teal-900/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors hover:bg-teal-100"><Copy size={12}/> تبديل الإثبات</button>
+                        <button className="text-[10px] font-bold text-teal-600 bg-teal-50 dark:bg-teal-900/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors hover:bg-teal-100"><Copy size={12}/> تحميل الإثبات</button>
                     </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-right space-y-3 text-sm">
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs mb-2 border-b border-slate-50 dark:border-slate-700 pb-2">تفصيل مصاريف شركة الشحن</h4>
                     <div className="flex justify-between items-center">
-                        <span className="font-bold text-slate-700 dark:text-slate-200">{safeShippingFee.toLocaleString()} ج.م</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">{safeShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                         <span className="text-slate-500">سعر الشحن</span>
                     </div>
                     {currentVatRate > 0 && (
                         <div className="flex justify-between items-center">
-                           <span className="font-bold text-slate-700 dark:text-slate-200">{bostaVatFee.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                           <span className="font-bold text-slate-700 dark:text-slate-200">{bostaVatFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                            <span className="text-slate-500">ضريبة قيمة مضافة {(currentVatRate * 100).toFixed(0)}%</span>
                         </div>
                     )}
                     <div className="flex justify-between items-center">
-                        <span className="font-bold text-slate-700 dark:text-slate-200">{insuranceFee.toLocaleString()} ج.م</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200">{insuranceFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                         <span className="text-slate-500">التأمين <AlertCircle size={12} className="inline opacity-50"/></span>
                     </div>
+                    {codFee > 0 && (
+                        <div className="flex justify-between items-center">
+                            <span className="font-bold text-slate-700 dark:text-slate-200">{codFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
+                            <span className="text-slate-500">رسوم تحصيل (COD)</span>
+                        </div>
+                    )}
+                    {inspectionAdjustment > 0 && (
+                         <div className="flex justify-between items-center">
+                             <span className="font-bold text-slate-700 dark:text-slate-200">{inspectionAdjustment.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
+                             <span className="text-slate-500">رسوم معاينة</span>
+                         </div>
+                    )}
                     
                     <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-3 flex justify-between items-center">
-                        <span className="font-black text-slate-800 dark:text-white">{bostaDues.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
-                        <span className="font-bold text-slate-700 dark:text-slate-300">تقدير مستحقات بوسطة</span>
+                        <span className="font-black text-rose-600 dark:text-rose-400">-{totalCarrierFees.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-300">إجمالي مستحقات الشحن</span>
                     </div>
                 </div>
 

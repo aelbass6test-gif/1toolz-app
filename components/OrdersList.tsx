@@ -9,7 +9,7 @@ import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { generateShippingLabelHTML } from '../utils/shippingLabelGenerator';
 import { generateShippingNote } from '../services/geminiService';
-import { calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, calculateOrderShippingAndFees, getStandardShippingFee } from '../utils/financials';
+import { calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, calculateOrderShippingAndFees, getStandardShippingFee, getOrderProductCost, calculateOrderProfitLoss } from '../utils/financials';
 import { generateOrdersReportHTML } from '../utils/reportGenerator';
 import { triggerWebhooks } from '../utils/webhook';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -184,9 +184,6 @@ const WaybillModal: React.FC<{ order: Order; onClose: () => void; onSave: (waybi
 
 
 const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ orders, setOrders, products, settings, currentUser, setWallet, setSettings, addLoyaltyPointsForOrder, activeStore, customers, setCustomers, onRefresh, treasury, setTreasury, defaultShowAdd }) => {
-  if (!settings) {
-     return <div className="p-20 text-center"><RefreshCcw className="animate-spin mx-auto mb-4 text-slate-400" size={32} /></div>;
-  }
   const navigate = useNavigate();
   const location = useLocation();
   const storePrefix = activeStore ? `/store/${activeStore.id}` : '';
@@ -205,16 +202,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     companyName: string;
     orderNumber: string;
   } | null>(null);
-  const [pendingPaymentCollectionConfirm, setPendingPaymentCollectionConfirm] = useState<{
+  const [pendingInspectionConfirm, setPendingInspectionConfirm] = useState<{
     order: Order;
     newPaymentStatus: PaymentStatus;
     inspectionFee: number;
-    flexShipFee: number;
-    isFlexShipEnabled: boolean;
-    needsFlexShipConfirm: boolean;
-    needsInspectionConfirm: boolean;
-    inspectionFeePaid?: boolean;
-    flexShipFeePaid?: boolean;
   } | null>(null);
   const [autoWhatsappData, setAutoWhatsappData] = useState<{order: Order, newStatus: string} | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -412,6 +403,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
 
   const anyFlexShipEnabled = useMemo(() => {
+    if (!settings) return false;
     return filteredOrders.some(o => {
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
@@ -429,58 +421,53 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     let successCount = 0;
     let returnCount = 0;
 
+    if (!settings) return {
+      salesTotal,
+      expectedCollection,
+      shippingExpenses,
+      productCostTotal,
+      flexFeesTotal,
+      netProfitTotal,
+      returnRate: 0
+    };
+
     filteredOrders.forEach(o => {
       const safeProductPrice = Number(o.productPrice) || 0;
       const safeShippingFee = Number(o.shippingFee) || 0;
-      const safeDiscount = Number(o.discount) || 0;
-      const safeProductCost = Number(o.productCost) || 0;
       const safeTax = Number(o.tax) || 0;
+      const safeDiscount = Number(o.discount) || 0;
       const safeAdvance = Number(o.advancePayment) || 0;
 
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
       const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-      const insuranceFee = (o.isInsured ?? true) ? calculateInsuranceFee(o, insuranceRate, settings) : 0;
       const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
-      const inspectionFee = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-      const codFee = calculateCodFee(o, settings);
-      const bostaVatFee = calculateBostaVat(o, insuranceFee, settings);
-
-      const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : inspectionFee;
       
-      const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance + inspectionFee;
+      const insuranceFee = (isPosOrder ? 0 : ((o.isInsured ?? true) ? calculateInsuranceFee(o, insuranceRate, settings) : 0));
+      const inspectionFee = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const bostaVatFee = isPosOrder ? 0 : calculateBostaVat(o, insuranceFee, settings);
+
+      const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
       const orderTotal = o.totalAmountOverride != null ? Number(o.totalAmountOverride) : computedTotal;
 
-      const baseRevenue = safeProductPrice + safeShippingFee + safeTax;
-      const amountCollectedFromCustomer = o.totalAmountOverride !== undefined && o.totalAmountOverride !== null
-          ? o.totalAmountOverride + safeAdvance 
-          : (baseRevenue - safeDiscount);
-
-      const standardShippingFee = getStandardShippingFee(o, settings);
-      const totalCarrierExpenses = (isPosOrder ? 0 : standardShippingFee) + insuranceFee + bostaVatFee;
-      const totalExpenses = safeProductCost + (isPosOrder ? 0 : standardShippingFee) + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
-
-      const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(o.status);
-      const isFlexShipEnabled = o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+      const totalCarrierExpenses = isPosOrder ? 0 : (safeShippingFee + insuranceFee + bostaVatFee);
+      
+      const isFlexShipEnabled = !isPosOrder && (o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false)));
       const flexFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0)) : 0;
-      const flexPaidAmount = isFlexShipEnabled && o.flexShipFeePaidByCustomer ? (o.flexShipFee || flexFeeValue) : 0;
-      const flexCompanyFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0)) : 0;
-      const flexCompanyFeePaid = isFlexShipEnabled && o.flexShipFeePaidByCustomer ? (o.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
 
-      const oProfit = isReturnedOrFailed
-          ? (flexPaidAmount - totalCarrierExpenses - flexCompanyFeePaid)
-          : (amountCollectedFromCustomer - totalExpenses);
+      // Use central utility for accurate P&L
+      const { net } = calculateOrderProfitLoss(o, settings);
 
       salesTotal += safeProductPrice;
       expectedCollection += orderTotal;
       shippingExpenses += totalCarrierExpenses;
-      productCostTotal += safeProductCost;
+      productCostTotal += getOrderProductCost(o, settings);
       flexFeesTotal += (o.flexShipFee || flexFeeValue);
-      netProfitTotal += oProfit;
+      netProfitTotal += net;
 
-      if (o.status === 'تم_التحصيل' || o.status === 'تم_توصيلها') {
+      if (o.status === 'تم_التحصيل' || o.status === 'تم_توصيلها' || o.status === 'مدفوعة') {
         successCount++;
-      } else if (['مرتجع', 'فشل_التوصيل'].includes(o.status)) {
+      } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status)) {
         returnCount++;
       }
     });
@@ -756,25 +743,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
             });
         }
 
-        updatedOrderData.shippingAndInsuranceDeducted = true;
-        
-        if (orderToUpdate.includeInspectionFee && !updatedOrderData.inspectionFeeDeducted) {
-            const feeAmount = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
-            if (feeAmount > 0) {
-                newTransactions.push({ 
-                    id: `insp_${orderToUpdate.id}`, 
-                    type: 'سحب', 
-                    amount: feeAmount, 
-                    date: new Date().toISOString(), 
-                    note: `خصم رسوم معاينة أوردر #${orderToUpdate.orderNumber}`, 
-                    category: 'inspection', 
-                    status: 'completed',
-                    orderId: orderToUpdate.id,
-                    orderNumber: orderToUpdate.orderNumber
-                });
-                updatedOrderData.inspectionFeeDeducted = true;
-            }
+        const companyInspectionFee = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? (settings.inspectionFee ?? 0) : 0);
+        if (orderToUpdate.includeInspectionFee && companyInspectionFee > 0 && !updatedOrderData.inspectionFeeDeducted) {
+            newTransactions.push({ 
+                id: `insp_expense_${orderToUpdate.id}`, 
+                type: 'سحب', 
+                amount: companyInspectionFee, 
+                date: new Date().toISOString(), 
+                note: `خصم رسوم معاينة مقدمة أوردر #${orderToUpdate.orderNumber}`, 
+                category: 'inspection', 
+                status: 'completed',
+                orderId: orderToUpdate.id,
+                orderNumber: orderToUpdate.orderNumber
+            });
+            updatedOrderData.inspectionFeeDeducted = true;
         }
+
+        updatedOrderData.shippingAndInsuranceDeducted = true;
     }
     
     if ((newStatus === 'مرتجع' || newStatus === 'فشل_التوصيل') && !updatedOrderData.returnFeeDeducted) {
@@ -812,6 +797,21 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                 orderId: orderToUpdate.id,
                 orderNumber: orderToUpdate.orderNumber
             });
+            
+            const flexShipCompanyFee = updatedOrderData.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0));
+            if (flexShipCompanyFee > 0) {
+                 newTransactions.push({
+                    id: `flexship_company_${orderToUpdate.id}`,
+                    type: 'سحب',
+                    amount: flexShipCompanyFee,
+                    date: new Date().toISOString(),
+                    note: `خصم حصة شركة الشحن من خدمة فليكس شيب أوردر #${orderToUpdate.orderNumber}`,
+                    category: 'expense_other',
+                    status: 'completed',
+                    orderId: orderToUpdate.id,
+                    orderNumber: orderToUpdate.orderNumber
+                });
+            }
         }
     }
     
@@ -1051,7 +1051,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     return { updatedProducts, stockDeducted: newStockDeducted };
   };
 
-  const updateOrderStatus = async (id: string, newStatus: OrderStatus, forcePaidFlexShip?: boolean) => {
+  const updateOrderStatus = async (id: string, incomingStatus: OrderStatus, forcePaidFlexShip?: boolean) => {
+    const newStatus = incomingStatus === 'تم_التوصيل' ? ('تم_توصيلها' as OrderStatus) : incomingStatus;
     const orderToUpdate = orders.find((o) => o.id === id);
     if (!orderToUpdate) return;
 
@@ -1246,23 +1247,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   };
 
 
-  const handleCollectAction = (order: Order, customerPaidInspection: boolean, customerPaidFlexShip: boolean = false, updateStatus: boolean = true) => {
+  const handleCollectAction = (order: Order, customerPaidInspection: boolean) => {
     const isMaintenance = order.orderType === 'maintenance' || (order.status as string) === 'سحب_للصيانة';
-    const allowedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_الارسال', 'قيد_الشحن', 'تم_التحصيل', 'مدفوعة'];
-    
-    if (((!allowedStatuses.includes(order.status) && !isMaintenance && order.paymentStatus !== 'مدفوع') || order.collectionProcessed) && updateStatus) return;
+    if ((order.status !== 'تم_توصيلها' && !isMaintenance) || order.collectionProcessed) return;
 
     const compFees = settings.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
-    const inspectionFee = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
-    const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+    const inspectionFee = useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0);
 
     const newTransactions: Transaction[] = [];
     const basePrice = isMaintenance ? (Number((order as any).maintenanceCost) || order.productPrice || 0) : order.productPrice;
-    const baseAmountToCollect = order.totalAmountOverride ?? (basePrice + order.shippingFee - order.discount);
     
-    // Total collected includes base amount + requested fees if paid
-    const totalCollected = baseAmountToCollect + (customerPaidInspection ? inspectionFee : 0) + (customerPaidFlexShip ? flexFeeValue : 0);
+    // Always use actual order shipping/discount for base collect amount if not overridden
+    const baseAmountToCollect = order.totalAmountOverride ?? (basePrice + order.shippingFee - order.discount);
     
     const txnNote = isMaintenance 
         ? `رصيد من سداد أوردر صيانة #${order.orderNumber}`
@@ -1271,7 +1268,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     newTransactions.push({ 
         id: `collect_${order.id}`, 
         type: 'إيداع', 
-        amount: totalCollected, 
+        amount: baseAmountToCollect, 
         date: new Date().toISOString(), 
         note: txnNote, 
         category: 'collection', 
@@ -1279,6 +1276,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         orderId: order.id,
         orderNumber: order.orderNumber
     });
+
+    if (customerPaidInspection && inspectionFee > 0) {
+        newTransactions.push({ 
+            id: `insp_reimburse_${order.id}`, 
+            type: 'إيداع', 
+            amount: inspectionFee, 
+            date: new Date().toISOString(), 
+            note: `استرداد رسوم معاينة من العميل أوردر #${order.orderNumber}`, 
+            category: 'collection', 
+            status: 'completed',
+            orderId: order.id,
+            orderNumber: order.orderNumber
+        });
+    }
 
     const codFee = calculateCodFee(order, settings);
     if (codFee > 0) {
@@ -1297,12 +1308,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
     
     const updatedOrderData = { 
         ...order, 
-        status: isMaintenance ? order.status : (updateStatus ? ('تم_التحصيل' as OrderStatus) : order.status), 
+        status: isMaintenance ? order.status : ('تم_التحصيل' as OrderStatus), 
         paymentStatus: 'مدفوع' as PaymentStatus, 
         inspectionFeePaidByCustomer: customerPaidInspection, 
-        flexShipFeePaidByCustomer: customerPaidFlexShip,
-        flexShipFee: flexFeeValue,
-        collectionProcessed: true 
+        collectionProcessed: true
     };
     
     setWallet(prev => {
@@ -1324,31 +1333,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
   const handlePaymentStatusChange = (order: Order, newPaymentStatus: PaymentStatus) => {
     const updatedOrder = {...order, paymentStatus: newPaymentStatus};
     const isMaintenance = order.orderType === 'maintenance' || (order.status as string) === 'سحب_للصيانة';
-    const allowedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_الارسال', 'قيد_الشحن', 'تم_التحصيل', 'مدفوعة'];
     
-    if (newPaymentStatus === 'مدفوع' && (allowedStatuses.includes(order.status) || isMaintenance)) {
+    if (newPaymentStatus === 'مدفوع' && (order.status === 'تم_توصيلها' || isMaintenance)) {
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
+        const inspectionFee = useCustom ? (compFees?.inspectionFee ?? settings.inspectionFee) : settings.inspectionFee;
         
-        const inspectionFeeValue = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
-        const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
-        const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
-        
-        const needsInspectionConfirm = order.includeInspectionFee && inspectionFeeValue > 0 && !order.inspectionFeePaidByCustomer;
-        const needsFlexShipConfirm = isFlexShipEnabled && flexFeeValue > 0 && !order.flexShipFeePaidByCustomer;
-
-        if (needsInspectionConfirm || needsFlexShipConfirm) {
-            setPendingPaymentCollectionConfirm({
+        if (order.includeInspectionFee && inspectionFee && inspectionFee > 0) {
+            setPendingInspectionConfirm({
                 order,
                 newPaymentStatus,
-                inspectionFee: inspectionFeeValue,
-                flexShipFee: flexFeeValue,
-                isFlexShipEnabled,
-                needsFlexShipConfirm,
-                needsInspectionConfirm
+                inspectionFee
             });
         } else {
-            handleCollectAction(updatedOrder, order.inspectionFeePaidByCustomer || false, order.flexShipFeePaidByCustomer || false, false);
+            handleCollectAction(updatedOrder, false);
         }
     } else {
         updateOrderField(order.id, 'paymentStatus', newPaymentStatus);
@@ -1917,40 +1915,22 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         ].map((stat, idx) => (
           <div 
             key={idx} 
-            onClick={() => {
-              if (stat.isSelected) {
-                setActiveTab('الجميع');
-              } else {
-                setActiveTab(stat.targetTab);
-              }
-            }}
-            className={`cursor-pointer select-none active:scale-[0.98] bg-white dark:bg-slate-900 p-5 rounded-[2rem] border transition-all flex flex-col justify-between group ${
+            onClick={() => setActiveTab(stat.isSelected ? 'الجميع' : stat.targetTab)}
+            className={`cursor-pointer select-none active:scale-95 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-5 sm:p-6 rounded-[2.5rem] border transition-all flex flex-col justify-between group overflow-hidden relative ${
               stat.isSelected 
-                ? `border-indigo-600 dark:border-indigo-500 ring-4 ring-indigo-500/10 shadow-md` 
-                : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm hover:shadow-md'
+                ? `border-${stat.color}-500/50 shadow-lg shadow-${stat.color}-500/10` 
+                : 'border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700'
             } ${stat.hideOnMobile ? 'hidden lg:flex' : 'flex'}`}
           >
-            <div className="flex items-start justify-between">
-                <div className={`p-3 bg-${stat.color}-50 dark:bg-${stat.color}-900/20 text-${stat.color}-600 dark:text-${stat.color}-400 rounded-2xl group-hover:scale-110 transition-transform`}>
+            {stat.isSelected && <div className={`absolute inset-0 bg-${stat.color}-500/5 pointer-events-none`}></div>}
+            <div className="flex items-start justify-between relative z-10">
+                <div className={`p-3 bg-${stat.color}-50 dark:bg-${stat.color}-500/10 text-${stat.color}-600 dark:text-${stat.color}-400 rounded-2xl group-hover:scale-110 transition-transform shadow-sm`}>
                     <stat.icon size={22} />
                 </div>
                 <div className="text-right">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
-                    <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums leading-none">{stat.count}</p>
+                    <p className="text-[10px] sm:text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">{stat.label}</p>
+                    <p className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tabular-nums leading-none tracking-tight">{stat.count}</p>
                 </div>
-            </div>
-            {/* Minimal Trend or Sparkline mockup */}
-            <div className="mt-6 flex items-end gap-1 h-4">
-                {[40, 70, 45, 90, 35, 60].map((h, i) => (
-                    <div key={i} className={`flex-1 rounded-full bg-${stat.color}-500/10 dark:bg-${stat.color}-500/20 overflow-hidden`}>
-                        <motion.div 
-                            initial={{ height: 0 }}
-                            animate={{ height: `${h}%` }}
-                            transition={{ delay: 0.1 + (i * 0.05) }}
-                            className={`w-full bg-${stat.color}-500/40`}
-                        />
-                    </div>
-                ))}
             </div>
           </div>
         ))}
@@ -1960,73 +1940,95 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       <div className="w-full">
          <div 
            onClick={() => setShowAnalyticsHub(!showAnalyticsHub)}
-           className="flex justify-between items-center text-right bg-indigo-500/5 hover:bg-indigo-500/10 border border-indigo-500/15 dark:border-indigo-500/10 rounded-2xl p-3 px-5 cursor-pointer transition-all select-none"
+           className="flex justify-between items-center text-right bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent border border-indigo-500/20 dark:border-indigo-500/10 rounded-[2rem] p-4 px-6 cursor-pointer transition-all select-none shadow-sm hover:shadow-md"
          >
-            <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-bold text-xs flex-row-reverse">
-               <Sparkles size={14} className="animate-pulse" />
-               <span>اضغط لعرض التحليلات والتقارير المالية التفاعلية ({filteredOrders.length} طلب معروض حالياً)</span>
+            <div className="flex items-center gap-3 text-indigo-700 dark:text-indigo-400 font-bold text-sm flex-row-reverse">
+               <div className="p-2 bg-indigo-500/10 rounded-xl">
+                 <Sparkles size={18} className="animate-pulse" />
+               </div>
+               <div>
+                 <span className="block">لوحة تحكم وتحليلات المبيعات الذكية</span>
+                 <span className="text-[10px] text-slate-500 font-medium">عرض نتائج {filteredOrders.length} طلب نشط بالاعتماد على التصفية</span>
+               </div>
             </div>
-            <div className="text-slate-400 dark:text-slate-600">
-               <ChevronDown size={16} className={`transform transition-transform duration-200 ${showAnalyticsHub ? 'rotate-180' : ''}`} />
+            <div className="text-slate-400 dark:text-slate-600 bg-white/50 dark:bg-slate-800/50 p-2 rounded-full">
+               <ChevronDown size={20} className={`transform transition-transform duration-300 ${showAnalyticsHub ? 'rotate-180' : ''}`} />
             </div>
          </div>
 
          <AnimatePresence>
             {showAnalyticsHub && (
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden mt-3"
+                initial={{ opacity: 0, height: 0, scale: 0.98 }}
+                animate={{ opacity: 1, height: 'auto', scale: 1 }}
+                exit={{ opacity: 0, height: 0, scale: 0.98 }}
+                className="overflow-hidden mt-4"
               >
-                  <div className="bg-slate-50 dark:bg-slate-900/40 p-5 rounded-[2rem] border border-slate-200 dark:border-slate-800 space-y-4 text-right">
-                      <div className="flex justify-between items-center border-b border-slate-200/50 dark:border-slate-800 pb-3">
-                          <span className="text-xs text-slate-400 font-bold">مبني بالاعتماد على المدخلات وخيارات التصفية النشطة</span>
-                          <h4 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-1.5 flex-row-reverse">
-                             <Coins className="text-indigo-600" size={16} /> ملخص الحسابات المالية الحقيقية
+                  <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-900/50 p-6 sm:p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-200/20 dark:shadow-none space-y-6 text-right relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -mr-32 -mt-32"></div>
+                      <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -ml-24 -mb-24"></div>
+                      
+                      <div className="flex justify-between items-center border-b border-slate-200/60 dark:border-slate-800/60 pb-4 relative z-10">
+                          <div className="flex items-center gap-2">
+                              <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-full uppercase tracking-wider">حي ومباشر</span>
+                          </div>
+                          <h4 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 flex-row-reverse">
+                             <div className="p-1.5 bg-indigo-100 dark:bg-indigo-500/20 rounded-lg">
+                                <Calculator className="text-indigo-600 dark:text-indigo-400" size={18} />
+                             </div>
+                             الملخص المالي الشامل
                           </h4>
                       </div>
 
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-right">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 text-right relative z-10">
                           
-                          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                              <p className="text-[10px] text-slate-400 font-bold mb-1">إجمالي المبيعات المفلترة</p>
-                              <p className="text-lg font-black text-slate-800 dark:text-white tabular-nums">{filteredMetrics.salesTotal.toLocaleString()} ج.م</p>
-                              <div className="w-full bg-slate-150 dark:bg-slate-850 h-[3px] rounded-full mt-2.5 overflow-hidden">
-                                  <div className="bg-emerald-500 h-full w-[80%]" />
+                          <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
+                              <div className="flex items-center justify-between mb-3 flex-row-reverse">
+                                <div className="p-2 bg-blue-50 dark:bg-blue-500/10 rounded-xl text-blue-600 dark:text-blue-400">
+                                  <ShoppingBag size={18} />
+                                </div>
+                                <p className="text-[11px] text-slate-400 font-bold tracking-wide">إجمالي المبيعات المفلترة</p>
                               </div>
+                              <p className="text-2xl font-black text-slate-800 dark:text-white tabular-nums tracking-tight">{filteredMetrics.salesTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-bold text-slate-400">ج.م</span></p>
                           </div>
 
-                          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                              <p className="text-[10px] text-slate-400 font-bold mb-1">المطلوب تحصيله</p>
-                              <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{filteredMetrics.expectedCollection.toLocaleString()} ج.م</p>
-                              <div className="w-full bg-slate-150 dark:bg-slate-850 h-[3px] rounded-full mt-2.5 overflow-hidden">
-                                  <div className="bg-indigo-500 h-full w-[65%]" />
+                          <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
+                              <div className="flex items-center justify-between mb-3 flex-row-reverse">
+                                <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400">
+                                  <Receipt size={18} />
+                                </div>
+                                <p className="text-[11px] text-slate-400 font-bold tracking-wide">المطلوب تحصيله</p>
                               </div>
+                              <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums tracking-tight">{filteredMetrics.expectedCollection.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-bold text-indigo-400/50">ج.م</span></p>
                           </div>
 
-                          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                              <p className="text-[10px] text-slate-400 font-bold mb-1">تقدير رسوم الشحن والتأمين</p>
-                              <p className="text-lg font-black text-slate-850 dark:text-slate-200 tabular-nums">{filteredMetrics.shippingExpenses.toLocaleString(undefined, { maximumFractionDigits: 1 })} ج.م</p>
-                              <div className="w-full bg-slate-150 dark:bg-slate-850 h-[3px] rounded-full mt-2.5 overflow-hidden">
-                                  <div className="bg-amber-500 h-full w-[45%]" />
+                          <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
+                              <div className="flex items-center justify-between mb-3 flex-row-reverse">
+                                <div className="p-2 bg-amber-50 dark:bg-amber-500/10 rounded-xl text-amber-600 dark:text-amber-400">
+                                  <Truck size={18} />
+                                </div>
+                                <p className="text-[11px] text-slate-400 font-bold tracking-wide">تكاليف الشحن المقدرة</p>
                               </div>
+                              <p className="text-2xl font-black text-slate-700 dark:text-slate-200 tabular-nums tracking-tight">{filteredMetrics.shippingExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-sm font-bold text-slate-400">ج.م</span></p>
                           </div>
 
-                          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                              <p className="text-[10px] text-slate-400 font-bold mb-1">صافي الأرباح المتوقعة</p>
-                              <p className={`text-lg font-black tabular-nums ${filteredMetrics.netProfitTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
-                                 {filteredMetrics.netProfitTotal.toLocaleString(undefined, { maximumFractionDigits: 1 })} ج.م
+                          <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                              <div className={`absolute inset-0 opacity-10 ${filteredMetrics.netProfitTotal >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+                              <div className="flex items-center justify-between mb-3 flex-row-reverse relative z-10">
+                                <div className={`p-2 rounded-xl ${filteredMetrics.netProfitTotal >= 0 ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400'}`}>
+                                  {filteredMetrics.netProfitTotal >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                                </div>
+                                <p className="text-[11px] text-slate-500 font-bold tracking-wide">الصافي الربحي</p>
+                              </div>
+                              <p className={`text-2xl font-black tabular-nums tracking-tight relative z-10 ${filteredMetrics.netProfitTotal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
+                                 {filteredMetrics.netProfitTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-sm font-bold opacity-50">ج.م</span>
                               </p>
-                              <div className="w-full bg-slate-150 dark:bg-slate-850 h-[3px] rounded-full mt-2.5 overflow-hidden">
-                                  <div className={`h-full ${filteredMetrics.netProfitTotal >= 0 ? 'bg-emerald-500' : 'bg-rose-500'} w-[75%]`} />
-                              </div>
                           </div>
 
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm pt-2">
-                          <div className="bg-white dark:bg-slate-900/80 p-3 px-4 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse text-slate-600 dark:text-slate-350">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-200/60 dark:border-slate-800/60 relative z-10">
+                          <div className="bg-slate-100/50 dark:bg-slate-800/50 backdrop-blur-md p-4 rounded-2xl flex justify-between items-center flex-row-reverse">
                               <span className="font-bold flex items-center gap-1.5 flex-row-reverse">
                                  <Percent size={14} className="text-rose-500" />
                                  معدل مرتجعات المفلتر (الفعلية)
@@ -2038,7 +2040,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                                  <Briefcase size={14} className="text-slate-400" />
                                  إجمالي تكلفة البضائع المعروضة
                               </span>
-                              <span className="font-black text-slate-700 dark:text-slate-300 tabular-nums">{filteredMetrics.productCostTotal.toLocaleString()} ج.م</span>
+                              <span className="font-black text-slate-700 dark:text-slate-300 tabular-nums">{filteredMetrics.productCostTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                           </div>
                       </div>
                   </div>
@@ -2048,17 +2050,17 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       </div>
 
       {/* Floating Filter Hub */}
-      <div className="sticky top-4 z-40 px-4 md:px-0">
-          <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-2xl p-2 rounded-[2.5rem] shadow-2xl border border-slate-200/50 dark:border-slate-800/50 flex flex-col md:flex-row gap-3">
-              <div className="flex-1 flex flex-row-reverse items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-[2rem] overflow-x-auto no-scrollbar scroll-smooth">
+      <div className="sticky top-4 z-40 px-4 md:px-0 mt-6">
+          <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-3xl p-2.5 rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] border border-slate-200/70 dark:border-slate-700/50 flex flex-col xl:flex-row gap-3 items-center">
+              <div className="w-full xl:flex-1 flex flex-row-reverse items-center gap-1.5 p-1.5 bg-slate-50/80 dark:bg-slate-800/80 rounded-[2rem] overflow-x-auto no-scrollbar scroll-smooth">
                 {['الجميع', 'في_انتظار_المكالمة', 'جاري_المراجعة', 'قيد_التنفيذ', 'تم_الارسال', 'تم_التحصيل', 'مرتجع', 'فشل_التوصيل', 'ملغي', 'مؤرشف'].map((tab) => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
-                    className={`px-5 py-2.5 rounded-[1.5rem] text-[11px] font-black transition-all whitespace-nowrap ${
+                    className={`px-5 py-2.5 rounded-[1.5rem] text-[11px] font-black transition-all whitespace-nowrap active:scale-95 ${
                       activeTab === tab 
-                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' 
-                        : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/50 dark:border-slate-600' 
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
                     }`}
                   >
                     {tab.replace(/_/g, ' ')}
@@ -2066,23 +2068,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                 ))}
               </div>
 
-              <div className="flex items-center gap-2 p-1">
-                <div className="relative flex-1 md:w-80">
+              <div className="w-full xl:w-auto flex items-center gap-2 p-1">
+                <div className="relative flex-1 md:min-w-[320px]">
                   <Search className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input 
                     type="text"
-                    placeholder="ابحث عن عميل، رقم طلب، أو تفاصيل..."
+                    placeholder="ابحث برقم الطلب، اسم العميل، الهاتف..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pr-12 pl-4 py-3 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[1.5rem] text-xs font-bold focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-200 transition-all outline-none dark:text-white"
+                    className="w-full pr-12 pl-4 py-3.5 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-400 dark:focus:border-indigo-500 transition-all outline-none dark:text-white shadow-sm"
                   />
                 </div>
                 <button 
                   onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                  className={`p-3.5 rounded-[1.5rem] border transition-all shrink-0 ${
+                  className={`p-3.5 rounded-[1.5rem] border transition-all shrink-0 active:scale-95 flex items-center justify-center ${
                     showAdvancedFilters 
-                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
-                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50'
+                      ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-500/30' 
+                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm'
                   }`}
                 >
                   <Filter size={20} />
@@ -2152,39 +2154,61 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       {/* Bulk Actions Bar */}
       {selectedOrders.length > 0 && (
         <motion.div 
-          initial={{ y: 50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-8 py-4 rounded-full shadow-2xl flex items-center gap-8"
+          initial={{ y: 50, opacity: 0, scale: 0.95 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: 50, opacity: 0, scale: 0.95 }}
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 dark:bg-slate-800/95 backdrop-blur-2xl text-white px-6 py-4 rounded-full shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)] border border-white/10 flex items-center gap-6 sm:gap-8 min-w-[max-content] transition-all"
         >
-          <span className="text-sm font-bold whitespace-nowrap">تم تحديد {selectedOrders.length} طلب</span>
-          <div className="h-6 w-[1px] bg-white/20" />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center font-black tabular-nums border border-indigo-500/30">
+               {selectedOrders.length}
+            </div>
+            <span className="text-sm font-bold whitespace-nowrap hidden sm:block">تم التحديد</span>
+          </div>
+          
+          <div className="h-8 w-[1px] bg-white/10" />
+
+          <div className="flex items-center gap-3 sm:gap-4 overflow-x-auto no-scrollbar">
             <select 
               id="bulk-status-select"
               onChange={(e) => handleBulkStatusChange(e.target.value)}
-              className="bg-transparent border-none text-sm font-bold focus:ring-0 cursor-pointer"
+              className="bg-white/10 hover:bg-white/15 border border-white/5 rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-indigo-500/50 cursor-pointer outline-none transition-all appearance-none pr-8 relative"
+              style={{ paddingRight: '2rem', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 0.5rem center', backgroundSize: '1.2em' }}
             >
-              <option value="default">تغيير الحالة لـ...</option>
+              <option value="default" className="text-slate-900">تغيير الحالة لـ...</option>
               {ORDER_STATUSES.map(s => <option key={s} value={s} className="text-slate-900">{ORDER_STATUS_METADATA[s]?.label || s}</option>)}
             </select>
+            
             <button 
               onClick={() => handleBulkStatusChange('مؤرشف')} 
-              className="px-3 py-1 flex items-center gap-1 hover:text-amber-500 transition-colors bg-white/10 rounded-lg text-xs"
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-amber-500/20 hover:text-amber-400 border border-transparent hover:border-amber-500/30 transition-all bg-white/5 rounded-xl text-xs font-bold"
               title="أرشفة المحددة"
             >
-              <Archive size={16} /> أرشفة
+              <Archive size={16} /> <span className="hidden sm:block">أرشفة</span>
             </button>
             <button 
               onClick={() => handleBulkStatusChange('ملغي')} 
-              className="px-3 py-1 flex items-center gap-1 hover:text-red-500 transition-colors bg-white/10 rounded-lg text-xs"
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-rose-500/20 hover:text-rose-400 border border-transparent hover:border-rose-500/30 transition-all bg-white/5 rounded-xl text-xs font-bold"
               title="إلغاء المحددة"
             >
-              <XCircle size={16} /> إلغاء
+              <XCircle size={16} /> <span className="hidden sm:block">إلغاء</span>
             </button>
-            <button onClick={handleBulkPrintLabels} className="hover:text-primary transition-colors"><Printer size={20}/></button>
-            <button onClick={handleBulkDelete} className="hover:text-rose-500 transition-colors"><Trash2 size={20}/></button>
+            <button 
+              onClick={handleBulkPrintLabels} 
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-indigo-500/20 hover:text-indigo-400 border border-transparent hover:border-indigo-500/30 transition-all bg-white/5 rounded-xl text-xs font-bold"
+              title="طباعة بوالص الشحن"
+            >
+              <Printer size={18}/> <span className="hidden sm:block">بوالص الشحن</span>
+            </button>
+            <button 
+              onClick={handleBulkDelete} 
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-red-500/20 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all bg-white/5 rounded-xl text-xs font-bold text-red-400/80"
+              title="حذف"
+            >
+              <Trash2 size={18}/> <span className="hidden sm:block">حذف</span>
+            </button>
           </div>
-          <button onClick={() => setSelectedOrders([])} className="p-1 hover:bg-white/10 rounded-full"><X size={18}/></button>
+          <button onClick={() => setSelectedOrders([])} className="p-2 hover:bg-white/10 rounded-full transition-all ml-1 bg-white/5"><X size={18}/></button>
         </motion.div>
       )}
 
@@ -2192,29 +2216,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
       {viewMode === 'list' ? (
         <div className="space-y-6">
           {/* Table for Desktop */}
-          <div className="overflow-x-auto hidden lg:block glass-card rounded-[32px] border-none">
-            <table className="w-full text-right border-collapse">
-              <thead className="bg-slate-50/50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-[11px] uppercase tracking-widest font-black border-b border-slate-200/50 dark:border-slate-700/50">
+          <div className="overflow-x-auto hidden lg:block bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-xl shadow-slate-200/20 dark:shadow-none pb-4">
+            <table className="w-full text-right border-collapse whitespace-nowrap">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 text-[11px] uppercase tracking-widest font-black border-b border-slate-200/60 dark:border-slate-700/60">
                 <tr>
-                  <th className="p-6 w-12 text-center">
-                    <input 
-                      type="checkbox" 
-                      className="w-5 h-5 rounded-lg border-slate-300 dark:bg-slate-900 dark:border-slate-700 text-primary focus:ring-primary/20" 
-                      onChange={handleSelectAll} 
-                      checked={selectedOrders.length === paginatedOrders.length && paginatedOrders.length > 0}
-                    />
+                  <th className="p-6 w-12 text-center rounded-tr-[2.5rem]">
+                    <div className="flex items-center justify-center">
+                      <input 
+                        type="checkbox" 
+                        className="w-5 h-5 rounded-lg border-slate-300 dark:bg-slate-900 dark:border-slate-700 text-indigo-600 focus:ring-indigo-600/20 transition-all cursor-pointer" 
+                        onChange={handleSelectAll} 
+                        checked={selectedOrders.length === paginatedOrders.length && paginatedOrders.length > 0}
+                      />
+                    </div>
                   </th>
                   <th className="p-6">الطلب والعميل</th>
                   <th className="p-6">المنتجات</th>
                   <th className="p-6">مبلغ التحصيل</th>
                   {anyFlexShipEnabled && <th className="p-6">رسوم فليكس شيب</th>}
                   <th className="p-6">الحالة</th>
-                  <th className="p-6">المحاولات</th>
-                  <th className="p-6">حالة المبلغ المحصل</th>
-                  <th className="p-6 text-left">الإجراءات</th>
+                  <th className="p-6 text-center">المحاولات</th>
+                  <th className="p-6 text-center">المبلغ المحصل</th>
+                  <th className="p-6 text-left rounded-tl-[2.5rem]">الإجراءات</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+              <tbody className="divide-y divide-slate-100/50 dark:divide-slate-800/50">
                 {paginatedOrders.map(order => (
                   <OrderRow 
                     key={order.id} 
@@ -2245,8 +2271,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
           </div>
           
           {/* Cards for Mobile/Tablet */}
-          <div className="lg:hidden flex items-center justify-between mb-4 px-2">
-             <span className="text-xs font-black text-slate-500 uppercase tracking-widest">قائمة الطلبات ({paginatedOrders.length})</span>
+          <div className="lg:hidden flex items-center justify-between mx-2 px-4 py-3 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm">
+             <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                 <Package size={14} className="text-indigo-500" />
+                 قائمة الطلبات ({paginatedOrders.length})
+             </span>
              <button 
                 onClick={() => {
                    if (selectedOrders.length === paginatedOrders.length) {
@@ -2255,12 +2284,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
                       setSelectedOrders(paginatedOrders.map(o => o.id));
                    }
                 }}
-                className="text-xs font-bold text-primary px-3 py-1 bg-primary/10 rounded-lg"
+                className={`text-[10px] font-black px-4 py-2 rounded-xl transition-all ${
+                   selectedOrders.length === paginatedOrders.length 
+                     ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' 
+                     : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400 hover:bg-indigo-100'
+                }`}
              >
                 {selectedOrders.length === paginatedOrders.length ? 'إلغاء التحديد' : 'تحديد الكل'}
              </button>
           </div>
-          <div className="lg:hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="lg:hidden grid grid-cols-1 md:grid-cols-2 gap-4 px-2">
             {paginatedOrders.map(order => (
               <OrderCard 
                 key={order.id} 
@@ -2296,13 +2329,25 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
 
       {/* Empty State */}
       {filteredOrders.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-          <div className="w-24 h-24 bg-slate-100 dark:bg-slate-900 rounded-full flex items-center justify-center mb-6">
-            <Package size={48} className="opacity-20" />
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center justify-center py-32 text-slate-400 bg-white/40 dark:bg-slate-900/40 backdrop-blur-md rounded-[3rem] border border-slate-200/50 dark:border-slate-800/50 shadow-inner"
+        >
+          <div className="relative mb-8 group">
+            <div className="absolute inset-0 bg-indigo-500/20 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
+            <div className="w-32 h-32 bg-slate-100 dark:bg-slate-800/80 backdrop-blur-xl rounded-full flex items-center justify-center border border-white dark:border-slate-700 shadow-xl relative z-10">
+              <Package size={56} className="text-indigo-400 dark:text-indigo-500/70" />
+            </div>
+            <div className="absolute top-0 right-0 w-10 h-10 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-500 rounded-2xl flex items-center justify-center -mr-2 -mt-2 shadow-lg border border-white dark:border-slate-800 animate-bounce">
+                <Search size={20} />
+            </div>
           </div>
-          <h3 className="text-xl font-bold mb-2">لا توجد طلبات</h3>
-          <p className="text-sm">جرب تغيير فلاتر البحث أو إضافة طلب جديد</p>
-        </div>
+          <h3 className="text-3xl font-black mb-3 text-slate-800 dark:text-white tracking-tight">لا توجد طلبات مطابقة</h3>
+          <p className="text-base text-slate-500 max-w-sm text-center font-bold font-sans leading-relaxed">
+            لم نتمكن من العثور على أي طلبات تطابق معايير البحث أو الفلاتر الحالية. جرب تغييرها وتوسيع النطاق.
+          </p>
+        </motion.div>
       )}
 
       {/* Pagination */}
@@ -2431,77 +2476,43 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({ or
         </div>
       )}
 
-      {pendingPaymentCollectionConfirm && (
+      {pendingInspectionConfirm && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[32px] shadow-2xl p-8 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800" style={{ direction: 'rtl' }}>
                 <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 dark:border-emerald-500/20 shadow-sm">
                     <Coins size={32} />
                 </div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">تأكيد تحصيل الرسوم الإضافية</h3>
+                <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">تأكيد رسوم المعاينة</h3>
                 <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-6 font-sans leading-relaxed">
-                     الطلب رقم <span className="text-slate-800 dark:text-slate-200 font-extrabold">#{pendingPaymentCollectionConfirm.order.orderNumber}</span>.
+                     الطلب رقم <span className="text-slate-800 dark:text-slate-200 font-extrabold">#{pendingInspectionConfirm.order.orderNumber}</span>.
                      <br />
-                     يرجى تحديد الرسوم التي تم تحصيلها من العميل:
+                     هل قام العميل بدفع رسوم المعاينة بقيمة <span className="text-emerald-600 dark:text-emerald-400 font-black">{pendingInspectionConfirm.inspectionFee} ج.م</span>؟
                 </p>
                 
                 <div className="grid grid-cols-1 gap-2.5">
-                    {pendingPaymentCollectionConfirm.needsInspectionConfirm && (
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
-                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">رسوم المعاينة ({pendingPaymentCollectionConfirm.inspectionFee} ج.م)</span>
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsInspectionConfirm: false, inspectionFeePaid: true} : null)}
-                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.inspectionFeePaid === true ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}
-                                >تم التحصيل</button>
-                                <button 
-                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsInspectionConfirm: false, inspectionFeePaid: false} : null)}
-                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.inspectionFeePaid === false ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'}`}
-                                >لم يتم التحصيل</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {pendingPaymentCollectionConfirm.needsFlexShipConfirm && (
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col gap-3">
-                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">رسوم فليكس شيب ({pendingPaymentCollectionConfirm.flexShipFee} ج.م)</span>
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsFlexShipConfirm: false, flexShipFeePaid: true} : null)}
-                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.flexShipFeePaid === true ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}
-                                >تم التحصيل</button>
-                                <button 
-                                    onClick={() => setPendingPaymentCollectionConfirm(p => p ? {...p, needsFlexShipConfirm: false, flexShipFeePaid: false} : null)}
-                                    className={`flex-1 py-2 text-[10px] font-black rounded-xl ${pendingPaymentCollectionConfirm.flexShipFeePaid === false ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600'}`}
-                                >لم يتم التحصيل</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {(!pendingPaymentCollectionConfirm.needsInspectionConfirm && !pendingPaymentCollectionConfirm.needsFlexShipConfirm) && (
-                        <button 
-                            onClick={() => {
-                                const p = pendingPaymentCollectionConfirm!;
-                                const inspPaid = p.inspectionFeePaid !== undefined ? p.inspectionFeePaid : (p.order.inspectionFeePaidByCustomer || false);
-                                const flexPaid = p.flexShipFeePaid !== undefined ? p.flexShipFeePaid : (p.order.flexShipFeePaidByCustomer || false);
-                                
-                                const updatedOrder = { 
-                                    ...p.order, 
-                                    paymentStatus: p.newPaymentStatus, 
-                                    inspectionFeePaidByCustomer: inspPaid,
-                                    flexShipFeePaidByCustomer: flexPaid
-                                };
-                                handleCollectAction(updatedOrder, inspPaid, flexPaid);
-                                setPendingPaymentCollectionConfirm(null);
-                            }}
-                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
-                        >
-                            <span>تأكيد التحصيل والحفظ</span>
-                        </button>
-                    )}
-
                     <button 
                         onClick={() => {
-                            setPendingPaymentCollectionConfirm(null);
+                            const updatedOrder = { ...pendingInspectionConfirm.order, paymentStatus: pendingInspectionConfirm.newPaymentStatus, inspectionFeePaidByCustomer: true };
+                            handleCollectAction(updatedOrder, true);
+                            setPendingInspectionConfirm(null);
+                        }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
+                    >
+                        <span>✓ نعم، العميل سدد كامل رسوم المعاينة</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            const updatedOrder = { ...pendingInspectionConfirm.order, paymentStatus: pendingInspectionConfirm.newPaymentStatus, inspectionFeePaidByCustomer: false };
+                            handleCollectAction(updatedOrder, false);
+                            setPendingInspectionConfirm(null);
+                        }}
+                        className="w-full py-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/10 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 font-extrabold rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer text-xs"
+                    >
+                        <span>✗ لا، لم يسدد رسوم المعاينة بالزيادة</span>
+                    </button>
+                    <button 
+                        onClick={() => {
+                            setPendingInspectionConfirm(null);
                         }}
                         className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold rounded-xl transition-all cursor-pointer"
                     >
@@ -2685,6 +2696,15 @@ const OrderCard = ({
   const safeTax = Number(order.tax) || 0;
   const safeDiscount = Number(order.discount) || 0;
   const safeAdvance = Number(order.advancePayment) || 0;
+  
+  const compFees = settings.companySpecificFees?.[order.shippingCompany];
+  const useCustom = compFees?.useCustomFees ?? false;
+  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+  const insuranceFee = (isPosOrder ? 0 : ((order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0));
+  const inspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+  const bostaVatFee = isPosOrder ? 0 : calculateBostaVat(order, insuranceFee, settings);
+  
   const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
   const totalAmount = order.totalAmountOverride ?? computedTotal;
   const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : totalAmount;
@@ -2692,23 +2712,25 @@ const OrderCard = ({
   return (
     <motion.div 
       variants={itemVariants}
-      className={`bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border-2 transition-all relative group shadow-sm hover:shadow-xl ${
-        isSelected ? 'border-indigo-600 ring-4 ring-indigo-500/10' : 'border-slate-100 dark:border-slate-800'
+      className={`bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-6 sm:p-8 rounded-[2.5rem] border-2 transition-all relative group shadow-lg hover:shadow-xl ${
+        isSelected ? 'border-indigo-600 ring-4 ring-indigo-500/10 shadow-indigo-500/20' : 'border-slate-100/60 dark:border-slate-800/60 shadow-slate-200/20 dark:shadow-none hover:border-indigo-200 dark:hover:border-indigo-500/30'
       }`}
     >
+      <div className={`absolute inset-0 bg-gradient-to-br from-transparent to-indigo-50/50 dark:to-indigo-500/5 rounded-[2.5rem] pointer-events-none transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
+    
       {/* Selection Hub */}
       <div className="absolute top-6 right-6 flex items-center gap-3 z-10">
           <button 
-            onClick={onShowAudit}
-            className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-indigo-600 transition-all opacity-0 group-hover:opacity-100"
+            onClick={(e) => { e.stopPropagation(); onShowAudit(); }}
+            className="p-2 sm:p-2.5 bg-white dark:bg-slate-800 rounded-xl text-slate-400 hover:text-indigo-600 border border-slate-100/50 dark:border-slate-700/50 shadow-sm transition-all opacity-100 sm:opacity-0 group-hover:opacity-100 active:scale-95"
             title="سجل النشاط"
           >
             <Shield size={16} />
           </button>
           <button 
-            onClick={onSelect}
-            className={`w-6 h-6 rounded-xl border-2 transition-all flex items-center justify-center ${
-              isSelected ? 'bg-indigo-600 border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 group-hover:border-indigo-300'
+            onClick={(e) => { e.stopPropagation(); onSelect(); }}
+            className={`w-7 h-7 sm:w-6 sm:h-6 rounded-xl border-[2.5px] transition-all flex items-center justify-center ${
+              isSelected ? 'bg-indigo-600 border-indigo-600 shadow-md shadow-indigo-500/20' : 'bg-white/80 dark:bg-slate-800/80 border-slate-300 dark:border-slate-600 group-hover:border-indigo-400 backdrop-blur-sm'
             }`}
           >
             {isSelected && <Check size={14} className="text-white" />}
@@ -2801,7 +2823,7 @@ const OrderCard = ({
         </div>
         <div className="space-y-3">
           {(order.items || []).slice(0, 2).map((item, idx) => {
-            const product = settings.products.find(p => p.id === item.productId);
+            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
             return (
               <div key={idx} className="flex gap-3 items-center flex-row-reverse">
                 <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-700 border border-slate-100 dark:border-slate-600 p-1 flex-shrink-0 shadow-sm">
@@ -2831,7 +2853,7 @@ const OrderCard = ({
               <div className="flex items-baseline gap-1 justify-end">
                   <span className="text-xs font-black text-indigo-600">ج.م</span>
                   <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums group-hover/total:scale-105 transition-transform origin-right">
-                    {displayTotal.toLocaleString()}
+                    {displayTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                   </h4>
               </div>
               {(order.advancePayment || 0) > 0 && (
@@ -2965,8 +2987,11 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
     const totalExpenses = safeProductCost + standardShippingFee + insuranceFee + inspectionAdjustment + codFee + bostaVatFee;
     
     // Dynamic Profit/Loss calculations based on status
-    const carrierCost = standardShippingFee + insuranceFee + bostaVatFee;
     const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل'].includes(order.status);
+    const applyReturnFee = isPosOrder ? false : (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
+    const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+    
+    const carrierCost = standardShippingFee + insuranceFee + bostaVatFee + (isReturnedOrFailed ? (inspectionAdjustment + returnFeeAmount) : 0);
     const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
     const flexFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0)) : 0;
     const flexPaidAmount = isFlexShipEnabled && order.flexShipFeePaidByCustomer ? (order.flexShipFee || flexFeeValue) : 0;
@@ -2975,7 +3000,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
 
     const netProfit = isReturnedOrFailed
         ? (flexPaidAmount - carrierCost - flexCompanyFeePaid) // Loss is carrier costs minus what was recouped via Flex Ship
-        : (amountCollectedFromCustomer - totalExpenses);
+        : (amountCollectedFromCustomer - extraAdjustment - totalExpenses);
 
     const profitLabel = isReturnedOrFailed 
         ? (netProfit >= 0 ? 'صافي ربح تسوية الشحن' : 'الخسارة الفعلية الموقعة')
@@ -2994,35 +3019,27 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                     <span className="text-slate-500 font-bold">سعر المنتجات</span>
-                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeProductPrice.toLocaleString()} ج.م</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeProductPrice.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                     <span className="text-slate-500 font-bold">رسوم الشحن على العميل</span>
-                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeShippingFee.toLocaleString()} ج.م</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 {safeTax > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                         <span className="text-slate-500 font-bold">الضريبة المضافة للعميل</span>
-                                        <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeTax.toLocaleString()} ج.م</span>
+                                        <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{safeTax.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 {safeDiscount > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                         <span className="text-slate-500 font-bold">خصومات ومسماحات للعميل</span>
-                                        <span className="font-black text-rose-500 tabular-nums">-{safeDiscount.toLocaleString()} ج.م</span>
-                                    </div>
-                                )}
-                                {extraAdjustment !== 0 && (
-                                    <div className="flex justify-between items-center flex-row-reverse text-sm mb-2 border-t border-slate-100 dark:border-slate-800/50 pt-2 mt-2">
-                                        <span className="text-slate-500 font-bold">تسوية المبلغ المطلوب يدوياً</span>
-                                        <span className={`font-black ${extraAdjustment > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'} tabular-nums`}>
-                                            {extraAdjustment > 0 ? '+' : ''}{extraAdjustment.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م
-                                        </span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{safeDiscount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-100 dark:border-slate-700/50">
-                                    <span className="text-slate-700 dark:text-slate-300 font-black">إجمالي الإيرادات =</span>
-                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{amountCollectedFromCustomer.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                    <span className="text-slate-700 dark:text-slate-300 font-black">إجمالي الإيرادات المحسوبة للربح =</span>
+                                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">+{(amountCollectedFromCustomer - extraAdjustment).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                             </div>
                         </div>
@@ -3033,39 +3050,39 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                             <div className="space-y-3">
                                 <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                     <span className="text-slate-500 font-bold">تكلفة شراء المنتجات</span>
-                                    <span className="font-black text-rose-500 tabular-nums">-{safeProductCost.toLocaleString()} ج.م</span>
+                                    <span className="font-black text-rose-500 tabular-nums">-{safeProductCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                     <span className="text-slate-500 font-bold">تكلفة بوليصة الشحن (للشركة)</span>
-                                    <span className="font-black text-rose-500 tabular-nums">-{standardShippingFee.toLocaleString()} ج.م</span>
+                                    <span className="font-black text-rose-500 tabular-nums">-{standardShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 {insuranceFee > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                         <span className="text-slate-500 font-bold">التأمين على الشحنة</span>
-                                        <span className="font-black text-rose-500 tabular-nums">-{insuranceFee.toFixed(2)} ج.م</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{insuranceFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 {bostaVatFee > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                         <span className="text-slate-500 font-bold">{dynamicVatLabel}</span>
-                                        <span className="font-black text-rose-500 tabular-nums">-{bostaVatFee.toFixed(2)} ج.م</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{bostaVatFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 {inspectionAdjustment > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                         <span className="text-slate-500 font-bold">المعاينة</span>
-                                        <span className="font-black text-rose-500 tabular-nums">-{inspectionAdjustment.toFixed(2)} ج.م</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{inspectionAdjustment.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 {codFee > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                                         <span className="text-slate-500 font-bold">رسوم التحصيل (COD)</span>
-                                        <span className="font-black text-rose-500 tabular-nums">-{codFee.toFixed(2)} ج.m</span>
+                                        <span className="font-black text-rose-500 tabular-nums">-{codFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center flex-row-reverse text-sm bg-rose-50 dark:bg-rose-900/10 p-2 rounded-lg mt-2 border border-rose-100 dark:border-rose-900/30">
                                     <span className="text-rose-700 dark:text-rose-300 font-black">إجمالي المصروفات =</span>
-                                    <span className="font-black text-rose-600 dark:text-rose-400 tabular-nums">-{totalExpenses.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                    <span className="font-black text-rose-600 dark:text-rose-400 tabular-nums">-{totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                             </div>
                         </div>
@@ -3082,24 +3099,36 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                         <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
                             <div className="flex justify-between items-center flex-row-reverse text-sm">
                                 <span className="text-slate-500 font-semibold">بوليصة الشحن (الذهاب):</span>
-                                <span className="font-black text-rose-500">-{standardShippingFee.toLocaleString()} ج.م</span>
+                                <span className="font-black text-rose-500">-{standardShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                             </div>
                             {insuranceFee > 0 && (
                                 <div className="flex justify-between items-center flex-row-reverse text-sm">
                                     <span className="text-slate-500 font-semibold">التأمين المقتطع:</span>
-                                    <span className="font-black text-rose-500">-{insuranceFee.toFixed(2)} ج.م</span>
+                                    <span className="font-black text-rose-500">-{insuranceFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                             )}
                             {bostaVatFee > 0 && (
                                 <div className="flex justify-between items-center flex-row-reverse text-sm">
                                     <span className="text-slate-500 font-semibold">ضريبة القيمة المضافة للبوليصة:</span>
-                                    <span className="font-black text-rose-500">-{bostaVatFee.toFixed(2)} ج.م</span>
+                                    <span className="font-black text-rose-500">-{bostaVatFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
+                                </div>
+                            )}
+                            {isReturnedOrFailed && inspectionAdjustment > 0 && (
+                                <div className="flex justify-between items-center flex-row-reverse text-sm">
+                                    <span className="text-slate-500 font-semibold">رسوم المعاينة:</span>
+                                    <span className="font-black text-rose-500">-{inspectionAdjustment.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
+                                </div>
+                            )}
+                            {isReturnedOrFailed && returnFeeAmount > 0 && (
+                                <div className="flex justify-between items-center flex-row-reverse text-sm">
+                                    <span className="text-slate-500 font-semibold">رسوم المرتجع لشركة الشحن:</span>
+                                    <span className="font-black text-rose-500">-{returnFeeAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                             )}
                             <div className="h-[1px] bg-slate-200/50 dark:bg-slate-700/50" />
                             <div className="flex justify-between items-center flex-row-reverse text-sm font-bold text-rose-700 dark:text-rose-400">
                                 <span>إجمالي خسائر الشحن لشركة النقل:</span>
-                                <span>-{carrierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                <span>-{carrierCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                             </div>
                         </div>
 
@@ -3114,23 +3143,23 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                             <div className="space-y-1.5 mt-2 pt-2 border-t border-violet-200/50 dark:border-violet-850/50 text-[11px]">
                                 <div className="flex justify-between items-center flex-row-reverse text-slate-700 dark:text-slate-300">
                                     <span>خسارة بوليصة الذهاب:</span>
-                                    <span>-{carrierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                    <span>-{carrierCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 {flexCompanyFeePaid > 0 && (
                                     <div className="flex justify-between items-center flex-row-reverse text-rose-500">
                                         <span>استقطاع شركة الشحن من فليكس شيب:</span>
-                                        <span>-{flexCompanyFeePaid.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                        <span>-{flexCompanyFeePaid.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between items-center flex-row-reverse text-emerald-600 dark:text-emerald-400">
                                     <span>الفليكس شيب المسترد من العميل:</span>
-                                    <span>+{flexPaidAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                    <span>+{flexPaidAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 <div className="h-[1.5px] bg-violet-200/50 dark:bg-violet-850/50" />
                                 <div className="flex justify-between items-center flex-row-reverse font-black text-indigo-700 dark:text-indigo-400 text-xs">
                                     <span>صافي الخسارة الفعلية المترتبة:</span>
                                     <span className={netProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}>
-                                        {netProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م
+                                        {netProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
                                     </span>
                                 </div>
                             </div>
@@ -3138,7 +3167,7 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                                 {flexPaidAmount > 0 ? (
                                     <span className="text-emerald-600 font-black">✓ فليكس الكابتن نشط! لقد وفرت {Math.round(((flexPaidAmount - flexCompanyFeePaid) / carrierCost) * 100)}% من تكلفة البوليصة بفضل تحصيل الرسوم من العميل (بعد عمولة شركة الشحن).</span>
                                 ) : (
-                                    <span className="text-rose-600 font-black">ℹ️ العميل لم يدفع فليكس شيب (رفض السداد)، لذا تتحمل الشركة خسارة الشحن كاملة بقيمة {carrierCost.toLocaleString()} ج.م.</span>
+                                    <span className="text-rose-600 font-black">ℹ️ العميل لم يدفع فليكس شيب (رفض السداد)، لذا تتحمل الشركة خسارة الشحن كاملة بقيمة {carrierCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م.</span>
                                 )}
                             </div>
                         </div>
@@ -3150,13 +3179,13 @@ const ProfitBreakdown: React.FC<{ order: Order; settings: Settings; onToggleFlex
                     <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2 mt-4 text-xs font-bold font-sans">
                         <div className="flex justify-between items-center flex-row-reverse">
                             <span className="text-slate-500">إجمالي فاتورة العميل:</span>
-                            <span className="text-slate-700 dark:text-slate-300">{amountCollectedFromCustomer.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                            <span className="text-slate-700 dark:text-slate-300">{amountCollectedFromCustomer.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                         </div>
                         {safeAdvance > 0 && (
                             <div className="space-y-1 py-1 border-y border-slate-100/50 dark:border-slate-800/50 my-1">
                                 <div className="flex justify-between items-center flex-row-reverse text-teal-600 dark:text-teal-400">
                                     <span>العربون المستلم مقدماً:</span>
-                                    <span>-{safeAdvance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ج.م</span>
+                                    <span>-{safeAdvance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
                                 </div>
                                 {(order.advancePaymentRecipientPhone || order.advancePaymentSenderDetails) && (
                                     <div className="text-[9px] text-slate-500 dark:text-slate-400 font-bold bg-slate-100/50 dark:bg-slate-800/40 p-2 rounded-xl mt-1">
@@ -3295,17 +3324,23 @@ const OrderRow = ({
   const safeProductCost = Number(order.productCost) || 0;
   const safeAdvance = Number(order.advancePayment) || 0;
   
+  const compFees = settings.companySpecificFees?.[order.shippingCompany];
+  const useCustom = compFees?.useCustomFees ?? false;
+  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+  const insuranceFee = (isPosOrder ? 0 : ((order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0));
+  const inspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+  const bostaVatFee = isPosOrder ? 0 : calculateBostaVat(order, insuranceFee, settings);
+  
   const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
   const totalAmount = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
   const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : totalAmount;
 
-  // Detailed Profit Calculation
-  const compFees = settings.companySpecificFees?.[order.shippingCompany];
-  const useCustom = compFees?.useCustomFees ?? false;
   const getStatusBadgeStyle = (status: OrderStatus) => {
       switch (status) {
           case 'تم_التحصيل':
           case 'تم_توصيلها':
+          case 'تم_التوصيل':
           case 'مدفوعة':
               return 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20';
           case 'مرتجع':
@@ -3321,19 +3356,13 @@ const OrderRow = ({
       }
   };
   const attemptsCount = (order.callAttempts || []).length;
-  const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+  
   const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+  const flexFeeValue = isFlexShipEnabled ? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0)) : 0;
   
-  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-  const calculatedInsuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
-  const calculatedInspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-  const calculatedCodFeeAmount = calculateCodFee(order, settings);
-  const bostaVatFee = calculateBostaVat(order, calculatedInsuranceFee, settings);
-  
-  const totalFees = calculatedInsuranceFee + calculatedInspectionFee + calculatedCodFeeAmount + bostaVatFee;
-  const currentNetProfit = (safeProductPrice - safeDiscount) - safeProductCost - totalFees;
-  const isDelivered = order.status === 'تم_التحصيل';
+  const { net } = calculateOrderProfitLoss(order, settings);
+  const currentNetProfit = net;
+  const isDelivered = order.status === 'تم_التحصيل' || order.status === 'تم_توصيلها' || order.status === 'مدفوعة';
   const profitLabel = isDelivered ? 'الربح الصافي' : 'الربح المتوقع';
   const isProfitable = currentNetProfit >= 0;
 
@@ -3357,13 +3386,13 @@ const OrderRow = ({
 
   return (
     <>
-    <tr className={`group transition-all ${isSelected ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : 'hover:bg-slate-50 dark:hover:bg-slate-900/40'} border-b border-slate-100 dark:border-slate-800/50`}>
+    <tr className={`group transition-all ${isSelected ? 'bg-indigo-50/80 dark:bg-indigo-900/20' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40'} border-b border-slate-100/60 dark:border-slate-800/60 last:border-0`}>
       <td className="p-6 text-center">
         <input 
           type="checkbox" 
           checked={isSelected}
           onChange={onSelect}
-          className="w-5 h-5 rounded-lg border-slate-300 dark:bg-slate-800 dark:border-slate-700 text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 transition-all cursor-pointer"
+          className="w-5 h-5 rounded-lg border-slate-300 dark:bg-slate-800 dark:border-slate-700 text-indigo-600 focus:ring-4 focus:ring-indigo-500/20 transition-all cursor-pointer"
         />
       </td>
       <td className="p-6 cursor-pointer" onClick={onShowDetails}>
@@ -3434,7 +3463,7 @@ const OrderRow = ({
         <div className="text-right space-y-1 relative">
             <div className="flex items-center gap-2 justify-end">
                 <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
-                    <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums drop-shadow-sm">{displayTotal.toLocaleString()}</span>
+                    <span className="text-xl font-black text-slate-900 dark:text-white tabular-nums drop-shadow-sm">{displayTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</span>
                     <span className="text-[10px] font-black text-indigo-650 dark:text-indigo-400">ج.م</span>
                 </div>
                 <Coins size={14} className="text-amber-500/80" />
@@ -3482,7 +3511,7 @@ const OrderRow = ({
                 
                 {/* Fully transparent interactive select positioned over the badge */}
                 <select 
-                  value={order.status}
+                  value={['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? 'تم_التوصيل' : order.status}
                   onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                 >
@@ -3617,6 +3646,7 @@ const KanbanView: React.FC<{ orders: Order[]; onStatusChange: (id: string, newSt
     تم_الارسال: 'border-blue-500 bg-blue-500/5', 
     قيد_الشحن: 'border-sky-500 bg-sky-500/5', 
     تم_توصيلها: 'border-emerald-500 bg-emerald-500/5', 
+    تم_التوصيل: 'border-emerald-500 bg-emerald-500/5', 
     تم_التحصيل: 'border-teal-500 bg-teal-500/5', 
     مدفوعة: 'border-emerald-600 bg-emerald-600/5',
     مرتجع: 'border-rose-500 bg-rose-500/5', 
@@ -3636,10 +3666,10 @@ const KanbanView: React.FC<{ orders: Order[]; onStatusChange: (id: string, newSt
       {columns.map((status, idx) => {
         const columnOrders = orders.filter(o => o.status === status);
         return (
-          <div key={status} className="flex-shrink-0 w-80 flex flex-col gap-4">
-            <div className={`p-4 rounded-[1.5rem] border-t-4 shadow-sm ${statusColors[status]} flex justify-between items-center bg-white dark:bg-slate-900`}>
-              <h3 className="font-black text-slate-900 dark:text-white text-xs uppercase tracking-widest">{status.replace(/_/g, ' ')}</h3>
-              <span className="bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-xl text-[10px] font-black shadow-inner">{columnOrders.length}</span>
+          <div key={status} className="flex-shrink-0 w-[340px] flex flex-col gap-4">
+            <div className={`p-5 rounded-[2rem] border-t-4 shadow-sm ${statusColors[status]} flex justify-between items-center bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-x-slate-100 border-b-slate-100 dark:border-x-slate-800 dark:border-b-slate-800`}>
+              <h3 className="font-black text-slate-800 dark:text-white text-xs tracking-wider">{ORDER_STATUS_METADATA[status]?.label || status.replace(/_/g, ' ')}</h3>
+              <span className="bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl text-xs font-black shadow-inner opacity-80">{columnOrders.length}</span>
             </div>
             <div className="flex-1 space-y-4">
               {columnOrders.map((order, oIdx) => (
@@ -3649,11 +3679,11 @@ const KanbanView: React.FC<{ orders: Order[]; onStatusChange: (id: string, newSt
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: (idx * 0.1) + (oIdx * 0.05) }}
-                  className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden"
+                  className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-6 rounded-[2rem] border border-slate-100/60 dark:border-slate-800/60 shadow-sm hover:shadow-xl hover:-translate-y-1.5 hover:border-indigo-200 transition-all cursor-pointer group relative overflow-hidden"
                   onClick={() => onEdit(order)}
                 >
-                  <div className="absolute top-0 right-0 w-1 h-full opacity-20" style={{ backgroundColor: statusColors[status].split(' ')[0].split('-')[1] }}></div>
-                  <div className="flex justify-between items-center mb-3">
+                  <div className={`absolute top-0 right-0 w-1.5 h-full opacity-50 ${statusColors[status].split(' ')[0].replace('border-', 'bg-')}`}></div>
+                  <div className="flex justify-between items-center mb-4">
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-black text-slate-400 tracking-wider">#{order.orderNumber || order.id.slice(0, 4)}</span>
                       {order.channel !== 'pos' && !order.shippingCompany?.startsWith('كاشير -') && <ShipmentTypeBadge type={order.shipmentType} />}
@@ -4026,15 +4056,16 @@ const OrderModal: React.FC<OrderModalProps> = ({
         return useCustom ? (compFees?.inspectionFee || 0) : (settings.enableInspection ? settings.inspectionFee : 0);
     }, [orderData.includeInspectionFee, orderData.shippingCompany, settings]);
 
-    const totalBeforeCredit = useMemo(() => subtotal - itemDiscounts + (orderData.shippingFee || 0) - (orderData.discount || 0) + inspectionFee, [subtotal, itemDiscounts, orderData.shippingFee, orderData.discount, inspectionFee]);
+    const totalBeforeCredit = useMemo(() => subtotal - itemDiscounts + (orderData.shippingFee || 0) - (orderData.discount || 0), [subtotal, itemDiscounts, orderData.shippingFee, orderData.discount]);
     const finalAmount = totalBeforeCredit - creditAmount - (orderData.advancePayment || 0);
 
     const liveProfitMargin = useMemo(() => {
         const costOfItems = (orderData.items || []).reduce((sum: number, item: any) => {
-            const prod = settings.products.find(p => p.id === item.productId);
+            const prod = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
             let itemCostByQty = Number(prod?.costPrice) || 0;
-            if (prod?.hasVariants && item.variantId) {
-                const variant = prod.variants?.find(v => v.id === item.variantId);
+            const targetId = item.variantId || item.productId;
+            if (prod?.hasVariants && targetId) {
+                const variant = prod.variants?.find(v => v.id === targetId);
                 itemCostByQty = Number(variant?.costPrice) || itemCostByQty;
             }
             return sum + (itemCostByQty * (Number(item.quantity) || 1));
@@ -4537,9 +4568,9 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                         </div>
                                     )}
                                     {(orderData.items || []).map((item, index) => {
-                                        const product = settings.products.find(p => p.id === item.productId);
+                                        const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                                         const hasVariants = product?.variants && product.variants.length > 0;
-                                        const selectedVariant = hasVariants ? product.variants?.find(v => v.id === item.variantId) : null;
+                                        const selectedVariant = hasVariants ? product.variants?.find(v => v.id === (item.variantId || item.productId)) : null;
                                         const stock = hasVariants ? (selectedVariant?.stock || 0) : (product?.stock || 0);
 
                                         return (
@@ -4671,9 +4702,9 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                                     </div>
                                                 )}
                                                 {(orderData.items || []).map((item, index) => {
-                                                    const product = settings.products.find(p => p.id === item.productId);
+                                                    const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                                                     const hasVariants = product?.variants && product.variants.length > 0;
-                                                    const selectedVariant = hasVariants ? product.variants?.find(v => v.id === item.variantId) : null;
+                                                    const selectedVariant = hasVariants ? product.variants?.find(v => v.id === (item.variantId || item.productId)) : null;
                                                     const stock = hasVariants ? (selectedVariant?.stock || 0) : (product?.stock || 0);
 
                                                     return (
@@ -5223,7 +5254,7 @@ const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({ ord
     // Explicitly use the exact mathematical logic calculated for WalletPage
     const actualShippingFee = calculateOrderShippingAndFees(order, settings);
     
-    const total = order.totalAmountOverride ?? (order.productPrice + actualShippingFee - order.discount - safeAdvance + inspectionFee);
+    const total = order.totalAmountOverride ?? (order.productPrice + actualShippingFee - order.discount - safeAdvance);
     
     // ...
     // Note: To preserve line count and simplicity, I'm replacing just the calculation part first.
@@ -5359,7 +5390,7 @@ const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({ o
     
     const actualShippingFee = calculateOrderShippingAndFees(order as Order, settings);
     
-    const total = (order as any).totalAmountOverride ?? (order.productPrice + actualShippingFee - (order.discount || 0) - safeAdvance + inspectionFee);
+    const total = (order as any).totalAmountOverride ?? (order.productPrice + actualShippingFee - (order.discount || 0) - safeAdvance);
     
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
