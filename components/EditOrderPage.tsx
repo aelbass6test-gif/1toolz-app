@@ -5,6 +5,7 @@ import { OrderForm } from './OrderForm';
 import GlobalLoader from './GlobalLoader';
 import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
 import { calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
+import { triggerCelebration } from '../utils/celebration';
 
 interface EditOrderPageProps {
     orders: Order[];
@@ -229,6 +230,9 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         }
 
         setOrders(prev => prev.map(o => o.id === id ? updatedOrder : o));
+        
+        // تشغيل صوت واحتفالات نجاح تعديل الطلب
+        triggerCelebration('edit_order', settings);
         
         if (updatedOrder.orderType === 'maintenance') {
             await syncMaintenanceStatus(updatedOrder.orderNumber, updatedOrder.status);

@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar } from 'lucide-react';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
 import { getLatestProductCost } from '../utils/financials';
+import { triggerCelebration } from '../utils/celebration';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -35,6 +36,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const [searchTerm, setSearchTerm] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  
+  // Pagination State for Products
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   // Custom states for warehouse tracking & modern enhancements
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
@@ -326,6 +331,19 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     return true;
   });
 
+  // Paginated Products list
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredProducts.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredProducts, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+
+  // Reset page to 1 when search or warehouse filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterWarehouseId]);
+
   const inventoryFinancials = useMemo(() => {
     let totalStock = 0;
     let totalCostValue = 0;
@@ -424,6 +442,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     } else {
         setSettings({ ...settings, products: [...settings.products, productToSave] });
         setIsAdding(false);
+        // تشغيل الاحتفالات والسمعيات لإضافة منتج جديد
+        triggerCelebration('add_product', settings);
         showAlert("تمت الإضافية", "تم إضافة المنتج الجديد إلى القائمة بنجاح!", "success");
     }
   };
@@ -449,6 +469,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             products: settings.products.filter(p => p.id !== productToDelete.id)
         });
         setProductToDelete(null);
+        // تشغيل الاحتفالات والسمعيات لحذف منتج
+        triggerCelebration('delete_product', settings);
         showAlert("تم الحذف", "تم إزالة المنتج من القائمة بنجاح.", "success");
     }
   };
@@ -1031,7 +1053,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map(product => {
+                paginatedProducts.map(product => {
                   const collection = settings.collections.find(c => c.id === product.collectionId);
                   const isExpanded = expandedProductId === product.id;
                   
@@ -1331,7 +1353,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               </div>
             </div>
           ) : (
-            filteredProducts.map(product => {
+            paginatedProducts.map(product => {
               const collection = settings.collections.find(c => c.id === product.collectionId);
               const isExpanded = expandedProductId === product.id;
               
@@ -1544,6 +1566,56 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             })
           )}
         </div>
+
+        {/* Pagination Modern */}
+        {filteredProducts.length > 0 && (
+          <div className="mx-3 mt-4 mb-6 px-6 py-4 bg-white/70 dark:bg-[#0b0f19]/70 backdrop-blur-xl rounded-[2rem] border border-slate-200/50 dark:border-white/5 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-4 transition-all">
+            {/* Items Per Page Selector */}
+            <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">عدد المنتجات بالصفحة:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-black bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={30}>30</option>
+                <option value={50}>50</option>
+              </select>
+              <span className="text-[11px] font-bold text-slate-400 mr-2">
+                (عرض {paginatedProducts.length} من {filteredProducts.length})
+              </span>
+            </div>
+
+            {/* Pagination Flow */}
+            <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-2.5 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all shadow-sm text-slate-700 dark:text-slate-300 disabled:shadow-none bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 disabled:border-transparent disabled:bg-transparent"
+              >
+                <ChevronRight size={18} />
+              </button>
+              <div className="px-4 py-1 flex items-center gap-1.5 text-xs font-black">
+                <span className="text-slate-800 dark:text-slate-200">
+                  صفحة {currentPage}
+                </span>
+                <span className="text-slate-400">من {totalPages || 1}</span>
+              </div>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages || totalPages <= 1}
+                className="p-2.5 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all shadow-sm text-slate-700 dark:text-slate-300 disabled:shadow-none bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 disabled:border-transparent disabled:bg-transparent"
+              >
+                <ChevronLeft size={18} />
+              </button>
+            </div>
+          </div>
+        )}
 
       </motion.div>
 

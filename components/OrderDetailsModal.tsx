@@ -8,10 +8,11 @@ import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 interface OrderDetailsModalProps {
   order: Order;
   settings: Settings;
+  allOrders?: Order[];
   onClose: () => void;
 }
 
-export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, settings, onClose }) => {
+export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, settings, allOrders = [], onClose }) => {
   const [activeTab, setActiveTab] = useState<'details' | 'tracking'>('details');
 
   if (!settings) return null;
@@ -39,6 +40,78 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
   const totalAmountToCollect = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
   
   const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+
+  // Success rate calculations
+  let customerSuccessRate = -1;
+  let customerCompleted = 0;
+  let customerTotal = 0;
+  if (allOrders && allOrders.length > 0 && order.customerPhone) {
+    const customerOrders = allOrders.filter(o => o.customerPhone === order.customerPhone);
+    if (customerOrders.length > 0) {
+        const successful = customerOrders.filter(o => ['تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(o.status)).length;
+        customerSuccessRate = (successful / customerOrders.length) * 100;
+        customerCompleted = successful;
+        customerTotal = customerOrders.length;
+    }
+  }
+
+  const successRateText = customerSuccessRate === -1 ? '' : (customerSuccessRate < 40 ? 'العميل نسبة استلامه منخفضة' : (customerSuccessRate > 80 ? 'عميل نشط وموثوق' : 'نسبة الاستلام متوسطة'));
+  const successRateColor = customerSuccessRate === -1 ? '' : (customerSuccessRate < 40 ? 'text-rose-600 bg-rose-50 dark:bg-rose-900/20 dark:text-rose-400' : (customerSuccessRate > 80 ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 dark:text-emerald-400' : 'text-amber-600 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-400'));
+
+  // Wallet logic calculations
+  const isWalletSettled = order.paymentStatus === 'مدفوع';
+  const isOrderCollected = ['تم_التحصيل', 'مدفوعة'].includes(order.status);
+  const isOrderDelivered = ['تم_التوصيل', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status);
+  const isOrderFailedOrReturned = ['مرتجع', 'فشل_التوصيل', 'مرتجع_جزئي', 'ملغي', 'مؤرشف', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن'].includes(order.status);
+
+  let walletMessage = '';
+  let walletStatusStyle = '';
+
+  if (isWalletSettled) {
+      walletMessage = 'تمت تسوية المستحقات وتحويلها بنجاح إلى حسابك ضمن الدورة المالية.';
+      walletStatusStyle = 'emerald';
+  } else if (isOrderCollected) {
+      walletMessage = 'تم التحصيل. المبلغ متوفر بمحفظتك وقيد الانتظار لدورة السحب النقدي القادمة.';
+      walletStatusStyle = 'indigo';
+  } else if (isOrderDelivered) {
+      walletMessage = 'تم تسليم الأوردر للعميل بنجاح. سيتم تحديث محفظتك وإضافة الرصيد بعد إتمام تسوية التحصيل من شركة الشحن.';
+      walletStatusStyle = 'teal';
+  } else if (isOrderFailedOrReturned) {
+      walletMessage = 'لم يكتمل الأوردر. تم احتساب أو تسوية المصروفات والخسائر الناجمة عن الشحنة من المديونية.';
+      walletStatusStyle = 'rose';
+  } else {
+      walletMessage = 'سيتم تحديث محفظتك وإضافة الرصيد المتاح مباشرة فور إتمام توصيل الأوردر وتحصيله.';
+      walletStatusStyle = 'slate';
+  }
+  
+  // Return Location logic
+  const orderWarehouseName = order.warehouseId && settings.warehouses ? settings.warehouses.find(w => w.id === order.warehouseId)?.name : (settings.warehouses?.[0]?.name || 'الفرع الرئيسي');
+
+  // Extract secondary details from address (heuristic)
+  let building = '-', floor = '-', flat = '-', landmark = '-';
+  if (order.shippingArea) {
+      if (order.shippingArea.includes('مبنى')) {
+          const match = order.shippingArea.match(/مبنى\s*([\d\w]+)/);
+          if (match) building = match[1];
+      }
+      if (order.shippingArea.match(/دور\s*([\d\w]+)/)) {
+          const match = order.shippingArea.match(/دور\s*([\d\w]+)/);
+          if (match) floor = match[1];
+      }
+      if (order.shippingArea.match(/شقة\s*([\d\w]+)/)) {
+          const match = order.shippingArea.match(/شقة\s*([\d\w]+)/);
+          if (match) flat = match[1];
+      }
+      if (order.shippingArea.match(/علامة مميزة\s*([^\-،]+)/)) {
+          const match = order.shippingArea.match(/علامة مميزة\s*([^\-،]+)/);
+          if (match) landmark = match[1].trim();
+      }
+  }
+
+  // Financial Cycle Logic
+  const autoWithdrawalEnabled = settings?.wallet?.autoWithdrawal || false;
+  const withdrawDaysCount = settings?.wallet?.autoWithdrawalDays?.length || 0;
+  const cycleText = autoWithdrawalEnabled ? (withdrawDaysCount > 0 ? `${withdrawDaysCount} أيام بالأسبوع` : 'سحب تلقائي مفعل') : 'سحب عند الطلب';
 
   // The modal from the screenshot has specific financial presentation.
   const handlePrintSummary = () => {
@@ -168,9 +241,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                              </div>
                              <div className="text-right w-1/2">
                                  <p className="text-slate-500 mb-1">الاسم بالكامل</p>
-                                 <div className="flex items-center justify-end gap-2">
-                                    <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">العميل نسبة استلامه منخفضة</span>
+                                 <div className="flex flex-col items-end gap-1">
                                     <p className="font-bold text-slate-800 dark:text-white">{order.customerName}</p>
+                                    {customerSuccessRate !== -1 && (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                            <span className="text-[10px] font-bold text-slate-500">{customerCompleted} من {customerTotal} طلبات</span>
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${successRateColor}`}>{successRateText} ({Math.round(customerSuccessRate)}%)</span>
+                                        </div>
+                                    )}
                                  </div>
                              </div>
                         </div>
@@ -183,10 +261,10 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                         <div>
                             <p className="text-slate-500 mb-2">تفاصيل ثانوية</p>
                             <div className="flex justify-end gap-4 text-xs font-bold text-slate-700 dark:text-slate-300">
-                                <span>مبنى: -</span>
-                                <span>رقم الدور: -</span>
-                                <span>رقم الشقة: -</span>
-                                <span>علامة مميزة: -</span>
+                                <span>مبنى: {building}</span>
+                                <span>رقم الدور: {floor}</span>
+                                <span>رقم الشقة: {flat}</span>
+                                <span>علامة مميزة: {landmark}</span>
                             </div>
                         </div>
                     </div>
@@ -237,11 +315,11 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                     <div className="p-4 sm:p-6 space-y-4 text-right text-sm">
                         <div className="pb-4 border-b border-slate-100 dark:border-slate-700">
                              <p className="text-slate-500 mb-1">مرجع الطلب</p>
-                             <p className="font-bold text-slate-700 dark:text-slate-200">-</p>
+                             <p className="font-bold text-slate-700 dark:text-slate-200">{order.platformOrderId || order.originalOrderId || '-'}</p>
                         </div>
                         <div className="pb-4 border-b border-slate-100 dark:border-slate-700">
                              <p className="text-slate-500 mb-1">موقع إرجاع الشحنة</p>
-                             <p className="font-bold text-slate-700 dark:text-slate-200">الفرع الرئيسي</p>
+                             <p className="font-bold text-slate-700 dark:text-slate-200">{orderWarehouseName}</p>
                         </div>
                         <div>
                              <p className="text-slate-500 mb-1">ملحوظات عند التوصيل</p>
@@ -335,11 +413,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 text-center">
-                    <p className="font-bold text-slate-800 dark:text-white mb-4 text-right">المحفظة</p>
+                <div className={`bg-white dark:bg-slate-800 rounded-2xl border ${walletStatusStyle === 'emerald' ? 'border-emerald-200 dark:border-emerald-800' : walletStatusStyle === 'indigo' ? 'border-indigo-200 dark:border-indigo-800' : walletStatusStyle === 'teal' ? 'border-teal-200 dark:border-teal-800' : walletStatusStyle === 'rose' ? 'border-rose-200 dark:border-rose-800' : 'border-slate-200 dark:border-slate-700'} p-4 text-center`}>
+                    <p className={`font-bold mb-4 text-right ${walletStatusStyle === 'emerald' ? 'text-emerald-700 dark:text-emerald-400' : walletStatusStyle === 'indigo' ? 'text-indigo-700 dark:text-indigo-400' : walletStatusStyle === 'teal' ? 'text-teal-700 dark:text-teal-400' : walletStatusStyle === 'rose' ? 'text-rose-700 dark:text-rose-400' : 'text-slate-800 dark:text-white'}`}>المحفظة</p>
                     <div className="py-6 flex flex-col items-center justify-center gap-3">
-                        <Wallet className="w-12 h-12 text-slate-300 dark:text-slate-600" />
-                        <p className="text-slate-500 text-sm font-bold">سيتم تحديث محفظتك في خلال 24 ساعة من إتمام الأوردر.</p>
+                         <div className={`w-12 h-12 rounded-full flex items-center justify-center ${walletStatusStyle === 'emerald' ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-500' : walletStatusStyle === 'indigo' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500' : walletStatusStyle === 'teal' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-500' : walletStatusStyle === 'rose' ? 'bg-rose-50 dark:bg-rose-900/30 text-rose-500' : 'bg-slate-50 dark:bg-slate-900/30 text-slate-400'}`}>
+                             <Wallet size={24} />
+                         </div>
+                         <p className={`${walletStatusStyle === 'emerald' ? 'text-emerald-600 dark:text-emerald-400' : walletStatusStyle === 'indigo' ? 'text-indigo-600 dark:text-indigo-400' : walletStatusStyle === 'teal' ? 'text-teal-600 dark:text-teal-400' : walletStatusStyle === 'rose' ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500'} text-sm font-bold max-w-xs`}>
+                             {walletMessage}
+                         </p>
                     </div>
                 </div>
 
@@ -348,19 +430,19 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                     
                     <div className="space-y-4 text-sm">
                         <div className="flex justify-between items-center">
-                            <span className="font-bold text-slate-700 dark:text-slate-200 text-xs bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">حجم أكبر (XL)</span>
-                            <span className="text-slate-500 text-xs">حجم الشحنة <AlertCircle size={12} className="inline opacity-50"/></span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 text-xs bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded opacity-50">تلقائي</span>
+                            <span className="text-slate-500 text-xs">حجم الشحنة</span>
                         </div>
                         
                         <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                              <div className="flex justify-between items-center">
-                                 <span className="font-black text-slate-800 dark:text-white text-sm">غير مدفوع</span>
-                                 <span className="text-slate-500 text-xs">السحب النقدي</span>
+                                 <span className={`font-black text-sm ${isWalletSettled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-white'}`}>{isWalletSettled ? 'مدفوع لمحفظتك' : 'غير مدفوع (معلق)'}</span>
+                                 <span className="text-slate-500 text-xs">حالة السحب النقدي</span>
                              </div>
                         </div>
 
                         <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-3">
-                            <span className="font-bold text-slate-700 dark:text-slate-200 text-xs">أسبوعياً</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 text-xs">{cycleText}</span>
                             <span className="text-slate-500 text-xs">تكرار السحب النقدي</span>
                         </div>
                     </div>

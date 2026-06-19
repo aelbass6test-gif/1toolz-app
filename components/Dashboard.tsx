@@ -1832,14 +1832,14 @@ const StatusItem = ({ label, value, color }: { label: string, value: number, col
 );
 
 const DashboardStatusCard = ({ title, value, color, badge }: { title: string, value: string | number, color: string, badge?: string }) => (
-  <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col items-end justify-center min-h-[80px] sm:min-h-[100px] group hover:border-primary/30 transition-all">
-      <div className="absolute top-2 sm:top-3 left-2 sm:left-3 opacity-20 group-hover:opacity-100 transition-opacity">
-           <Clock size={12} className="text-slate-400 dark:text-slate-500" />
+  <div className="bg-white/60 dark:bg-[#0b0f19]/60 backdrop-blur-xl p-3.5 sm:p-4.5 rounded-2xl border border-slate-200/40 dark:border-white/5 shadow-xs relative overflow-hidden flex flex-col items-end justify-center min-h-[85px] sm:min-h-[105px] group hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300">
+      <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 opacity-25 group-hover:opacity-100 transition-opacity duration-300">
+           <Clock size={12} className="text-indigo-500 dark:text-indigo-400" />
       </div>
       <div className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-xs font-black mb-1 sm:mb-1.5">{title}</div>
-      <div className={`text-base sm:text-2xl font-black ${color} flex items-center gap-1 sm:gap-2 tabular-nums`}>
+      <div className={`text-base sm:text-2xl font-extrabold ${color} flex items-center gap-1 sm:gap-2 tabular-nums`}>
           {badge && (
-              <span className="text-[8px] sm:text-[10px] bg-cyan-50 dark:bg-cyan-900/40 text-cyan-600 dark:text-cyan-300 px-1 sm:px-1.5 py-0.5 rounded-full font-black">
+              <span className="text-[8px] sm:text-[10px] bg-indigo-500/10 dark:bg-indigo-500/25 text-indigo-600 dark:text-indigo-450 px-1 sm:px-1.5 py-0.5 rounded-full font-black">
                   {badge}
               </span>
           )}
@@ -1856,13 +1856,13 @@ interface StatCardProps {
 }
 
 const StatCard = ({ title, value, icon }: StatCardProps) => (
-  <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center gap-4 transition-transform hover:-translate-y-1">
-    <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-lg">
+  <div className="bg-white/70 dark:bg-[#0b0f19]/60 backdrop-blur-xl p-5.5 rounded-2xl border border-slate-200/45 dark:border-white/5 shadow-sm flex items-center gap-4 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/5">
+    <div className="p-3 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-650 dark:text-indigo-400 rounded-xl">
         {icon}
     </div>
     <div>
       <div className="text-slate-500 dark:text-slate-400 text-sm font-bold">{title}</div>
-      <div className="text-2xl font-black text-slate-800 dark:text-slate-100">{value}</div>
+      <div className="text-2xl font-black text-slate-800 dark:text-slate-100 tabular-nums">{value}</div>
     </div>
   </div>
 );
@@ -1875,12 +1875,12 @@ interface SmallStatProps {
 }
 
 const SmallStat = ({ title, value, icon, colorClass }: SmallStatProps) => (
-  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-center shadow-sm">
+  <div className="bg-white/75 dark:bg-[#0b0f19]/65 backdrop-blur-xl p-4.5 rounded-2xl border border-slate-200/40 dark:border-white/5 text-center shadow-xs transition-all duration-300 hover:shadow-md">
       <div className={`flex items-center justify-center gap-2 font-bold text-slate-500 dark:text-slate-400 mb-1 ${colorClass}`}>
           {icon}
           <span className="text-sm">{title}</span>
       </div>
-      <div className="text-2xl font-black text-slate-800 dark:text-white">{value}</div>
+      <div className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{value}</div>
   </div>
 );
 

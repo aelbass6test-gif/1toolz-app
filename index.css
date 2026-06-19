@@ -1,92 +1,157 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@200;400;700;900&family=Inter:wght@100;200;300;400;500;600;700;800;900&family=Outfit:wght@100;200;300;400;500;600;700;800;900&family=Readex+Pro:wght@200;300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@200;400;700;950&family=Inter:wght@100;200;300;400;500;600;700;800;900&family=Outfit:wght@100;200;300;400;500;600;700;800;900&family=Readex+Pro:wght@200;300;400;500;600;700&display=swap');
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --color-primary: #6366f1; /* Indigo-500 */
   --color-primary-dark: #4f46e5; /* Indigo-600 */
-  --color-accent: #8b5cf6; /* Violet-500 */
+  --color-accent: #a855f7; /* Purple-500 */
+  --color-secondary: #06b6d4; /* Cyan-500 */
   
   --color-success: #10b981; /* Emerald-500 */
   --color-pending: #f59e0b; /* Amber-500 */
-  --color-error: #ef4444; /* Red-500 */
-  --color-inactive: #94a3b8; /* Slate-400 */
+  --color-error: #f43f5e; /* Rose-500 */
+  --color-inactive: #64748b; /* Slate-500 */
 
   --font-sans: "Inter", "Cairo", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Readex Pro", "Inter", sans-serif;
   --font-store: "Outfit", "Cairo", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
-  --radius-3xl: 1.5rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 2rem;
+
+  --animate-ambient-pulse: ambient-pulse 16s ease-in-out infinite;
+  --animate-ambient-pulse-slow: ambient-pulse-slow 24s ease-in-out infinite;
+  --animate-float: float 14s ease-in-out infinite;
+  --animate-neon-pulse: neon-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-swing: swing 1s ease-in-out infinite;
+
+  @keyframes ambient-pulse {
+    0%, 100% { transform: translate(0px, 0px) scale(1) rotate(0deg); opacity: 0.35; }
+    33% { transform: translate(30px, -40px) scale(1.15) rotate(15deg); opacity: 0.55; }
+    66% { transform: translate(-20px, 20px) scale(0.9) rotate(-10deg); opacity: 0.45; }
+  }
+  
+  @keyframes ambient-pulse-slow {
+    0%, 100% { transform: translate(0px, 0px) scale(1.1) rotate(0deg); opacity: 0.45; }
+    50% { transform: translate(-40px, 30px) scale(0.85) rotate(-20deg); opacity: 0.25; }
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px) rotate(0deg); }
+    50% { transform: translateY(-16px) rotate(2deg); }
+  }
+
+  @keyframes neon-pulse {
+    0%, 100% { opacity: 1; filter: drop-shadow(0 0 4px var(--color-primary)); }
+    50% { opacity: 0.6; filter: drop-shadow(0 0 1px var(--color-primary)); }
+  }
+  
+  @keyframes swing {
+    0%, 100% { transform: rotate(0deg); }
+    20% { transform: rotate(15deg); }
+    40% { transform: rotate(-10deg); }
+    60% { transform: rotate(5deg); }
+    80% { transform: rotate(-5deg); }
+  }
 }
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+    @apply bg-slate-50 text-slate-900 font-sans antialiased transition-colors duration-300;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.03) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.03) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.04) 0px, transparent 45%),
+      radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.04) 0px, transparent 45%),
+      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.03) 0px, transparent 50%);
     background-attachment: fixed;
   }
 
   .dark body {
-    @apply bg-slate-950 text-slate-50;
+    @apply bg-[#030712] text-slate-100;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.08) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.12) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.05) 0px, transparent 50%);
+  }
+
+  /* Exquisite smooth transition for everything */
+  * {
+    @apply border-slate-200/50 dark:border-slate-800/40;
   }
 }
 
 @layer components {
+  /* Dynamic Glassmorphism v2 */
   .glass {
-    @apply bg-white/80 backdrop-blur-xl border border-white/30 shadow-sm;
+    @apply bg-white/70 backdrop-blur-2xl border border-white/45 shadow-sm;
   }
 
   .dark .glass {
-    @apply bg-slate-900/80 backdrop-blur-xl border border-slate-800/60 shadow-none;
+    @apply bg-slate-950/60 backdrop-blur-2xl border border-white/5 shadow-none;
   }
 
+  /* Ultra-Premium Glass Cards with Hover Lifting, Glowing Neon Outline */
   .glass-card {
-    @apply bg-white border border-slate-200 shadow-sm rounded-2xl p-6 transition-all duration-300 hover:shadow-md hover:border-slate-300;
+    @apply bg-white border border-slate-200/25 shadow-sm rounded-3xl p-6 transition-all duration-550 ease-out hover:-translate-y-1.5 hover:shadow-xl hover:shadow-indigo-500/5 hover:border-slate-300/60;
   }
 
   .dark .glass-card {
-    @apply bg-slate-900 border border-slate-800 shadow-none hover:border-slate-700 hover:bg-slate-800;
+    @apply bg-[#0b0f19]/60 backdrop-blur-xl border border-white/5 shadow-none hover:bg-[#0e1423]/80 hover:border-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/5;
+  }
+
+  /* Floating decorative container glass */
+  .glass-premium {
+    @apply bg-linear-to-b from-white/80 to-white/40 backdrop-blur-2xl border border-white/60 shadow-xl rounded-3xl;
+  }
+
+  .dark .glass-premium {
+    @apply bg-linear-to-b from-slate-900/80 to-slate-950/50 backdrop-blur-2xl border border-white/5 shadow-2xl;
   }
 
   .bento-grid {
-    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4;
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6;
   }
 
+  /* Sidebar styling */
   .sidebar-item {
-    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-primary;
+    @apply flex items-center justify-start gap-3.5 px-4.5 py-3 rounded-2xl transition-all duration-300 text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/40 hover:text-indigo-600 dark:hover:text-indigo-400 hover:translate-x-[-2px] hover:font-bold;
   }
 
   .sidebar-item-active {
-    @apply bg-primary/10 text-primary font-black;
+    @apply bg-indigo-600/10 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400 font-extrabold shadow-xs shadow-indigo-500/5;
   }
 
   .dark .sidebar-item-active {
-    @apply bg-primary/20 text-primary;
+    @apply bg-indigo-500/20 text-indigo-400 font-black;
   }
 
+  /* High performance, gorgeous buttons */
   .btn-primary {
-    @apply bg-primary text-white px-4 py-2 rounded-xl font-medium transition-all duration-200 hover:bg-primary-dark hover:shadow-lg hover:shadow-primary/20 active:scale-95;
+    @apply relative overflow-hidden bg-linear-to-r from-indigo-600 to-accent text-white px-5 py-3 rounded-2xl font-bold transition-all duration-300 hover:translate-y-[-1px] hover:shadow-lg hover:shadow-indigo-600/30 active:scale-95 active:translate-y-0 cursor-pointer;
   }
 
+  /* Exquisite Glowing Badges */
   .badge {
-    @apply px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border flex items-center gap-1.5 w-fit;
   }
 
-  .badge-success { @apply bg-success/10 text-success border border-success/20; }
-  .badge-pending { @apply bg-pending/10 text-pending border border-pending/20; }
-  .badge-error { @apply bg-error/10 text-error border border-error/20; }
-  .badge-inactive { @apply bg-inactive/10 text-inactive border border-inactive/20; }
+  .badge-success { 
+    @apply bg-emerald-50 text-emerald-700 border-emerald-200/50 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30 shadow-xs shadow-emerald-500/5; 
+  }
+  .badge-pending { 
+    @apply bg-amber-50 text-amber-700 border-amber-200/50 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/30 shadow-xs shadow-amber-500/5; 
+  }
+  .badge-error { 
+    @apply bg-rose-50 text-rose-700 border-rose-200/50 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30 shadow-xs shadow-rose-500/5; 
+  }
+  .badge-inactive { 
+    @apply bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400 dark:border-slate-800 shadow-xs; 
+  }
 }
 
-/* Hide Scrollbars */
+/* Hide Scrollbars completely with high compatibility */
 * {
   scrollbar-width: none; /* Firefox */
   -ms-overflow-style: none; /* IE and Edge */

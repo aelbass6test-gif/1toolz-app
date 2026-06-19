@@ -9,6 +9,7 @@ import { OrderConfirmationSummary } from './OrderConfirmationSummary';
 import { triggerWebhooks } from '../utils/webhook';
 import { db } from '../services/firebaseClient';
 import { collection, addDoc } from 'firebase/firestore';
+import { triggerCelebration } from '../utils/celebration';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -358,6 +359,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 
         triggerWebhooks(orderWithId, settings);
         
+        // تشغيل صوت واحتفالات نجاح تسجيل الطلب
+        triggerCelebration('create_order', settings);
+        
         setOrderToConfirm(null);
         setShowSummaryModal(orderWithId);
     };
@@ -381,7 +385,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 customers={uniqueCustomers}
                 orders={orders}
                 onSubmit={handleAddOrder}
-                onCancel={() => navigate('/orders')}
+                onCancel={() => navigate(activeStore ? `/store/${activeStore.id}/orders` : '/orders')}
                 treasury={treasury}
                 allStoresData={allStoresData}
             />
@@ -402,7 +406,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     storeName={activeStore?.name || 'متجري'}
                     onClose={() => {
                         setShowSummaryModal(null);
-                        navigate('/orders');
+                        navigate(activeStore ? `/store/${activeStore.id}/orders` : '/orders');
                     }}
                 />
             )}

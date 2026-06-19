@@ -299,7 +299,11 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
   const effectiveInspectionCost = isPos ? 0 : inspectionCost;
   const bostaVat = isPos ? 0 : calculateBostaVat(order, insuranceFee, settings);
 
-  if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || order.status === 'تم_توصيلها') {
+  const isFinanciallySettledSuccess = order.status === 'تم_التحصيل' || 
+                                      order.status === 'مدفوعة' || 
+                                      ((order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل') && order.paymentStatus === 'مدفوع');
+
+  if (isFinanciallySettledSuccess) {
     const codFee = (order.status === 'مدفوعة' || isPos) ? 0 : calculateCodFee(order, settings);
     const inspectionAdjustment = (order.inspectionFeePaidByCustomer || isPos) ? 0 : effectiveInspectionCost;
 
@@ -319,6 +323,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     
     netRevenue = totalCollected;
     profit = baseExpectedCollected - carrierFees - productCostCalculated;
+  } else if ((order.status === 'مرتجع' || order.status === 'فشل_التوصيل' || order.status === 'تمت_الاعادة_لشركة_الشحن' || order.status === 'مرتجع_بعد_الاستلام' || order.status === 'مرتجع_جزئي') && order.paymentStatus !== 'مدفوع') {
+    // If not financially settled (paymentStatus !== 'مدفوع'), return 0 loss/profit
   } else if (order.status === 'مرتجع' || order.status === 'فشل_التوصيل' || order.status === 'تمت_الاعادة_لشركة_الشحن') {
     const applyReturnFee = isPos ? false : (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
     const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
@@ -380,7 +386,7 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   const inspectionAdjustment = o.inspectionFeePaidByCustomer ? 0 : effectiveInspectionCost;
   totalFees += inspectionAdjustment;
 
-  if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها') {
+  if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') {
     const codFee = (o.status === 'مدفوعة') ? 0 : calculateCodFee(o, settings);
     totalFees += codFee;
   } else if (o.status === 'مرتجع' || o.status === 'فشل_التوصيل' || o.status === 'تمت_الاعادة_لشركة_الشحن') {

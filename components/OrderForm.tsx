@@ -81,7 +81,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             
             const matchingOrders = storeOrders.filter((o: any) => o.customerPhone && o.customerPhone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
             let dynamicTotal = matchingOrders.length;
-            let dynamicSuccess = matchingOrders.filter((o: any) => ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'].includes(o.status)).length;
+            let dynamicSuccess = matchingOrders.filter((o: any) => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(o.status)).length;
             
             const matchingCustomer = storeCustomers.find((c: any) => c.phone && c.phone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
             if (matchingCustomer) {
@@ -703,9 +703,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                     <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">رقم الهاتف الأساسي</label>
                                     <input type="tel" placeholder="01xxxxxxxxx" required value={orderData.customerPhone || ''} onChange={e => handleFieldChange('customerPhone', e.target.value)} className="p-4.5 bg-slate-50/50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl w-full focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all dark:text-white font-black text-lg text-right tracking-widest" dir="ltr" />
                                     {globalCustomerStats && (
-                                        <div className={`mt-3 text-xs flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border ${globalCustomerStats.isNew ? 'bg-emerald-50/80 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-indigo-50/80 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300'}`}>
+                                        <div className={`mt-3 text-xs flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl border ${globalCustomerStats.isNew ? 'bg-emerald-50/80 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-300' : (globalCustomerStats.totalOrders > 0 && globalCustomerStats.successRate < 50 ? 'bg-rose-50/80 dark:bg-rose-500/10 border-rose-100 dark:border-rose-500/20 text-rose-700 dark:text-rose-300' : 'bg-indigo-50/80 dark:bg-indigo-500/10 border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300')}`}>
                                             {globalCustomerStats.isNew ? (
-                                                <span className="font-bold flex items-center gap-1.5"><Star size={14} className="fill-current"/>عميل جديد</span>
+                                                <span className="font-bold flex items-center gap-1.5"><Star size={14} className="fill-current"/>عميل جديد (أول تعامل)</span>
                                             ) : (
                                                 <>
                                                     <span className="font-bold flex items-center gap-1.5"><Star size={14} className="fill-current"/>نسبة نجاح العميل: <span className="font-black text-sm">{Math.round(globalCustomerStats.successRate)}%</span></span>

@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet as WalletIcon, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
+import { Wallet as WalletIcon, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { calculateOrderProfitLoss, calculateOrderShippingAndFees } from '../utils/financials';
+import { triggerCelebration } from '../utils/celebration';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -54,7 +55,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     (wallet.settings?.preferredWithdrawMethod as 'bank' | 'wallet' | 'instapay' | 'treasury') || 'bank'
   );
   
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const walletStats = useMemo(() => {
     // Current calculation is sum of transactions, ensuring amounts are numbers
@@ -91,8 +92,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     }, 0);
 
     const inRouteOrders = orders.filter(o => 
-      (!o.paymentMethod || o.paymentMethod === 'cod') && 
-      (o.status === 'تم_توصيلها' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال') && 
+      (!o.paymentMethod || ['cod', 'كاش', 'cash', 'الدفع عند الاستلام', 'دفع عند الاستلام'].includes(o.paymentMethod)) && 
+      (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال') && 
       !o.collectionProcessed
     );
     
@@ -332,6 +333,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       setModalMode('none');
       setAmount('');
       setSelectedTreasuryId('');
+      // تشغيل السمعيات والاحتفالات لسحب وارد للخزينة
+      triggerCelebration('wallet_withdraw', settings);
       return;
     }
 
@@ -369,6 +372,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     }));
     setModalMode('none');
     setAmount('');
+    // تشغيل السمعيات والاحتفالات لطلب سحب جديد
+    triggerCelebration('wallet_withdraw', settings);
   };
 
   const filteredHistory = useMemo(() => {
@@ -480,6 +485,25 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
   const totalPages = Math.ceil(groupedHistory.length / itemsPerPage);
 
+  const getTransactionTitle = (item: any) => {
+      let baseTitle = item.category === 'collection' ? 'رصيد من الدفع عند الاستلام' 
+                    : item.category === 'shipping' ? 'مصاريف شحن' 
+                    : (item.note?.replace('إصدار بوليصة شحن', 'مصاريف شحن') || item.type);
+      
+      const relevantOrder = item.orderId 
+        ? cycleOrders.find(o => o.id === item.orderId) || orders.find(o => o.id === item.orderId)
+        : item.orderNumber 
+          ? cycleOrders.find(o => String(o.orderNumber) === String(item.orderNumber)) || orders.find(o => String(o.orderNumber) === String(item.orderNumber))
+          : null;
+
+      if (relevantOrder && ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(relevantOrder.status)) {
+          if (item.category === 'shipping' || item.category === 'collection' || item.isGroup || baseTitle.includes('مصاريف شحن')) {
+              baseTitle += ` (أوردر فاشل/مرتجع)`;
+          }
+      }
+      return baseTitle;
+  };
+
   const getNextMondayFormatted = () => {
     const d = new Date();
     const day = d.getDay();
@@ -501,6 +525,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
   const totalCollectedFromCustomers = useMemo(() => {
     return cycleOrders.reduce((sum, o) => {
+      // Exclude failed or returned orders from the expected collection total
+      if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status)) {
+        return sum;
+      }
       const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
       return sum + oTotal;
     }, 0);
@@ -854,11 +882,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             <td className={`p-5 font-extrabold text-right ${net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{net.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
                             <td className="p-1 text-center">
                               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black border ${
-                                o.status === 'تم_التحصيل' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10' :
+                                o.status === 'تم_التحصيل' || o.status === 'تم_التوصيل' || o.status === 'تم_توصيلها' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10' :
                                 ['جاري_التوصيل', 'تم_الشحن'].includes(o.status as any) ? 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-500/10' :
+                                ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(o.status) ? 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-500/10 dark:text-rose-400' :
                                 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40'
                               }`}>
-                                {o.status === 'تم_التحصيل' ? 'تم التوصيل ✓' : (o.status as any) === 'جاري_التوصيل' ? 'قيد التوصيل' : 'مع الشاحن'}
+                                {o.status === 'تم_التحصيل' || o.status === 'تم_التوصيل' || o.status === 'تم_توصيلها' ? 'تم التوصيل ✓' : 
+                                 ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(o.status) ? 'فشل / مرتجع' :
+                                 (o.status as any) === 'جاري_التوصيل' ? 'قيد التوصيل' : 'مع الشاحن'}
                               </span>
                             </td>
                             <td className="p-1 text-center font-sans">
@@ -1029,7 +1060,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                   </div>
                                   <div className="text-right">
                                       <h5 className="text-base font-black text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors tracking-tight">
-                                          {item.category === 'collection' ? 'رصيد من الدفع عند الاستلام' : item.category === 'shipping' ? 'إصدار بوليصة شحن' : (item.note || item.type)}
+                                          {getTransactionTitle(item)}
                                       </h5>
                                       <div className="flex items-center gap-3 flex-row-reverse mt-1.5">
                                           <span className="text-[11px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-100 dark:border-slate-700">#{item.orderNumber || item.id.slice(-6)}</span>
@@ -1111,7 +1142,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                     {sub.type === 'إيداع' ? <ArrowUpRight size={14}/> : <ArrowDownLeft size={14}/>}
                                   </div>
                                   <div className="text-right">
-                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{sub.category === 'collection' ? 'رصيد من الدفع عند الاستلام' : sub.category === 'shipping' ? 'إصدار بوليصة شحن' : sub.note}</p>
+                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{getTransactionTitle(sub)}</p>
                                     <p className="text-[10px] text-slate-400">{new Date(sub.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
                                   </div>
                                 </div>
@@ -1154,7 +1185,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                 <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
                                 <div className="text-right space-y-1">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">تفاصيل / ملاحظات</p>
-                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{item.category === 'collection' ? 'رصيد من الدفع عند الاستلام' : item.category === 'shipping' ? 'إصدار بوليصة شحن' : item.note}</p>
+                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{getTransactionTitle(item)}</p>
                                 </div>
                                 {item.orderId && (
                                     <>
@@ -1188,18 +1219,57 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               )}
           </div>
 
-          {/* Pagination Modern */}
-          <div className="flex justify-center pt-4">
-              <div className="flex items-center gap-2 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] shadow-xl">
-                  <button className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all rotate-180 bg-slate-50 dark:bg-slate-800 rounded-xl"><ChevronRight size={20}/></button>
-                  <div className="flex items-center gap-1">
-                      <button className="w-10 h-10 rounded-xl bg-indigo-600 text-white font-black text-xs shadow-lg shadow-indigo-500/30">1</button>
-                      <button className="w-10 h-10 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 font-black text-xs text-slate-600 dark:text-slate-400 transition-all">2</button>
-                      <button className="w-10 h-10 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 font-black text-xs text-slate-600 dark:text-slate-400 transition-all">3</button>
-                  </div>
-                  <button className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-all bg-slate-50 dark:bg-slate-800 rounded-xl"><ChevronRight size={20}/></button>
+           {/* Pagination Modern */}
+          {totalPages > 0 && (
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+              {/* Items per page selector */}
+              <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">عدد العمليات بالصفحة:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs font-black bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 dark:text-slate-200 outline-none cursor-pointer"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                </select>
+                <span className="text-[11px] font-bold text-slate-400 mr-2">
+                  (عرض {paginatedHistory.length} من {groupedHistory.length})
+                </span>
               </div>
-          </div>
+
+              {/* Page navigation */}
+              <div className="flex items-center gap-2 p-1.5 bg-slate-50/50 dark:bg-slate-900/50 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all shadow-sm text-slate-700 dark:text-slate-300 disabled:shadow-none bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 disabled:border-transparent disabled:bg-transparent"
+                >
+                  <ChevronRight size={18} />
+                </button>
+                
+                <div className="px-3 py-1 flex items-center gap-1.5 text-xs font-black">
+                  <span className="text-slate-800 dark:text-slate-200">
+                    صفحة {currentPage}
+                  </span>
+                  <span className="text-slate-400">من {totalPages || 1}</span>
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages || totalPages <= 1}
+                  className="p-2 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all shadow-sm text-slate-700 dark:text-slate-300 disabled:shadow-none bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700 disabled:border-transparent disabled:bg-transparent"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+              </div>
+            </div>
+          )}
           </>
           )}
         </motion.div>
@@ -2180,7 +2250,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
-                                {orders.filter(o => (!o.paymentMethod || o.paymentMethod === 'cod') && (o.status === 'تم_توصيلها' || o.status === 'تم_التحصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال' || o.status === 'مدفوعة')).map((o, idx) => {
+                                {orders.filter(o => (!o.paymentMethod || ['cod', 'كاش', 'cash', 'الدفع عند الاستلام', 'دفع عند الاستلام'].includes(o.paymentMethod)) && (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'تم_التحصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال' || o.status === 'مدفوعة')).map((o, idx) => {
                                     const total = o.totalAmountOverride ?? (o.productPrice + o.shippingFee - (o.discount || 0));
                                     const isCollected = o.status === 'تم_التحصيل';
                                     return (
@@ -2211,7 +2281,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         </tr>
                                     );
                                  })}
-                                {orders.filter(o => (!o.paymentMethod || o.paymentMethod === 'cod') && (o.status === 'تم_توصيلها' || o.status === 'تم_التحصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال' || o.status === 'مدفوعة')).length === 0 && (
+                                {orders.filter(o => (!o.paymentMethod || ['cod', 'كاش', 'cash', 'الدفع عند الاستلام', 'دفع عند الاستلام'].includes(o.paymentMethod)) && (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'تم_التحصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال' || o.status === 'مدفوعة')).length === 0 && (
                                     <tr>
                                         <td colSpan={9} className="p-20 text-center text-slate-400 font-bold">لا توجد عمليات دفع خاضعة للتحصيل حالياً</td>
                                     </tr>

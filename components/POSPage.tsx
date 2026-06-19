@@ -28,6 +28,7 @@ import { Settings, Product, ProductVariant, POSSale, POSSaleItem, Order, Wallet 
 
 import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { printHTMLDirectly } from '../utils/printHelper';
+import { triggerCelebration } from '../utils/celebration';
 
 interface POSPageProps {
   settings: Settings;
@@ -335,6 +336,9 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         orders: [newOrder, ...orders],
         wallet: updatedWallet
       });
+
+      // تشغيل الاحتفالات والسمعيات السحابية لبيع الكاشير
+      triggerCelebration('pos_sale', settings);
 
       alert(isCredit ? 'تم تسجيل العملية كطلب أجل بنجاح!' : 'تم إتمام البيع وتحديث المخزن بنجاح!');
       setCart([]);

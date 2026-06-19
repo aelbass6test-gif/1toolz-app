@@ -78,7 +78,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
           customer.firstOrderDate = order.date;
       }
 
-      if (order.status === 'تم_التحصيل' || order.status === 'تم_توصيلها' || order.status === 'مدفوعة') {
+      if (order.status === 'تم_التحصيل' || (order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل') || order.status === 'مدفوعة') {
           customer.successfulOrders += 1;
           const orderTotal = (order.productPrice + order.shippingFee) - (order.discount || 0);
           customer.totalSpent += orderTotal;

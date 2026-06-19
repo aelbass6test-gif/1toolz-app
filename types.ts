@@ -634,6 +634,7 @@ export interface Settings {
   callScripts?: CallScript[];
   employeeDashboardSettings?: EmployeeDashboardSettings;
   isPosEnabled?: boolean;
+  wallet?: WalletSettings;
   partners?: Partner[];
   partnerTransactions?: PartnerTransaction[];
   expenseCategories?: string[]; // Added expense categories
@@ -657,6 +658,19 @@ export interface Settings {
   cashHolders?: CashHolder[];
   cashHandovers?: CashHandover[];
   auditAlertDays?: number; // Days between manual audits before alert
+  confettiSettings?: {
+    particleCount: number;
+    gravity: number;
+    spread: number;
+    theme?: 'rainbow' | 'gold' | 'fireworks';
+    enabledEvents?: string[]; // e.g. ['create_order', 'edit_order', 'complete_order', 'add_product', 'delete_product', 'wallet_withdraw', 'save_settings']
+    soundVolume?: number; 
+    enableSound?: boolean;
+    soundType?: 'standard' | 'cash' | 'success' | 'trumpet' | 'fireworks';
+    enableWelcomeSound?: boolean;
+    welcomeSoundType?: 'standard' | 'cash' | 'success' | 'trumpet' | 'fireworks' | 'magic' | 'modern_shine' | 'pro_chime' | 'future_ui' | 'soft_welcome' | 'tech_rise';
+    enableLoadingSound?: boolean;
+  };
 }
 
 export interface CashHolder {

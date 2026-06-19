@@ -112,7 +112,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
 
         const productPerformance = settings.products.map(product => {
             const soldItems = orders
-                .filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها')
+                .filter(o => o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل')
                 .flatMap(o => o.items || [])
                 .filter(i => i.productId === product.id);
             
@@ -129,13 +129,13 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         companies.forEach(company => {
             const companyOrders = orders.filter(o => o.shippingCompany === company);
             if (companyOrders.length > 0) {
-                const successful = companyOrders.filter(o => o.status === 'تم_التحصيل' || o.status === 'تم_توصيلها').length;
+                const successful = companyOrders.filter(o => o.status === 'تم_التحصيل' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل').length;
                 shippingPerformance.push({ name: company, count: companyOrders.length, successRate: (successful / companyOrders.length) * 100 });
             }
         });
 
         // Delivery breakdown for Pie chart
-        const deliveredCount = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status)).length;
+        const deliveredCount = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).length;
         const returnedCount = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)).length;
         const processingCount = orders.length - deliveredCount - returnedCount;
 
@@ -157,7 +157,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
     // Income Statement Breakdown
     const incomeStatement = useMemo(() => {
         if (!settings || !reportData) return null;
-        const grossSales = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status)).reduce((sum, o) => {
+        const grossSales = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).reduce((sum, o) => {
             const itemsRevenue = (o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
             return sum + (itemsRevenue + o.shippingFee - (o.discount || 0));
         }, 0);
@@ -166,7 +166,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         let returnsLoss = 0;
         orders.forEach(order => {
             const { loss } = calculateOrderProfitLoss(order, settings);
-            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(order.status)) {
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status)) {
                 totalCogs += getOrderProductCost(order, settings);
             }
             if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(order.status)) {
@@ -184,7 +184,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         
         let successfulShippingOperations = 0;
         orders.forEach(order => {
-            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(order.status)) {
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status)) {
                 const { profit } = calculateOrderProfitLoss(order, settings);
                 const safeProductCost = getOrderProductCost(order, settings);
                 const itemsRevenue = (order.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
@@ -467,7 +467,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                             <span className="text-[10px] text-slate-400 font-bold block uppercase">معدل النجاح</span>
                                             <span className="text-xl font-black text-emerald-500">
                                                 {reportData.totalOrders > 0 
-                                                    ? ((orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status)).length / reportData.totalOrders) * 100).toFixed(0) 
+                                                    ? ((orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).length / reportData.totalOrders) * 100).toFixed(0) 
                                                     : 0}%
                                             </span>
                                         </div>
@@ -614,7 +614,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
             companyStats[company].total += 1;
 
             const isReturned = ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status);
-            const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها'].includes(o.status);
+            const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);
 
             if (isReturned) {
                 companyStats[company].returned += 1;
@@ -1235,7 +1235,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         });
 
         // Wallet Sync
-        const pendingCollection = orders.filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
+        const pendingCollection = orders.filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
         
         // --- PARTNER CALCULATIONS ---
         const partners = settings.partners || [];
@@ -2703,7 +2703,7 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
             .filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage')
             .reduce((sum, t) => sum + t.amount, 0);
 
-        const pendingCollection = orders.filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
+        const pendingCollection = orders.filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
 
         const partnerPerformance = partners.map(partner => {
              const partnerTx = partnerTransactions.filter(t => t.partnerId === partner.id);

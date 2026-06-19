@@ -351,7 +351,7 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
         const isFailure = ['مرتجع', 'فشل_التوصيل', 'ملغي', 'تمت_الاعادة_لشركة_الشحن'].includes(status);
         if (isFailure) return 'background-color: #fee2e2; color: #991b1b;'; // red
 
-        const inProgress = ['تم_توصيلها', 'قيد_الشحن', 'تم_الارسال'].includes(status);
+        const inProgress = ['تم_توصيلها', 'تم_التوصيل', 'قيد_الشحن', 'تم_الارسال'].includes(status);
         if (inProgress) return 'background-color: #dbeafe; color: #1e40af;'; // blue
         
         return 'background-color: #f1f5f9; color: #475569;'; // slate
@@ -916,7 +916,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
 export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string): string => {
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
-    const notCollectedOrders = (orders || []).filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed);
+    const notCollectedOrders = (orders || []).filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed);
     const inShippingOrders = (orders || []).filter(o => o.status === 'قيد_الشحن');
     const adminExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_'));
     const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
@@ -1202,7 +1202,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     }).join('');
 
     // Wallet Sync
-    const pendingCollection = orders.filter(o => o.status === 'تم_توصيلها' && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
+    const pendingCollection = orders.filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
     const inventoryValue = (settings.products || []).reduce((sum, p) => {
         if (p.hasVariants && p.variants) {
             return sum + p.variants.reduce((vSum, v) => vSum + (getLatestProductCost(v.id, settings) * (v.stockQuantity || 0)), 0);

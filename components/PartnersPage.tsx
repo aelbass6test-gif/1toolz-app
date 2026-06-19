@@ -74,7 +74,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     orders.forEach(order => {
         const { net } = calculateOrderProfitLoss(order, settings);
         
-        if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || order.status === 'تم_توصيلها') {
+        if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || (order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل')) {
             totalSuccessfulNet += net;
         } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(order.status)) {
             returnsLosses += Math.abs(net);

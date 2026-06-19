@@ -9,6 +9,7 @@ import { INITIAL_SETTINGS } from './constants';
 import { oneToolzProducts } from './data/one-toolz-products';
 
 import { triggerWebhooks } from './utils/webhook';
+import { audioSynth } from './utils/audioSynth';
 
 // Page Components (will be loaded via router)
 import SignUpPage from './components/SignUpPage';
@@ -276,41 +277,54 @@ const MainLayout = ({
     }, [settings, orders]);
 
     return (
-        <div className="flex flex-col h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-50" dir="rtl">
-    <Header 
-        currentUser={currentUser} 
-        onLogout={handleLogout} 
-        onToggleSidebar={() => setSidebarOpen(true)} 
-        theme={theme} 
-        setTheme={setTheme} 
-        activeStore={activeStore} 
-        dbSyncMode={dbSyncMode}
-        setDbSyncMode={setDbSyncMode}
-        forceSync={forceSync}
-        forcePullFromCloud={forcePullFromCloud}
-        saveStatus={saveStatus}
-        saveMessage={saveMessage}
-        unsavedChanges={unsavedChanges}
-        inventoryAlerts={inventoryAlerts}
-    />
-    <div className="flex flex-1 overflow-hidden relative">
-        <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar">
-            <Outlet />
-        </main>
-        <MobileNavigation activeStoreId={activeStore?.id} />
-    </div>
-</div>
+        <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#030712] text-slate-900 dark:text-slate-50 transition-colors duration-500 overflow-hidden relative" dir="rtl">
+            {/* Immersive Floating Ambient Glow Elements */}
+            <div className="absolute top-[-5%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[120px] pointer-events-none z-0 animate-ambient-pulse" />
+            <div className="absolute bottom-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-500/8 dark:bg-purple-500/12 blur-[140px] pointer-events-none z-0 animate-ambient-pulse-slow" />
+            <div className="absolute top-[35%] left-[25%] w-[300px] h-[300px] rounded-full bg-cyan-400/8 dark:bg-cyan-550/10 blur-[100px] pointer-events-none z-0 animate-float" />
+
+            <div className="relative z-10 flex flex-col h-full overflow-hidden">
+                <Header 
+                    currentUser={currentUser} 
+                    onLogout={handleLogout} 
+                    onToggleSidebar={() => setSidebarOpen(true)} 
+                    theme={theme} 
+                    setTheme={setTheme} 
+                    activeStore={activeStore} 
+                    dbSyncMode={dbSyncMode}
+                    setDbSyncMode={setDbSyncMode}
+                    forceSync={forceSync}
+                    forcePullFromCloud={forcePullFromCloud}
+                    saveStatus={saveStatus}
+                    saveMessage={saveMessage}
+                    unsavedChanges={unsavedChanges}
+                    inventoryAlerts={inventoryAlerts}
+                />
+                <div className="flex flex-1 overflow-hidden relative">
+                    <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+                    <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative">
+                        <Outlet />
+                    </main>
+                    <MobileNavigation activeStoreId={activeStore?.id} />
+                </div>
+            </div>
+        </div>
     );
 };
 
 const AdminLayout = ({ currentUser, handleLogout, theme, setTheme }: any) => (
-    <div className="flex flex-col h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50" dir="rtl">
-    <Header currentUser={currentUser} onLogout={handleLogout} theme={theme} setTheme={setTheme} onToggleSidebar={() => {}} />
-    <main className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar">
-        <Outlet />
-    </main>
-</div>
+    <div className="flex flex-col h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-50 overflow-hidden relative" dir="rtl">
+        {/* Floating Ambient Glow Elements */}
+        <div className="absolute top-[-5%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[120px] pointer-events-none z-0 animate-ambient-pulse" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-500/8 dark:bg-purple-500/12 blur-[140px] pointer-events-none z-0 animate-ambient-pulse-slow" />
+        
+        <div className="relative z-10 flex flex-col h-full overflow-hidden">
+            <Header currentUser={currentUser} onLogout={handleLogout} theme={theme} setTheme={setTheme} onToggleSidebar={() => {}} />
+            <main className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar relative">
+                <Outlet />
+            </main>
+        </div>
+    </div>
 );
 
 const EmployeeLayoutWrapper = ({ children, ...props }: any) => {
@@ -397,13 +411,77 @@ const OwnerLayoutWrapper = ({
     }, [urlStoreId, activeStoreId, handleSetActiveStore]);
 
     useEffect(() => {
-        if (!welcomeScreenShown) {
+        if (!welcomeScreenShown && settings) {
+            // Preload the sound immediately when settings are available
+            const confettiSettings = settings?.confettiSettings;
+            const soundMap: any = {
+                standard: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3',
+                cash: 'https://assets.mixkit.co/active_storage/sfx/133/133-preview.mp3',
+                success: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
+                trumpet: 'https://assets.mixkit.co/active_storage/sfx/2017/2017-preview.mp3',
+                fireworks: 'https://assets.mixkit.co/active_storage/sfx/619/619-preview.mp3',
+                magic: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
+                modern_shine: 'https://assets.mixkit.co/active_storage/sfx/2567/2567-preview.mp3',
+                pro_chime: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+                future_ui: 'https://assets.mixkit.co/active_storage/sfx/2357/2357-preview.mp3',
+                soft_welcome: 'https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3',
+                tech_rise: 'https://assets.mixkit.co/active_storage/sfx/611/611-preview.mp3'
+            };
+            const selectedType = confettiSettings?.welcomeSoundType || 'standard';
+            const soundUrl = soundMap[selectedType] || soundMap.standard;
+            const welcomeAudio = new Audio(soundUrl);
+            welcomeAudio.preload = 'auto';
+            welcomeAudio.volume = confettiSettings?.soundVolume ?? 0.3;
+
+            // Loading sound logic
+            let loadingAudio: HTMLAudioElement | null = null;
+            if (confettiSettings?.enableLoadingSound !== false) {
+                loadingAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2569/2569-preview.mp3');
+                loadingAudio.volume = (confettiSettings?.soundVolume ?? 0.3) * 0.5; // Slightly quieter
+                loadingAudio.loop = true;
+                loadingAudio.play().catch(() => {
+                    // Fallback play if blocked
+                    const playOnInteract = () => {
+                        if (loadingAudio) loadingAudio.play().catch(() => {});
+                        window.removeEventListener('mousedown', playOnInteract);
+                    };
+                    window.addEventListener('mousedown', playOnInteract);
+                });
+            }
+
             const timer = setTimeout(() => {
+                // Stop loading sound
+                if (loadingAudio) {
+                    loadingAudio.pause();
+                    loadingAudio = null;
+                }
+
                 setWelcomeScreenShown(true);
-            }, 1500);
-            return () => clearTimeout(timer);
+                
+                if (confettiSettings?.enableWelcomeSound !== false && currentUser) {
+                    const playWelcome = () => {
+                        welcomeAudio.play().catch(() => {
+                            // Fallback: play on first user interaction if blocked
+                            const playOnInteract = () => {
+                                welcomeAudio.play().catch(() => {});
+                                window.removeEventListener('click', playOnInteract);
+                            };
+                            window.addEventListener('click', playOnInteract);
+                        });
+                    };
+                    playWelcome();
+                }
+            }, 1800); // Slightly longer to ensure loading and visual impact
+            
+            return () => {
+                clearTimeout(timer);
+                if (loadingAudio) {
+                    loadingAudio.pause();
+                    loadingAudio = null;
+                }
+            };
         }
-    }, [welcomeScreenShown, setWelcomeScreenShown]);
+    }, [welcomeScreenShown, setWelcomeScreenShown, settings, currentUser]);
 
     if (isEmployeeSession) {
         return <Navigate to="/employee/dashboard" replace />;
@@ -525,6 +603,62 @@ export const AppComponent = () => {
     
     const navigate = useNavigate();
     const location = useLocation();
+
+    // تشغيل أصوات المأثرات التفاعلية لجميع أزار وتبويبات اللوحة تلقائياً وبشكل شيك جداً
+    useEffect(() => {
+        const handleGlobalClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target) return;
+
+            // البحث عن أقرب عنصر قابل للنقر
+            const clickable = target.closest('button, [role="button"], a, input[type="submit"], input[type="button"], select');
+            if (!clickable) return;
+
+            const textContent = (clickable.textContent || '').trim();
+            const classList = clickable.className || '';
+            
+            // تصنيف الصوت ومستوى التفاعل
+            const isDelete = classList.includes('delete') || 
+                             classList.includes('trash') || 
+                             classList.includes('remove') || 
+                             classList.includes('clear') || 
+                             textContent.includes('مسح') || 
+                             textContent.includes('حذف') || 
+                             textContent.includes('إلغاء');
+
+            const isSuccess = classList.includes('success') || 
+                              textContent.includes('حفظ') || 
+                              textContent.includes('تأكيد') || 
+                              textContent.includes('إضافة') || 
+                              textContent.includes('نشر') ||
+                              textContent.includes('إرسال') ||
+                              textContent.includes('تفعيل') ||
+                              textContent.includes('دفع') ||
+                              textContent.includes('شحن');
+
+            const isTabOrNav = classList.includes('tab') || 
+                               classList.includes('nav') || 
+                               clickable.tagName === 'A' || 
+                               clickable.getAttribute('role') === 'tab' ||
+                               clickable.closest('nav') ||
+                               classList.includes('sidebar-link');
+
+            if (isDelete) {
+                audioSynth.playTone('warning');
+            } else if (isSuccess) {
+                audioSynth.playTone('success');
+            } else if (isTabOrNav) {
+                audioSynth.playTone('info'); // نغمة انسيابية وناعمة للتبويبات
+            } else {
+                audioSynth.playTone('click'); // نقرة هادئة للأزرار العادية
+            }
+        };
+
+        document.addEventListener('click', handleGlobalClick, { capture: true });
+        return () => {
+            document.removeEventListener('click', handleGlobalClick, { capture: true });
+        };
+    }, []);
 
     // إغلاق القائمة تلقائياً عند تغيير المسار في الموبايل
     useEffect(() => {

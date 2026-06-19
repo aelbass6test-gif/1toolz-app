@@ -431,7 +431,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
     return (
         <>
             {/* Desktop Sidebar */}
-            <div className="hidden md:flex w-72 bg-white dark:bg-slate-900 border-l border-slate-200/60 dark:border-slate-800/60 h-full flex-col sticky top-0 shadow-lg shadow-slate-100/10 dark:shadow-none">
+            <div className="hidden md:flex w-72 bg-white/70 dark:bg-[#0b0f19]/75 backdrop-blur-2xl border-l border-slate-200/45 dark:border-white/5 h-full flex-col sticky top-0 shadow-xl shadow-slate-200/10 dark:shadow-none relative z-20 transition-all duration-500 hover:border-l-indigo-500/15">
                 {sidebarContentJSX}
             </div>
 
@@ -440,9 +440,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 className={`fixed inset-0 z-50 md:hidden transition-opacity duration-300 ease-in-out ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 aria-hidden={!isOpen}
             >
-                <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} tabIndex={-1}></div>
+                <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-md" onClick={onClose} tabIndex={-1}></div>
                 <div 
-                    className={`absolute top-0 right-0 h-full w-72 bg-white dark:bg-slate-900 shadow-2xl transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-[100%]'}`}
+                    className={`absolute top-0 right-0 h-full w-72 bg-white/85 dark:bg-[#0b0f19]/90 backdrop-blur-2xl shadow-2xl transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-[100%]'}`}
                 >
                     {isOpen && sidebarContentJSX}
                 </div>
