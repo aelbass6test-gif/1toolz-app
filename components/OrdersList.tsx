@@ -5113,6 +5113,7 @@ const ProfitBreakdown: React.FC<{
 }> = ({ order, settings, onToggleFlexShipPaid }) => {
   const safeProductPrice = Number(order.productPrice) || 0;
   const safeShippingFee = Number(order.shippingFee) || 0;
+  const safeAdminFee = Number(order.adminFee) || 0;
   const safeDiscount = Number(order.discount) || 0;
   const safeProductCost = Number(order.productCost) || 0;
   const safeAdvance = Number(order.advancePayment) || 0;
@@ -5161,6 +5162,8 @@ const ProfitBreakdown: React.FC<{
     order.totalAmountOverride !== null
       ? Number(order.totalAmountOverride)
       : baseRevenue - safeDiscount;
+
+  const manualDifference = amountCollectedFromCustomer - (baseRevenue - safeDiscount);
 
   const extraAdjustment = 0;
 
@@ -5269,6 +5272,36 @@ const ProfitBreakdown: React.FC<{
                     ج.م
                   </span>
                 </div>
+                {safeAdminFee > 0 && (
+                  <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                    <span className="text-slate-500 font-bold">
+                      زيادات (رسوم إضافية)
+                    </span>
+                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      +
+                      {safeAdminFee.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 3,
+                      })}{" "}
+                      ج.م
+                    </span>
+                  </div>
+                )}
+                {Math.abs(manualDifference) > 0 && (
+                  <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                    <span className="text-slate-500 font-bold">
+                      فرق التقفيل اليدوي
+                    </span>
+                    <span className={`font-black tabular-nums ${manualDifference > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500"}`}>
+                      {manualDifference > 0 ? "+" : ""}
+                      {manualDifference.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 3,
+                      })}{" "}
+                      ج.م
+                    </span>
+                  </div>
+                )}
                 {safeTax > 0 && (
                   <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                     <span className="text-slate-500 font-bold">
