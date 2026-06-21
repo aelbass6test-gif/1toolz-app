@@ -306,7 +306,7 @@ const MainLayout = ({
                     <div className="no-print">
                         <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
                     </div>
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative">
+                    <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative print:overflow-visible print:h-auto print:static">
                         <Outlet />
                     </main>
                     <div className="no-print">

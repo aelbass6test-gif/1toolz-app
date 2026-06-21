@@ -161,6 +161,12 @@
   display: none; /* Chrome, Safari and Opera */
 }
 
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

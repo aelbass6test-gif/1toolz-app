@@ -361,7 +361,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800 print:hidden">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse"></span>
@@ -376,19 +376,19 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         <div className="flex items-center gap-3 w-full sm:w-auto">
             <button 
                 onClick={handlePrint} 
-                className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-5 py-3 rounded-2xl font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-750 transition-all cursor-pointer print:hidden"
+                className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-5 py-3 rounded-2xl font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-750 transition-all cursor-pointer"
             >
                 <Printer size={18}/>
                 <span>طباعة التقرير</span>
             </button>
-            <button onClick={() => setShowAddModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-rose-600/10 transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer print:hidden">
+            <button onClick={() => setShowAddModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-rose-600/10 transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer">
                 <Plus size={20}/>
                 <span>تسجيل مصروف جديد</span>
             </button>
         </div>
       </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 print:hidden">
             <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-950 dark:from-black dark:to-slate-950 p-8 rounded-[2.5rem] shadow-2xl flex flex-col justify-between text-white min-h-[14rem] border border-white/5 print:bg-white print:text-slate-900 print:border-slate-200 print:shadow-none print:min-h-0 print:p-4">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none print:hidden"></div>
                 <div>
