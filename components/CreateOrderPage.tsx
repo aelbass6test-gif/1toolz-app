@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Order, OrderItem, Settings, User, CustomerProfile, Store, OrderStatus, MaintenanceRequest } from '../types';
+import { Order, OrderItem, Settings, User, CustomerProfile, Store, OrderStatus, MaintenanceRequest, AdvancePaymentHistoryLog } from '../types';
 import { OrderForm, NewOrderState } from './OrderForm';
 import { INITIAL_SETTINGS } from '../constants';
 import { getLatestProductCost, calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
@@ -209,16 +209,56 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const isMaintenance = orderToAdd.orderType === 'maintenance';
         const basePrice = isMaintenance ? (Number((orderToAdd as any).maintenanceCost) || 0) : (orderToAdd.productPrice - (orderToAdd.discount || 0));
         const baseTotal = basePrice + orderToAdd.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
-        const finalCollectedTotal = orderToAdd.totalAmountOverride ?? baseTotal;
+        const returnCash = (orderToAdd.returnCashToCustomer && orderToAdd.cashToReturnAmount) ? Number(orderToAdd.cashToReturnAmount) : 0;
+        const finalCollectedTotal = orderToAdd.totalAmountOverride !== undefined && orderToAdd.totalAmountOverride !== null
+            ? Math.max(0, Math.round(Number(orderToAdd.totalAmountOverride) - safeAdvance - (orderToAdd.creditAmount || 0) - returnCash))
+            : baseTotal;
 
         const id = `order-${Date.now()}`;
+        
+        // Add history log if advance payment exists
+        const advanceHistory: AdvancePaymentHistoryLog[] = [];
+        const diffValue = orderToAdd.advancePayment || 0;
+        if (diffValue > 0) {
+            let rType: 'partner' | 'treasury' | 'employee' | undefined;
+            let rId: string | undefined;
+            if ((orderToAdd as any).advancePaymentPartnerId) {
+                rType = 'partner';
+                rId = (orderToAdd as any).advancePaymentPartnerId;
+            } else if ((orderToAdd as any).advancePaymentTreasuryId) {
+                rType = 'treasury';
+                rId = (orderToAdd as any).advancePaymentTreasuryId;
+            } else if ((orderToAdd as any).advancePaymentEmployeeId) {
+                rType = 'employee';
+                rId = (orderToAdd as any).advancePaymentEmployeeId;
+            }
+
+            advanceHistory.push({
+                id: `log-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                amount: diffValue,
+                userId: currentUser?.phone || 'unknown',
+                userName: currentUser?.fullName || 'النظام',
+                recipientType: rType,
+                recipientId: rId,
+                recipientPhone: (orderToAdd as any).advancePaymentRecipientPhone,
+                senderDetails: (orderToAdd as any).advancePaymentSenderDetails,
+                action: 'created'
+            });
+        }
+
         const orderWithId: Order = { 
             ...orderToAdd, 
             id,
-            totalPrice: Math.round(finalCollectedTotal)
+            totalPrice: Math.round(finalCollectedTotal),
+            advancePaymentHistory: advanceHistory.length > 0 ? advanceHistory : undefined
         } as Order;
 
-        // Process Treasury / Partner updates
+        const senderInfo = (orderWithId as any).advancePaymentSenderDetails ? ` | بيانات المحول: ${(orderWithId as any).advancePaymentSenderDetails}` : '';
+        const phoneInfo = (orderWithId as any).advancePaymentRecipientPhone ? ` | هاتف المستلم: ${(orderWithId as any).advancePaymentRecipientPhone}` : '';
+        const fullNote = `عربون / دفع مقدم للطلب #${orderWithId.orderNumber}${senderInfo}${phoneInfo}`;
+
+        // Process Treasury / Partner / Employee updates
         const difference = orderWithId.advancePayment || 0;
         if (difference !== 0 && (orderWithId as any).advancePaymentPartnerId) {
             const partnerId = (orderWithId as any).advancePaymentPartnerId;
@@ -228,7 +268,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 type: 'customer_advance',
                 amount: Math.abs(difference),
                 date: new Date().toISOString(),
-                note: `عربون / دفع مقدم للطلب #${orderWithId.orderNumber}`
+                note: fullNote
             } as any;
             
             setSettings(prev => ({
@@ -249,7 +289,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     date: new Date().toISOString(),
                     type: difference > 0 ? 'deposit' : 'withdrawal',
                     amount: Math.abs(difference),
-                    description: `عربون / دفع مقدم للطلب #${orderWithId.orderNumber}`,
+                    description: fullNote,
                     toAccountId: difference > 0 ? treasuryId : undefined,
                     fromAccountId: difference < 0 ? treasuryId : undefined,
                 };
@@ -258,6 +298,44 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     transactions: [newTx, ...currentTreasury.transactions]
                 };
             });
+        } else if (difference !== 0 && (orderWithId as any).advancePaymentEmployeeId) {
+            const empId = (orderWithId as any).advancePaymentEmployeeId;
+            const empName = empId === 'admin' 
+                ? 'المدير (أنت)' 
+                : (((settings.employees || []).find(e => e.id === empId)?.name) || ((settings.partners || []).find(p => p.id === empId)?.name) || 'المسؤول');
+            
+            const curHolders = settings.cashHolders || [];
+            const exists = curHolders.find(h => h.userId === empId);
+            
+            let updatedHolders;
+            if (exists) {
+                updatedHolders = curHolders.map(h => h.userId === empId ? { ...h, currentBalance: (h.currentBalance || 0) + difference, lastUpdated: new Date().toISOString() } : h);
+            } else {
+                updatedHolders = [...curHolders, {
+                    userId: empId,
+                    userName: empName,
+                    currentBalance: difference,
+                    lastUpdated: new Date().toISOString()
+                }];
+            }
+            
+            const handoverTx = {
+                id: `hd-${Date.now()}`,
+                fromUserId: 'system',
+                fromUserName: 'النظام',
+                toUserId: empId,
+                toUserName: empName,
+                amount: Math.abs(difference),
+                date: new Date().toISOString(),
+                notes: fullNote,
+                status: 'completed'
+            } as any;
+
+            setSettings(prev => ({
+                ...prev,
+                cashHolders: updatedHolders,
+                cashHandovers: [...(prev.cashHandovers || []), handoverTx]
+            }));
         }
 
         // Customer Logic

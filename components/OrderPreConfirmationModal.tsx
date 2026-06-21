@@ -31,7 +31,11 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
     const isMaintenance = order.orderType === 'maintenance';
     const basePrice = isMaintenance ? (Number((order as any).maintenanceCost) || 0) : (order.productPrice - (order.discount || 0));
     const baseTotal = basePrice + order.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
-    const total = (order as any).totalAmountOverride ?? baseTotal;
+    const credit = (order as any).creditAmount || 0;
+    const returnCash = (order.returnCashToCustomer && (order as any).cashToReturnAmount) ? Number((order as any).cashToReturnAmount) : 0;
+    const total = (order as any).totalAmountOverride !== undefined && (order as any).totalAmountOverride !== null
+        ? Math.max(0, Math.round(Number((order as any).totalAmountOverride) - safeAdvance - credit - returnCash))
+        : baseTotal;
     console.log("OrderPreConfirmationModal Debug:", { orderPrice: order.productPrice, shippingFee: order.shippingFee, insuranceFee, vatValue, baseTotal, total });
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">

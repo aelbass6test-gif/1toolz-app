@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Copy, MapPin, Phone, User as UserIcon, Package, AlertCircle, Wallet } from 'lucide-react';
+import { X, Copy, MapPin, Phone, User as UserIcon, Package, AlertCircle, Wallet, Plus } from 'lucide-react';
 import { Order, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
 import { calculateCodFee, calculateInsuranceFee, calculateBostaVat, isBosta, calculateOrderProfitLoss } from '../utils/financials';
@@ -10,10 +10,20 @@ interface OrderDetailsModalProps {
   settings: Settings;
   allOrders?: Order[];
   onClose: () => void;
+  onAddTransaction?: (type: 'إيداع' | 'سحب', amount: number, note: string, category: any) => void;
 }
 
-export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, settings, allOrders = [], onClose }) => {
+export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ 
+  order, 
+  settings, 
+  allOrders = [], 
+  onClose,
+  onAddTransaction
+}) => {
   const [activeTab, setActiveTab] = useState<'details' | 'tracking'>('details');
+  const [showAdjustmentForm, setShowAdjustmentForm] = useState(false);
+  const [adjAmount, setAdjAmount] = useState('');
+  const [adjNote, setAdjNote] = useState('');
 
   if (!settings) return null;
 
@@ -36,8 +46,12 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
   
   const totalCarrierFees = carrierFees;
   
-  const computedTotal = safeProductPrice + safeShippingFee - safeDiscount - safeAdvance + (order.inspectionFeePaidByCustomer ? inspectionAdjustment : 0);
-  const totalAmountToCollect = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
+  const safeCredit = Number(order.creditAmount) || 0;
+  const safeReturnCash = (order.returnCashToCustomer && order.cashToReturnAmount) ? Number(order.cashToReturnAmount) : 0;
+  const computedTotal = Math.max(0, safeProductPrice + safeShippingFee - safeDiscount - safeAdvance - safeCredit - safeReturnCash + (order.inspectionFeePaidByCustomer ? inspectionAdjustment : 0));
+  const totalAmountToCollect = order.totalAmountOverride != null 
+    ? Math.max(0, Math.round(Number(order.totalAmountOverride) - safeAdvance - safeCredit - safeReturnCash)) 
+    : computedTotal;
   
   const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
 
@@ -384,6 +398,12 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                         <span className="font-bold text-slate-700 dark:text-slate-200">{safeShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                         <span className="text-slate-500">سعر الشحن</span>
                     </div>
+                    {safeAdvance > 0 && (
+                        <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                           <span className="font-bold">-{safeAdvance.toLocaleString()} ج.م</span>
+                           <span className="text-xs">عربون مقدم</span>
+                        </div>
+                    )}
                     {currentVatRate > 0 && (
                         <div className="flex justify-between items-center">
                            <span className="font-bold text-slate-700 dark:text-slate-200">{bostaVatFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
@@ -411,6 +431,58 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ order, set
                         <span className="font-black text-rose-600 dark:text-rose-400">-{totalCarrierFees.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                         <span className="font-bold text-slate-700 dark:text-slate-300">إجمالي مستحقات الشحن</span>
                     </div>
+
+                    {onAddTransaction && (
+                        <div className="pt-2 border-t border-slate-50 dark:border-slate-800">
+                            {showAdjustmentForm ? (
+                                <div className="space-y-2 p-2 bg-slate-50 dark:bg-slate-900/50 rounded-lg animate-in fade-in slide-in-from-top-1">
+                                    <input 
+                                        type="number"
+                                        placeholder="المبلغ (مثلا 20)"
+                                        value={adjAmount}
+                                        onChange={e => setAdjAmount(e.target.value)}
+                                        className="w-full p-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded outline-none focus:border-indigo-500"
+                                    />
+                                    <input 
+                                        type="text"
+                                        placeholder="السبب (زيادة شحن / مديونية)"
+                                        value={adjNote}
+                                        onChange={e => setAdjNote(e.target.value)}
+                                        className="w-full p-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded outline-none focus:border-indigo-500"
+                                    />
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => {
+                                                const amt = parseFloat(adjAmount);
+                                                if (amt > 0 && adjNote) {
+                                                    onAddTransaction('سحب', amt, `${adjNote} - أوردر #${order.orderNumber}`, 'expense_shipping_fees');
+                                                    setShowAdjustmentForm(false);
+                                                    setAdjAmount('');
+                                                    setAdjNote('');
+                                                }
+                                            }}
+                                            className="flex-1 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded"
+                                        >
+                                            تأكيد الخصم
+                                        </button>
+                                        <button 
+                                            onClick={() => setShowAdjustmentForm(false)}
+                                            className="px-2 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold rounded"
+                                        >
+                                            إلغاء
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <button 
+                                    onClick={() => setShowAdjustmentForm(true)}
+                                    className="w-full py-2 flex items-center justify-center gap-1.5 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+                                >
+                                    <Plus size={12} /> إضافة زيادة في سعر الشحن أو مصروفات
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className={`bg-white dark:bg-slate-800 rounded-2xl border ${walletStatusStyle === 'emerald' ? 'border-emerald-200 dark:border-emerald-800' : walletStatusStyle === 'indigo' ? 'border-indigo-200 dark:border-indigo-800' : walletStatusStyle === 'teal' ? 'border-teal-200 dark:border-teal-800' : walletStatusStyle === 'rose' ? 'border-rose-200 dark:border-rose-800' : 'border-slate-200 dark:border-slate-700'} p-4 text-center`}>

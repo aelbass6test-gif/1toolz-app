@@ -697,6 +697,26 @@ ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS store_id TEXT;
 
+-- تأمين أعمدة العربون والديون
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePayment" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentPartnerId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentTreasuryId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentEmployeeId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentRecipientPhone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentSenderDetails" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentHistory" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdBy" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "source" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "vatOnStandardShipping" BOOLEAN DEFAULT false;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
+
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
+
 -- تأمين أعمدة البيانات الإضافية
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
@@ -894,30 +914,22 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'online';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
 
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePayment" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentPartnerId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentTreasuryId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentEmployeeId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentHistory" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdBy" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "source" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "vatOnStandardShipping" BOOLEAN DEFAULT false;
 
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_id TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_name TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_address TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS payment_method TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS performed_by TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "saleNumber" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS sale_number TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "totalAmount" NUMERIC DEFAULT 0;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS total_amount NUMERIC DEFAULT 0;
-ALTER TABLE pos_sales ALTER COLUMN payment_method DROP NOT NULL;
-ALTER TABLE pos_sales ALTER COLUMN sale_number DROP NOT NULL;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
+
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
 `;
     navigator.clipboard.writeText(instructions);
     triggerAlarm("✅ تم نسخ كود التحديث التلقائي! قم بلصقه وتشغيله في Supabase SQL Editor وإعادة تحميل الصفحة لإصلاح كود المزامنة (channel, user, cashHolderId, minStockLevel).", 'success', 'إصلاح قاعدة البيانات');
@@ -1372,7 +1384,7 @@ ALTER TABLE pos_sales ALTER COLUMN sale_number DROP NOT NULL;
                   className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
                 >
                   <RefreshCw size={18} />
-                  إصلاح "minStockLevel" والأعمدة المفقودة
+                  إصلاح "advancePayment" والأعمدة المفقودة
                 </button>
               </div>
             </div>

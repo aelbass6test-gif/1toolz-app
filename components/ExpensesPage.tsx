@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Wallet, Transaction, TransactionCategory, Settings, Treasury, TreasuryTransaction, PartnerTransaction } from '../types';
-import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User, Info } from 'lucide-react';
+import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User, Info, Printer } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface ExpensesPageProps {
@@ -14,6 +14,9 @@ interface ExpensesPageProps {
 
 const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings, updateSettings, treasury, setTreasury }) => {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterPartner, setFilterPartner] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [accountId, setAccountId] = useState('');
@@ -52,6 +55,21 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [wallet.transactions, settings.expenseCategories]);
 
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(exp => {
+        const matchesCategory = filterCategory === 'all' || exp.category === filterCategory;
+        const matchesPartner = filterPartner === 'all' || 
+            (exp.details?.paidByPartnerId === filterPartner) ||
+            (exp.note.includes(settings.partners?.find(p => p.id === filterPartner)?.name || '___NEVER_MATCH___'));
+        
+        const matchesSearch = !searchQuery || 
+            exp.note.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            exp.amount.toString().includes(searchQuery);
+
+        return matchesCategory && matchesPartner && matchesSearch;
+    });
+  }, [expenses, filterCategory, filterPartner, searchQuery, settings.partners]);
+
   const expenseCategoriesConfig = useMemo(() => {
     // A simple hash function to generate consistent colors based on the category name
     const stringToColor = (str: string) => {
@@ -89,14 +107,14 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   }, [settings.expenseCategories]);
 
   const stats = useMemo(() => {
-      const total = expenses.reduce((sum, t) => sum + t.amount, 0);
+      const total = filteredExpenses.reduce((sum, t) => sum + t.amount, 0);
       const categoryTotals = expenseCategoriesConfig.map(cat => ({
           name: cat.label,
-          value: expenses.filter(t => t.category === cat.key).reduce((sum, t) => sum + t.amount, 0),
+          value: filteredExpenses.filter(t => t.category === cat.key).reduce((sum, t) => sum + t.amount, 0),
           color: cat.color
       })).filter(c => c.value > 0);
       return { total, categoryTotals };
-  }, [expenses, expenseCategoriesConfig]);
+  }, [filteredExpenses, expenseCategoriesConfig]);
 
   const handleAddExpense = (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,6 +228,10 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
     setSelectedPartnerId('');
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   const deleteExpense = (id: string) => {
       setDialog({
         isOpen: true,
@@ -267,6 +289,20 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12 px-4 sm:px-8" dir="rtl">
+      {/* Print-only Header */}
+      <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
+        <div className="flex justify-between items-end">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900">مصروفات المتجر</h1>
+            <p className="text-sm text-slate-600 mt-1">تقرير المصروفات العامة التفصيلي</p>
+          </div>
+          <div className="text-left text-xs font-bold text-slate-500">
+            <div>تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</div>
+            <div>إجمالي المصروفات: {stats.total.toLocaleString()} ج.م</div>
+          </div>
+        </div>
+      </div>
+
       {dialog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl text-right" dir="rtl">
@@ -297,26 +333,35 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">تتبع التكاليف الإدارية، التسويق والرواتب لضبط هامش الربح التشغيلي بدقة</p>
         </div>
-        <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-rose-600/10 transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer">
-          <Plus size={20}/>
-          <span>تسجيل مصروف جديد</span>
-        </button>
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button 
+                onClick={handlePrint} 
+                className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-5 py-3 rounded-2xl font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-750 transition-all cursor-pointer print:hidden"
+            >
+                <Printer size={18}/>
+                <span>طباعة التقرير</span>
+            </button>
+            <button onClick={() => setShowAddModal(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-rose-600/10 transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer print:hidden">
+                <Plus size={20}/>
+                <span>تسجيل مصروف جديد</span>
+            </button>
+        </div>
       </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-950 dark:from-black dark:to-slate-950 p-8 rounded-[2.5rem] shadow-2xl flex flex-col justify-between text-white min-h-[14rem] border border-white/5">
-                <div className="absolute top-0 right-0 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-950 dark:from-black dark:to-slate-950 p-8 rounded-[2.5rem] shadow-2xl flex flex-col justify-between text-white min-h-[14rem] border border-white/5 print:bg-white print:text-slate-900 print:border-slate-200 print:shadow-none print:min-h-0 print:p-4">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-rose-500/10 rounded-full blur-3xl pointer-events-none print:hidden"></div>
                 <div>
-                    <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider">إجمالي المصروفات العامة</span>
-                    <div className="text-4xl font-black tracking-tight mt-1">{stats.total.toLocaleString()} <span className="text-lg font-bold opacity-60">ج.م</span></div>
+                    <span className="text-[10px] font-black uppercase text-rose-400 tracking-wider print:text-rose-600">إجمالي المصروفات العامة</span>
+                    <div className="text-4xl font-black tracking-tight mt-1 print:text-2xl">{stats.total.toLocaleString()} <span className="text-lg font-bold opacity-60">ج.م</span></div>
                 </div>
-                <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-3 text-red-300 text-xs font-medium leading-relaxed mt-4">
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex items-center gap-3 text-red-300 text-xs font-medium leading-relaxed mt-4 print:hidden">
                     <TrendingDown className="w-5 h-5 flex-shrink-0 text-rose-400" />
                     <span>المصروفات من الخزينة تخصم تلقائياً من الأرصدة المتوفرة، بينما المسددة شخصياً تقيد للشريك كذمة دائنة.</span>
                 </div>
             </div>
 
-            <div className="md:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200/40 dark:border-slate-850 shadow-sm flex items-center">
+            <div className="md:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border border-slate-200/40 dark:border-slate-850 shadow-sm flex items-center print:hidden">
                 {stats.categoryTotals.length > 0 ? (
                     <div className="w-full flex flex-col md:flex-row items-center gap-8">
                         <div className="w-44 h-44 flex-shrink-0 relative flex items-center justify-center">
@@ -358,9 +403,53 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/45 dark:border-slate-850 shadow-sm overflow-hidden">
-            <div className="p-8 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="font-black text-lg text-slate-800 dark:text-white">سجل المصروفات العامة</h3>
-                <p className="text-xs text-slate-400 mt-1">قائمة تفصيلية بكافة قيود المصروفات مرتبة زمنياً من الأحدث للأقدم</p>
+            <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h3 className="font-black text-lg text-slate-800 dark:text-white">سجل المصروفات العامة</h3>
+                    <p className="text-xs text-slate-400 mt-1">قائمة تفصيلية بكافة قيود المصروفات مرتبة زمنياً من الأحدث للأقدم</p>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-2 print:hidden">
+                    <div className="relative">
+                        <select 
+                            value={filterCategory}
+                            onChange={(e) => setFilterCategory(e.target.value)}
+                            className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[10px] sm:text-xs font-bold px-4 py-2 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all cursor-pointer"
+                        >
+                            <option value="all">كل التصنيفات</option>
+                            {expenseCategoriesConfig.map(cat => (
+                                <option key={cat.key} value={cat.key}>{cat.label}</option>
+                            ))}
+                        </select>
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                           <Tag size={12} />
+                        </div>
+                    </div>
+
+                    <div className="relative">
+                        <select 
+                            value={filterPartner}
+                            onChange={(e) => setFilterPartner(e.target.value)}
+                            className="appearance-none bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-[10px] sm:text-xs font-bold px-4 py-2 pr-8 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all cursor-pointer"
+                        >
+                            <option value="all">كل المساهمين</option>
+                            {(settings.partners || []).map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                        </select>
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                           <User size={12} />
+                        </div>
+                    </div>
+
+                    <input 
+                        type="text"
+                        placeholder="بحث في البيانات..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold px-4 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all w-full sm:w-48"
+                    />
+                </div>
             </div>
             <div className="overflow-x-auto">
                 <table className="w-full text-right">
@@ -370,14 +459,14 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                             <th className="px-8 py-4">التصنيف</th>
                             <th className="px-8 py-4">التاريخ والوقت</th>
                             <th className="px-8 py-4 text-center">القيمة لـ (ج.م)</th>
-                            <th className="px-8 py-4"></th>
+                            <th className="px-8 py-4 print:hidden"></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {expenses.length === 0 ? (
-                            <tr><td colSpan={5} className="text-center py-16 text-slate-400 text-sm font-bold">لم يتم تسجيل أي مصروفات في هذا الدفتر بعد.</td></tr>
+                        {filteredExpenses.length === 0 ? (
+                            <tr><td colSpan={5} className="text-center py-16 text-slate-400 text-sm font-bold">لم يتم العثور على مصروفات تطابق اختياراتك.</td></tr>
                         ) : (
-                            expenses.map(exp => {
+                            filteredExpenses.map(exp => {
                                 const catInfo = expenseCategoriesConfig.find(c => c.key === exp.category);
                                 
                                 let fundingPartners: { name: string, amount?: number, isPartner: boolean }[] = [];
@@ -440,7 +529,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                                         <td className="px-8 py-5 text-center font-black text-base text-rose-600 dark:text-rose-500 tabular-nums">
                                             -{exp.amount.toLocaleString()} ج.م
                                         </td>
-                                        <td className="px-8 py-5 text-left">
+                                        <td className="px-8 py-5 text-center font-black text-white tabular-nums print:hidden">
                                             <button onClick={() => deleteExpense(exp.id)} className="p-2 text-slate-450 hover:text-red-650 dark:text-slate-500 dark:hover:text-red-400 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"><Trash2 size={16}/></button>
                                         </td>
                                     </tr>

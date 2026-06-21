@@ -429,7 +429,21 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     })),
                     whatsappTemplates, callScripts
                 },
-                orders,
+                orders: (orders || []).map((o: any) => {
+                    const localOrder = local?.orders?.find((lo: any) => lo.id === o.id);
+                    if (localOrder) {
+                        return {
+                            ...o,
+                            advancePayment: o.advancePayment ?? localOrder.advancePayment,
+                            advancePaymentPartnerId: o.advancePaymentPartnerId ?? localOrder.advancePaymentPartnerId,
+                            advancePaymentTreasuryId: o.advancePaymentTreasuryId ?? localOrder.advancePaymentTreasuryId,
+                            advancePaymentEmployeeId: o.advancePaymentEmployeeId ?? (localOrder as any).advancePaymentEmployeeId,
+                            advancePaymentRecipientPhone: o.advancePaymentRecipientPhone ?? localOrder.advancePaymentRecipientPhone,
+                            advancePaymentSenderDetails: o.advancePaymentSenderDetails ?? localOrder.advancePaymentSenderDetails,
+                        };
+                    }
+                    return o;
+                }),
                 wallet: { balance: 0, transactions },
                 treasury: { 
                     accounts: (treasuryAccounts || []).map((acc: any) => ({

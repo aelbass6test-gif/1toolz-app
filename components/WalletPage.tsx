@@ -97,7 +97,11 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       !o.collectionProcessed
     );
     
-    const inRouteTotal = inRouteOrders.reduce((sum, o) => sum + (o.totalAmountOverride ?? (o.productPrice + o.shippingFee - (o.discount || 0))), 0);
+    const inRouteTotal = inRouteOrders.reduce((sum, o) => {
+      const base = o.totalAmountOverride ?? (o.productPrice + o.shippingFee - (o.discount || 0));
+      const advance = Number(o.advancePayment) || 0;
+      return sum + (base - advance);
+    }, 0);
 
     return { 
         liveBalance, 

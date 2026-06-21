@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Order, User, ConfirmationLog, AuditLog, OrderStatus, Settings, OrderItem, Product, Store } from '../types';
-import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft } from 'lucide-react';
+import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft, Wallet, Shield, Banknote, Coins } from 'lucide-react';
 import EditableField from './EditableField';
 
 const QUICK_WA_TEMPLATES = [
@@ -123,9 +123,12 @@ interface ConfirmationQueuePageProps {
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   currentUser: User | null;
   settings: Settings;
+  setSettings?: any;
   activeStore?: Store;
   onRefresh?: () => void;
   forceSync?: () => Promise<void>;
+  treasury?: any;
+  setTreasury?: any;
 }
 
 interface DetailSectionProps {
@@ -376,7 +379,7 @@ const EmployeePerformance = ({ orders, currentUser, setNotification, isManager, 
     );
 };
 
-const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, setOrders, currentUser, settings, activeStore, onRefresh, forceSync }) => {
+const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, setOrders, currentUser, settings, setSettings, activeStore, onRefresh, forceSync, treasury, setTreasury }) => {
     const [activeOrder, setActiveOrder] = useState<Order | null>(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const [callStartTime, setCallStartTime] = useState<number | null>(null);
@@ -398,6 +401,14 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
     const [isEditingTotalOverride, setIsEditingTotalOverride] = useState(false);
     const [editedTotalOverride, setEditedTotalOverride] = useState<number | ''>('');
     const [editedTotalOverrideReason, setEditedTotalOverrideReason] = useState('');
+
+    const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+    const [editedAdvanceAmount, setEditedAdvanceAmount] = useState<number | ''>('');
+    const [advanceRecipientType, setAdvanceRecipientType] = useState<'partner' | 'treasury' | 'employee' | undefined>(undefined);
+    const [advanceRecipientId, setAdvanceRecipientId] = useState('');
+    const [advanceRecipientPhone, setAdvanceRecipientPhone] = useState('');
+    const [advanceSenderDetails, setAdvanceSenderDetails] = useState('');
+    const [advanceNotes, setAdvanceNotes] = useState('');
 
     const truncateString = (str: string, num: number) => {
         if (!str) return '';
@@ -1040,9 +1051,17 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
 
     const updateActiveOrderField = (field: keyof Order, value: any) => {
         if (!activeOrder) return;
+        
+        // Log audit with current value
         logAudit(activeOrder.id, String(field), activeOrder[field], value);
+        
+        const partial: Partial<Order> = { [field]: value };
+        
+        // Update both to ensure consistency and prevent stale spread issues
+        setActiveOrder(prev => prev ? { ...prev, ...partial } : null);
+        
         setOrders(currentOrders => 
-            currentOrders.map(o => o.id === activeOrder.id ? { ...o, [field]: value } : o)
+            currentOrders.map(o => o.id === activeOrder.id ? { ...o, ...partial } : o)
         );
     };
 
@@ -1138,12 +1157,113 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
     const handleSaveTotalOverride = () => {
         if (!activeOrder) return;
         const overrideValue = typeof editedTotalOverride === 'number' ? editedTotalOverride : undefined;
+        // Log audit with current value
         logAudit(activeOrder.id, 'totalAmountOverride', activeOrder.totalAmountOverride, overrideValue);
         logAudit(activeOrder.id, 'totalAmountOverrideReason', activeOrder.totalAmountOverrideReason, editedTotalOverrideReason);
+        
+        const partial: Partial<Order> = { 
+            totalAmountOverride: overrideValue, 
+            totalAmountOverrideReason: editedTotalOverrideReason 
+        };
+        
+        setActiveOrder(prev => prev ? { ...prev, ...partial } : null);
         setOrders(currentOrders => 
-            currentOrders.map(o => o.id === activeOrder.id ? { ...o, totalAmountOverride: overrideValue, totalAmountOverrideReason: editedTotalOverrideReason } : o)
+            currentOrders.map(o => o.id === activeOrder.id ? { ...o, ...partial } : o)
         );
         setIsEditingTotalOverride(false);
+    };
+
+    const handleSaveAdvance = () => {
+        if (!activeOrder) return;
+        
+        const newAmount = Number(editedAdvanceAmount) || 0;
+        const oldAmount = activeOrder.advancePayment || 0;
+        
+        // Prepare log
+        const log: any = {
+            id: `adv-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            amount: newAmount,
+            userId: currentUser?.phone || 'unknown',
+            userName: currentUser?.fullName || 'النظام',
+            recipientType: advanceRecipientType,
+            recipientId: advanceRecipientId,
+            recipientPhone: advanceRecipientPhone,
+            senderDetails: advanceSenderDetails,
+            action: newAmount === 0 ? 'deleted' : (oldAmount === 0 ? 'created' : 'updated'),
+            reason: advanceNotes || `تعديل مباشر من لوحة التأكيد (المبلغ السابق: ${oldAmount})`
+        };
+
+        const updatedPartial: Partial<Order> = {
+            advancePayment: newAmount,
+            advancePaymentPartnerId: advanceRecipientType === 'partner' ? advanceRecipientId : '',
+            advancePaymentTreasuryId: advanceRecipientType === 'treasury' ? advanceRecipientId : '',
+            advancePaymentRecipientPhone: advanceRecipientPhone,
+            advancePaymentHistory: [...(activeOrder.advancePaymentHistory || []), log]
+        };
+        (updatedPartial as any).advancePaymentEmployeeId = advanceRecipientType === 'employee' ? advanceRecipientId : '';
+        (updatedPartial as any).advancePaymentSenderDetails = advanceSenderDetails;
+
+        // Perform Accounting Logic (Deltas)
+        let updatedPartners = [...(settings.partners || [])];
+        let updatedPartnerTxs = [...(settings.partnerTransactions || [])];
+        let updatedHolders = [...(settings.cashHolders || [])];
+        let updatedHandovers = [...(settings.cashHandovers || [])];
+
+        const oldPartnerId = activeOrder.advancePaymentPartnerId;
+        const oldTreasuryId = activeOrder.advancePaymentTreasuryId;
+        const oldEmployeeId = (activeOrder as any).advancePaymentEmployeeId;
+
+        const newPartnerId = updatedPartial.advancePaymentPartnerId;
+        const newTreasuryId = updatedPartial.advancePaymentTreasuryId;
+        const newEmployeeId = (updatedPartial as any).advancePaymentEmployeeId;
+
+        // 1. Revert Old
+        if (oldAmount > 0) {
+            if (oldPartnerId) {
+                updatedPartners = updatedPartners.map(p => p.id === oldPartnerId ? { ...p, balance: (p.balance || 0) + oldAmount } : p);
+                updatedPartnerTxs.push({ id: `rv-${Date.now()}`, partnerId: oldPartnerId, type: 'repayment', amount: oldAmount, date: new Date().toISOString(), note: `تعديل/إلغاء عربون سابق للطلب #${activeOrder.orderNumber}` } as any);
+            } else if (oldTreasuryId && setTreasury) {
+                setTreasury((prev: any) => ({
+                    ...prev,
+                    accounts: (prev?.accounts || []).map((acc: any) => acc.id === oldTreasuryId ? { ...acc, balance: acc.balance - oldAmount } : acc),
+                    transactions: [{ id: `tx-rv-${Date.now()}`, date: new Date().toISOString(), type: 'withdrawal', amount: oldAmount, description: `تعديل/إلغاء عربون للطلب #${activeOrder.orderNumber}`, fromAccountId: oldTreasuryId }, ...(prev?.transactions || [])]
+                }));
+            } else if (oldEmployeeId) {
+                updatedHolders = updatedHolders.map(h => h.userId === oldEmployeeId ? { ...h, currentBalance: (h.currentBalance || 0) - oldAmount, lastUpdated: new Date().toISOString() } : h);
+            }
+        }
+
+        // 2. Apply New
+        if (newAmount > 0) {
+            const applyNote = `عربون مسبق للطلب #${activeOrder.orderNumber}${advanceSenderDetails ? ` | المحول: ${advanceSenderDetails}` : ''}`;
+            if (newPartnerId) {
+                updatedPartners = updatedPartners.map(p => p.id === newPartnerId ? { ...p, balance: (p.balance || 0) - newAmount } : p);
+                updatedPartnerTxs.push({ id: `ap-${Date.now()}`, partnerId: newPartnerId, type: 'customer_advance', amount: newAmount, date: new Date().toISOString(), note: applyNote } as any);
+            } else if (newTreasuryId && setTreasury) {
+                setTreasury((prev: any) => ({
+                    ...prev,
+                    accounts: (prev?.accounts || []).map((acc: any) => acc.id === newTreasuryId ? { ...acc, balance: (acc.balance || 0) + newAmount } : acc),
+                    transactions: [{ id: `tx-ap-${Date.now()}`, date: new Date().toISOString(), type: 'deposit', amount: newAmount, description: applyNote, toAccountId: newTreasuryId }, ...(prev?.transactions || [])]
+                }));
+            } else if (newEmployeeId) {
+                const empName = newEmployeeId === 'admin' ? 'المدير' : (settings.employees?.find(e => e.id === newEmployeeId)?.name || 'الموظف');
+                const exists = updatedHolders.find(h => h.userId === newEmployeeId);
+                if (exists) {
+                    updatedHolders = updatedHolders.map(h => h.userId === newEmployeeId ? { ...h, currentBalance: (h.currentBalance || 0) + newAmount, lastUpdated: new Date().toISOString() } : h);
+                } else {
+                    updatedHolders.push({ userId: newEmployeeId, userName: empName, currentBalance: newAmount, lastUpdated: new Date().toISOString() });
+                }
+                updatedHandovers.push({ id: `hd-${Date.now()}`, fromUserId: 'customer', fromUserName: activeOrder.customerName, toUserId: newEmployeeId, toUserName: empName, amount: newAmount, date: new Date().toISOString(), notes: applyNote, status: 'completed' } as any);
+            }
+        }
+
+        // Apply state updates
+        setSettings(prev => ({ ...prev, partners: updatedPartners, partnerTransactions: updatedPartnerTxs, cashHolders: updatedHolders, cashHandovers: updatedHandovers }));
+        setActiveOrder(prev => prev ? { ...prev, ...updatedPartial } : null);
+        setOrders(current => current.map(o => o.id === activeOrder.id ? { ...o, ...updatedPartial } : o));
+        
+        setIsAdvanceModalOpen(false);
     };
 
     const handleSaveProducts = (newItems: OrderItem[]) => {
@@ -1156,8 +1276,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
 
         logAudit(activeOrder.id, 'items', JSON.stringify(activeOrder.items), JSON.stringify(newItems));
 
-        const updatedOrder: Order = {
-            ...activeOrder,
+        const partialUpdate: Partial<Order> = {
             items: newItems,
             productName: productNames,
             productPrice: totalProductPrice,
@@ -1165,18 +1284,20 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
             weight: totalWeight,
         };
 
+        setActiveOrder(prev => prev ? { ...prev, ...partialUpdate } : null);
+
         setOrders(currentOrders => 
-            currentOrders.map(o => o.id === activeOrder.id ? updatedOrder : o)
+            currentOrders.map(o => o.id === activeOrder.id ? { ...o, ...partialUpdate } : o)
         );
         setIsProductModalOpen(false);
     };
     
-    const { productsTotal, totalAmount, inspectionFeeValue } = useMemo(() => {
-        if (!activeOrder) return { productsTotal: 0, totalAmount: 0, inspectionFeeValue: 0 };
+    const { productsTotal, totalAmount, inspectionFeeValue, safeAdvance, safeCredit, safeReturnCash } = useMemo(() => {
+        if (!activeOrder) return { productsTotal: 0, totalAmount: 0, inspectionFeeValue: 0, safeAdvance: 0, safeCredit: 0, safeReturnCash: 0 };
         const productsTotal = (activeOrder.items || []).reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0);
         
         // Calculate shipping fee based on city if available
-        let shippingFee = activeOrder.shippingFee;
+        let shippingFee = activeOrder.shippingFee || 0;
         const shippingOptions = settings.shippingOptions?.[activeOrder.shippingCompany] || [];
         const selectedOption = shippingOptions.find(opt => opt.label === activeOrder.shippingArea);
         if (selectedOption) {
@@ -1198,8 +1319,18 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
         const compFees = settings.companySpecificFees?.[activeOrder.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
         const inspectionFee = activeOrder.includeInspectionFee ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-        const totalAmount = productsTotal + shippingFee - (activeOrder.discount || 0) + inspectionFee;
-        return { productsTotal, totalAmount, inspectionFeeValue: inspectionFee };
+        
+        const safeAdvance = Number(activeOrder.advancePayment) || 0;
+        const safeCredit = Number(activeOrder.creditAmount) || 0;
+        const safeReturnCash = (activeOrder.returnCashToCustomer && activeOrder.cashToReturnAmount) ? Number(activeOrder.cashToReturnAmount) : 0;
+        
+        const baseTotal = productsTotal + shippingFee - (activeOrder.discount || 0) + inspectionFee;
+        
+        const totalAmount = activeOrder.totalAmountOverride !== undefined && activeOrder.totalAmountOverride !== null
+            ? Math.max(0, Math.round(Number(activeOrder.totalAmountOverride) - safeAdvance - safeCredit - safeReturnCash))
+            : Math.max(0, Math.round(baseTotal - safeAdvance - safeCredit - safeReturnCash));
+
+        return { productsTotal, totalAmount, inspectionFeeValue: inspectionFee, safeAdvance, safeCredit, safeReturnCash };
     }, [activeOrder, settings]);
     
     const handleRefresh = () => {
@@ -1499,6 +1630,145 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                         <button 
                                             onClick={() => {
                                                 if (window.confirm(`هل أنت متأكد من حذف ${selectedOrderIds.length} طلب نهائياً؟`)) {
+                                                    const ordersToDelete = orders.filter(o => selectedOrderIds.includes(o.id));
+                                                    
+                                                    // Cascade deletes logic for each order
+                                                    if (setSettings) {
+                                                        setSettings((prev: any) => {
+                                                            let updatedSettings = { ...prev };
+                                                            ordersToDelete.forEach(o => {
+                                                                const isPos = o.channel === "pos" || o.id.startsWith("POS-") || o.shippingCompany === "كاشير - بيع مباشر";
+                                                                const isStockDeducted = o.stockDeducted || isPos;
+
+                                                                if (isStockDeducted) {
+                                                                    let updatedProducts = [...(updatedSettings.products || [])];
+                                                                    (o.items || []).forEach((orderItem) => {
+                                                                        const pIdx = updatedProducts.findIndex((p: any) => p.id === orderItem.productId);
+                                                                        if (pIdx > -1) {
+                                                                            const prod = { ...updatedProducts[pIdx] };
+                                                                            const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+                                                                            let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
+                                                                            const whId = o.warehouseId || updatedSettings.warehouses?.find((w: any) => w.isDefault)?.id;
+                                                                            if (whId) {
+                                                                                updatedWhStock[whId] = (updatedWhStock[whId] || 0) + orderItem.quantity;
+                                                                            }
+                                                                            if (orderItem.variantId && prod.variants) {
+                                                                                prod.variants = prod.variants.map((v: any) => {
+                                                                                    if (v.id === orderItem.variantId) {
+                                                                                        const vUpdated = { ...v };
+                                                                                        vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + orderItem.quantity;
+                                                                                        vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+                                                                                        if (whId) {
+                                                                                            vUpdated.warehouseStock[whId] = (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+                                                                                        }
+                                                                                        return vUpdated;
+                                                                                    }
+                                                                                    return v;
+                                                                                });
+                                                                            }
+                                                                            updatedProducts[pIdx] = { ...prod, stockQuantity: newQty, warehouseStock: updatedWhStock };
+                                                                        }
+                                                                    });
+                                                                    updatedSettings.products = updatedProducts;
+                                                                }
+
+                                                                updatedSettings.posSales = (updatedSettings.posSales || []).filter(
+                                                                    (sale: any) => sale.id !== o.id
+                                                                );
+
+                                                                let ptToRemove: any[] = [];
+                                                                updatedSettings.partnerTransactions = (updatedSettings.partnerTransactions || []).filter(
+                                                                    (tx: any) => {
+                                                                        const note = tx.note || "";
+                                                                        const matchNumber = o.orderNumber ? note.includes(`#${o.orderNumber}`) || note.includes(o.orderNumber) : false;
+                                                                        const matchId = note.includes(o.id);
+                                                                        const isMatch = matchNumber || matchId;
+                                                                        if (isMatch) ptToRemove.push(tx);
+                                                                        return !isMatch;
+                                                                    }
+                                                                );
+                                                                if (ptToRemove.length > 0) {
+                                                                    updatedSettings.partners = [...(updatedSettings.partners || [])];
+                                                                    ptToRemove.forEach((tx: any) => {
+                                                                        if (tx.partnerId && tx.type === 'customer_advance') {
+                                                                            const pIdx = updatedSettings.partners.findIndex((p: any) => p.id === tx.partnerId);
+                                                                            if (pIdx > -1) {
+                                                                                updatedSettings.partners[pIdx] = { ...updatedSettings.partners[pIdx], balance: (updatedSettings.partners[pIdx].balance || 0) + tx.amount };
+                                                                            }
+                                                                        }
+                                                                    });
+                                                                }
+
+                                                                let handoversToRemove: any[] = [];
+                                                                updatedSettings.cashHandovers = (updatedSettings.cashHandovers || []).filter(
+                                                                    (tx: any) => {
+                                                                        const notes = tx.notes || "";
+                                                                        const matchNumber = o.orderNumber ? notes.includes(`#${o.orderNumber}`) || notes.includes(o.orderNumber) : false;
+                                                                        const matchId = notes.includes(o.id);
+                                                                        const isMatch = matchNumber || matchId;
+                                                                        if (isMatch) handoversToRemove.push(tx);
+                                                                        return !isMatch;
+                                                                    }
+                                                                );
+                                                                if (handoversToRemove.length > 0) {
+                                                                    updatedSettings.cashHolders = [...(updatedSettings.cashHolders || [])];
+                                                                    handoversToRemove.forEach((tx: any) => {
+                                                                        if (tx.toUserId) {
+                                                                            const toIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.toUserId);
+                                                                            if (toIdx > -1) {
+                                                                                updatedSettings.cashHolders[toIdx] = { ...updatedSettings.cashHolders[toIdx], currentBalance: (updatedSettings.cashHolders[toIdx].currentBalance || 0) - tx.amount };
+                                                                            }
+                                                                        }
+                                                                        if (tx.fromUserId && tx.fromUserId !== 'system' && tx.fromUserId !== 'customer') {
+                                                                            const fromIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.fromUserId);
+                                                                            if (fromIdx > -1) {
+                                                                                updatedSettings.cashHolders[fromIdx] = { ...updatedSettings.cashHolders[fromIdx], currentBalance: (updatedSettings.cashHolders[fromIdx].currentBalance || 0) + tx.amount };
+                                                                            }
+                                                                        }
+                                                                    });
+                                                                }
+                                                            });
+                                                            return updatedSettings;
+                                                        });
+                                                    }
+
+                                                    if (setTreasury && treasury) {
+                                                        setTreasury((prev: any) => {
+                                                            if (!prev) return prev;
+                                                            let updatedAccounts = [...(prev.accounts || [])];
+                                                            
+                                                            let updatedTxs = (prev.transactions || []).filter((tx: any) => {
+                                                                const desc = tx.description || "";
+                                                                const ref = tx.reference || "";
+                                                                
+                                                                let remove = false;
+                                                                for (let o of ordersToDelete) {
+                                                                    const matchNumber = o.orderNumber ? desc.includes(`#${o.orderNumber}`) || ref.includes(o.orderNumber) : false;
+                                                                    const matchId = desc.includes(o.id) || ref.includes(o.id);
+                                                                    if (matchNumber || matchId) {
+                                                                        remove = true;
+                                                                        
+                                                                        if (tx.type === 'deposit' && tx.toAccountId) {
+                                                                            const accIdx = updatedAccounts.findIndex(a => a.id === tx.toAccountId);
+                                                                            if (accIdx > -1) {
+                                                                                updatedAccounts[accIdx] = { ...updatedAccounts[accIdx], balance: updatedAccounts[accIdx].balance - tx.amount };
+                                                                            }
+                                                                        } else if (tx.type === 'withdrawal' && tx.fromAccountId) {
+                                                                            const accIdx = updatedAccounts.findIndex(a => a.id === tx.fromAccountId);
+                                                                            if (accIdx > -1) {
+                                                                                updatedAccounts[accIdx] = { ...updatedAccounts[accIdx], balance: updatedAccounts[accIdx].balance + tx.amount };
+                                                                            }
+                                                                        }
+                                                                        break;
+                                                                    }
+                                                                }
+                                                                return !remove;
+                                                            });
+
+                                                            return { ...prev, accounts: updatedAccounts, transactions: updatedTxs };
+                                                        });
+                                                    }
+
                                                     setOrders(current => current.filter(o => !selectedOrderIds.includes(o.id)));
                                                     setSelectedOrderIds([]);
                                                     setNotification("تم حذف الطلبات بنجاح");
@@ -2117,13 +2387,87 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                 <span className="font-bold text-red-500">-{activeOrder.discount ? activeOrder.discount.toLocaleString() : 0} ج.م</span>
                                             }
                                         />
+                                        
+                                        <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                                            <div className="flex items-center gap-2">
+                                                <span>عربون مدفوع (مقدم)</span>
+                                                {!isReadOnly && (
+                                                    <button 
+                                                        onClick={() => {
+                                                            setEditedAdvanceAmount(activeOrder.advancePayment || '');
+                                                            let type: 'partner' | 'treasury' | 'employee' | undefined;
+                                                            let id = '';
+                                                            if (activeOrder.advancePaymentPartnerId) { type = 'partner'; id = activeOrder.advancePaymentPartnerId; }
+                                                            else if (activeOrder.advancePaymentTreasuryId) { type = 'treasury'; id = activeOrder.advancePaymentTreasuryId; }
+                                                            else if ((activeOrder as any).advancePaymentEmployeeId) { type = 'employee'; id = (activeOrder as any).advancePaymentEmployeeId; }
+                                                            
+                                                            setAdvanceRecipientType(type);
+                                                            setAdvanceRecipientId(id);
+                                                            setAdvanceRecipientPhone(activeOrder.advancePaymentRecipientPhone || '');
+                                                            setAdvanceSenderDetails((activeOrder as any).advancePaymentSenderDetails || '');
+                                                            setAdvanceNotes('');
+                                                            setIsAdvanceModalOpen(true);
+                                                        }} 
+                                                        className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/10 rounded-md transition-colors"
+                                                        title="تعديل العربون"
+                                                    >
+                                                        <Edit3 size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <span className="font-bold">-{safeAdvance.toLocaleString()} ج.م</span>
+                                        </div>
+                                        
+                                        {activeOrder.advancePaymentHistory && activeOrder.advancePaymentHistory.length > 0 && (
+                                            <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2 mt-1">
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-2">
+                                                    <Clock size={10} /> سجل حركة العربون المسبق
+                                                </p>
+                                                <div className="space-y-2">
+                                                    {activeOrder.advancePaymentHistory.slice(-3).reverse().map(log => (
+                                                        <div key={log.id} className="text-[10px] flex flex-col gap-0.5 border-b border-slate-100 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
+                                                            <div className="flex justify-between items-center">
+                                                                <span className="font-black text-slate-700 dark:text-slate-300">{log.amount.toLocaleString()} ج.م</span>
+                                                                <span className="text-[8px] text-slate-400">{new Date(log.timestamp).toLocaleDateString('ar-EG')}</span>
+                                                            </div>
+                                                            <p className="text-slate-500 font-bold leading-tight">{log.reason}</p>
+                                                        </div>
+                                                    ))}
+                                                    {activeOrder.advancePaymentHistory.length > 3 && (
+                                                        <p className="text-[9px] text-indigo-500 font-black text-center pt-1 animate-pulse italic">عرض السجل الكامل في صفحة التعديل</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {safeCredit > 0 && (
+                                            <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                                                <span>خصم رصيد (مستبدل)</span>
+                                                <span className="font-bold">-{safeCredit.toLocaleString()} ج.م</span>
+                                            </div>
+                                        )}
+
+                                        {safeReturnCash > 0 && (
+                                            <div className="flex justify-between items-center text-red-500">
+                                                <span>إرجاع كاش للعميل</span>
+                                                <span className="font-bold">-{safeReturnCash.toLocaleString()} ج.م</span>
+                                            </div>
+                                        )}
+
                                         <div className="border-t-2 border-dashed border-slate-200 dark:border-slate-700 my-2 !mt-4 !mb-3"></div>
                                         <div className="flex justify-between items-center font-black text-lg">
                                             <span className="text-slate-800 dark:text-white">الإجمالي المطلوب:</span>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-indigo-600 dark:text-indigo-400">{totalAmount.toLocaleString()} ج.م</span>
                                                 <button 
-                                                    onClick={() => setIsEditingTotalOverride(true)}
+                                                    onClick={() => {
+                                                        const currentOverride = activeOrder.totalAmountOverride !== undefined && activeOrder.totalAmountOverride !== null
+                                                            ? Number(activeOrder.totalAmountOverride)
+                                                            : (productsTotal + activeOrder.shippingFee - (activeOrder.discount || 0) + inspectionFeeValue);
+                                                        setEditedTotalOverride(currentOverride);
+                                                        setEditedTotalOverrideReason(activeOrder.totalAmountOverrideReason || '');
+                                                        setIsEditingTotalOverride(true);
+                                                    }}
                                                     className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
                                                     title="تعديل الإجمالي يدوياً"
                                                 >
@@ -2132,15 +2476,68 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                             </div>
                                         </div>
                                         {activeOrder.totalAmountOverride !== undefined && (
-                                            <div className="bg-amber-50 dark:bg-amber-900/20 p-2 rounded-lg border border-amber-100 dark:border-amber-800/50 mt-1">
+                                            <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-800/50 mt-1">
                                                 <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400">تم تعديل الإجمالي يدوياً</p>
-                                                <p className="text-[10px] text-amber-600 dark:text-amber-500 italic">{activeOrder.totalAmountOverrideReason || 'لا يوجد سبب محدد'}</p>
+                                                <p className="text-[10px] text-amber-600 dark:text-amber-500 italic">{(activeOrder as any).totalAmountOverridePosition !== undefined ? `الموضع الأصلي: ${(activeOrder as any).totalAmountOverridePosition} ج.م | ` : ''}{activeOrder.totalAmountOverrideReason || 'لا يوجد سبب محدد'}</p>
                                                 <button 
                                                     onClick={() => updateActiveOrderField('totalAmountOverride', undefined)}
                                                     className="text-[10px] text-red-500 font-bold hover:underline mt-1"
                                                 >
-                                                    استعادة الإقيمة التلقائية
+                                                    استعادة القيمة التلقائية
                                                 </button>
+                                            </div>
+                                        )}
+
+                                        {isEditingTotalOverride && (
+                                            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                                                <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 p-8 max-w-md w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                                                    <h3 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                                        <Edit3 className="text-indigo-600" size={22} />
+                                                        تعديل مجمل السعر يدوياً
+                                                    </h3>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-bold">
+                                                        أدخل إجمالي سعر المنتجات بما في ذلك الشحن والمصاريف قبل خصم العربون والديون. سيتم خصم العربون والديون تلقائياً من القيمة المدخلة.
+                                                    </p>
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">الإجمالي الجديد قبل العربون والديون (ج.م)</label>
+                                                            <input 
+                                                                type="number" 
+                                                                value={editedTotalOverride} 
+                                                                onChange={e => setEditedTotalOverride(e.target.value === '' ? '' : Number(e.target.value))} 
+                                                                className="w-full p-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl font-bold dark:text-white text-base focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                                placeholder="مثال: 925"
+                                                                min="0"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">سبب التعديل</label>
+                                                            <input 
+                                                                type="text" 
+                                                                value={editedTotalOverrideReason || ''} 
+                                                                onChange={e => setEditedTotalOverrideReason(e.target.value)} 
+                                                                className="w-full p-4 bg-slate-100 dark:bg-slate-800 border-none rounded-2xl font-bold dark:text-white text-base focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                                placeholder="مثال: خصم خاص للعميل، تعديل الرقابة، إلخ."
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-4 justify-end pt-3">
+                                                        <button 
+                                                            type="button" 
+                                                            onClick={() => setIsEditingTotalOverride(false)}
+                                                            className="px-5 py-3 text-sm font-black text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors"
+                                                        >
+                                                            إلغاء
+                                                        </button>
+                                                        <button 
+                                                            type="button" 
+                                                            onClick={handleSaveTotalOverride}
+                                                            className="px-6 py-3 text-sm font-black bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl transition-all shadow-[0_10px_20px_-5px_rgba(79,70,229,0.3)] hover:scale-[1.03]"
+                                                        >
+                                                            حفظ التعديل
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -2347,6 +2744,27 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                     )}
                 </div>
             </div>
+                                    {isAdvanceModalOpen && activeOrder && (
+                                        <AdvanceEditModal 
+                                            isOpen={isAdvanceModalOpen} 
+                                            onClose={() => setIsAdvanceModalOpen(false)}
+                                            onSave={handleSaveAdvance}
+                                            amount={editedAdvanceAmount}
+                                            setAmount={setEditedAdvanceAmount}
+                                            recipientType={advanceRecipientType}
+                                            setRecipientType={setAdvanceRecipientType}
+                                            recipientId={advanceRecipientId}
+                                            setRecipientId={setAdvanceRecipientId}
+                                            recipientPhone={advanceRecipientPhone}
+                                            setRecipientPhone={setAdvanceRecipientPhone}
+                                            senderDetails={advanceSenderDetails}
+                                            setSenderDetails={setAdvanceSenderDetails}
+                                            notes={advanceNotes}
+                                            setNotes={setAdvanceNotes}
+                                            settings={settings}
+                                            treasury={treasury}
+                                        />
+                                    )}
             {isProductModalOpen && activeOrder && <ProductEditModal isOpen={isProductModalOpen} onClose={() => setIsProductModalOpen(false)} onSave={handleSaveProducts} currentItems={activeOrder.items || []} allProducts={settings.products} />}
             {isLogModalOpen && activeOrder && (
                 <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setIsLogModalOpen(false)}>
@@ -2598,6 +3016,81 @@ const ProductEditModal: React.FC<ProductEditModalProps> = ({ isOpen, onClose, on
     );
 };
 
+
+const AdvanceEditModal = ({ isOpen, onClose, onSave, amount, setAmount, recipientType, setRecipientType, recipientId, setRecipientId, recipientPhone, setRecipientPhone, senderDetails, setSenderDetails, notes, setNotes, settings, treasury }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                    <h3 className="text-xl font-black dark:text-white flex items-center gap-3 text-amber-600"><Coins size={24}/> تسجيل/تحديث العربون</h3>
+                    <button onClick={onClose}><XCircle className="text-slate-400 hover:text-red-500"/></button>
+                </div>
+                <div className="p-8 space-y-6">
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">المبلغ (ج.م)</label>
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value === '' ? '' : Number(e.target.value))} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-black text-2xl text-amber-600 outline-none" placeholder="0.00" />
+                    </div>
+                    
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">جهة الاستلام</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {[
+                                { id: 'partner', label: 'شريك', icon: <Users size={16}/>, color: 'amber' },
+                                { id: 'treasury', label: 'خزينة', icon: <Wallet size={16}/>, color: 'indigo' },
+                                { id: 'employee', label: 'عهدة', icon: <Shield size={16}/>, color: 'emerald' }
+                            ].map(opt => (
+                                <button key={opt.id} onClick={() => { setRecipientType(opt.id as any); setRecipientId(''); }} className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all ${recipientType === opt.id ? `bg-${opt.color}-50 dark:bg-${opt.color}-500/10 border-${opt.color}-500 text-${opt.color}-600` : 'border-transparent bg-slate-50 dark:bg-slate-800 text-slate-400'}`}>
+                                    {opt.icon}
+                                    <span className="text-[10px] font-black">{opt.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {recipientType && (
+                        <div className="animate-in fade-in slide-in-from-top-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+                                {recipientType === 'partner' ? 'اختر الشريك' : recipientType === 'treasury' ? 'اختر المحفظة' : 'اختر صاحب العهدة'}
+                            </label>
+                            <select value={recipientId} onChange={e => setRecipientId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-bold">
+                                <option value="">اختر...</option>
+                                {recipientType === 'partner' && settings.partners?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                {recipientType === 'treasury' && treasury?.accounts?.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                {recipientType === 'employee' && (
+                                    <>
+                                        <option value="admin">المدير (أنت)</option>
+                                        {settings.employees?.map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                                    </>
+                                )}
+                            </select>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">رقم هاتف المستلم (اختياري)</label>
+                            <input type="text" value={recipientPhone} onChange={e => setRecipientPhone(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-bold" />
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">بيانات التحويل/المرسل</label>
+                            <input type="text" value={senderDetails} onChange={e => setSenderDetails(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-bold" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">سبب الحركة (اختياري)</label>
+                        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-bold" placeholder="مثال: عربون مسبق لتأكيد الجدية" />
+                    </div>
+                </div>
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 font-black">
+                    <button onClick={onClose} className="px-6 py-3 text-slate-500">إلغاء</button>
+                    <button onClick={onSave} className="px-8 py-3 bg-amber-600 text-white rounded-2xl shadow-lg shadow-amber-500/20 active:scale-95 transition-transform" disabled={!recipientType || !recipientId || !amount}>حقظ العربون</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default ConfirmationQueuePage;
 

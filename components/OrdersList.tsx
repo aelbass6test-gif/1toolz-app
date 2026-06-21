@@ -24,6 +24,7 @@ import {
   Download,
   Filter,
   Truck,
+  History,
   CheckCircle,
   RefreshCcw,
   Briefcase,
@@ -727,7 +728,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       if (
         o.status === "تم_التحصيل" ||
-        (o.status === "تم_توصيلها" || o.status === "تم_التوصيل") ||
+        o.status === "تم_توصيلها" ||
+        o.status === "تم_التوصيل" ||
         o.status === "مدفوعة"
       ) {
         successCount++;
@@ -875,7 +877,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       const c = o.shippingCompany || "غير محدد";
       const isDelivered =
         o.status === "تم_التحصيل" ||
-        (o.status === "تم_توصيلها" || o.status === "تم_التوصيل") ||
+        o.status === "تم_توصيلها" ||
+        o.status === "تم_التوصيل" ||
         o.status === "مدفوعة";
       const isReturned = [
         "مرتجع",
@@ -1009,89 +1012,151 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       orderToDelete.shippingCompany === "كاشير - بيع مباشر";
     const isStockDeducted = orderToDelete.stockDeducted || isPos;
 
-    // Do not delete from partner transactions as per user request
-    let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
+    setSettings((prev) => {
+      let updatedSettings = { ...prev };
 
-    if (isStockDeducted) {
-      // Return stock to inventory
-      let updatedProducts = [...(settings.products || [])];
-      (orderToDelete.items || []).forEach((orderItem) => {
-        const pIdx = updatedProducts.findIndex(
-          (p) => p.id === orderItem.productId,
-        );
-        if (pIdx > -1) {
-          const prod = { ...updatedProducts[pIdx] };
-          const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+      // 1. Return stock to inventory if needed
+      if (isStockDeducted) {
+        let updatedProducts = [...(updatedSettings.products || [])];
+        (orderToDelete.items || []).forEach((orderItem) => {
+          const pIdx = updatedProducts.findIndex(
+            (p) => p.id === orderItem.productId,
+          );
+          if (pIdx > -1) {
+            const prod = { ...updatedProducts[pIdx] };
+            const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
 
-          // Return to warehouse stock
-          let updatedWhStock = prod.warehouseStock
-            ? { ...prod.warehouseStock }
-            : {};
-          const whId =
-            orderToDelete.warehouseId ||
-            settings.warehouses?.find((w) => w.isDefault)?.id;
-          if (whId) {
-            updatedWhStock[whId] =
-              (updatedWhStock[whId] || 0) + orderItem.quantity;
-          }
+            // Return to warehouse stock
+            let updatedWhStock = prod.warehouseStock
+              ? { ...prod.warehouseStock }
+              : {};
+            const whId =
+              orderToDelete.warehouseId ||
+              updatedSettings.warehouses?.find((w) => w.isDefault)?.id;
+            if (whId) {
+              updatedWhStock[whId] =
+                (updatedWhStock[whId] || 0) + orderItem.quantity;
+            }
 
-          // Return variant stock if variantId is matched
-          if (orderItem.variantId && prod.variants) {
-            prod.variants = prod.variants.map((v) => {
-              if (v.id === orderItem.variantId) {
-                const vUpdated = { ...v };
-                vUpdated.stockQuantity =
-                  (vUpdated.stockQuantity || 0) + orderItem.quantity;
-                vUpdated.warehouseStock = vUpdated.warehouseStock
-                  ? { ...vUpdated.warehouseStock }
-                  : {};
-                if (whId) {
-                  vUpdated.warehouseStock[whId] =
-                    (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+            // Return variant stock if variantId is matched
+            if (orderItem.variantId && prod.variants) {
+              prod.variants = prod.variants.map((v) => {
+                if (v.id === orderItem.variantId) {
+                  const vUpdated = { ...v };
+                  vUpdated.stockQuantity =
+                    (vUpdated.stockQuantity || 0) + orderItem.quantity;
+                  vUpdated.warehouseStock = vUpdated.warehouseStock
+                    ? { ...vUpdated.warehouseStock }
+                    : {};
+                  if (whId) {
+                    vUpdated.warehouseStock[whId] =
+                      (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+                  }
+                  return vUpdated;
                 }
-                return vUpdated;
-              }
-              return v;
-            });
+                return v;
+              });
+            }
+
+            updatedProducts[pIdx] = {
+              ...prod,
+              stockQuantity: newQty,
+              warehouseStock: updatedWhStock,
+            };
           }
+        });
+        updatedSettings.products = updatedProducts;
+      }
 
-          updatedProducts[pIdx] = {
-            ...prod,
-            stockQuantity: newQty,
-            warehouseStock: updatedWhStock,
-          };
-        }
-      });
-
-      // Remove from posSales as well if it was a POS order
-      let updatedPosSales = settings.posSales || [];
-      if (isPos) {
-        updatedPosSales = (settings.posSales || []).filter(
+      // 2. Remove from posSales
+      if (isPos || isStockDeducted) {
+        updatedSettings.posSales = (updatedSettings.posSales || []).filter(
+          (sale) => sale.id !== orderIdToDelete,
+        );
+      } else {
+        updatedSettings.posSales = (updatedSettings.posSales || []).filter(
           (sale) => sale.id !== orderIdToDelete,
         );
       }
 
-      setSettings((prev) => ({
-        ...prev,
-        products: updatedProducts,
-        posSales: updatedPosSales,
-        partnerTransactions: updatedPartnerTransactions,
-      }));
-    } else {
-      let updatedPosSales = (settings.posSales || []).filter(
-        (sale) => sale.id !== orderIdToDelete,
+      // 3. Remove from Partner Transactions and adjust Partner Balances
+      let ptToRemove: any[] = [];
+      updatedSettings.partnerTransactions = (updatedSettings.partnerTransactions || []).filter(
+        (tx: any) => {
+          const note = tx.note || "";
+          const matchOrderNumber = orderNumberToDelete
+            ? note.includes(`#${orderNumberToDelete}`) || note.includes(orderNumberToDelete)
+            : false;
+          const matchOrderId = orderIdToDelete
+            ? note.includes(orderIdToDelete)
+            : false;
+          
+          const isMatch = matchOrderNumber || matchOrderId;
+          if (isMatch) ptToRemove.push(tx);
+          return !isMatch;
+        }
       );
-      setSettings((prev) => ({
-        ...prev,
-        posSales: updatedPosSales,
-        partnerTransactions: updatedPartnerTransactions,
-      }));
-    }
+      if (ptToRemove.length > 0) {
+        updatedSettings.partners = [...(updatedSettings.partners || [])];
+        ptToRemove.forEach((tx: any) => {
+          // If transaction was a customer advance (the partner took money), we added debt (reduced balance)
+          // To reverse, we add the amount back to balance.
+          if (tx.partnerId && tx.type === 'customer_advance') {
+            const pIdx = updatedSettings.partners.findIndex((p: any) => p.id === tx.partnerId);
+            if (pIdx > -1) {
+              updatedSettings.partners[pIdx] = { ...updatedSettings.partners[pIdx], balance: (updatedSettings.partners[pIdx].balance || 0) + tx.amount };
+            }
+          }
+        });
+      }
+
+      // 4. Remove from Cash Handovers and adjust Cash Holders Balances
+      let handoversToRemove: any[] = [];
+      updatedSettings.cashHandovers = (updatedSettings.cashHandovers || []).filter(
+        (tx: any) => {
+          const notes = tx.notes || "";
+          const matchOrderNumber = orderNumberToDelete
+            ? notes.includes(`#${orderNumberToDelete}`) || notes.includes(orderNumberToDelete)
+            : false;
+          const matchOrderId = orderIdToDelete
+            ? notes.includes(orderIdToDelete)
+            : false;
+          
+          const isMatch = matchOrderNumber || matchOrderId;
+          if (isMatch) handoversToRemove.push(tx);
+          return !isMatch;
+        }
+      );
+      
+      if (handoversToRemove.length > 0) {
+          updatedSettings.cashHolders = [...(updatedSettings.cashHolders || [])];
+          handoversToRemove.forEach((tx: any) => {
+              // Usually the fromSystem -> holder or fromCustomer -> holder means the holder's balance increased
+              // To reverse, we subtract the amount from the holder's balance
+              if (tx.toUserId) {
+                  const toIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.toUserId);
+                  if (toIdx > -1) {
+                      updatedSettings.cashHolders[toIdx] = { ...updatedSettings.cashHolders[toIdx], currentBalance: (updatedSettings.cashHolders[toIdx].currentBalance || 0) - tx.amount };
+                  }
+              }
+              if (tx.fromUserId && tx.fromUserId !== 'system' && tx.fromUserId !== 'customer') {
+                  const fromIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.fromUserId);
+                  if (fromIdx > -1) {
+                      updatedSettings.cashHolders[fromIdx] = { ...updatedSettings.cashHolders[fromIdx], currentBalance: (updatedSettings.cashHolders[fromIdx].currentBalance || 0) + tx.amount };
+                  }
+              }
+          });
+      }
+
+      return updatedSettings;
+    });
 
     // Cascade delete from Treasury if treasury set_treasury is available
     if (setTreasury && treasury) {
       setTreasury((prev: any) => {
         if (!prev) return prev;
+        
+        let txsToRemove: any[] = [];
         const updatedTransactions = (prev.transactions || []).filter(
           (tx: any) => {
             const desc = tx.description || "";
@@ -1103,11 +1168,32 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             const matchOrderId = orderIdToDelete
               ? desc.includes(orderIdToDelete) || ref.includes(orderIdToDelete)
               : false;
-            return !(matchOrderNumber || matchOrderId);
+            const isMatch = matchOrderNumber || matchOrderId;
+            if (isMatch) {
+                txsToRemove.push(tx);
+            }
+            return !isMatch;
           },
         );
+
+        let updatedAccounts = [...(prev.accounts || [])];
+        txsToRemove.forEach(tx => {
+            if (tx.type === 'deposit' && tx.toAccountId) {
+                const accIdx = updatedAccounts.findIndex(a => a.id === tx.toAccountId);
+                if (accIdx > -1) {
+                    updatedAccounts[accIdx] = { ...updatedAccounts[accIdx], balance: updatedAccounts[accIdx].balance - tx.amount };
+                }
+            } else if (tx.type === 'withdrawal' && tx.fromAccountId) {
+                const accIdx = updatedAccounts.findIndex(a => a.id === tx.fromAccountId);
+                if (accIdx > -1) {
+                    updatedAccounts[accIdx] = { ...updatedAccounts[accIdx], balance: updatedAccounts[accIdx].balance + tx.amount };
+                }
+            }
+        });
+
         return {
           ...prev,
+          accounts: updatedAccounts,
           transactions: updatedTransactions,
         };
       });
@@ -1133,7 +1219,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             .replace("+2", "");
           if (p === cleanPhone) {
             currentTotal++;
-            if (["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "مدفوعة"].includes(o.status)) {
+            if (
+              ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "مدفوعة"].includes(
+                o.status,
+              )
+            ) {
               currentSuccess++;
               currentSpent +=
                 o.productPrice + o.shippingFee - (o.discount || 0);
@@ -1587,18 +1677,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       !updatedOrderData.collectionProcessed
     ) {
       // Order payment processed
+      const advancePayment = Number(updatedOrderData.advancePayment) || 0;
       const baseAmountToCollect =
         updatedOrderData.totalAmountOverride ??
-        updatedOrderData.productPrice +
+        (updatedOrderData.productPrice +
           updatedOrderData.shippingFee -
-          (updatedOrderData.discount || 0);
+          (updatedOrderData.discount || 0) -
+          advancePayment);
 
       newTransactions.push({
         id: `collect_${orderToUpdate.id}`,
         type: "إيداع",
         amount: baseAmountToCollect,
         date: new Date().toISOString(),
-        note: `رصيد من الدفع عند الاستلام أوردر #${orderToUpdate.orderNumber}`,
+        note: `رصيد من الدفع عند الاستلام أوردر #${orderToUpdate.orderNumber}${advancePayment > 0 ? ` (بعد خصم عربون ${advancePayment} ج.م)` : ""}`,
         category: "collection",
         status: "completed",
         orderId: orderToUpdate.id,
@@ -2130,7 +2222,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     if (
       newPaymentStatus === "مدفوع" &&
-      ((order.status === "تم_توصيلها" || order.status === "تم_التوصيل") || isMaintenance)
+      (order.status === "تم_توصيلها" ||
+        order.status === "تم_التوصيل" ||
+        isMaintenance)
     ) {
       const compFees = settings.companySpecificFees?.[order.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
@@ -4110,7 +4204,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
           {/* Items Per Page Selector */}
           <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
-            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">عدد الطلبات بالصفحة:</span>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              عدد الطلبات بالصفحة:
+            </span>
             <select
               value={itemsPerPage}
               onChange={(e) => {
@@ -4206,6 +4302,24 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           settings={settings}
           allOrders={orders}
           onClose={() => setShowDetailsModal(null)}
+          onAddTransaction={(type, amount, note, category) => {
+            const newTx: Transaction = {
+              id: `adj-${Date.now()}`,
+              type,
+              amount,
+              date: new Date().toISOString(),
+              note,
+              category,
+              status: 'completed',
+              orderId: showDetailsModal.id,
+              orderNumber: showDetailsModal.orderNumber
+            };
+            setWallet(prev => ({
+              ...prev,
+              balance: type === 'إيداع' ? prev.balance + amount : prev.balance - amount,
+              transactions: [newTx, ...prev.transactions]
+            }));
+          }}
         />
       )}
       {orderToDelete && (
@@ -4601,9 +4715,36 @@ const OrderCard = ({
     ? 0
     : calculateBostaVat(order, insuranceFee, settings);
 
-  const computedTotal =
-    safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
-  const totalAmount = order.totalAmountOverride ?? computedTotal;
+  const safeCredit = Number(order.creditAmount) || 0;
+  const safeReturnCash =
+    order.returnCashToCustomer && order.cashToReturnAmount
+      ? Number(order.cashToReturnAmount)
+      : 0;
+  const computedTotal = Math.max(
+    0,
+    Math.round(
+      safeProductPrice +
+        safeShippingFee +
+        safeTax -
+        safeDiscount -
+        safeAdvance -
+        safeCredit -
+        safeReturnCash,
+    ),
+  );
+  const totalAmount =
+    order.totalAmountOverride !== undefined &&
+    order.totalAmountOverride !== null
+      ? Math.max(
+          0,
+          Math.round(
+            Number(order.totalAmountOverride) -
+              safeAdvance -
+              safeCredit -
+              safeReturnCash,
+          ),
+        )
+      : computedTotal;
   const displayTotal =
     order.source === "synced" && order.totalPrice != null
       ? Number(order.totalPrice)
@@ -5018,14 +5159,10 @@ const ProfitBreakdown: React.FC<{
   const amountCollectedFromCustomer =
     order.totalAmountOverride !== undefined &&
     order.totalAmountOverride !== null
-      ? order.totalAmountOverride + safeAdvance
+      ? Number(order.totalAmountOverride)
       : baseRevenue - safeDiscount;
 
-  const extraAdjustment =
-    order.totalAmountOverride !== undefined &&
-    order.totalAmountOverride !== null
-      ? order.totalAmountOverride - (baseRevenue - safeDiscount - safeAdvance)
-      : 0;
+  const extraAdjustment = 0;
 
   const totalExpenses =
     safeProductCost +
@@ -5528,6 +5665,41 @@ const ProfitBreakdown: React.FC<{
                 )}
               </div>
             )}
+
+            {/* Advance Payment History Log - Mini View */}
+            {order.advancePaymentHistory && order.advancePaymentHistory.length > 0 && (
+              <div className="mt-3 p-3 bg-white/50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center justify-end gap-1.5">
+                   سجل العربون <History size={10} />
+                </h5>
+                <div className="space-y-2 max-h-32 overflow-y-auto no-scrollbar">
+                  {order.advancePaymentHistory.slice().reverse().map((log: any) => (
+                    <div key={log.id} className="text-right p-2 bg-slate-100/50 dark:bg-slate-800/40 rounded-xl border border-slate-50 dark:border-slate-800/50">
+                      <div className="flex justify-between items-center mb-1 flex-row-reverse">
+                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded-md ${
+                          log.action === 'created' ? 'bg-emerald-50 text-emerald-600' : 
+                          log.action === 'deleted' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'
+                        }`}>
+                          {log.action === 'created' ? 'إضافة' : log.action === 'deleted' ? 'مسح' : 'تعديل'}
+                        </span>
+                        <span className="text-[8px] text-slate-400 font-bold">
+                          {new Date(log.timestamp).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-baseline flex-row-reverse">
+                         <span className="text-[10px] font-black text-slate-700 dark:text-slate-300">
+                           {log.amount.toLocaleString()} ج.م
+                         </span>
+                         <span className="text-[8px] text-slate-400 font-medium">
+                           {log.userName}
+                         </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-between items-center flex-row-reverse text-indigo-600 dark:text-indigo-400 border-t border-slate-200/50 dark:border-slate-800/50 pt-1.5 font-black text-sm">
               <span>المتبقي للتحصيل عند الاستلام:</span>
               <span>
@@ -5746,11 +5918,35 @@ const OrderRow = ({
     ? 0
     : calculateBostaVat(order, insuranceFee, settings);
 
-  const computedTotal =
-    safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
+  const safeCredit = Number(order.creditAmount) || 0;
+  const safeReturnCash =
+    order.returnCashToCustomer && order.cashToReturnAmount
+      ? Number(order.cashToReturnAmount)
+      : 0;
+  const computedTotal = Math.max(
+    0,
+    Math.round(
+      safeProductPrice +
+        safeShippingFee +
+        safeTax -
+        safeDiscount -
+        safeAdvance -
+        safeCredit -
+        safeReturnCash,
+    ),
+  );
   const totalAmount =
-    order.totalAmountOverride != null
-      ? Number(order.totalAmountOverride)
+    order.totalAmountOverride !== undefined &&
+    order.totalAmountOverride !== null
+      ? Math.max(
+          0,
+          Math.round(
+            Number(order.totalAmountOverride) -
+              safeAdvance -
+              safeCredit -
+              safeReturnCash,
+          ),
+        )
       : computedTotal;
   const displayTotal =
     order.source === "synced" && order.totalPrice != null
@@ -5794,7 +5990,8 @@ const OrderRow = ({
   const currentNetProfit = net;
   const isDelivered =
     order.status === "تم_التحصيل" ||
-    (order.status === "تم_توصيلها" || order.status === "تم_التوصيل") ||
+    order.status === "تم_توصيلها" ||
+    order.status === "تم_التوصيل" ||
     order.status === "مدفوعة";
   const profitLabel = isDelivered ? "الربح الصافي" : "الربح المتوقع";
   const isProfitable = currentNetProfit >= 0;
@@ -6022,7 +6219,9 @@ const OrderRow = ({
 
               <select
                 value={
-                  ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "مدفوعة"].includes(order.status)
+                  ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "مدفوعة"].includes(
+                    order.status,
+                  )
                     ? "تم_التوصيل"
                     : order.status
                 }
@@ -8625,7 +8824,9 @@ const OrderModal: React.FC<OrderModalProps> = ({
                             ? `treasury_${orderData.advancePaymentTreasuryId}`
                             : orderData.advancePaymentPartnerId
                               ? `partner_${orderData.advancePaymentPartnerId}`
-                              : ""
+                              : orderData.advancePaymentEmployeeId
+                                ? `employee_${orderData.advancePaymentEmployeeId}`
+                                : ""
                         }
                         onChange={(e) => {
                           const val = e.target.value;
@@ -8635,15 +8836,25 @@ const OrderModal: React.FC<OrderModalProps> = ({
                               val.replace("treasury_", ""),
                             );
                             handleFieldChange("advancePaymentPartnerId", "");
+                            handleFieldChange("advancePaymentEmployeeId", "");
                           } else if (val.startsWith("partner_")) {
                             handleFieldChange(
                               "advancePaymentPartnerId",
                               val.replace("partner_", ""),
                             );
                             handleFieldChange("advancePaymentTreasuryId", "");
+                            handleFieldChange("advancePaymentEmployeeId", "");
+                          } else if (val.startsWith("employee_")) {
+                            handleFieldChange(
+                              "advancePaymentEmployeeId",
+                              val.replace("employee_", ""),
+                            );
+                            handleFieldChange("advancePaymentPartnerId", "");
+                            handleFieldChange("advancePaymentTreasuryId", "");
                           } else {
                             handleFieldChange("advancePaymentPartnerId", "");
                             handleFieldChange("advancePaymentTreasuryId", "");
+                            handleFieldChange("advancePaymentEmployeeId", "");
                           }
                         }}
                         className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black outline-none"
@@ -8669,6 +8880,27 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                 value={`partner_${p.id}`}
                               >
                                 {p.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {(settings.employees || []).length >= 0 && (
+                          <optgroup label="العهدة النقدية (شركاء وموظفين)">
+                            <option value="employee_admin">المدير (أنت)</option>
+                            {settings.partners?.map((p) => (
+                              <option
+                                key={`employee_${p.id}`}
+                                value={`employee_${p.id}`}
+                              >
+                                {p.name} (شريك)
+                              </option>
+                            ))}
+                            {(settings.employees || []).map((emp) => (
+                              <option
+                                key={`employee_${emp.id}`}
+                                value={`employee_${emp.id}`}
+                              >
+                                {emp.name} (موظف)
                               </option>
                             ))}
                           </optgroup>
@@ -8702,6 +8934,46 @@ const OrderModal: React.FC<OrderModalProps> = ({
                       />
                     </div>
                   </motion.div>
+                )}
+
+                {/* Advance Payment History Log */}
+                {isEditing && orderData.advancePaymentHistory && orderData.advancePaymentHistory.length > 0 && (
+                  <div className="mt-4 p-5 bg-slate-100/50 dark:bg-slate-800/30 rounded-3xl border border-slate-200/50 dark:border-slate-700/50">
+                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                       <History size={14} className="text-slate-400" />
+                       سجل تحديثات العربون
+                    </h5>
+                    <div className="space-y-3 max-h-40 overflow-y-auto no-scrollbar">
+                      {orderData.advancePaymentHistory.slice().reverse().map((log: any) => (
+                        <div key={log.id} className="text-right p-3 bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
+                              log.action === 'created' ? 'bg-emerald-50 text-emerald-600' : 
+                              log.action === 'deleted' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'
+                            }`}>
+                              {log.action === 'created' ? 'إضافة' : log.action === 'deleted' ? 'مسح' : 'تعديل'}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-bold tabular-nums">
+                              {new Date(log.timestamp).toLocaleString('ar-EG')}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-baseline">
+                             <span className="text-xs font-black text-slate-700 dark:text-slate-200">
+                               المبلغ: {log.amount.toLocaleString()} ج.م
+                             </span>
+                             <span className="text-[9px] text-slate-500 font-medium">
+                               بواسطة: {log.userName}
+                             </span>
+                          </div>
+                          {log.reason && (
+                            <p className="text-[9px] text-slate-400 mt-1 italic leading-relaxed border-t border-slate-50 dark:border-slate-800 pt-1">
+                              {log.reason}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>

@@ -299,6 +299,86 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     });
   };
 
+  const handleDeductPartnerCustodyDirectly = (partner: Partner, amount: number) => {
+    if (amount <= 0) return;
+
+    setDialog({
+        isOpen: true,
+        title: 'تأكيد تسوية وخصم العهدة المعلقة',
+        message: `هل أنت متأكد من تسوية العهدة المالية المتبقية طرف الشريك ${partner.name} بقيمة ${amount.toLocaleString()} ج.م وتحويلها إلى مسحوبات شخصية غير مستردة؟ سيقوم هذا الإجراء بخصم المبلغ فوراً من الرصيد الجاري للشريك وتصفير العهدة طرفه دفترياً دون التأثير على حسابات الخزينة أو المعاملات الفعلية للنقدية.`,
+        onConfirm: () => {
+            const dateStr = new Date().toISOString();
+            const tId = Date.now().toString();
+
+            const newTransaction: PartnerTransaction = {
+                id: `pt_deduct_${tId}`,
+                partnerId: partner.id,
+                type: 'profit_withdrawal', 
+                amount: amount,
+                date: dateStr,
+                note: `خصم عهدة مالية معلقة لم تُرَد وتحويلها كمسحوبات شخصية مستقطعة من الرصيد الجاري للشريك`
+            };
+
+            const updatedPartners = partners.map(p => {
+                if (p.id === partner.id) {
+                    return {
+                        ...p,
+                        balance: p.balance - amount
+                    };
+                }
+                return p;
+            });
+
+            let currentHolders = [...(settings.cashHolders || [])];
+            const partnerHolderId = `part_${partner.id}`;
+            const partnerIdx = currentHolders.findIndex(h => h.userId === partnerHolderId || h.userId === partner.id);
+            
+            if (partnerIdx > -1) {
+                currentHolders[partnerIdx] = {
+                    ...currentHolders[partnerIdx],
+                    currentBalance: 0,
+                    lastUpdated: dateStr
+                };
+            }
+
+            const handoverId = `HND-DEDUCT-${Date.now()}`;
+            const handoverData: any = {
+                id: handoverId,
+                fromUserId: partnerHolderId,
+                fromUserName: partner.name,
+                toUserId: 'admin_deduction',
+                toUserName: 'خصم من الرصيد الجاري للشريك',
+                amount: amount,
+                date: dateStr,
+                notes: `تبين عدم رد العهدة النقدية للشريك وتم تسويتها وخصمها دفترياً من رصيده الجاري كمستحقات شخصية مسحوبة`,
+                status: 'completed'
+            };
+
+            updateSettings({
+                ...settings,
+                partners: updatedPartners,
+                partnerTransactions: [...transactions, newTransaction],
+                cashHolders: currentHolders,
+                cashHandovers: [handoverData, ...(settings.cashHandovers || [])],
+                activityLogs: [
+                    {
+                        id: `log-${Date.now()}`,
+                        user: 'الادارة',
+                        action: 'خصم عهدة الشريك من رصيده',
+                        details: `تم خصم عهدة معلقة لم تُرد من الشريك ${partner.name} بقيمة ${amount.toLocaleString()} ج.م من رصيده الجاري وتصفير العهدة.`,
+                        date: new Date().toLocaleString('ar-EG'),
+                        timestamp: Date.now()
+                    },
+                    ...(settings.activityLogs || [])
+                ]
+            });
+
+            setDialog(null);
+            showToast('تم تسوية العهدة بنجاح وخصمها كمسحوبات من الحساب الجاري للشريك وتصفير عهدته.');
+        }
+    });
+  };
+
   const executeTransfer = () => {
     const amount = parseFloat(transferAmount);
     if (!amount || isNaN(amount) || amount <= 0) {
@@ -917,7 +997,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
               <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-slate-50/80 dark:bg-slate-700/30 rounded-2xl border border-slate-100 dark:border-slate-800/50">
                       <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">الرصيد المتاح</p>
-                      <p className={`text-xl font-black ${partner.balance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                      <p className={"text-xl font-black " + (partner.balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
                           {partner.balance.toLocaleString()} ج.م
                       </p>
                   </div>
@@ -934,15 +1014,27 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   const holder = (settings.cashHolders || []).find((h: any) => h.userId === holderId || h.userId === partner.id);
                   const custodyAmt = holder ? holder.currentBalance || 0 : 0;
                   return (
-                    <div className="mt-3 p-3.5 bg-amber-500/[0.04] dark:bg-amber-500/[0.02] rounded-2xl border border-amber-500/10 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                           <Coins size={14} className="text-amber-500" />
-                           <p className="text-[10px] font-bold text-slate-400">العهدة والنقدية طرف الشريك</p>
-                        </div>
-                        <p className={`text-sm font-black ${custodyAmt > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-                           {custodyAmt.toLocaleString()} ج.م
-                        </p>
-                    </div>
+                     <div className="mt-3 p-3.5 bg-amber-500/[0.04] dark:bg-amber-500/[0.02] rounded-2xl border border-amber-500/10 flex flex-col gap-2">
+                         <div className="flex items-center justify-between">
+                             <div className="flex items-center gap-2">
+                                <Coins size={14} className="text-amber-500" />
+                                <p className="text-[10px] font-bold text-slate-400">العهدة والنقدية طرف الشريك</p>
+                             </div>
+                             <p className={`text-sm font-black ${custodyAmt > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+                                {custodyAmt.toLocaleString()} ج.م
+                             </p>
+                         </div>
+                         {custodyAmt > 0 && (
+                             <div className="flex justify-end pt-2 border-t border-amber-500/10">
+                                 <button
+                                     onClick={() => handleDeductPartnerCustodyDirectly(partner, custodyAmt)}
+                                     className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] rounded-lg transition-all flex items-center gap-1 cursor-pointer shadow-sm shadow-rose-600/10"
+                                 >
+                                     مردهاش (خصم تلقائي من رصيده)
+                                 </button>
+                             </div>
+                         )}
+                     </div>
                   );
               })()}
             </div>

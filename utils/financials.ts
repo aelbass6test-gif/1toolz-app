@@ -315,14 +315,14 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     const baseExpectedCollected = safeProductPrice + safeShippingFee - safeDiscount;
 
     const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
-        ? order.totalAmountOverride + safeAdvance
+        ? Number(order.totalAmountOverride)
         : baseExpectedCollected;
         
     const standardShippingFee = getStandardShippingFee(order, settings);
     carrierFees = (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionAdjustment + codFee + bostaVat;
     
     netRevenue = totalCollected;
-    profit = baseExpectedCollected - carrierFees - productCostCalculated;
+    profit = totalCollected - carrierFees - productCostCalculated;
   } else if ((order.status === 'مرتجع' || order.status === 'فشل_التوصيل' || order.status === 'تمت_الاعادة_لشركة_الشحن' || order.status === 'مرتجع_بعد_الاستلام' || order.status === 'مرتجع_جزئي') && order.paymentStatus !== 'مدفوع') {
     // If not financially settled (paymentStatus !== 'مدفوع'), return 0 loss/profit
   } else if (order.status === 'مرتجع' || order.status === 'فشل_التوصيل' || order.status === 'تمت_الاعادة_لشركة_الشحن') {

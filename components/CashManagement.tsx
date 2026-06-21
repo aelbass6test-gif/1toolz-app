@@ -19,7 +19,8 @@ import {
   UserCheck,
   X,
   AlertTriangle,
-  Info
+  Info,
+  Trash2
 } from 'lucide-react';
 import { Settings, CashHolder, CashHandover, Treasury, TreasuryTransaction } from '../types';
 
@@ -67,6 +68,92 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     ...employees.map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: e.name, role: 'employee' })),
     ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: p.name, role: 'partner' }))
   ];
+
+  const handleDeleteHandover = (handoverId: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف عملية التسليم المالي هذه وتراجع الأثر على الأرصدة؟')) return;
+
+    const handoverToDelete = handovers.find(h => h.id === handoverId);
+    if (!handoverToDelete) return;
+
+    const amount = Number(handoverToDelete.amount);
+    const updatedHolders = [...holders];
+
+    // 1. Revert source holder balance (increase it back)
+    if (handoverToDelete.fromUserId && handoverToDelete.fromUserId !== 'system' && handoverToDelete.fromUserId !== 'customer') {
+      const fromIdx = updatedHolders.findIndex(h => h.userId === handoverToDelete.fromUserId);
+      if (fromIdx > -1) {
+        updatedHolders[fromIdx] = {
+          ...updatedHolders[fromIdx],
+          currentBalance: (updatedHolders[fromIdx].currentBalance || 0) + amount,
+          lastUpdated: new Date().toISOString()
+        };
+      }
+    }
+
+    // 2. Revert destination
+    if (handoverToDelete.toUserId?.startsWith('treasury_')) {
+      const targetAccountId = handoverToDelete.toUserId.replace('treasury_', '');
+      if (setTreasury) {
+        setTreasury((prev: any) => {
+          if (!prev) return prev;
+          const currentAccounts = prev.accounts || [];
+          const updatedAccounts = currentAccounts.map((acc: any) => 
+            acc.id === targetAccountId ? { ...acc, balance: Math.max(0, Number(acc.balance || 0) - amount) } : acc
+          );
+          const updatedTransactions = (prev.transactions || []).filter(
+            (tx: any) => tx.reference !== handoverId && !tx.description?.includes(handoverId)
+          );
+          return {
+            ...prev,
+            accounts: updatedAccounts,
+            transactions: updatedTransactions
+          };
+        });
+      }
+    } else if (handoverToDelete.toUserId === 'supply_wallet') {
+      if (setWallet) {
+        setWallet((prev: any) => {
+          if (!prev) return prev;
+          const updatedTransactions = (prev.transactions || []).filter(
+             (tx: any) => !tx.id?.includes(handoverId) && !tx.note?.includes(handoverId)
+          );
+          return {
+            ...prev,
+            supplyBalance: Math.max(0, (prev.supplyBalance || 0) - amount),
+            transactions: updatedTransactions
+          };
+        });
+      }
+    } else if (handoverToDelete.toUserId) {
+      // Revert destination holder balance (decrease it)
+      const toIdx = updatedHolders.findIndex(h => h.userId === handoverToDelete.toUserId);
+      if (toIdx > -1) {
+        updatedHolders[toIdx] = {
+          ...updatedHolders[toIdx],
+          currentBalance: (updatedHolders[toIdx].currentBalance || 0) - amount,
+          lastUpdated: new Date().toISOString()
+        };
+      }
+    }
+
+    // 3. Update settings
+    updateSettings({
+      ...settings,
+      cashHolders: updatedHolders,
+      cashHandovers: handovers.filter(h => h.id !== handoverId),
+      activityLogs: [
+        {
+          id: `log-${Date.now()}`,
+          user: currentUser?.fullName || 'المدير',
+          action: 'حذف عملية تسليم مالي',
+          details: `تم حذف عملية تسليم مالي بقيمة ${amount} ج.م من عهدة ${handoverToDelete.fromUserName} إلى ${handoverToDelete.toUserName} وتعديل الأرصدة المرتبطة.`,
+          date: new Date().toLocaleString('ar-EG'),
+          timestamp: Date.now()
+        },
+        ...(settings.activityLogs || [])
+      ]
+    });
+  };
 
   const handleExecuteHandover = () => {
     if (handoverType !== 'supply_wallet' && !newHandover.toUserId) {
@@ -388,7 +475,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                              </button>
                            )}
                            <div className="text-right">
-                              <h4 className="font-black text-slate-800 dark:text-white">{holder.userName}</h4>
+                              <h4 className="font-black text-slate-800 dark:text-white">
+                                {holder.userName}
+                                {holder.userId === 'admin' ? ' (المدير)' : settings?.partners?.find(p => p.id === holder.userId) ? ' (شريك)' : settings?.employees?.find(e => e.id === holder.userId) ? ' (موظف)' : ''}
+                              </h4>
                               <span className="text-[10px] font-bold text-slate-400">آخر تحديث: {new Date(holder.lastUpdated).toLocaleDateString('ar-EG')}</span>
                            </div>
                         </div>
@@ -496,13 +586,22 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       </div>
                       
                       <div className="flex items-center gap-6">
-                         {h.notes && (
+                         {(h.notes || (h as any).note) && (
                            <div className="text-[10px] bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-lg text-slate-500 italic max-w-[200px] truncate">
-                             "{h.notes}"
+                             "{(h.notes || (h as any).note)}"
                            </div>
                          )}
                          <div className="text-lg font-black text-emerald-600 tabular-nums">
                             {h.amount.toLocaleString()} <span className="text-[10px]">ج.م</span>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteHandover(h.id)}
+                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-550/10 rounded-xl transition-all cursor-pointer flex items-center justify-center shrink-0 mr-2"
+                            title="حذف عملية التسليم المالي"
+                          >
+                             <Trash2 size={16} />
+                          </button>
+                          <div className="hidden">
                          </div>
                       </div>
                    </div>

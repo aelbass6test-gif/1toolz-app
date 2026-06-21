@@ -849,6 +849,21 @@ export interface CallAttempt {
   duration?: number;
 }
 
+export interface AdvancePaymentHistoryLog {
+  id: string;
+  timestamp: string;
+  amount: number;
+  userId: string;
+  userName: string;
+  recipientType?: 'partner' | 'treasury' | 'employee';
+  recipientId?: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  senderDetails?: string;
+  action: 'created' | 'updated' | 'reverted' | 'deleted';
+  reason?: string;
+}
+
 export interface AuditLog {
   id: string;
   userId?: string;
@@ -982,8 +997,10 @@ export interface Order {
   advancePayment?: number;
   advancePaymentPartnerId?: string;
   advancePaymentTreasuryId?: string;
+  advancePaymentEmployeeId?: string;
   advancePaymentRecipientPhone?: string;
   advancePaymentSenderDetails?: string;
+  advancePaymentHistory?: AdvancePaymentHistoryLog[];
   useProductsForShipment?: boolean;
   shipmentDescription?: string;
   shipmentQuantity?: number;

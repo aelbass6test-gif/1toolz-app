@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Order, Settings, User, CustomerProfile, Store, OrderStatus } from '../types';
+import { Order, Settings, User, CustomerProfile, Store, OrderStatus, AdvancePaymentHistoryLog } from '../types';
 import { OrderForm } from './OrderForm';
 import GlobalLoader from './GlobalLoader';
 import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
@@ -152,7 +152,10 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const isMaintenanceOrder = editingOrder.orderType === 'maintenance';
         const basePrice = isMaintenanceOrder ? (Number((editingOrder as any).maintenanceCost) || 0) : (totalProductPrice - (editingOrder.discount || 0));
         const baseTotal = basePrice + editingOrder.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
-        const finalCollectedTotal = editingOrder.totalAmountOverride ?? baseTotal;
+        const returnCash = (editingOrder.returnCashToCustomer && editingOrder.cashToReturnAmount) ? Number(editingOrder.cashToReturnAmount) : 0;
+        const finalCollectedTotal = editingOrder.totalAmountOverride !== undefined && editingOrder.totalAmountOverride !== null
+            ? Math.max(0, Math.round(Number(editingOrder.totalAmountOverride) - safeAdvance - (editingOrder.creditAmount || 0) - returnCash))
+            : baseTotal;
 
         const updatedOrder: Order = {
             ...editingOrder,
@@ -164,50 +167,166 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             totalPrice: Math.round(finalCollectedTotal),
         };
 
-        // Delta Updates for Advance Payment
+        // Track history changes
         const oldAdvance = originalOrder.advancePayment || 0;
         const newAdvance = updatedOrder.advancePayment || 0;
-        const difference = newAdvance - oldAdvance;
+        const oldPartnerId = originalOrder.advancePaymentPartnerId;
+        const newPartnerId = updatedOrder.advancePaymentPartnerId;
+        const oldTreasuryId = originalOrder.advancePaymentTreasuryId;
+        const newTreasuryId = updatedOrder.advancePaymentTreasuryId;
+        const oldEmployeeId = (originalOrder as any).advancePaymentEmployeeId;
+        const newEmployeeId = (updatedOrder as any).advancePaymentEmployeeId;
 
-        if (difference !== 0 && (updatedOrder as any).advancePaymentPartnerId) {
-            const partnerId = (updatedOrder as any).advancePaymentPartnerId;
-            const partnerTx = {
-                id: `adv-edit-${Date.now()}`,
-                partnerId: partnerId,
-                type: difference > 0 ? 'customer_advance' : 'repayment',
-                amount: Math.abs(difference),
-                date: new Date().toISOString(),
-                note: `تعديل عربون للطلب #${updatedOrder.orderNumber} ${difference < 0 ? '(إنقاص)' : '(زيادة)'}`
-            } as any;
-            
-            setSettings(prev => ({
-                ...prev,
-                partnerTransactions: [...(prev.partnerTransactions || []), partnerTx],
-                partners: (prev.partners || []).map(p => p.id === partnerId ? { ...p, balance: (p.balance || 0) - difference } : p)
-            }));
-        } else if (difference !== 0 && (updatedOrder as any).advancePaymentTreasuryId && setTreasury) {
-            const treasuryId = (updatedOrder as any).advancePaymentTreasuryId;
-            const treasuryTxId = `tx-edit-${Date.now()}`;
-            setTreasury((prev: any) => {
-                const currentTreasury = prev || { accounts: [], transactions: [] };
-                const updatedAccounts = currentTreasury.accounts.map((acc: any) => 
-                    acc.id === treasuryId ? { ...acc, balance: acc.balance + difference } : acc
-                );
-                const newTx = {
-                    id: treasuryTxId,
-                    date: new Date().toISOString(),
-                    type: difference > 0 ? 'deposit' : 'withdrawal',
-                    amount: Math.abs(difference),
-                    description: `تعديل عربون للطلب #${updatedOrder.orderNumber} ${difference < 0 ? '(استرداد)' : ''}`,
-                    toAccountId: difference > 0 ? treasuryId : undefined,
-                    fromAccountId: difference < 0 ? treasuryId : undefined,
-                };
-                return {
-                    accounts: updatedAccounts,
-                    transactions: [newTx, ...currentTreasury.transactions]
-                };
-            });
+        const isAmountChanged = oldAdvance !== newAdvance;
+        const isRecipientChanged = oldPartnerId !== newPartnerId || oldTreasuryId !== newTreasuryId || oldEmployeeId !== newEmployeeId;
+
+        if (isAmountChanged || isRecipientChanged) {
+            let rType: 'partner' | 'treasury' | 'employee' | undefined;
+            let rId: string | undefined;
+            if (newPartnerId) { rType = 'partner'; rId = newPartnerId; }
+            else if (newTreasuryId) { rType = 'treasury'; rId = newTreasuryId; }
+            else if (newEmployeeId) { rType = 'employee'; rId = newEmployeeId; }
+
+            const newLog: AdvancePaymentHistoryLog = {
+                id: `log-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                amount: newAdvance,
+                userId: currentUser?.phone || 'unknown',
+                userName: currentUser?.fullName || 'النظام',
+                recipientType: rType,
+                recipientId: rId,
+                recipientPhone: updatedOrder.advancePaymentRecipientPhone,
+                senderDetails: updatedOrder.advancePaymentSenderDetails,
+                action: newAdvance === 0 ? 'deleted' : (oldAdvance === 0 ? 'created' : 'updated'),
+                reason: `تعديل من صفحة تعديل الطلب (القيمة القديمة: ${oldAdvance})`
+            };
+            updatedOrder.advancePaymentHistory = [...(originalOrder.advancePaymentHistory || []), newLog];
         }
+
+        // Delta Updates for Custody (Treasury, Partner, Employee)
+
+        const senderInfo = (updatedOrder as any).advancePaymentSenderDetails ? ` | بيانات المحول: ${(updatedOrder as any).advancePaymentSenderDetails}` : '';
+        const phoneInfo = (updatedOrder as any).advancePaymentRecipientPhone ? ` | هاتف المستلم: ${(updatedOrder as any).advancePaymentRecipientPhone}` : '';
+        const applyNote = `تطبيق عربون معدل للطلب #${updatedOrder.orderNumber}${senderInfo}${phoneInfo}`;
+
+        let updatedPartners = [...(settings.partners || [])];
+        let updatedPartnerTxs = [...(settings.partnerTransactions || [])];
+        
+        let updatedHolders = [...(settings.cashHolders || [])];
+        let updatedHandovers = [...(settings.cashHandovers || [])];
+
+        // 1. Revert Old Custodian Balances
+        if (oldAdvance > 0) {
+            if (oldPartnerId) {
+                updatedPartners = updatedPartners.map(p => 
+                    p.id === oldPartnerId ? { ...p, balance: (p.balance || 0) + oldAdvance } : p
+                );
+                updatedPartnerTxs.push({
+                    id: `adv-revert-${Date.now()}`,
+                    partnerId: oldPartnerId,
+                    type: 'repayment',
+                    amount: oldAdvance,
+                    date: new Date().toISOString(),
+                    note: `إلغاء/تعديل عربون سابق للطلب #${updatedOrder.orderNumber}`
+                } as any);
+            } else if (oldTreasuryId && setTreasury) {
+                setTreasury((prev: any) => {
+                    const currentTreasury = prev || { accounts: [], transactions: [] };
+                    const updatedAccounts = currentTreasury.accounts.map((acc: any) => 
+                        acc.id === oldTreasuryId ? { ...acc, balance: acc.balance - oldAdvance } : acc
+                    );
+                    const newTx = {
+                        id: `tx-revert-${Date.now()}`,
+                        date: new Date().toISOString(),
+                        type: 'withdrawal',
+                        amount: oldAdvance,
+                        description: `تعديل/سحب عربون سابق للطلب #${updatedOrder.orderNumber}`,
+                        fromAccountId: oldTreasuryId
+                    };
+                    return {
+                        accounts: updatedAccounts,
+                        transactions: [newTx, ...currentTreasury.transactions]
+                    };
+                });
+            } else if (oldEmployeeId) {
+                updatedHolders = updatedHolders.map(h => 
+                    h.userId === oldEmployeeId ? { ...h, currentBalance: (h.currentBalance || 0) - oldAdvance, lastUpdated: new Date().toISOString() } : h
+                );
+            }
+        }
+
+        // 2. Apply New Custodian Balances
+        if (newAdvance > 0) {
+            if (newPartnerId) {
+                updatedPartners = updatedPartners.map(p => 
+                    p.id === newPartnerId ? { ...p, balance: (p.balance || 0) - newAdvance } : p
+                );
+                updatedPartnerTxs.push({
+                    id: `adv-apply-${Date.now()}`,
+                    partnerId: newPartnerId,
+                    type: 'customer_advance',
+                    amount: newAdvance,
+                    date: new Date().toISOString(),
+                    note: applyNote
+                } as any);
+            } else if (newTreasuryId && setTreasury) {
+                setTreasury((prev: any) => {
+                    const currentTreasury = prev || { accounts: [], transactions: [] };
+                    const updatedAccounts = currentTreasury.accounts.map((acc: any) => 
+                        acc.id === newTreasuryId ? { ...acc, balance: acc.balance + newAdvance } : acc
+                    );
+                    const newTx = {
+                        id: `tx-apply-${Date.now()}`,
+                        date: new Date().toISOString(),
+                        type: 'deposit',
+                        amount: newAdvance,
+                        description: applyNote,
+                        toAccountId: newTreasuryId
+                    };
+                    return {
+                        accounts: updatedAccounts,
+                        transactions: [newTx, ...currentTreasury.transactions]
+                    };
+                });
+            } else if (newEmployeeId) {
+                const empName = newEmployeeId === 'admin' 
+                    ? 'المدير (أنت)' 
+                    : (((settings.employees || []).find(e => e.id === newEmployeeId)?.name) || ((settings.partners || []).find(p => p.id === newEmployeeId)?.name) || 'المسؤول');
+                const exists = updatedHolders.find(h => h.userId === newEmployeeId);
+                if (exists) {
+                    updatedHolders = updatedHolders.map(h => 
+                        h.userId === newEmployeeId ? { ...h, currentBalance: (h.currentBalance || 0) + newAdvance, lastUpdated: new Date().toISOString() } : h
+                    );
+                } else {
+                    updatedHolders.push({
+                        userId: newEmployeeId,
+                        userName: empName,
+                        currentBalance: newAdvance,
+                        lastUpdated: new Date().toISOString()
+                    });
+                }
+                updatedHandovers.push({
+                    id: `hd-edit-${Date.now()}`,
+                    fromUserId: 'customer',
+                    fromUserName: updatedOrder.customerName || 'عميل',
+                    toUserId: newEmployeeId,
+                    toUserName: empName,
+                    amount: newAdvance,
+                    date: new Date().toISOString(),
+                    notes: applyNote,
+                    status: 'completed'
+                } as any);
+            }
+        }
+
+        // Apply to settings
+        setSettings(prev => ({
+            ...prev,
+            partners: updatedPartners,
+            partnerTransactions: updatedPartnerTxs,
+            cashHolders: updatedHolders,
+            cashHandovers: updatedHandovers
+        }));
 
         // Updating Customers
         const cleanPhone = (updatedOrder.customerPhone || '').replace(/\s/g, '').replace('+2', '');
@@ -237,6 +356,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         if (updatedOrder.orderType === 'maintenance') {
             await syncMaintenanceStatus(updatedOrder.orderNumber, updatedOrder.status);
         }
+
+        navigate(activeStore ? `/store/${activeStore.id}/orders` : '/orders');
     };
 
     const uniqueCustomers = useMemo(() => {

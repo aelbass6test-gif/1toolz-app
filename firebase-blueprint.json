@@ -49,7 +49,68 @@
         "customerName": { "type": "string" },
         "customerPhone": { "type": "string" },
         "status": { "type": "string" },
-        "storeId": { "type": "string" }
+        "storeId": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "referenceNumber": { "type": "string" },
+        "waybillNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "shippingCompany": { "type": "string" },
+        "shippingArea": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "status": { "type": "string" },
+        "paymentStatus": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "items": { "type": "array" },
+        "totalPrice": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "shippingFee": { "type": "number" },
+        "discount": { "type": "number" },
+        "tax": { "type": "number" },
+        "advancePayment": { "type": "number" },
+        "advancePaymentEmployeeId": { "type": "string" },
+        "advancePaymentHistory": { "type": "array" },
+        "advancePaymentPartnerId": { "type": "string" },
+        "advancePaymentTreasuryId": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "source": { "type": "string" },
+        "vatOnStandardShipping": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Customer profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "governorate": { "type": "string" },
+        "city": { "type": "string" },
+        "debtBalance": { "type": "number" },
+        "debtHistory": { "type": "array" },
+        "totalOrders": { "type": "number" },
+        "totalSpent": { "type": "number" },
+        "lastOrderDate": { "type": "string" }
+      }
+    },
+    "CashHandover": {
+      "title": "Cash Handover",
+      "description": "Cash handover record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fromUserId": { "type": "string" },
+        "fromUserName": { "type": "string" },
+        "toUserId": { "type": "string" },
+        "toUserName": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "status": { "type": "string" },
+        "notes": { "type": "string" }
       }
     }
   },
@@ -123,12 +184,8 @@
       "description": "Payment methods"
     },
     "/customers/{id}": {
-      "schema": "object",
-      "description": "Customer profiles",
-      "properties": {
-        "debtBalance": { "type": "number" },
-        "debtHistory": { "type": "array" }
-      }
+      "schema": "Customer",
+      "description": "Customer profiles"
     },
     "/global_options/{id}": {
       "schema": "object",
@@ -175,7 +232,7 @@
       "description": "Cash Holders"
     },
     "/cash_handovers/{id}": {
-      "schema": "object",
+      "schema": "CashHandover",
       "description": "Cash Handovers"
     },
     "/whatsapp_templates/{id}": {

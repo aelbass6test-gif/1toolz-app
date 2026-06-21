@@ -43,7 +43,9 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
         total -= Number((order as any).cashToReturnAmount);
     }
     
-    const finalTotal = order.totalAmountOverride ?? Math.max(0, Math.round(total));
+    const finalTotal = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
+        ? Math.max(0, Math.round(Number(order.totalAmountOverride) - safeAdvance - credit))
+        : Math.max(0, Math.round(total));
     
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">

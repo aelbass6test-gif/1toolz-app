@@ -270,7 +270,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       const bostaVatFee = isPosOrder ? 0 : calculateBostaVat(order, insuranceFee, settings);
       
       const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance;
-      const totalAmount = order.totalAmountOverride != null ? Number(order.totalAmountOverride) : computedTotal;
+      const totalAmount = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride) - safeAdvance)) : computedTotal;
       const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : totalAmount;
       return displayTotal;
     };
