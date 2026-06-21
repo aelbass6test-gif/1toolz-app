@@ -1013,7 +1013,6 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         totalExtraMarkup += (orderProductExtraMarkup + overrideAdjustment);
         
         // Profit Logic: Shipping markup is counted here because it's profit.
-        totalShippingMarkup += shippingMarkup;
         
         totalCogs += (order.items || []).reduce((sum, item) => {
             const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;

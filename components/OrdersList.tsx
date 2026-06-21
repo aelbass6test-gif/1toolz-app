@@ -4725,7 +4725,8 @@ const OrderCard = ({
     Math.round(
       safeProductPrice +
         safeShippingFee +
-        safeTax -
+        safeTax +
+        inspectionFee -
         safeDiscount -
         safeAdvance -
         safeCredit -
@@ -4747,7 +4748,7 @@ const OrderCard = ({
       : computedTotal;
   const displayTotal =
     order.source === "synced" && order.totalPrice != null
-      ? Number(order.totalPrice)
+      ? Number(order.totalPrice) + inspectionFee
       : totalAmount;
 
   return (
@@ -5156,7 +5157,9 @@ const ProfitBreakdown: React.FC<{
     ? 0
     : inspectionFee;
 
-  const baseRevenue = safeProductPrice + safeShippingFee + safeTax;
+  const inspectionRevenue = order.inspectionFeePaidByCustomer ? inspectionFee : 0;
+
+  const baseRevenue = safeProductPrice + safeShippingFee + safeTax + inspectionRevenue;
   const amountCollectedFromCustomer =
     order.totalAmountOverride !== undefined &&
     order.totalAmountOverride !== null
@@ -5302,6 +5305,19 @@ const ProfitBreakdown: React.FC<{
                     </span>
                   </div>
                 )}
+                {inspectionRevenue > 0 && (
+                  <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                    <span className="text-slate-500 font-bold">المعاينة</span>
+                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      +
+                      {inspectionRevenue.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 3,
+                      })}{" "}
+                      ج.م
+                    </span>
+                  </div>
+                )}
                 {safeTax > 0 && (
                   <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
                     <span className="text-slate-500 font-bold">
@@ -5339,7 +5355,7 @@ const ProfitBreakdown: React.FC<{
                   <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
                     +
                     {(
-                      amountCollectedFromCustomer - extraAdjustment
+                      amountCollectedFromCustomer - extraAdjustment + inspectionRevenue + inspectionAdjustment
                     ).toLocaleString(undefined, {
                       minimumFractionDigits: 0,
                       maximumFractionDigits: 3,
@@ -5655,7 +5671,7 @@ const ProfitBreakdown: React.FC<{
             <div className="flex justify-between items-center flex-row-reverse">
               <span className="text-slate-500">إجمالي فاتورة العميل:</span>
               <span className="text-slate-700 dark:text-slate-300">
-                {amountCollectedFromCustomer.toLocaleString(undefined, {
+                {(amountCollectedFromCustomer + inspectionRevenue + inspectionAdjustment).toLocaleString(undefined, {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 3,
                 })}{" "}
@@ -5738,7 +5754,7 @@ const ProfitBreakdown: React.FC<{
               <span>
                 {Math.max(
                   0,
-                  amountCollectedFromCustomer - safeAdvance,
+                  amountCollectedFromCustomer + inspectionRevenue + inspectionAdjustment - safeAdvance,
                 ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
                 ج.م
               </span>
@@ -5961,7 +5977,8 @@ const OrderRow = ({
     Math.round(
       safeProductPrice +
         safeShippingFee +
-        safeTax -
+        safeTax +
+        inspectionFee -
         safeDiscount -
         safeAdvance -
         safeCredit -
@@ -5983,7 +6000,7 @@ const OrderRow = ({
       : computedTotal;
   const displayTotal =
     order.source === "synced" && order.totalPrice != null
-      ? Number(order.totalPrice)
+      ? Number(order.totalPrice) + inspectionFee
       : totalAmount;
 
   const getStatusBadgeStyle = (status: OrderStatus) => {
