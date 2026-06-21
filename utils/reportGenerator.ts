@@ -1,4 +1,4 @@
-import { Order, Settings, Wallet, OrderItem } from '../types';
+import { Order, Settings, Wallet, OrderItem, Treasury } from '../types';
 
 const getPrintControlBarCSS = () => ``;
 
@@ -913,7 +913,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
     `;
 };
 
-export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string): string => {
+export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury): string => {
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
     const notCollectedOrders = (orders || []).filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed);
@@ -935,6 +935,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalProfit = 0;
     let totalPercentageProfit = 0;
     let totalCommissionProfit = 0;
+    let totalOverrideAdjustment = 0;
 
     const collectedRows = collectedOrders.map(order => {
         const { profit } = calculateOrderProfitLoss(order, settings);
@@ -958,6 +959,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
             ? order.totalAmountOverride + safeAdvance
             : (safeProductPrice + safeShippingFee - safeDiscount);
+
+        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
+        const baseExpected = safeProductPrice + safeShippingFee - safeDiscount + inspectionFeeCollected;
+        const overrideAdjustment = totalCollected - baseExpected;
 
         totalShippingRevenue += order.shippingFee;
 
@@ -993,15 +998,27 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
-        totalProductRevenue += orderBaseRevenue;
-        totalProductExtraMarkup += orderProductExtraMarkup;
-        totalExtraMarkup += (orderProductExtraMarkup + shippingMarkup);
+        // Correct Revenue Logic: 
+        // 1. Product Revenue is the base price (minus discount)
+        // 2. Shipping Revenue is what the customer paid
+        // 3. Extra Markup here should only be the Product price difference + Manual adjustments
+        // Shipping markup is ALREADY inside totalShippingRevenue, so we don't add it again to the TOTAL REVENUE sum.
         
-        const actualOrderCogs = (order.items || []).reduce((sum, item) => {
+        totalProductRevenue += (orderBaseRevenue - safeDiscount);
+        totalProductExtraMarkup += orderProductExtraMarkup;
+        totalOverrideAdjustment += overrideAdjustment;
+        
+        // This variable is for the "Extra Markup" display row - we only include price increase and manual adjustments
+        // to avoid double counting shipping fees.
+        totalExtraMarkup += (orderProductExtraMarkup + overrideAdjustment);
+        
+        // Profit Logic: Shipping markup is counted here because it's profit.
+        totalShippingMarkup += shippingMarkup;
+        
+        totalCogs += (order.items || []).reduce((sum, item) => {
             const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
             return sum + (costVal * item.quantity);
         }, 0);
-        totalCogs += actualOrderCogs;
         
         totalInsuranceFees += insuranceFee;
         totalInspectionFees += inspectionAdjustment;
@@ -1104,6 +1121,74 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     totalProfit += extraPosProfit;
 
     const finalNet = totalProfit - totalLoss - totalExpenses;
+    
+    // Partner & Custody Logic
+    const custodyAccounts = (treasury?.accounts || []).filter(a => a.type === 'custody');
+    const partners = settings.partners || [];
+    
+    const partnerDetailsHtml = partners.length > 0 ? `
+        <div style="margin-top: 25px; page-break-inside: avoid;">
+            <h3 style="background: #1e3a8a; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">5. توزيع أرباح الشركاء والمراكز المالية (Partners Financial Position)</h3>
+            <table class="income-statement">
+                <thead>
+                    <tr style="background: #f1f5f9;">
+                        <th>اسم الشريك</th>
+                        <th style="text-align: center;">نسبة الربح (%)</th>
+                        <th style="text-align: left;">نصيبك من الربح (الفترة)</th>
+                        <th style="text-align: left;">إجمالي المسحوبات/القروض</th>
+                        <th style="text-align: left;">الرصيد المتاح حالياً</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${partners.map(p => {
+                        const partnerShare = (p.profitRatio / 100) * finalNet;
+                        const partnerTxs = settings.partnerTransactions?.filter(t => t.partnerId === p.id) || [];
+                        const totalWithdrawals = partnerTxs
+                            .filter(t => t.type === 'profit_withdrawal' || t.type === 'loan' || t.type === 'profit_distribution')
+                            .reduce((sum, t) => sum + t.amount, 0);
+
+                        return `
+                        <tr>
+                            <td style="font-weight: bold;">${p.name}</td>
+                            <td style="text-align: center;">${p.profitRatio}%</td>
+                            <td style="text-align: left; font-weight: bold; color: ${partnerShare >= 0 ? '#059669' : '#dc2626'};">+${partnerShare.toLocaleString()} ج.م</td>
+                            <td style="text-align: left; color: #b91c1c;">-${totalWithdrawals.toLocaleString()} ج.م</td>
+                            <td style="text-align: left; font-weight: bold; background: #f8fafc;">${p.balance.toLocaleString()} ج.م</td>
+                        </tr>
+                        `;
+                    }).join('')}
+                    <tr class="total-line" style="background: #f1f5f9;">
+                        <td colspan="2">إجمالي صافي أرباح الفترة المتوفرة للتوزيع</td>
+                        <td colspan="3" style="text-align: left; font-size: 16px;">${finalNet.toLocaleString()} ج.م</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p style="font-size: 11px; color: #64748b; margin-top: 5px;">* ملاحظة: "نصيب الربح" هو القيمة النظرية بناءً على أداء الفترة الحالية، بينما "الرصيد المتاح" هو رصيد الشريك الفعلي في النظام شاملاً كافة العمليات السابقة.</p>
+        </div>
+    ` : '';
+
+    const custodyDetailsHtml = custodyAccounts.length > 0 ? `
+        <div style="margin-top: 25px; page-break-inside: avoid;">
+            <h3 style="background: #334155; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">6. المراقبة المالية: ذمم العُهد والموظفين (Custody Monitoring)</h3>
+            <table class="income-statement">
+                <thead>
+                    <tr style="background: #f1f5f9;">
+                        <th>اسم الموظف / صاحب العهدة</th>
+                        <th>مبلغ العهدة المتبقي</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${custodyAccounts.map(a => `
+                    <tr>
+                        <td>${a.name}</td>
+                        <td style="text-align: left; font-weight: bold; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td>
+                    </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">* المبالغ أعلاه تمثل السيولة المتبقية في ذمة الموظفين كعُهد مالية (Custody) لم يتم إغلاقها أو تسويتها بمصاريف بعد.</p>
+        </div>
+    ` : '';
 
     // --- NEW CALCULATIONS ---
     const successRate = orders.length > 0 ? (collectedOrders.length / orders.length) * 100 : 0;
@@ -1589,7 +1674,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         <div class="summary-grid no-break">
           <div class="stat-card">
             <span class="label">إجمالي المبيعات</span>
-            <span class="value">${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue).toLocaleString()} ج.م</span>
+            <span class="value">${(totalProductRevenue + totalProductExtraMarkup + totalShippingRevenue + totalOverrideAdjustment).toLocaleString()} ج.م</span>
             <span class="sub-label">(ثمن المنتجات + الزيادة + تحصيل الشحن)</span>
           </div>
           <div class="stat-card" style="border-top: 4px solid #1e3a8a;">
@@ -1624,9 +1709,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         </div>
         <div class="metrics-grid no-break">
           <div class="metric-box"><h4>مبيعات المنتجات</h4><p>${totalProductRevenue.toLocaleString()}</p></div>
-          <div class="metric-box"><h4>الربح الإضافي</h4><p>${totalExtraMarkup.toLocaleString()}</p></div>
+          <div class="metric-box"><h4>الزيادة والتعديل</h4><p>${(totalProductExtraMarkup + totalOverrideAdjustment).toLocaleString()}</p></div>
           <div class="metric-box"><h4>تحصيل الشحن</h4><p>${totalShippingRevenue.toLocaleString()}</p></div>
-          <div class="metric-box" style="background: #eff6ff;"><h4>إجمالي الإيرادات</h4><p style="color: #1e40af;">${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue).toLocaleString()}</p></div>
+          <div class="metric-box" style="background: #eff6ff;"><h4>إجمالي الإيرادات</h4><p style="color: #1e40af;">${(totalProductRevenue + totalProductExtraMarkup + totalShippingRevenue + totalOverrideAdjustment).toLocaleString()}</p></div>
         </div>
 
         <!-- Stage 2 -->
@@ -1711,7 +1796,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
           <table class="income-statement no-break">
             <tr class="group-header"><td colspan="2">1. الإيرادات (Revenues)</td></tr>
             <tr><td class="indent">إجمالي مبيعات المنتجات (بالسعر الأساسي)</td><td style="color: #10b981;">+${totalProductRevenue.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">إيرادات الزيادة في السعر وفرق الشحن</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">إيرادات الزيادة في السعر والتعديلات اليدوية</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
             <tr><td class="indent">إجمالي تحصيل الشحن من العملاء</td><td style="color: #10b981;">+${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
             <tr class="total-line"><td>(=) إجمالي الإيرادات (Total Revenue)</td><td>${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue).toLocaleString()} ج.م</td></tr>
 
@@ -1721,9 +1806,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             
             <tr class="group-header"><td colspan="2">3. إجمالي الربح التشغيلي (Gross Profit)</td></tr>
             <tr><td class="indent">تفصيل الربح: ربح العمولة</td><td style="color: #10b981;">+${(totalCommissionProfit - totalProductExtraMarkup).toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">تفصيل الربح: الزيادة في السعر وفرق الشحن</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">تفصيل الربح: ربح المبيعات</td><td style="color: #10b981;">+${totalPercentageProfit.toLocaleString()} ج.م</td></tr>
-            <tr class="total-line"><td>(=) إجمالي الربح التشغيلي</td><td>${(totalCommissionProfit + totalPercentageProfit + totalShippingMarkup).toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">تفصيل الربح: الزيادة في السعر وفرق الشحن</td><td style="color: #10b981;">+${(totalExtraMarkup + totalShippingMarkup).toLocaleString()} ج.م</td></tr>
+            <tr><td class="indent">تفصيل الربح: ربح المبيعات</td><td style="color: #10b981;">+${(totalPercentageProfit - (totalOverrideAdjustment < 0 ? totalOverrideAdjustment : 0)).toLocaleString()} ج.م</td></tr>
+            <tr class="total-line"><td>(=) إجمالي الربح التشغيلي</td><td>${(totalCommissionProfit + totalPercentageProfit + totalShippingMarkup + totalOverrideAdjustment).toLocaleString()} ج.م</td></tr>
 
             <tr class="group-header"><td colspan="2">4. الخسائر والمصروفات (Losses & Expenses)</td></tr>
             <tr><td class="indent">(-) إجمالي رسوم التأمين والمعاينة والتحصيل</td><td style="color: #dc2626;">-${(totalInsuranceFees + totalInspectionFees + totalCodFees).toLocaleString(undefined, {maximumFractionDigits: 2})} ج.م</td></tr>
@@ -1748,6 +1833,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
           <div class="no-break">
             ${recommendationHtml}
           </div>
+
+          ${partnerDetailsHtml}
+          ${custodyDetailsHtml}
         </div>
 
         <div style="break-before: ${isContinuous ? 'avoid' : 'page'}; page-break-before: ${isContinuous ? 'avoid' : 'always'};">

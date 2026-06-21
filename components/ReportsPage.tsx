@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Order, Settings, Wallet, Store } from '../types';
+import { Order, Settings, Wallet, Store, Treasury } from '../types';
 import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, Coins, Monitor, ShoppingBasket } from 'lucide-react';
-import { AccountingReports } from './AccountingReports';
+import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML } from '../utils/reportGenerator';
 import * as htmlToImage from 'html-to-image';
@@ -17,6 +17,7 @@ interface ReportsPageProps {
   orders: Order[];
   settings: Settings;
   wallet: Wallet;
+  treasury?: Treasury;
   activeStore?: Store;
   setSettings?: React.Dispatch<React.SetStateAction<Settings>>;
   setWallet?: React.Dispatch<React.SetStateAction<Wallet>>;
@@ -1018,7 +1019,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     );
 };
 
-const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore, dateRangeText }) => {
+const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -1312,7 +1313,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
     const handlePreview = () => {
         const storeName = activeStore?.name || 'متجري';
-        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText);
+        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury);
         setPreviewHtml(html);
     };
 
@@ -1338,7 +1339,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         setIsExporting(true);
         try {
             const storeName = activeStore?.name || 'متجري';
-            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText);
+            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury);
             await exportHTMLToPDF(html, orientation, `التقرير_الختامي_الشامل_${new Date().toISOString().split('T')[0]}.pdf`, isContinuous);
         } catch (error) {
             console.error('PDF generation failed:', error);
@@ -1350,7 +1351,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
     const handlePrint = () => {
         const storeName = activeStore?.name || 'متجري';
-        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText);
+        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury);
         printHTMLDirectly(html);
     };
 
@@ -2048,7 +2049,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     );
 };
 
-const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore, dateRangeText }) => {
+const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
     const { storeId } = useParams<{ storeId: string }>();
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
@@ -2649,7 +2650,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
     );
 };
 
-const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore }) => {
+const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
     const stats = useMemo(() => {
         const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
         const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
@@ -2934,8 +2935,8 @@ const POSSalesReport: React.FC<{ orders: Order[], settings: Settings }> = ({ ord
     );
 };
 
-const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, activeStore, setSettings, setWallet }) => {
-    const [activeTab, setActiveTab] = useState<'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting' | 'pos'>('summary');
+const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, setSettings, setWallet }) => {
+    const [activeTab, setActiveTab] = useState<'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting' | 'pos' | 'custody'>('summary');
     const [dateRangeType, setDateRangeType] = useState<string>('all');
     const [customStartDate, setCustomStartDate] = useState<string>('');
     const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -3112,6 +3113,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
                 <button onClick={() => setActiveTab('comprehensive')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'comprehensive' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>التقرير الشامل</button>
                 <button onClick={() => setActiveTab('final')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'final' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>التقرير الختامي الشامل</button>
                 <button onClick={() => setActiveTab('partners')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الشركاء</button>
+                <button onClick={() => setActiveTab('custody')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'custody' ? 'bg-amber-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>العهد المالية</button>
                 <button onClick={() => setActiveTab('inventory')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'inventory' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 dark:shadow-none' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>المشتريات والمخزون</button>
                 <button onClick={() => setActiveTab('accounting')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'accounting' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 dark:shadow-none' : 'text-purple-600 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50'}`}>الحسابات الختامية 📊</button>
             </div>
@@ -3119,9 +3121,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, act
                 {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} />}
                 {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={settings} />}
-                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'custody' && <CustodyLedger settings={settings} />}
                 {activeTab === 'inventory' && <InventoryReport activeStore={activeStore} settings={settings} dateRangeText={dateRangeText} />}
                 {activeTab === 'accounting' && <AccountingReports orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} setSettings={setSettings} setWallet={setWallet} />}
             </div>

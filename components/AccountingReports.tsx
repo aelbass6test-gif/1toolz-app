@@ -190,9 +190,9 @@ export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, a
 const TabButton = ({ active, onClick, icon, title }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string }) => (
     <button 
         onClick={onClick}
-        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all whitespace-nowrap text-xs border-2 ${active ? 'bg-purple-600 text-white border-purple-600 shadow-md translate-y-[-1px]' : 'bg-white dark:bg-slate-800 text-slate-500 border-transparent hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition-all text-sm border-2 ${active ? 'bg-purple-600 text-white border-purple-600 shadow-md translate-y-[-1px]' : 'bg-white dark:bg-slate-800 text-slate-500 border-transparent hover:bg-slate-50 dark:hover:bg-slate-700'}`}
     >
-        {icon} {title}
+        {icon} <span>{title}</span>
     </button>
 );
 
@@ -220,6 +220,8 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
 
         let totalShippingMarkup = 0;
 
+        let totalRevenue = 0;
+
         completedOrders.forEach(o => {
             const { profit } = calculateOrderProfitLoss(o, settings);
             totalOrderProfit += profit;
@@ -231,14 +233,22 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
             });
             shippingRevenue += (o.shippingFee || 0);
 
+            const safeProductPrice = Number(o.productPrice) || 0;
+            const safeShippingFee = Number(o.shippingFee) || 0;
+            const safeDiscount = Number(o.discount) || 0;
+            const safeAdvance = Number(o.advancePayment) || 0;
+            
+            const totalCollected = o.totalAmountOverride !== undefined && o.totalAmountOverride !== null
+                ? o.totalAmountOverride + safeAdvance
+                : (safeProductPrice + safeShippingFee - safeDiscount);
+            
+            totalRevenue += totalCollected;
+
             const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
             const standardShipping = isPosOrder ? 0 : getStandardShippingFee(o, settings);
             const shippingMarkup = isPosOrder ? 0 : Math.max(0, o.shippingFee - standardShipping);
             totalShippingMarkup += shippingMarkup;
 
-            const safeProductPrice = Number(o.productPrice) || 0;
-            const safeShippingFee = Number(o.shippingFee) || 0;
-            const safeDiscount = Number(o.discount) || 0;
             const baseTotalExpected = safeProductPrice + safeShippingFee - safeDiscount;
 
             if (o.channel !== 'pos' && o.shippingCompany !== 'كاشير - بيع مباشر') {
@@ -287,14 +297,14 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
             .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status))
             .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
 
-        const totalRevenue = productRevenue + shippingRevenue;
+        const finalRevenue = totalRevenue + extraPosRevenue;
         const grossProfit = productRevenue - cogs + totalShippingMarkup; // This perfectly represents product gross profit including shipping markups
         
         // Net profit matches the precise final financial logic (including extra POS sales profit!)
         const netProfit = totalOrderProfit + extraPosProfit - totalExpenses - lossFromReturnOrders;
 
         return { 
-            productRevenue, shippingRevenue, totalRevenue, 
+            productRevenue, shippingRevenue, totalRevenue: finalRevenue, 
             cogs, grossProfit, totalExpenses, totalReturnFees: lossFromReturnOrders, 
             insuranceFees, inspectionFees, carrierShippingFees, netProfit,
             margin: productRevenue > 0 ? (grossProfit / productRevenue) * 100 : 0
@@ -804,7 +814,7 @@ const ProductProfitability = ({ orders, settings }: { orders: Order[], settings:
 };
 
 // 6. Custody Ledger Component
-const CustodyLedger = ({ settings }: { settings: Settings }) => {
+export const CustodyLedger = ({ settings }: { settings: Settings }) => {
     const holders = settings.cashHolders || [];
 
     const handleExport = (mode: 'print' | 'pdf') => {
