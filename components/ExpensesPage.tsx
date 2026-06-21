@@ -290,16 +290,56 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12 px-4 sm:px-8" dir="rtl">
       {/* Print-only Header */}
-      <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-4">
-        <div className="flex justify-between items-end">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900">مصروفات المتجر</h1>
-            <p className="text-sm text-slate-600 mt-1">تقرير المصروفات العامة التفصيلي</p>
+      <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-6">
+        <div className="flex justify-between items-start">
+          <div className="flex items-center gap-4">
+             <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white">
+                <Receipt size={32} />
+             </div>
+             <div>
+                <h1 className="text-3xl font-black text-slate-900">مصروفات المتجر العام</h1>
+                <p className="text-sm text-slate-600 mt-1 uppercase tracking-widest font-bold">تقرير الضبط المالي والجرد التفصيلي</p>
+             </div>
           </div>
-          <div className="text-left text-xs font-bold text-slate-500">
-            <div>تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</div>
-            <div>إجمالي المصروفات: {stats.total.toLocaleString()} ج.م</div>
+          <div className="text-left text-xs font-bold text-slate-500 space-y-1">
+            <div>تاريخ التقرير: {new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div>تاريخ الاستخراج: {new Date().toLocaleTimeString('ar-EG')}</div>
+            <div className="text-slate-900 font-extrabold pt-2">إجمالي المصروفات في الفترة: {stats.total.toLocaleString()} ج.م</div>
           </div>
+        </div>
+
+        {/* Print-only Balances Summary (The "Rest of accounts" requested by user) */}
+        <div className="mt-8 grid grid-cols-2 gap-8 border-t border-slate-200 pt-6">
+           <div>
+             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-100 pb-1">أرصدة الخزائن الحالية</h3>
+             <div className="space-y-2">
+                {treasury?.accounts.map(acc => (
+                  <div key={acc.id} className="flex justify-between text-xs">
+                    <span className="text-slate-600">{acc.name}:</span>
+                    <span className="font-bold text-slate-900">{acc.balance.toLocaleString()} ج.م</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs border-t border-slate-100 pt-1 font-black">
+                  <span>إجمالي السيولة المتاحة:</span>
+                  <span>{(treasury?.accounts.reduce((sum, a) => sum + a.balance, 0) || 0).toLocaleString()} ج.م</span>
+                </div>
+             </div>
+           </div>
+           <div>
+             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-100 pb-1">ذمم ومسحوبات الشركاء (مديونيات)</h3>
+             <div className="space-y-2">
+                {settings.partners?.map(p => (
+                  <div key={p.id} className="flex justify-between text-xs">
+                    <span className="text-slate-600">{p.name}:</span>
+                    <span className="font-bold text-slate-900">{p.balance?.toLocaleString() || 0} ج.م</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs border-t border-slate-100 pt-1 font-black">
+                  <span>إجمالي مديونية الشركاء:</span>
+                  <span>{(settings.partners?.reduce((sum, p) => sum + (p.balance || 0), 0) || 0).toLocaleString()} ج.م</span>
+                </div>
+             </div>
+           </div>
         </div>
       </div>
 

@@ -284,28 +284,34 @@ const MainLayout = ({
             <div className="absolute top-[35%] left-[25%] w-[300px] h-[300px] rounded-full bg-cyan-400/8 dark:bg-cyan-550/10 blur-[100px] pointer-events-none z-0 animate-float" />
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
-                <Header 
-                    currentUser={currentUser} 
-                    onLogout={handleLogout} 
-                    onToggleSidebar={() => setSidebarOpen(true)} 
-                    theme={theme} 
-                    setTheme={setTheme} 
-                    activeStore={activeStore} 
-                    dbSyncMode={dbSyncMode}
-                    setDbSyncMode={setDbSyncMode}
-                    forceSync={forceSync}
-                    forcePullFromCloud={forcePullFromCloud}
-                    saveStatus={saveStatus}
-                    saveMessage={saveMessage}
-                    unsavedChanges={unsavedChanges}
-                    inventoryAlerts={inventoryAlerts}
-                />
+                <div className="no-print">
+                    <Header 
+                        currentUser={currentUser} 
+                        onLogout={handleLogout} 
+                        onToggleSidebar={() => setSidebarOpen(true)} 
+                        theme={theme} 
+                        setTheme={setTheme} 
+                        activeStore={activeStore} 
+                        dbSyncMode={dbSyncMode}
+                        setDbSyncMode={setDbSyncMode}
+                        forceSync={forceSync}
+                        forcePullFromCloud={forcePullFromCloud}
+                        saveStatus={saveStatus}
+                        saveMessage={saveMessage}
+                        unsavedChanges={unsavedChanges}
+                        inventoryAlerts={inventoryAlerts}
+                    />
+                </div>
                 <div className="flex flex-1 overflow-hidden relative">
-                    <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+                    <div className="no-print">
+                        <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+                    </div>
                     <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative">
                         <Outlet />
                     </main>
-                    <MobileNavigation activeStoreId={activeStore?.id} />
+                    <div className="no-print">
+                        <MobileNavigation activeStoreId={activeStore?.id} />
+                    </div>
                 </div>
             </div>
         </div>
