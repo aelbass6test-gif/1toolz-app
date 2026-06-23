@@ -567,6 +567,29 @@ export interface WebhookIntegration {
   isActive: boolean;
 }
 
+export interface StaffMember {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  baseSalary: number;
+  position: string;
+  joinDate: string;
+  active: boolean;
+  notes?: string;
+}
+
+export interface PayrollTransaction {
+  id: string;
+  staffId: string;
+  staffName: string;
+  type: 'salary' | 'incentive' | 'deduction';
+  amount: number;
+  date: string;
+  note?: string;
+  walletTransactionId?: string;
+}
+
 export interface Settings {
   id?: string;
   data?: any; // For flexible local storage
@@ -622,6 +645,8 @@ export interface Settings {
     isActive: boolean;
   }>;
   employees: Employee[];
+  staffMembers?: StaffMember[]; 
+  payrollTransactions?: PayrollTransaction[]; 
   customization: StoreCustomization;
   discountCodes: DiscountCode[];
   abandonedCarts: AbandonedCart[];

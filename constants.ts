@@ -216,6 +216,8 @@ export const INITIAL_SETTINGS: Settings = {
   customDomain: '',
   subdomain: '',
   employees: [],
+  staffMembers: [],
+  payrollTransactions: [],
   customization: INITIAL_CUSTOMIZATION,
   discountCodes: [],
   abandonedCarts: [],
@@ -235,7 +237,7 @@ export const INITIAL_SETTINGS: Settings = {
   collections: [],
   whatsappTemplates: DEFAULT_WHATSAPP_TEMPLATES,
   callScripts: DEFAULT_CALL_SCRIPTS,
-  expenseCategories: ['expense_ads', 'expense_salary', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other'],
+  expenseCategories: ['expense_ads', 'expense_salary', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other', 'supply_expense_shipping', 'supply_expense_other'],
   employeeDashboardSettings: {
     showAssignedOrders: true,
     showOrderStatuses: ['في_انتظار_المكالمة', 'قيد_التنفيذ', 'جاري_المراجعة'],
@@ -283,8 +285,8 @@ export const TRANSACTION_CATEGORY_LABELS: Record<string, string> = {
     'supply_purchase': 'أمر توريد مخزون',
     'supply_deposit': 'إيداع توريد',
     'supply_funding': 'تمويل توريد',
-    'supply_expense_shipping': 'شحن مشتريات',
-    'supply_expense_other': 'إضافات مشتريات',
+    'supply_expense_shipping': 'مصاريف شحن مشتريات',
+    'supply_expense_other': 'مصاريف أخرى / إضافية مشتريات',
     'pos_digital': 'مبيعات POS رقمية'
 };
 

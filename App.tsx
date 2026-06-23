@@ -59,6 +59,7 @@ import WhatsAppPage from './components/WhatsAppPage';
 import WelcomeLoader from './components/WelcomeLoader';
 import GlobalLoader from './components/GlobalLoader';
 import EmployeesPage from './components/EmployeesPage';
+import EmployeesPayrollPage from './components/EmployeesPayrollPage';
 import ReportsPage from './components/ReportsPage';
 import { TreasuryPage } from './components/TreasuryPage';
 import { DomainSettingsPage } from './components/DomainSettingsPage';
@@ -2322,6 +2323,7 @@ export const AppComponent = () => {
                     <Route path="pages" element={<PagesManager {...pageProps} />} />
                     <Route path="settings/payment" element={<PaymentSettingsPage {...pageProps} />} />
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />
+                    <Route path="employees-payroll" element={<EmployeesPayrollPage {...pageProps} />} />
                     <Route path="team-chat" element={<TeamChatPage {...pageProps} activeStoreId={activeStoreId} />} />
                     <Route path="whatsapp" element={<WhatsAppPage {...pageProps} />} />
                     <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} />} />

@@ -351,15 +351,10 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       }
     }, 0);
 
-    // Liquid cash calculation - Exclude supply wallet transactions to avoid double counting
+    // Liquid cash calculation - Sum up transactions to get current balance
     const cashBalance = (wallet?.transactions || []).reduce((sum, t) => {
         const amount = Number(t.amount) || 0;
         if (t.details?.paidByPartnerId) return sum;
-        
-        // Exclude supply wallet categories from liquid cash
-        const category = t.category || '';
-        const isSupplyTx = (settings?.expenseCategories || []).includes(category) && category.startsWith('supply_');
-        if (isSupplyTx) return sum;
 
         if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
         if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;

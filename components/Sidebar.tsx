@@ -113,6 +113,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} />, badge: { text: "رئيسية", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px]" } },
                 { to: `${storePrefix}/cash-management`, label: 'حركات العُهد وتسليم الوردية', icon: <Handshake size={18} /> },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
+                { to: `${storePrefix}/employees-payroll`, label: 'إدارة شؤون الموظفين والرواتب', icon: <Users size={18} />, badge: { text: "جديد", color: "bg-blue-500/10 text-blue-600 border border-blue-500/10 text-[9px]" } },
                 { to: `${storePrefix}/partners`, label: 'حسابات الشركاء والمسحوبات الشخصية', icon: <Users size={18} /> },
                 { to: `${storePrefix}/collections-report`, label: 'سجلات التحصيل والمقاصة المالية', icon: <Receipt size={18} /> },
                 { to: `${storePrefix}/wallet`, label: 'المحفظة الإلكترونية لعمولات المتجر', icon: <WalletIcon size={18} /> },
