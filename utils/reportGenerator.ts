@@ -210,7 +210,19 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from './financials';
 
 export const generateInvoiceHTML = (order: Order, settings: Settings, storeName: string) => {
-  const totalAmount = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - order.discount);
+  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+  const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+  const useCustom = compFees?.useCustomFees ?? false;
+  const inspectionFeeParams = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+  
+  const computedTotal = (Number(order.productPrice) || 0) + (Number(order.shippingFee) || 0) - (Number(order.discount) || 0) - (Number(order.advancePayment) || 0) + inspectionFeeParams;
+  let totalAmount = computedTotal;
+  
+  if (order.source === 'synced' && order.totalPrice != null) {
+      totalAmount = Number(order.totalPrice) + inspectionFeeParams;
+  } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null && String(order.totalAmountOverride).trim() !== '') {
+      totalAmount = Number(order.totalAmountOverride);
+  }
   
   const itemsHtml = order.items.map((item: OrderItem) => `
     <tr style="border-bottom: 1px solid #eee;">
@@ -310,7 +322,7 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
           ${order.includeInspectionFee ? `
           <div class="total-row">
             <span>رسوم معاينة (إن وجدت):</span>
-            <span>${settings.inspectionFee.toLocaleString()} ج.م</span>
+            <span>${inspectionFeeParams.toLocaleString()} ج.م</span>
           </div>` : ''}
           <div class="total-row grand-total">
             <span>الإجمالي المستحق:</span>
@@ -347,7 +359,7 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
     const computedTotal = (Number(order.productPrice) || 0) + (Number(order.shippingFee) || 0) - (Number(order.discount) || 0) - (Number(order.advancePayment) || 0) + inspectionFeeParams;
     const amountToCollect = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride) - (Number(order.advancePayment) || 0))) : computedTotal;
     
-    const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : amountToCollect;
+    const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) + inspectionFeeParams : amountToCollect;
 
     const { net, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -373,7 +385,7 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
         <td style="padding: 8px;">${order.productPrice.toLocaleString()}</td>
         <td style="padding: 8px;">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
         <td style="padding: 8px; text-align: center;">${totalQuantity}</td>
-        <td style="padding: 8px;">${(carrierFees + (order.inspectionFeePaidByCustomer ? inspectionFeeParams : 0)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+        <td style="padding: 8px;">${carrierFees.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
         <td style="padding: 8px;">${displayTotal.toLocaleString()}</td>
         <td style="padding: 8px; font-weight: bold;">${displayTotal.toLocaleString()}</td>
         <td style="padding: 8px; text-align: center;"><span style="padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; white-space: nowrap; ${getStatusColor(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>

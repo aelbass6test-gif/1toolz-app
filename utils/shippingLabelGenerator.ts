@@ -1,7 +1,19 @@
-import { Order } from '../types';
+import { Order, Settings } from '../types';
 
-export const generateShippingLabelHTML = (order: Order, storeName: string) => {
-  const totalAmount = (order.totalAmountOverride ?? (order.productPrice + order.shippingFee - order.discount));
+export const generateShippingLabelHTML = (order: Order, storeName: string, settings?: Settings) => {
+  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+  const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+  const useCustom = compFees?.useCustomFees ?? false;
+  const inspectionFeeParams = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? (settings?.inspectionFee || 0) : 0)) : 0;
+  
+  const computedTotal = (Number(order.productPrice) || 0) + (Number(order.shippingFee) || 0) - (Number(order.discount) || 0) - (Number(order.advancePayment) || 0) + inspectionFeeParams;
+  let totalAmount = computedTotal;
+  
+  if (order.source === 'synced' && order.totalPrice != null) {
+      totalAmount = Number(order.totalPrice) + inspectionFeeParams;
+  } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null && String(order.totalAmountOverride).trim() !== '') {
+      totalAmount = Number(order.totalAmountOverride);
+  }
   
   // Only show COD amount if payment method is COD
   const isCOD = order.paymentMethod?.toLowerCase().includes('cod') || !order.paymentMethod;

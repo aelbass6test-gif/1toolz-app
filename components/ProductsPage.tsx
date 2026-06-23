@@ -426,6 +426,9 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         hasVariants: productData.hasVariants || false,
         options: productData.hasVariants ? (productData.options || []) : [],
         variants: productData.hasVariants ? (productData.variants || []) : [],
+        warehouseStock: productData.warehouseStock,
+        lastAudited: productData.lastAudited,
+        expiryDate: productData.expiryDate,
         
         profitMode: productData.profitMode || 'manual',
         profitPercentage: productData.profitPercentage || 0,
@@ -2101,7 +2104,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                 )}
                                 {profitMode === 'commission' && (
                                     <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-300">
-                                        <FormInput label="السعر الأساسي" icon={<DollarSign size={16}/>} type="number" value={productData.basePrice || ''} onChange={e => updateField('basePrice', Number(e.target.value))} />
+                                        <FormInput label="سعر البيع الأساسي" icon={<DollarSign size={16}/>} type="number" value={productData.basePrice || ''} onChange={e => updateField('basePrice', Number(e.target.value))} />
                                         <FormInput label="نسبة العمولة %" icon={<Percent size={16}/>} type="number" value={productData.commissionPercentage || ''} onChange={e => updateField('commissionPercentage', Number(e.target.value))} />
                                     </div>
                                 )}

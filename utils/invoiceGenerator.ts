@@ -14,7 +14,12 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
     return sum + discount;
   }, 0);
 
-  const totalAmount = order.totalAmountOverride ?? (order.productPrice + order.shippingFee + (order.tax || 0) - order.discount - itemDiscounts);
+  const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+  const inspectionFeeValue = order.includeInspectionFee 
+    ? (compFees?.useCustomFees ? (compFees.inspectionFee ?? settings.inspectionFee) : settings.inspectionFee)
+    : 0;
+
+  const totalAmount = order.totalAmountOverride ?? (order.productPrice + order.shippingFee + (order.tax || 0) + inspectionFeeValue - order.discount - itemDiscounts);
   
   const itemsHtml = order.items.map((item: OrderItem) => {
     let discountText = '';
@@ -140,7 +145,7 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
           ${order.includeInspectionFee ? `
           <div class="total-row">
             <span>رسوم معاينة (إن وجدت):</span>
-            <span>${settings.inspectionFee.toLocaleString()} ج.م</span>
+            <span>${inspectionFeeValue.toLocaleString()} ج.م</span>
           </div>` : ''}
           ${(Number(order.advancePayment) || 0) > 0 ? `
           <div class="total-row" style="font-size: 14px; color: #555;">

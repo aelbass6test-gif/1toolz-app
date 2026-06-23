@@ -6,8 +6,9 @@ import {
   HelpCircle, Wallet, Banknote, MapPin, Sparkles, Link, 
   Calendar, DollarSign, CheckCircle2, ListFilter, Play,
   ChevronDown, ChevronUp, Globe, Search, RefreshCw, X, ShieldCheck,
-  Package, ShoppingCart, Minus, Check, Plus, User
+  Package, ShoppingCart, Minus, Check, Plus, User, Settings, Trash2
 } from 'lucide-react';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface BostaSystemPortalProps {
   onBack: () => void;
@@ -113,13 +114,44 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
   const [isHubDropdownOpen, setIsHubDropdownOpen] = useState<boolean>(false);
 
   // Packaging Store Stats
+  const walletStats = useMemo(() => {
+    const transactions = wallet?.transactions || [];
+    const calculatedBalance = transactions.reduce((sum, t) => {
+        const amount = typeof t.amount === 'string' ? parseFloat(t.amount) : Number(t.amount) || 0;
+        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+        if (t.details?.paidByPartnerId) return sum;
+        if (t.type === 'إيداع') {
+             return t.status === 'completed' ? sum + amount : sum;
+        }
+        if (t.type === 'سحب') {
+             return t.status === 'cancelled' ? sum : sum - amount;
+        }
+        return sum;
+    }, 0);
+    
+    const storedBalance = Number(wallet?.balance) || 0;
+    
+    // We trust the transactions ledger as the primary source of truth for the live balance.
+    // If the user has transactions, the balance is calculated from them.
+    // This allows for corrections by deleting or adding transactions.
+    // We only use the stored balance if no transactions exist.
+    const liveBalance = (transactions.length > 0) ? calculatedBalance : storedBalance;
+    
+    return { liveBalance };
+  }, [wallet?.transactions, wallet?.balance]);
+
   const [packagingCart, setPackagingCart] = useState<Record<string, number>>({});
   const [showPackagingCheckout, setShowPackagingCheckout] = useState(false);
-  const [selectedPackagingPaymentId, setSelectedPackagingPaymentId] = useState<string>('');
-  const [packagingPaymentType, setPackagingPaymentType] = useState<'treasury' | 'wallet' | 'partner'>('treasury');
+  const [showPackagingHistory, setShowPackagingHistory] = useState(false);
+  const [selectedPackagingPaymentId, setSelectedPackagingPaymentId] = useState<string>('wallet');
+  const [packagingPaymentType, setPackagingPaymentType] = useState<'treasury' | 'wallet' | 'partner'>('wallet');
   const [isPackagingProcessing, setIsPackagingProcessing] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<any>(null);
+  const [isEditingPackagingPrices, setIsEditingPackagingPrices] = useState(false);
+  const [tempPackagingPrices, setTempPackagingPrices] = useState<Record<string, number>>({});
+  const [tempPackagingShippingFee, setTempPackagingShippingFee] = useState(55);
 
-  const PACKAGING_PRODUCTS = [
+  const BASE_PACKAGING_PRODUCTS = [
     // فلايرات
     { id: 'f_sm', name: 'فلاير صغير (30 × 25) - ١٠ قطعة', price: 4, category: 'فلايرات', image: 'https://cdn-icons-png.flaticon.com/512/679/679821.png' },
     { id: 'f_md', name: 'فلاير متوسط (40 × 35) - ١٠ قطعة', price: 5, category: 'فلايرات', image: 'https://cdn-icons-png.flaticon.com/512/679/679821.png' },
@@ -153,6 +185,37 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
     { id: 'o_hc2', name: 'رول هوني كومب 50سم × 50م', price: 240, category: 'أخرى', image: 'https://cdn-icons-png.flaticon.com/512/3014/3014605.png' },
   ];
 
+  const PACKAGING_PRODUCTS = BASE_PACKAGING_PRODUCTS.map(p => ({
+    ...p,
+    price: settings?.data?.bostaPackagingPrices?.[p.id] ?? p.price
+  }));
+
+  const PACKAGING_SHIPPING_FEE = settings?.data?.bostaPackagingShippingFee !== undefined ? settings.data.bostaPackagingShippingFee : 55;
+
+  const savePackagingPrices = () => {
+    if (setSettings) {
+      setSettings((prev: any) => ({
+        ...prev,
+        data: {
+          ...(prev.data || {}),
+          bostaPackagingPrices: tempPackagingPrices,
+          bostaPackagingShippingFee: tempPackagingShippingFee
+        }
+      }));
+    }
+    setIsEditingPackagingPrices(false);
+  };
+
+  const startEditingPrices = () => {
+    const initialTemp: Record<string, number> = {};
+    PACKAGING_PRODUCTS.forEach(p => {
+      initialTemp[p.id] = p.price;
+    });
+    setTempPackagingPrices(initialTemp);
+    setTempPackagingShippingFee(PACKAGING_SHIPPING_FEE);
+    setIsEditingPackagingPrices(true);
+  };
+
   const handlePackagingCartUpdate = (id: string, delta: number) => {
     setPackagingCart(prev => {
       const current = prev[id] || 0;
@@ -173,7 +236,6 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
   };
 
   const handleConfirmPackagingPurchase = () => {
-    const PACKAGING_SHIPPING_FEE = 55;
     const total = calculatePackagingTotal() + PACKAGING_SHIPPING_FEE;
     
     if (total === PACKAGING_SHIPPING_FEE) {
@@ -190,10 +252,30 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
     
     // Simulate API call and state update
     setTimeout(() => {
-      const itemsDisplay = Object.entries(packagingCart).map(([id, qty]) => {
+      const itemsDetail = Object.entries(packagingCart).map(([id, qty]) => {
         const p = PACKAGING_PRODUCTS.find(prod => prod.id === id);
-        return `${p?.name} (${qty})`;
-      }).join(' + ');
+        return {
+          id,
+          name: p?.name,
+          quantity: qty,
+          price: p?.price
+        };
+      });
+
+      const itemsDisplay = itemsDetail.map(i => `${i.name} (${i.quantity})`).join(' + ');
+
+      const txId = `pkg-${packagingPaymentType === 'wallet' ? 'w-' : packagingPaymentType === 'partner' ? 'p-' : ''}${Date.now()}`;
+      
+      const orderData = {
+        id: `B-${Math.floor(Math.random() * 90000) + 10000}`,
+        date: new Date().toISOString(),
+        items: itemsDetail,
+        shippingFee: PACKAGING_SHIPPING_FEE,
+        total: total,
+        paymentMethod: packagingPaymentType,
+        paymentId: selectedPackagingPaymentId,
+        transactionId: txId
+      };
 
       let paymentSourceName = '';
 
@@ -209,7 +291,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
         paymentSourceName = account?.name || 'الخزينة';
 
         const newTx = {
-          id: `pkg-${Date.now()}`,
+          id: txId,
           date: new Date().toISOString(),
           type: 'withdrawal' as const,
           amount: total,
@@ -223,7 +305,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           transactions: [newTx, ...prev.transactions]
         }));
       } else if (packagingPaymentType === 'wallet' && setWallet) {
-          if (wallet.balance < total) {
+          if (walletStats.liveBalance < total) {
               alert('الرصيد في المحفظة غير كافٍ');
               setIsPackagingProcessing(false);
               return;
@@ -233,7 +315,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               ...prev,
               balance: prev.balance - total,
               transactions: [{
-                  id: `pkg-w-${Date.now()}`,
+                  id: txId,
                   date: new Date().toISOString(),
                   type: 'سحب',
                   amount: total,
@@ -252,7 +334,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           paymentSourceName = `حساب الشريك: ${partner.name}`;
 
           const newPartnerTx = {
-              id: `pkg-p-${Date.now()}`,
+              id: txId,
               partnerId: selectedPackagingPaymentId,
               type: 'supply_funding',
               amount: total,
@@ -267,29 +349,67 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           }));
       }
 
-      // Record in wallet transactions as expense regardless of source (except if already done for wallet)
-      if (packagingPaymentType !== 'wallet' && setWallet) {
-          const newWalletTx = {
-            id: `pkg-exp-${Date.now()}`,
-            date: new Date().toISOString(),
-            type: 'سحب' as const,
-            amount: total,
-            description: `شراء مواد تغليف بوسطة: ${itemsDisplay}`,
-            category: 'expense_packaging',
-            status: 'completed' as const
-          };
-          setWallet((prev: any) => ({
-            ...prev,
-            transactions: [newWalletTx, ...prev.transactions]
-          }));
+      // Record in history
+      if (setSettings) {
+        setSettings((prev: any) => ({
+          ...prev,
+          data: {
+            ...(prev.data || {}),
+            packagingOrders: [orderData, ...(prev.data?.packagingOrders || [])]
+          }
+        }));
       }
 
       // Reset cart and state
       setPackagingCart({});
       setShowPackagingCheckout(false);
       setIsPackagingProcessing(false);
-      alert(`تم تنفيذ الشراء بنجاح وخصم مبلغ ${total} ج.م من ${paymentSourceName}.`);
+      alert(`تم تنفيذ الشراء بنجاح! رقم الطلب: ${orderData.id}`);
     }, 800);
+  };
+
+  const handleDeletePackagingOrder = (order: any) => {
+    setOrderToDelete(order);
+  };
+
+  const confirmDeletePackagingOrder = () => {
+    if (!orderToDelete) return;
+    const order = orderToDelete;
+
+    // 1. Revert payment
+    if (order.paymentMethod === 'wallet' && setWallet) {
+      setWallet((prev: any) => ({
+        ...prev,
+        balance: prev.balance + order.total,
+        transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId && t.description !== `شراء مواد تغليف بوسطة: ${order.items.map((i: any) => `${i.name} (${i.quantity})`).join(' + ')}`)
+      }));
+    } else if (order.paymentMethod === 'treasury' && setTreasury) {
+      setTreasury((prev: any) => ({
+        ...prev,
+        accounts: prev.accounts.map((a: any) => a.id === order.paymentId ? { ...a, balance: a.balance + order.total } : a),
+        transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId)
+      }));
+    } else if (order.paymentMethod === 'partner' && setSettings) {
+      setSettings((prev: any) => ({
+        ...prev,
+        partners: prev.partners.map((p: any) => p.id === order.paymentId ? { ...p, balance: (p.balance || 0) - order.total } : p),
+        partnerTransactions: (prev.partnerTransactions || []).filter((t: any) => t.id !== order.transactionId)
+      }));
+    }
+
+    // 2. Remove from history
+    if (setSettings) {
+      setSettings((prev: any) => ({
+        ...prev,
+        data: {
+          ...prev.data,
+          packagingOrders: (prev.data.packagingOrders || []).filter((o: any) => o.id !== order.id)
+        }
+      }));
+    }
+    
+    setOrderToDelete(null);
+    alert('تم حذف الطلب واستعادة المبلغ بنجاح');
   };
 
   // Cashout repeating system states
@@ -768,19 +888,83 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               <p className="text-xs font-bold text-slate-500 mt-1">تزود بمواد التغليف الرسمية من بوسطة (فلايرات، كراتين، بابلز) لشحن أوردراتك باحترافية.</p>
             </div>
             
-            <div className="flex items-center gap-3">
-              <div className="text-left md:text-right">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">إجمالي السلة</p>
-                <p className="text-xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{calculatePackagingTotal()} <span className="text-xs">ج.م</span></p>
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50 p-2 px-4 rounded-2xl flex items-center gap-3">
+                <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm text-emerald-600">
+                  <Coins size={16} />
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">رصيد المحفظة</p>
+                  <p className={`text-sm font-black tabular-nums ${walletStats.liveBalance === 0 ? 'text-red-500' : 'text-slate-800 dark:text-white'}`}>
+                    {walletStats.liveBalance.toLocaleString('ar-EG')} <span className="text-[10px] font-bold">ج.م</span>
+                  </p>
+                </div>
               </div>
-              <button 
-                onClick={() => setShowPackagingCheckout(true)}
-                disabled={Object.keys(packagingCart).length === 0}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:grayscale text-white font-black rounded-xl shadow-lg shadow-indigo-500/20 transition active:scale-95 flex items-center gap-2"
-              >
-                <ShoppingCart size={18} />
-                تأكيد الشراء (اتمام)
-              </button>
+
+              {!isEditingPackagingPrices && (
+                <button 
+                  onClick={() => setShowPackagingHistory(true)}
+                  className="flex items-center gap-2 p-3 px-4 text-slate-600 hover:text-indigo-600 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl transition shadow-sm font-bold text-xs"
+                >
+                  <ListFilter size={18} />
+                  سجل المشتريات
+                </button>
+              )}
+              
+              {isEditingPackagingPrices ? (
+                <>
+                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 px-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">مصاريف الشحن</label>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number"
+                        min="0"
+                        value={tempPackagingShippingFee}
+                        onChange={(e) => setTempPackagingShippingFee(Number(e.target.value))}
+                        className="w-16 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2 text-xs font-bold text-indigo-600 outline-none focus:ring-2 focus:ring-indigo-500"
+                        dir="ltr"
+                      />
+                      <span className="text-[10px] font-bold text-slate-500">ج.م</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setIsEditingPackagingPrices(false)}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+                  >
+                    إلغاء
+                  </button>
+                  <button 
+                    onClick={savePackagingPrices}
+                    className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition flex items-center gap-2"
+                  >
+                    <CheckCircle2 size={16} />
+                    حفظ الأسعار
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button 
+                    onClick={startEditingPrices}
+                    className="p-3 px-4 text-slate-600 hover:text-indigo-600 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-indigo-200 dark:hover:border-indigo-800 transition shadow-sm group flex items-center gap-2"
+                    title="تعديل الأسعار ومصاريف الشحن"
+                  >
+                    <Settings size={18} />
+                    <span className="text-xs font-bold">تعديل الأسعار والشحن</span>
+                  </button>
+                  <div className="text-left md:text-right">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">إجمالي السلة</p>
+                    <p className="text-xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{calculatePackagingTotal()} <span className="text-xs">ج.م</span></p>
+                  </div>
+                  <button 
+                    onClick={() => setShowPackagingCheckout(true)}
+                    disabled={Object.keys(packagingCart).length === 0}
+                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:grayscale text-white font-black rounded-xl shadow-lg shadow-indigo-500/20 transition active:scale-95 flex items-center gap-2"
+                  >
+                    <ShoppingCart size={18} />
+                    تأكيد الشراء (اتمام)
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -798,30 +982,47 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                   
                   <div className="space-y-1">
                     <h3 className="text-sm font-black text-slate-800 dark:text-white line-clamp-2 h-10 leading-tight">{product.name}</h3>
-                    <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono tracking-tighter">
-                      {product.price} <span className="text-[10px] font-sans">ج.م</span>
-                    </p>
+                    {isEditingPackagingPrices ? (
+                      <div className="flex items-center justify-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={tempPackagingPrices[product.id] || 0}
+                          onChange={(e) => setTempPackagingPrices(prev => ({ ...prev, [product.id]: Number(e.target.value) }))}
+                          className="w-20 text-center bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-800 rounded-lg py-1 px-2 text-sm font-black text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          dir="ltr"
+                        />
+                        <span className="text-[10px] text-slate-500">ج.م</span>
+                      </div>
+                    ) : (
+                      <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono tracking-tighter">
+                        {product.price} <span className="text-[10px] font-sans">ج.م</span>
+                      </p>
+                    )}
                   </div>
 
-                  <div className="w-full flex items-center justify-between p-1 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800 mt-2">
-                    <button 
-                      onClick={() => handlePackagingCartUpdate(product.id, -1)}
-                      className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-700 text-slate-400 hover:text-red-500 rounded-xl shadow-sm border border-slate-100 dark:border-slate-600 transition active:scale-90"
-                    >
-                      <Minus size={16} />
-                    </button>
-                    
-                    <span className="text-base font-black tabular-nums text-slate-800 dark:text-white">
-                      {packagingCart[product.id] || 0}
-                    </span>
+                  {!isEditingPackagingPrices && (
+                    <div className="w-full flex items-center justify-between p-1 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800 mt-2">
+                      <button 
+                        onClick={() => handlePackagingCartUpdate(product.id, -1)}
+                        className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-700 text-slate-400 hover:text-red-500 rounded-xl shadow-sm border border-slate-100 dark:border-slate-600 transition active:scale-90"
+                      >
+                        <Minus size={16} />
+                      </button>
+                      
+                      <span className="text-base font-black tabular-nums text-slate-800 dark:text-white">
+                        {packagingCart[product.id] || 0}
+                      </span>
 
-                    <button 
-                      onClick={() => handlePackagingCartUpdate(product.id, 1)}
-                      className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition active:scale-95"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </div>
+                      <button 
+                        onClick={() => handlePackagingCartUpdate(product.id, 1)}
+                        className="w-10 h-10 flex items-center justify-center bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition active:scale-95"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1128,12 +1329,26 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-1">
                   <div className="flex justify-between items-center text-xs text-slate-500">
                     <span>مصاريف شحن أدوات التغليف:</span>
-                    <span>55 ج.م</span>
+                    {isEditingPackagingPrices ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          value={tempPackagingShippingFee}
+                          onChange={(e) => setTempPackagingShippingFee(Number(e.target.value))}
+                          className="w-16 text-center bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded px-1 py-0.5 text-xs font-bold outline-none"
+                          dir="ltr"
+                        />
+                        <span>ج.م</span>
+                      </div>
+                    ) : (
+                      <span>{PACKAGING_SHIPPING_FEE} ج.م</span>
+                    )}
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="font-black text-slate-800 dark:text-white">الإجمالي النهائي:</span>
                     <span className="text-xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
-                      {calculatePackagingTotal() + 55} ج.م
+                      {calculatePackagingTotal() + PACKAGING_SHIPPING_FEE} ج.م
                     </span>
                   </div>
                 </div>
@@ -1143,7 +1358,11 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                 <label className="text-sm font-black text-slate-700 dark:text-slate-300">طريقة الدفع:</label>
                 <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl">
                   <button
-                    onClick={() => { setPackagingPaymentType('treasury'); setSelectedPackagingPaymentId(''); }}
+                    onClick={() => { 
+                      setPackagingPaymentType('treasury'); 
+                      if (treasury?.accounts?.length > 0) setSelectedPackagingPaymentId(treasury.accounts[0].id);
+                      else setSelectedPackagingPaymentId('');
+                    }}
                     className={`flex-1 py-2.5 text-xs font-black rounded-xl transition ${packagingPaymentType === 'treasury' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                   >
                     الخزائن
@@ -1155,7 +1374,11 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                     المحفظة
                   </button>
                   <button
-                    onClick={() => { setPackagingPaymentType('partner'); setSelectedPackagingPaymentId(''); }}
+                    onClick={() => { 
+                      setPackagingPaymentType('partner'); 
+                      if (settings?.partners?.length > 0) setSelectedPackagingPaymentId(settings.partners[0].id);
+                      else setSelectedPackagingPaymentId('');
+                    }}
                     className={`flex-1 py-2.5 text-xs font-black rounded-xl transition ${packagingPaymentType === 'partner' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                   >
                     حساب شريك
@@ -1183,7 +1406,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-black text-slate-800 dark:text-white">{acc.name}</p>
-                          <p className="text-[10px] font-bold text-slate-500">الرصيد المتاح: {acc.balance.toLocaleString()} ج.م</p>
+                          <p className="text-[10px] font-bold text-slate-500">الرصيد المتاح: {acc.balance.toLocaleString('ar-EG')} ج.م</p>
                         </div>
                       </div>
                       {selectedPackagingPaymentId === acc.id && <Check size={16} className="text-indigo-600" />}
@@ -1204,8 +1427,11 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                           <Coins size={16} />
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-black text-slate-800 dark:text-white">محفظة شحن المتجر</p>
-                          <p className="text-[10px] font-bold text-slate-500">الرصيد المتاح: {wallet?.balance.toLocaleString()} ج.م</p>
+                          <p className="text-sm font-black text-slate-800 dark:text-white">محفظة المتجر</p>
+                          <p className={`text-[10px] font-bold ${(walletStats.liveBalance === 0) ? 'text-red-500' : 'text-slate-500'}`}>
+                            الرصيد المتاح: {walletStats.liveBalance.toLocaleString('ar-EG')} ج.م
+                            {(walletStats.liveBalance === 0) && ' (لا يوجد رصيد كافٍ)'}
+                          </p>
                         </div>
                       </div>
                       {selectedPackagingPaymentId === 'wallet' && <Check size={16} className="text-indigo-600" />}
@@ -1228,7 +1454,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-black text-slate-800 dark:text-white">{partner.name}</p>
-                          <p className="text-[10px] font-bold text-slate-500">رصيد الشريك: {partner.balance?.toLocaleString()} ج.م</p>
+                          <p className="text-[10px] font-bold text-slate-500">رصيد الشريك: {partner.balance?.toLocaleString('ar-EG')} ج.م</p>
                         </div>
                       </div>
                       {selectedPackagingPaymentId === partner.id && <Check size={16} className="text-indigo-600" />}
@@ -1273,6 +1499,112 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           </div>
         </div>
       )}
+
+      {/* Packaging History Modal */}
+      {showPackagingHistory && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-xl">
+                  <ListFilter size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-800 dark:text-white">سجل مشتريات أدوات التغليف</h3>
+                  <p className="text-[10px] font-bold text-slate-500">استعرض جميع الطلبيات السابقة وتفاصيل تكلفتها.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPackagingHistory(false)}
+                className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition text-slate-400"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {!settings?.data?.packagingOrders || settings.data.packagingOrders.length === 0 ? (
+                <div className="py-20 text-center space-y-4">
+                  <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto text-slate-300">
+                    <Package size={32} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400">لا توجد مشتريات مسجلة حتى الآن.</p>
+                </div>
+              ) : (
+                settings.data.packagingOrders.map((order: any) => (
+                  <div key={order.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 hover:border-indigo-200 transition-colors">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">طلب #{order.id}</span>
+                          <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
+                          <span className="text-[10px] font-bold text-slate-500" dir="ltr">
+                            {new Date(order.date).toLocaleDateString('ar-EG')} - {new Date(order.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div className="mt-1">
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-md ${
+                            order.paymentMethod === 'wallet' ? 'bg-indigo-100 text-indigo-600' :
+                            order.paymentMethod === 'treasury' ? 'bg-emerald-100 text-emerald-600' :
+                            'bg-amber-100 text-amber-600'
+                          }`}>
+                            تم الدفع عبر: {
+                              order.paymentMethod === 'wallet' ? 'محفظة المتجر' :
+                              order.paymentMethod === 'treasury' ? 'الخزينة' : 'حساب شريك'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-left">
+                          <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums">{order.total} ج.م</p>
+                          <p className="text-[9px] font-bold text-slate-400">الإجمالي شامل الشحن</p>
+                        </div>
+                        <button 
+                          onClick={() => handleDeletePackagingOrder(order)}
+                          className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl transition-colors"
+                          title="حذف الطلب واستعادة المبلغ"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
+                      {order.items.map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                          <span>{item.name} × {item.quantity}</span>
+                          <span className="tabular-nums">{(item.price * item.quantity).toFixed(2)} ج.م</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 italic pt-1">
+                        <span>مصاريف شحن بوسطة</span>
+                        <span className="tabular-nums">{order.shippingFee} ج.م</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
+              <button 
+                onClick={() => setShowPackagingHistory(false)}
+                className="w-full py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-black rounded-xl hover:bg-slate-50 transition"
+              >
+                إغلاق السجل
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmationModal 
+        isOpen={!!orderToDelete}
+        message="هل أنت متأكد من حذف هذا الطلب؟ سيتم استعادة المبلغ المخصوم إلى جهة الدفع الأصلية."
+        onConfirm={confirmDeletePackagingOrder}
+        onCancel={() => setOrderToDelete(null)}
+      />
     </div>
   );
 }

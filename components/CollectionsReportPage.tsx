@@ -643,7 +643,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                   const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
                   const safeDiscount = o.discount || 0;
                   const safeAdvance = o.advancePayment || 0;
-                  const defaultAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
+                  const defaultAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + inspectionCost;
                   return sum + ((o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultAmount);
                 }, 0);
                 const pct = stats.totalGross > 0 ? (compCollected / stats.totalGross) * 100 : 0;

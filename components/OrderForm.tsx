@@ -484,7 +484,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       ? Number(orderData.maintenanceCost) || 0
       : subtotal - itemDiscounts;
     const shipping = Number(orderData.shippingFee) || 0;
-    const inspection = orderData.includeInspectionFee ? inspectionFee : 0;
+    const inspection = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
     const insurance = insuranceFee;
     const vat = activeVatAmount;
     const discount = Number(orderData.discount) || 0;
@@ -495,7 +495,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       basePrice +
       shipping +
       inspection +
-      insurance +
       vat -
       discount -
       advance -
@@ -547,6 +546,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         ? Number(orderData.totalAmountOverride)
         : Number(finalAmount || 0);
 
+    const effectiveInspectionCost = (orderData.includeInspectionFee)
+      ? inspectionFee
+      : 0;
     const codFee =
       Number(
         calculateCodFee(
@@ -562,20 +564,23 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       costOfItems +
       Number(orderData.shippingFee || 0) +
       insuranceFee +
-      inspectionFee +
+      effectiveInspectionCost +
       codFee +
       activeVatAmount;
-    const profit = totalCollected - totalExpenses;
+    
+    const advance = Number(orderData.advancePayment) || 0;
+    const revenue = totalCollected + advance;
+    const profit = revenue - totalExpenses;
 
     return {
       costOfItems,
       insuranceFee,
-      effectiveInspectionCost: inspectionFee,
+      effectiveInspectionCost,
       codFee,
       totalExpenses,
       profit,
       profitPercent:
-        totalCollected > 0 ? Math.round((profit / totalCollected) * 100) : 0,
+        revenue > 0 ? Math.round((profit / revenue) * 100) : 0,
     };
   }, [
     orderData.items,
@@ -917,17 +922,18 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         className="max-w-6xl mx-auto space-y-8"
       >
         {/* Header (Desktop Style) */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-5">
             <button
               type="button"
               onClick={onCancel}
-              className="w-12 h-12 bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm"
+              className="w-12 h-12 bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm group"
             >
-              <ArrowRightLeft size={22} className="rotate-180" />
+              <ArrowLeft size={22} className="group-hover:-translate-x-1 transition-transform" />
             </button>
             <div>
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white leading-tight">
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white leading-tight flex items-center gap-3">
+                <div className="w-2 h-8 bg-indigo-600 rounded-full"></div>
                 {isEditing
                   ? `تعديل الطلب #${orderData.orderNumber}`
                   : "إنشاء طلب جديد"}
@@ -947,7 +953,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-8 py-3.5 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20 flex items-center gap-2.5 text-sm"
+              className="px-8 py-3.5 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20 flex items-center gap-2.5 text-sm active:scale-95"
             >
               <Save size={18} />
               <span>{isEditing ? "حفظ التعديلات" : "إتمام الطلب"}</span>
@@ -1121,9 +1127,20 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2.5 block mr-1 tracking-wider uppercase">
-                    رقم الهاتف الأساسي
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mr-1 tracking-wider uppercase">
+                      رقم الهاتف الأساسي
+                    </label>
+                    {orderData.customerPhone && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(`https://wa.me/2${orderData.customerPhone!.replace(/\s/g, "")}`, '_blank')}
+                        className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded-lg hover:bg-emerald-100 transition-colors flex items-center gap-1"
+                      >
+                        <ExternalLink size={12} /> تواصل واتساب
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="tel"
                     placeholder="01xxxxxxxxx"
@@ -1492,7 +1509,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </div>
           </div>
 
-          <div className="lg:col-span-5 space-y-8">
+          <div className="lg:col-span-5 space-y-8 lg:sticky lg:top-8 self-start">
             {/* Products / Details based on Shipment type */}
             {isReturn ? (
               <div className="p-8 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm">
@@ -1858,6 +1875,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                 className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 rounded-xl w-full font-black text-lg text-emerald-600 text-center"
                               />
                             </div>
+                          </div>
+                          
+                          <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                            <span className="text-xs font-bold text-slate-400">إجمالي المنتج:</span>
+                            <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
+                              {((item.price || 0) * (item.quantity || 1)).toLocaleString()} ج.م
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -2271,6 +2295,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                             />
                           </div>
                         </div>
+
+                        <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                          <span className="text-xs font-bold text-slate-400">إجمالي المنتج:</span>
+                          <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
+                            {((item.price || 0) * (item.quantity || 1)).toLocaleString()} ج.م
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -2293,10 +2324,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             )}
 
             {/* Financial Summary */}
-            <div className="p-8 bg-indigo-900 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 transition-transform duration-1000 group-hover:scale-125"></div>
-              <h4 className="font-extrabold text-white mb-8 flex items-center gap-3 text-xl">
-                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white">
+            <div className="p-8 bg-indigo-900 dark:bg-slate-900 rounded-[2.5rem] shadow-2xl relative overflow-hidden group border border-indigo-500/20 dark:border-slate-800">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full -mr-32 -mt-32 transition-transform duration-1000 group-hover:scale-125"></div>
+              <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-400/5 rounded-full -ml-16 -mb-16 transition-transform duration-1000 group-hover:scale-150"></div>
+              
+              <h4 className="font-extrabold text-white mb-8 flex items-center gap-3 text-xl relative">
+                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center text-white ring-1 ring-white/20">
                   <Banknote size={24} />
                 </div>
                 ملخص مالي دقيق
@@ -2372,11 +2405,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       ? orderData.maintenanceCost || 0
                       : subtotal,
                   },
-                  { label: "الشحن", value: orderData.shippingFee || 0 },
-                  { label: "الخصم", value: -(orderData.discount || 0) },
-                  { label: "المعاينة", value: inspectionFee },
-                  { label: "التأمين", value: insuranceFee },
-                  { label: "ضريبة القيمة المضافة", value: activeVatAmount },
+                  { label: "الشحن (على العميل)", value: orderData.shippingFee || 0 },
+                  { label: "خصم إضافي", value: -(orderData.discount || 0) },
+                  { label: "رسوم معاينة", value: inspectionFee },
+                  { label: "تأمين الشحن (يخصم من ربحك)", value: -insuranceFee, isDeduction: true },
+                  { label: "ضريبة الشحن (تخصم من ربحك)", value: -activeVatAmount, isDeduction: true },
                   ...(orderData.returnCashToCustomer
                     ? [
                         {
@@ -2385,13 +2418,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         },
                       ]
                     : []),
-                ].map((row, idx) => (
+                ].map((row: any, idx) => (
                   <div
                     key={idx}
-                    className="flex justify-between font-bold text-slate-300 text-sm"
+                    className={`flex justify-between font-bold text-sm ${row.isDeduction ? "text-amber-400/80 italic" : "text-slate-300"}`}
                   >
                     <span>{row.label}</span>
-                    <span className="font-black text-white">
+                    <span className={`font-black ${row.isDeduction ? "text-amber-300" : "text-white"}`}>
                       {row.value.toLocaleString()} ج.م
                     </span>
                   </div>
@@ -2472,15 +2505,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       (orderData.totalAmountOverride as any) !== ""
                         ? Math.max(
                             0,
-                            Math.round(
-                              Number(orderData.totalAmountOverride) -
-                                (Number(orderData.advancePayment) || 0) -
-                                creditAmount -
-                                (orderData.returnCashToCustomer &&
-                                orderData.cashToReturnAmount
-                                  ? Number(orderData.cashToReturnAmount)
-                                  : 0),
-                            ),
+                            Math.round(Number(orderData.totalAmountOverride)),
                           ).toLocaleString()
                         : finalAmount.toLocaleString()}
                       <span className="text-sm font-bold text-slate-400">
@@ -2889,6 +2914,24 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           </div>
         </div>
       </motion.form>
+
+      {/* Sticky Mobile/Tablet Action Bar */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 z-[100] flex items-center justify-between gap-4 animate-in slide-in-from-bottom-full duration-500">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">مبلغ التحصيل</span>
+          <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">
+            {finalAmount.toLocaleString()} ج.م
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => (document.querySelector('form') as HTMLFormElement)?.requestSubmit()}
+          className="flex-1 py-4 bg-indigo-600 text-white font-black rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-500/20 flex items-center justify-center gap-2 text-sm active:scale-95"
+        >
+          <CheckCircle size={18} />
+          <span>إتمام الطلب</span>
+        </button>
+      </div>
     </div>
   );
 };

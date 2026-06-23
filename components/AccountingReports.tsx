@@ -238,9 +238,14 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
             const safeDiscount = Number(o.discount) || 0;
             const safeAdvance = Number(o.advancePayment) || 0;
             
+            const isDefinitivelyPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+            const compFeesLocal = settings.companySpecificFees?.[o.shippingCompany];
+            const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+            const inspectionFeeParams = !isDefinitivelyPosOrder && (o.includeInspectionFee ?? true) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+            
             const totalCollected = o.totalAmountOverride !== undefined && o.totalAmountOverride !== null
                 ? o.totalAmountOverride + safeAdvance
-                : (safeProductPrice + safeShippingFee - safeDiscount);
+                : (safeProductPrice + safeShippingFee - safeDiscount + (o.inspectionFeePaidByCustomer ? inspectionFeeParams : 0));
             
             totalRevenue += totalCollected;
 
@@ -420,8 +425,13 @@ const BalanceSheet = ({ orders, settings, wallet }: Omit<Props, 'activeStore'>) 
         });
 
         let receivablesPending = orders
-            .filter(o => o.status === 'تم_توصيلها')
-            .reduce((sum, o) => sum + (o.productPrice + (o.shippingFee || 0) - (o.discount || 0)), 0);
+            .filter(o => o.status === 'تم_توصيلها' || (o.status === 'تم_التوصيل' && o.paymentStatus !== 'مدفوع'))
+            .reduce((sum, o) => {
+                const { netRevenue, carrierFees } = calculateOrderProfitLoss(o, settings);
+                const advance = Number(o.advancePayment) || 0;
+                // The amount courier owes us is Revenue - CarrierFees - Advance (since advance was collected by us)
+                return sum + Math.max(0, netRevenue - carrierFees - advance);
+            }, 0);
 
         const totalAssets = cashBalance + supplyWalletBalance + inventoryValue + receivablesPending;
 

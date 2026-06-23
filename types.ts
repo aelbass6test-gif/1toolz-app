@@ -455,6 +455,10 @@ export interface SupplyOrderItem {
   expiryDate?: string;
   batchNumber?: string;
   landedCost?: number;
+  returnedQuantity?: number;
+  sku?: string;
+  isReturn?: boolean;
+  warehouseId?: string;
 }
 
 export interface PartnerPayment {
@@ -482,6 +486,8 @@ export interface SupplyOrder {
   notes?: string;
   paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury';
   shippingFees?: number;
+  shippingFeesNote?: string;
+  shippingFeesPaymentMethod?: 'with_order' | 'wallet';
   otherFees?: number;
   taxRate?: number;
   taxAmount?: number;
@@ -491,7 +497,6 @@ export interface SupplyOrder {
   warehouseId?: string; // New field for warehouse allocation
   recordExpensesFormally?: boolean;
   distributeExpensesEqually?: boolean;
-  shippingFeesNote?: string;
   otherFeesNote?: string;
   expensePaidBy?: string;
 }

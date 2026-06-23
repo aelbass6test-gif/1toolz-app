@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Wallet as WalletIcon, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ConfirmationModal } from './ConfirmationModal';
 import { calculateOrderProfitLoss, calculateOrderShippingAndFees } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 
@@ -45,6 +46,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const [activeTab, setActiveTab] = useState<'all' | 'orders' | 'withdrawals' | 'manual' | 'supply_wallet'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [settingsScreen, setSettingsScreen] = useState<'main' | 'payment_methods' | 'withdraw_settings'>('main');
+  const [txToDelete, setTxToDelete] = useState<string | null>(null);
   
   // Local state for bank account editing
   const [localBankDetails, setLocalBankDetails] = useState<BankAccount>(
@@ -98,7 +100,13 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     );
     
     const inRouteTotal = inRouteOrders.reduce((sum, o) => {
-      const base = o.totalAmountOverride ?? (o.productPrice + o.shippingFee - (o.discount || 0));
+      const isDefinitivelyPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+      const compFeesLocal = settings?.companySpecificFees?.[o.shippingCompany];
+      const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+      const inspectionFee = !isDefinitivelyPosOrder && (o.includeInspectionFee !== false) && (o.inspectionFeePaidByCustomer !== false) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const tax = Number((o as any).tax) || 0;
+      
+      const base = o.totalAmountOverride ?? (o.productPrice + o.shippingFee + tax + inspectionFee - (o.discount || 0));
       const advance = Number(o.advancePayment) || 0;
       return sum + (base - advance);
     }, 0);
@@ -173,6 +181,37 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
     setModalMode('none');
     setSupplyAmount('');
+  };
+
+  const handleDeleteTransaction = (transactionId: string) => {
+    setTxToDelete(transactionId);
+  };
+
+  const confirmDeleteTransaction = () => {
+    if (!txToDelete) return;
+    const transactionId = txToDelete;
+    
+    setWallet(prev => {
+      const transactionToDelete = prev.transactions.find(t => t.id === transactionId);
+      if (!transactionToDelete) return prev;
+      
+      const newTransactions = prev.transactions.filter(t => t.id !== transactionId);
+      
+      // Recalculate balance if it was a completed transaction
+      let balanceAdjustment = 0;
+      if (transactionToDelete.type === 'إيداع' && transactionToDelete.status === 'completed') {
+        balanceAdjustment = -transactionToDelete.amount;
+      } else if (transactionToDelete.type === 'سحب' && transactionToDelete.status !== 'cancelled') {
+        balanceAdjustment = transactionToDelete.amount;
+      }
+      
+      return {
+        ...prev,
+        transactions: newTransactions,
+        balance: prev.balance + balanceAdjustment
+      };
+    });
+    setTxToDelete(null);
   };
 
   // Derived settings or defaults
@@ -397,9 +436,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     let base = wallet.transactions.map(t => ({ ...t, isWithdraw: t.type === 'سحب' }));
     
     if (activeTab === 'orders') {
-        base = base.filter(t => t.note.includes('#') || t.orderNumber || t.orderId);
+        base = base.filter(t => (t.note || '').includes('#') || t.orderNumber || t.orderId);
     } else if (activeTab === 'manual') {
-        base = base.filter(t => !t.note.includes('#') && !t.orderNumber && !t.orderId && t.category !== 'wallet_withdrawal' && t.category !== 'wallet_charge' && !t.category?.startsWith('supply_'));
+        base = base.filter(t => !(t.note || '').includes('#') && !t.orderNumber && !t.orderId && t.category !== 'wallet_withdrawal' && t.category !== 'wallet_charge' && !t.category?.startsWith('supply_'));
     } else if (activeTab === 'supply_wallet') {
         base = base.filter(t => t.category?.startsWith('supply_') || t.category === 'inventory_purchase');
     } else if (activeTab === 'all') {
@@ -420,13 +459,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
     filteredHistory.forEach(t => {
       // Improved regex to catch variations like "أوردر #", "الطلب #", "بطلب #", or just "#" at the end of a word
-      const orderNumMatch = t.note.match(/أوردر #([^ \(\)\[\]]+)/) || 
-                            t.note.match(/الطلب #([^ \(\)\[\]]+)/) ||
-                            t.note.match(/بطلب #([^ \(\)\[\]]+)/) ||
-                            t.note.match(/#([^ \(\)\[\]]+)$/) ||
-                            t.note.match(/#([^ \(\)\[\]]+) /);
+      const note = t.note || '';
+      const orderNumMatch = note.match(/أوردر #([^ \(\)\[\]]+)/) || 
+                            note.match(/الطلب #([^ \(\)\[\]]+)/) ||
+                            note.match(/بطلب #([^ \(\)\[\]]+)/) ||
+                            note.match(/#([^ \(\)\[\]]+)$/) ||
+                            note.match(/#([^ \(\)\[\]]+) /);
                             
-      const supplyOrderMatch = t.note.match(/أمر:\s?([^ \)]+)/);
+      const supplyOrderMatch = note.match(/أمر:\s?([^ \)]+)/);
       const orderKey = t.orderNumber || t.orderId || (orderNumMatch ? orderNumMatch[1] : null);
       const supplyKey = supplyOrderMatch ? supplyOrderMatch[1] : null;
 
@@ -527,30 +567,28 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     });
   }, [orders]);
 
-  const totalCollectedFromCustomers = useMemo(() => {
-    return cycleOrders.reduce((sum, o) => {
-      // Exclude failed or returned orders from the expected collection total
-      if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status)) {
-        return sum;
+  const cycleFinancials = useMemo(() => {
+    return cycleOrders.reduce((acc, o) => {
+      // Exclude failed or returned orders from the expected collection and shipping totals for success stats
+      const isFailed = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status);
+      const { netRevenue, carrierFees, net } = calculateOrderProfitLoss(o, settings);
+      
+      if (!isFailed) {
+        acc.collected += netRevenue;
+        acc.shipping += carrierFees;
+      } else {
+        // For failed orders, we still want to track the shipping fees loss
+        acc.shipping += carrierFees; 
       }
-      const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
-      return sum + oTotal;
-    }, 0);
-  }, [cycleOrders]);
-
-  const totalShippingFee = useMemo(() => {
-    return cycleOrders.reduce((sum, o) => {
-      const actualShippingFee = calculateOrderShippingAndFees(o, settings);
-      return sum + actualShippingFee;
-    }, 0);
+      
+      acc.profit += net;
+      return acc;
+    }, { collected: 0, shipping: 0, profit: 0 });
   }, [cycleOrders, settings]);
 
-  const totalNetProfit = useMemo(() => {
-    return cycleOrders.reduce((sum, o) => {
-      const { net } = calculateOrderProfitLoss(o, settings);
-      return sum + net;
-    }, 0);
-  }, [cycleOrders, settings]);
+  const totalCollectedFromCustomers = cycleFinancials.collected;
+  const totalShippingFee = cycleFinancials.shipping;
+  const totalNetProfit = cycleFinancials.profit;
 
   return (
     <div className="min-h-[80vh] p-4 md:p-8" dir="rtl">
@@ -871,7 +909,13 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/10 text-xs text-right">
                     {cycleOrders.length > 0 ? (
                       cycleOrders.map((o) => {
-                        const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0));
+                        const isDefinitivelyPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+                        const compFeesLocal = settings?.companySpecificFees?.[o.shippingCompany];
+                        const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+                        const inspectionFee = !isDefinitivelyPosOrder && (o.includeInspectionFee !== false) && (o.inspectionFeePaidByCustomer !== false) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+                        const tax = Number((o as any).tax) || 0;
+
+                        const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) + tax + inspectionFee - (Number(o.discount) || 0));
                         const { net } = calculateOrderProfitLoss(o, settings);
                         const actualShippingFee = calculateOrderShippingAndFees(o, settings);
                         
@@ -1200,6 +1244,19 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         </div>
                                     </>
                                 )}
+                                <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
+                                <div className="flex justify-end pt-2">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteTransaction(item.id);
+                                        }}
+                                        className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-2xl text-[10px] font-black transition-all shadow-sm active:scale-95"
+                                    >
+                                        <Trash2 size={14} />
+                                        <span>حذف العملية نهائياً وتصحيح الرصيد</span>
+                                    </button>
+                                </div>
                             </div>
                           </motion.div>
                         )}
@@ -2255,7 +2312,16 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             </thead>
                             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                                 {orders.filter(o => (!o.paymentMethod || ['cod', 'كاش', 'cash', 'الدفع عند الاستلام', 'دفع عند الاستلام'].includes(o.paymentMethod)) && (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'تم_التحصيل' || o.status === 'قيد_الشحن' || o.status === 'تم_الارسال' || o.status === 'مدفوعة')).map((o, idx) => {
-                                    const total = o.totalAmountOverride ?? (o.productPrice + o.shippingFee - (o.discount || 0));
+                                    const { netRevenue } = calculateOrderProfitLoss(o, settings);
+                                    const advance = Number(o.advancePayment) || 0;
+                                    
+                                    const isDefinitivelyPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+                                    const compFeesLocal = settings?.companySpecificFees?.[o.shippingCompany];
+                                    const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+                                    const inspectionFee = !isDefinitivelyPosOrder && (o.includeInspectionFee !== false) && (o.inspectionFeePaidByCustomer !== false) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+                                    const tax = Number((o as any).tax) || 0;
+
+                                    const total = o.totalAmountOverride ?? (Number(o.productPrice || 0) + Number(o.shippingFee || 0) + tax + inspectionFee - Number(o.discount || 0) - advance);
                                     const isCollected = o.status === 'تم_التحصيل';
                                     return (
                                         <tr key={o.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition-all">
@@ -2298,6 +2364,13 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmationModal 
+        isOpen={!!txToDelete}
+        message="هل أنت متأكد من حذف هذه العملية؟ سيتم تعديل الرصيد تلقائياً إذا كانت العملية قد اكتملت."
+        onConfirm={confirmDeleteTransaction}
+        onCancel={() => setTxToDelete(null)}
+      />
     </div>
   );
 };

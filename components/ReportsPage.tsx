@@ -160,7 +160,17 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         if (!settings || !reportData) return null;
         const grossSales = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).reduce((sum, o) => {
             const itemsRevenue = (o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
-            return sum + (itemsRevenue + o.shippingFee - (o.discount || 0));
+            
+            const isDefinitivelyPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+            const compFeesLocal = settings.companySpecificFees?.[o.shippingCompany];
+            const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+            const inspectionFeeParams = !isDefinitivelyPosOrder && (o.includeInspectionFee ?? true) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+            
+            const orderSales = o.totalAmountOverride !== undefined && o.totalAmountOverride !== null
+                ? o.totalAmountOverride + (o.advancePayment || 0)
+                : (itemsRevenue + o.shippingFee - (o.discount || 0) + (o.inspectionFeePaidByCustomer ? inspectionFeeParams : 0));
+                
+            return sum + orderSales;
         }, 0);
         
         let totalCogs = 0;
@@ -188,10 +198,15 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status)) {
                 const { profit } = calculateOrderProfitLoss(order, settings);
                 const safeProductCost = getOrderProductCost(order, settings);
+                const isDefinitivelyPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+                const compFeesLocal = settings.companySpecificFees?.[order.shippingCompany];
+                const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+                const inspectionFeeParams = !isDefinitivelyPosOrder && (order.includeInspectionFee ?? true) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+                
                 const itemsRevenue = (order.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0);
                 const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
                     ? order.totalAmountOverride + (order.advancePayment || 0)
-                    : (itemsRevenue + order.shippingFee - order.discount);
+                    : (itemsRevenue + order.shippingFee - order.discount + (order.inspectionFeePaidByCustomer ? inspectionFeeParams : 0));
                 successfulShippingOperations += Math.max(0, totalCollected - profit - safeProductCost);
             }
         });
@@ -1062,9 +1077,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             const safeDiscount = Number(order.discount) || 0;
             const safeAdvance = Number(order.advancePayment) || 0;
 
+            const isDefinitivelyPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+            const inspectionFeeParams = !isDefinitivelyPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+            
             const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
                 ? order.totalAmountOverride + safeAdvance
-                : (safeProductPrice + safeShippingFee - safeDiscount);
+                : (safeProductPrice + safeShippingFee - safeDiscount + (order.inspectionFeePaidByCustomer ? inspectionFeeParams : 0));
 
             totalRevenue += totalCollected;
             totalShippingRevenue += order.shippingFee;

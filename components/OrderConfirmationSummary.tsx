@@ -126,7 +126,7 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                     </button>
                     <button 
                         onClick={() => {
-                            const html = generateShippingLabelHTML(order, storeName);
+                            const html = generateShippingLabelHTML(order, storeName, settings);
                             printHTMLDirectly(html);
                         }}
                         className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-all flex items-center justify-center gap-3"

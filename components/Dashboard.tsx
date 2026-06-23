@@ -253,7 +253,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       'فشل_التوصيل': 0, 'تمت_الاعادة_لشركة_الشحن': 0, 'ملغي': 0, 'مؤجل': 0, 'مجدول': 0
     };
 
-    const getOrderCollectionAmount = (order: Order) => {
+    const getOrderCollectionAmount = (order: Order, type: 'revenue' | 'cod' = 'revenue') => {
       if (!settings) return 0;
       const safeProductPrice = Number(order.productPrice) || 0;
       const safeShippingFee = Number(order.shippingFee) || 0;
@@ -267,12 +267,18 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
       const insuranceFee = (isPosOrder ? 0 : ((order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0));
       const inspectionFee = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-      const bostaVatFee = isPosOrder ? 0 : calculateBostaVat(order, insuranceFee, settings);
       
-      const computedTotal = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance + inspectionFee;
-      const totalAmount = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride) - safeAdvance)) : computedTotal;
-      const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : totalAmount;
-      return displayTotal;
+      const safeCredit = Number(order.creditAmount) || 0;
+      const safeReturnCash = order.returnCashToCustomer && order.cashToReturnAmount ? Number(order.cashToReturnAmount) : 0;
+      
+      const computedCOD = safeProductPrice + safeShippingFee + safeTax - safeDiscount - safeAdvance + inspectionFee - safeCredit - safeReturnCash;
+      const codAmount = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride))) : computedCOD;
+      const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) + inspectionFee : codAmount;
+
+      if (type === 'cod') return displayTotal;
+      
+      // Revenue should include the advance payment, credit, and return cash back to reflect the full order value
+      return displayTotal + (order.totalAmountOverride != null || order.source !== 'synced' ? (safeAdvance + safeCredit + safeReturnCash) : 0);
     };
 
     (orders || []).forEach((o: Order) => {
@@ -516,7 +522,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     const supplierDebt = (settings?.suppliers || []).reduce((sum, s) => sum + (s.balance || 0), 0);
     const shippingReceivables = (orders || [])
         .filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل' || o.status === 'مدفوعة' || o.status === 'قيد_الشحن') && !o.collectionProcessed)
-        .reduce((sum, o) => sum + getOrderCollectionAmount(o), 0);
+        .reduce((sum, o) => sum + getOrderCollectionAmount(o, 'cod'), 0);
     
     const netAvailableLiquidity = (treasuryTotal || 0) - supplierDebt;
     const netProfit = finalProfit - totalLoss - adminExpenses;
@@ -553,7 +559,19 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       .sort((a: any, b: any) => b.totalSpend - a.totalSpend)
       .slice(0, 5);
 
-    const inventoryValue = (settings?.products || []).reduce((sum, p) => sum + (Number(p.costPrice || 0) * Number(p.stock || 0)), 0);
+    const inventoryValue = (settings?.products || []).reduce((sum, p) => {
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        return sum + p.variants.reduce((vSum, v) => {
+          const qty = v.stockQuantity ?? v.stock ?? 0;
+          const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+          return vSum + (qty * cost);
+        }, 0);
+      } else {
+        const qty = p.stockQuantity ?? p.stock ?? 0;
+        const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+        return sum + (qty * cost);
+      }
+    }, 0);
 
     const productSalesMap = new Map();
     (orders || []).forEach(o => {

@@ -2070,7 +2070,7 @@ export const AppComponent = () => {
     const getNextOrderNumber = (orders: Order[]) => {
         const nums = orders
             .map(o => {
-                const match = o.orderNumber.match(/\d+/);
+                const match = (o.orderNumber || '').match(/\d+/);
                 return match ? parseInt(match[0]) : null;
             })
             .filter((n): n is number => n !== null);

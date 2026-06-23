@@ -62,6 +62,10 @@ import {
   Sparkles,
   Calculator,
   ArrowLeft,
+  Brain,
+  CheckCircle2,
+  PackageCheck,
+  Hash,
 } from "lucide-react";
 import { db } from "../services/firebaseClient";
 import {
@@ -642,6 +646,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     let netProfitTotal = 0;
     let successCount = 0;
     let returnCount = 0;
+    let pendingConfirmationCount = 0;
+    let confirmedCount = 0;
+    let inProgressCount = 0;
+    let shippedCount = 0;
+    let totalCount = filteredOrders.length;
 
     if (!settings)
       return {
@@ -652,6 +661,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         flexFeesTotal,
         netProfitTotal,
         returnRate: 0,
+        pendingConfirmationCount: 0,
+        confirmedCount: 0,
+        inProgressCount: 0,
+        shippedCount: 0,
+        successCount: 0,
+        totalCount: 0
       };
 
     filteredOrders.forEach((o) => {
@@ -693,7 +708,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         safeShippingFee +
         safeTax -
         safeDiscount -
-        safeAdvance;
+        safeAdvance +
+        inspectionFee;
       const orderTotal =
         o.totalAmountOverride != null
           ? Number(o.totalAmountOverride)
@@ -719,12 +735,52 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       // Use central utility for accurate P&L
       const { net } = calculateOrderProfitLoss(o, settings);
 
-      salesTotal += safeProductPrice;
-      expectedCollection += orderTotal;
+      const isSuccessful = [
+        "تم_التحصيل",
+        "تم_توصيلها",
+        "تم_التوصيل",
+        "مدفوعة",
+      ].includes(o.status);
+
+      const isFailedOrCancelled = [
+        "ملغي",
+        "مرتجع",
+        "فشل_التوصيل",
+        "تمت_الاعادة_لشركة_الشحن",
+      ].includes(o.status);
+
+      const isUsingOverride = (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && String(o.totalAmountOverride).trim() !== '') || (o.source === 'synced');
+
+      // Gross revenue from customer perspective
+      const grossCollection = orderTotal;
+      const orderRevenue = isUsingOverride ? (grossCollection + safeAdvance) : (safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionFee);
+
+      if (isSuccessful) {
+        salesTotal += orderRevenue;
+        productCostTotal += getOrderProductCost(o, settings);
+      }
+
+      if (!isFailedOrCancelled && !isSuccessful) {
+        expectedCollection += grossCollection;
+      }
+
       shippingExpenses += totalCarrierExpenses;
-      productCostTotal += getOrderProductCost(o, settings);
       flexFeesTotal += o.flexShipFee || flexFeeValue;
       netProfitTotal += net;
+
+      // Status Logic for Funnel
+      if (["قيد_المراجعة", "بانتظار_التأكيد"].includes(o.status)) {
+        pendingConfirmationCount++;
+      }
+      if (!["ملغي", "قيد_المراجعة", "بانتظار_التأكيد"].includes(o.status)) {
+        confirmedCount++;
+      }
+      if (["قيد_التنفيذ", "محول_للمخزن"].includes(o.status)) {
+        inProgressCount++;
+      }
+      if (["تم_الارسال", "قيد_الشحن", "تم_التوصيل", "تم_تحويلها"].includes(o.status)) {
+        shippedCount++;
+      }
 
       if (
         o.status === "تم_التحصيل" ||
@@ -760,6 +816,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       flexFeesTotal,
       netProfitTotal,
       returnRate,
+      pendingConfirmationCount,
+      confirmedCount,
+      inProgressCount,
+      shippedCount,
+      successCount,
+      totalCount
     };
   }, [filteredOrders, settings]);
 
@@ -801,7 +863,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const govBreakdownData = useMemo(() => {
     const govMap: Record<
       string,
-      { name: string; count: number; sales: number }
+      { name: string; count: number; sales: number; successCount: number; returnCount: number }
     > = {};
 
     filteredOrders.forEach((o) => {
@@ -815,13 +877,27 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           name: arabicName,
           count: 0,
           sales: 0,
+          successCount: 0,
+          returnCount: 0,
         };
       }
       govMap[gKey].count += 1;
       govMap[gKey].sales += salesVal;
+      
+      if (["تم_التحصيل", "تم_توصيلها", "تم_التوصيل", "مدفوعة"].includes(o.status)) {
+        govMap[gKey].successCount += 1;
+      } else if (["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن"].includes(o.status)) {
+        govMap[gKey].returnCount += 1;
+      }
     });
 
     return Object.values(govMap)
+      .map(item => ({
+        ...item,
+        deliveryRate: item.successCount + item.returnCount > 0 
+          ? (item.successCount / (item.successCount + item.returnCount)) * 100 
+          : 0
+      }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
   }, [filteredOrders]);
@@ -830,7 +906,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const topProductsData = useMemo(() => {
     const prodMap: Record<
       string,
-      { id: string; name: string; count: number; revenue: number }
+      { id: string; name: string; count: number; revenue: number; estimatedProfit: number }
     > = {};
 
     filteredOrders.forEach((o) => {
@@ -841,23 +917,30 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         const qty = Number(item.quantity) || 0;
         const totalRev = (Number(item.price) || 0) * qty;
 
+        // Try to find product cost from settings
+        const productFromSettings = settings?.products?.find(p => p.id === pId);
+        const cost = Number(productFromSettings?.costPrice) || 0;
+        const totalCost = cost * qty;
+
         if (!prodMap[pId]) {
           prodMap[pId] = {
             id: pId,
             name: pName,
             count: 0,
             revenue: 0,
+            estimatedProfit: 0,
           };
         }
         prodMap[pId].count += qty;
         prodMap[pId].revenue += totalRev;
+        prodMap[pId].estimatedProfit += (totalRev - totalCost);
       });
     });
 
     return Object.values(prodMap)
-      .sort((a, b) => b.count - a.count)
+      .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
-  }, [filteredOrders]);
+  }, [filteredOrders, settings]);
 
   // 4. Shipping Carriers performance data
   const carrierPerformanceData = useMemo(() => {
@@ -1024,7 +1107,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           );
           if (pIdx > -1) {
             const prod = { ...updatedProducts[pIdx] };
-            const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+            let newQty = (prod.stockQuantity || 0) + orderItem.quantity;
 
             // Return to warehouse stock
             let updatedWhStock = prod.warehouseStock
@@ -1056,6 +1139,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 }
                 return v;
               });
+              newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+            } else {
+              newQty = (prod.stockQuantity || 0) + orderItem.quantity;
             }
 
             updatedProducts[pIdx] = {
@@ -1225,8 +1311,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               )
             ) {
               currentSuccess++;
+              const tax = Number((o as any).tax) || 0;
+              const insp = (o.includeInspectionFee && o.inspectionFeePaidByCustomer !== false) ? (settings.enableInspection ? settings.inspectionFee : 0) : 0;
               currentSpent +=
-                o.productPrice + o.shippingFee - (o.discount || 0);
+                o.productPrice + o.shippingFee + tax + insp - (o.discount || 0);
             } else if (
               ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن"].includes(
                 o.status,
@@ -1345,6 +1433,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     const compFees =
       settings.companySpecificFees?.[orderToUpdate.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
+    const companyInspectionFee = useCustom
+      ? (compFees?.inspectionFee ?? 0)
+      : settings.enableInspection
+        ? (settings.inspectionFee ?? 0)
+        : 0;
 
     if (
       newStatus === "تم_الارسال" &&
@@ -1416,22 +1509,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         });
       }
 
-      const companyInspectionFee = useCustom
-        ? (compFees?.inspectionFee ?? 0)
-        : settings.enableInspection
-          ? (settings.inspectionFee ?? 0)
-          : 0;
       if (
         orderToUpdate.includeInspectionFee &&
         companyInspectionFee > 0 &&
-        !updatedOrderData.inspectionFeeDeducted
+        !updatedOrderData.inspectionFeeDeducted &&
+        !newTransactions.some(
+          (tx) => tx.category === "inspection" && tx.orderId === orderToUpdate.id
+        )
       ) {
         newTransactions.push({
           id: `insp_expense_${orderToUpdate.id}`,
           type: "سحب",
           amount: companyInspectionFee,
           date: new Date().toISOString(),
-          note: `خصم رسوم معاينة مقدمة أوردر #${orderToUpdate.orderNumber}`,
+          note: `خصم رسوم معاينة أوردر #${orderToUpdate.orderNumber}`,
           category: "inspection",
           status: "completed",
           orderId: orderToUpdate.id,
@@ -1516,11 +1607,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     // Handling reversal of collection if it was already processed
     if (orderToUpdate.collectionProcessed && newStatus !== "تم_التحصيل") {
+      const orderPrice = Number(orderToUpdate.productPrice) || 0;
+      const orderShip = Number(orderToUpdate.shippingFee) || 0;
+      const orderDisc = Number(orderToUpdate.discount) || 0;
+      const orderTax = Number((orderToUpdate as any).tax) || 0;
+      const orderAdvance = Number(orderToUpdate.advancePayment) || 0;
+      const orderInsp = (orderToUpdate.includeInspectionFee && (orderToUpdate.inspectionFeePaidByCustomer !== false)) ? companyInspectionFee : 0;
+
       const baseAmountToCollect =
         orderToUpdate.totalAmountOverride ??
-        orderToUpdate.productPrice +
-          orderToUpdate.shippingFee -
-          (orderToUpdate.discount || 0);
+        (orderPrice + orderShip + orderTax + orderInsp - orderDisc - orderAdvance);
 
       newTransactions.push({
         id: `revert_collect_${orderToUpdate.id}`,
@@ -1678,12 +1774,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     ) {
       // Order payment processed
       const advancePayment = Number(updatedOrderData.advancePayment) || 0;
+      const orderPrice = Number(updatedOrderData.productPrice) || 0;
+      const orderShip = Number(updatedOrderData.shippingFee) || 0;
+      const orderDisc = Number(updatedOrderData.discount) || 0;
+      const orderTax = Number((updatedOrderData as any).tax) || 0;
+      const orderInsp = (updatedOrderData.includeInspectionFee && (updatedOrderData.inspectionFeePaidByCustomer !== false)) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+
       const baseAmountToCollect =
         updatedOrderData.totalAmountOverride ??
-        (updatedOrderData.productPrice +
-          updatedOrderData.shippingFee -
-          (updatedOrderData.discount || 0) -
-          advancePayment);
+        (orderPrice + orderShip + orderTax + orderInsp - orderDisc - advancePayment);
 
       newTransactions.push({
         id: `collect_${orderToUpdate.id}`,
@@ -1734,7 +1833,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         );
         if (pIdx > -1) {
           const prod = { ...updatedProducts[pIdx] };
-          const newQty = Math.max(
+          let newQty = Math.max(
             0,
             (prod.stockQuantity || 0) - orderItem.quantity,
           );
@@ -1776,6 +1875,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               }
               return v;
             });
+            newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+          } else {
+            newQty = Math.max(0, (prod.stockQuantity || 0) - orderItem.quantity);
           }
 
           updatedProducts[pIdx] = {
@@ -1793,7 +1895,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         );
         if (pIdx > -1) {
           const prod = { ...updatedProducts[pIdx] };
-          const newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+          let newQty = (prod.stockQuantity || 0) + orderItem.quantity;
 
           // Return to warehouse stock
           let updatedWhStock = prod.warehouseStock
@@ -1826,6 +1928,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               }
               return v;
             });
+            newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+          } else {
+            newQty = (prod.stockQuantity || 0) + orderItem.quantity;
           }
 
           updatedProducts[pIdx] = {
@@ -2133,16 +2238,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     const newTransactions: Transaction[] = [];
     const basePrice = isMaintenance
       ? Number((order as any).maintenanceCost) || order.productPrice || 0
-      : order.productPrice;
+      : (Number(order.productPrice) || 0);
+
+    const safeTax = Number((order as any).tax) || 0;
+    const safeAdvance = Number(order.advancePayment) || 0;
 
     // Always use actual order shipping/discount for base collect amount if not overridden
     const baseAmountToCollect =
       order.totalAmountOverride ??
-      basePrice + order.shippingFee - order.discount;
+      basePrice + order.shippingFee + safeTax + (((order.inspectionFeePaidByCustomer !== false) && order.includeInspectionFee !== false) ? inspectionFee : 0) - (order.discount || 0) - safeAdvance;
 
     const txnNote = isMaintenance
       ? `رصيد من سداد أوردر صيانة #${order.orderNumber}`
-      : `رصيد من الدفع عند الاستلام أوردر #${order.orderNumber}`;
+      : `رصيد من الدفع عند الاستلام أوردر #${order.orderNumber}${safeAdvance > 0 ? ` (بعد خصم عربون ${safeAdvance} ج.م)` : ""}`;
 
     newTransactions.push({
       id: `collect_${order.id}`,
@@ -2155,20 +2263,6 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       orderId: order.id,
       orderNumber: order.orderNumber,
     });
-
-    if (customerPaidInspection && inspectionFee > 0) {
-      newTransactions.push({
-        id: `insp_reimburse_${order.id}`,
-        type: "إيداع",
-        amount: inspectionFee,
-        date: new Date().toISOString(),
-        note: `استرداد رسوم معاينة من العميل أوردر #${order.orderNumber}`,
-        category: "collection",
-        status: "completed",
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-      });
-    }
 
     const codFee = calculateCodFee(order, settings);
     if (codFee > 0) {
@@ -2398,7 +2492,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       alert("لا يمكن طباعة البوليصة: اسم المتجر غير معروف.");
       return;
     }
-    const html = generateShippingLabelHTML(order, activeStore.name);
+    const html = generateShippingLabelHTML(order, activeStore.name, settings);
     printHTMLDirectly(html);
   };
 
@@ -2687,7 +2781,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     if (selected.length === 0) return;
 
     const html = selected
-      .map((o) => generateShippingLabelHTML(o, activeStore?.name || "متجري"))
+      .map((o) => generateShippingLabelHTML(o, activeStore?.name || "متجري", settings))
       .join('<div style="page-break-after: always;"></div>');
     printHTMLDirectly(
       `<html><head><title>طباعة بوالص</title></head><body>${html}</body></html>`,
@@ -2714,7 +2808,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       const inspectionFeeParams = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
       const computedTotal = (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0) - (Number(o.advancePayment) || 0) + inspectionFeeParams;
       const amountToCollect = o.totalAmountOverride != null ? Math.max(0, Math.round(Number(o.totalAmountOverride) - (Number(o.advancePayment) || 0))) : computedTotal;
-      const displayTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : amountToCollect;
+      const displayTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) + inspectionFeeParams : amountToCollect;
 
       return [
         o.orderNumber,
@@ -3178,6 +3272,59 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 {/* TAB 1: SUMMARY TAB */}
                 {analyticsTab === "summary" && (
                   <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    {/* Smart AI Insights Panel */}
+                    <div className="bg-indigo-600/5 dark:bg-indigo-500/10 border border-indigo-200/50 dark:border-indigo-500/20 p-5 rounded-3xl relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:scale-110 transition-transform">
+                        <Sparkles size={40} className="text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div className="relative z-10">
+                        <h5 className="text-sm font-black text-indigo-700 dark:text-indigo-400 mb-2 flex items-center gap-2 flex-row-reverse">
+                          <Brain size={16} />
+                          رؤى ذكية من النظام
+                        </h5>
+                        <div className="space-y-2 text-right">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300 leading-relaxed">
+                            {filteredMetrics.returnRate > 15 ? (
+                              <span className="flex items-center gap-1.5 flex-row-reverse text-rose-600 dark:text-rose-400">
+                                <AlertTriangle size={12} />
+                                تنبيه: معدل المرتجعات ({filteredMetrics.returnRate.toFixed(1)}%) يتجاوز المتوسط الآمن. ننصح بتحسين وصف المنتجات أو التواصل مع العملاء قبل الشحن.
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1.5 flex-row-reverse text-emerald-600 dark:text-emerald-400">
+                                <CheckCircle size={12} />
+                                أداء ممتاز: معدل المرتجعات مستقر وضمن الحدود الطبيعية.
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            استناداً إلى <span className="font-black text-slate-700 dark:text-white">{filteredMetrics.totalCount}</span> طلب مفلتر، 
+                            تم شحن <span className="font-black text-indigo-600 dark:text-indigo-400">{filteredMetrics.shippedCount}</span> طلب، 
+                            بينما <span className="font-black text-amber-600 dark:text-amber-400">{filteredMetrics.pendingConfirmationCount}</span> في انتظار التأكيد.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Performance Metrics Funnel */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative z-10">
+                      {[
+                        { label: "إجمالي الطلبات", value: filteredMetrics.totalCount, color: "slate", icon: Hash },
+                        { label: "تم التأكيد", value: filteredMetrics.confirmedCount, color: "blue", icon: CheckCircle2 },
+                        { label: "قيد الشحن", value: filteredMetrics.shippedCount, color: "indigo", icon: Truck },
+                        { label: "تم التوصيل", value: filteredMetrics.successCount, color: "emerald", icon: PackageCheck }
+                      ].map((step, idx) => (
+                        <div key={idx} className="bg-white/40 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800/50 p-4 rounded-2xl flex flex-col items-center justify-center text-center group hover:scale-[1.02] transition-all">
+                          <div className={`p-2 rounded-xl bg-${step.color}-50 dark:bg-${step.color}-500/10 text-${step.color}-600 dark:text-${step.color}-400 mb-2`}>
+                            <step.icon size={18} />
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mb-1">{step.label}</span>
+                          <span className={`text-xl font-black text-${step.color}-600 dark:text-${step.color}-400 tabular-nums`}>
+                            {step.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 text-right relative z-10">
                       <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
                         <div className="flex items-center justify-between mb-3 flex-row-reverse">
@@ -3463,114 +3610,142 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                         لا توجد شحنات مسجلة جغرافياً لتحليل أداء المحافظات.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div className="bg-white/80 dark:bg-slate-900/80 p-5 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-sm">
-                          <h6 className="text-xs font-bold text-slate-500 mb-3 text-right">
-                            حجم المبيعات لكل محافظة (ج.م)
+                      <div className="space-y-6">
+                        {/* Delivery Rate per Gov Heatmap alternative */}
+                        <div className="bg-emerald-600/5 dark:bg-emerald-500/10 border border-emerald-200/50 dark:border-emerald-500/20 p-5 rounded-3xl">
+                          <h6 className="text-xs font-black text-emerald-700 dark:text-emerald-400 mb-4 flex items-center gap-2 flex-row-reverse">
+                            <Percent size={14} />
+                            تحليل كفاءة التوصيل حسب المنطقة
                           </h6>
-                          <div className="h-60 w-full" dir="ltr">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart
-                                data={govBreakdownData}
-                                margin={{
-                                  top: 10,
-                                  right: 10,
-                                  left: -20,
-                                  bottom: 0,
-                                }}
-                              >
-                                <CartesianGrid
-                                  strokeDasharray="3 3"
-                                  stroke="#f1f5f9"
-                                  className="dark:hidden"
-                                />
-                                <CartesianGrid
-                                  strokeDasharray="3 3"
-                                  stroke="#334155"
-                                  className="hidden dark:block"
-                                  opacity={0.3}
-                                />
-                                <XAxis
-                                  dataKey="name"
-                                  tick={{ fontSize: 10, fill: "#94a3b8" }}
-                                  tickLine={false}
-                                />
-                                <YAxis
-                                  tick={{ fontSize: 10, fill: "#94a3b8" }}
-                                  tickLine={false}
-                                />
-                                <Tooltip
-                                  contentStyle={{
-                                    backgroundColor: "#1e293b",
-                                    border: "none",
-                                    borderRadius: "12px",
-                                    color: "#fff",
-                                    fontSize: "11px",
-                                  }}
-                                />
-                                <Bar
-                                  name="المبيعات (ج.م)"
-                                  dataKey="sales"
-                                  fill="#06b6d4"
-                                  radius={[6, 6, 0, 0]}
-                                />
-                              </BarChart>
-                            </ResponsiveContainer>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {govBreakdownData.map((gov, idx) => (
+                              <div key={idx} className="bg-white/40 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <div className="flex justify-between items-center flex-row-reverse mb-1.5">
+                                  <span className="text-[10px] font-black text-slate-700 dark:text-slate-200 truncate max-w-[80px]">{gov.name}</span>
+                                  <span className={`text-[10px] font-black ${gov.deliveryRate > 80 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                    {Math.round(gov.deliveryRate)}%
+                                  </span>
+                                </div>
+                                <div className="h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full transition-all duration-1000 ${gov.deliveryRate > 80 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                                    style={{ width: `${gov.deliveryRate}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
 
-                        <div className="bg-white/80 dark:bg-slate-900/80 p-5 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-sm">
-                          <h6 className="text-xs font-bold text-slate-500 mb-3 text-right">
-                            عدد الطلبات المحققة حسب المحافظة
-                          </h6>
-                          <div className="h-60 w-full" dir="ltr">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart
-                                data={govBreakdownData}
-                                margin={{
-                                  top: 10,
-                                  right: 10,
-                                  left: -20,
-                                  bottom: 0,
-                                }}
-                              >
-                                <CartesianGrid
-                                  strokeDasharray="3 3"
-                                  stroke="#f1f5f9"
-                                  className="dark:hidden"
-                                />
-                                <CartesianGrid
-                                  strokeDasharray="3 3"
-                                  stroke="#334155"
-                                  className="hidden dark:block"
-                                  opacity={0.3}
-                                />
-                                <XAxis
-                                  dataKey="name"
-                                  tick={{ fontSize: 10, fill: "#94a3b8" }}
-                                  tickLine={false}
-                                />
-                                <YAxis
-                                  tick={{ fontSize: 10, fill: "#94a3b8" }}
-                                  tickLine={false}
-                                />
-                                <Tooltip
-                                  contentStyle={{
-                                    backgroundColor: "#1e293b",
-                                    border: "none",
-                                    borderRadius: "12px",
-                                    color: "#fff",
-                                    fontSize: "11px",
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <div className="bg-white/80 dark:bg-slate-900/80 p-5 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-sm">
+                            <h6 className="text-xs font-bold text-slate-500 mb-3 text-right">
+                              حجم المبيعات لكل محافظة (ج.م)
+                            </h6>
+                            <div className="h-60 w-full" dir="ltr">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                  data={govBreakdownData}
+                                  margin={{
+                                    top: 10,
+                                    right: 10,
+                                    left: -20,
+                                    bottom: 0,
                                   }}
-                                />
-                                <Bar
-                                  name="عدد الطلبيات"
-                                  dataKey="count"
-                                  fill="#4f46e5"
-                                  radius={[6, 6, 0, 0]}
-                                />
-                              </BarChart>
-                            </ResponsiveContainer>
+                                >
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    stroke="#f1f5f9"
+                                    className="dark:hidden"
+                                  />
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    stroke="#334155"
+                                    className="hidden dark:block"
+                                    opacity={0.3}
+                                  />
+                                  <XAxis
+                                    dataKey="name"
+                                    tick={{ fontSize: 10, fill: "#94a3b8" }}
+                                    tickLine={false}
+                                  />
+                                  <YAxis
+                                    tick={{ fontSize: 10, fill: "#94a3b8" }}
+                                    tickLine={false}
+                                  />
+                                  <Tooltip
+                                    contentStyle={{
+                                      backgroundColor: "#1e293b",
+                                      border: "none",
+                                      borderRadius: "12px",
+                                      color: "#fff",
+                                      fontSize: "11px",
+                                    }}
+                                  />
+                                  <Bar
+                                    name="المبيعات (ج.م)"
+                                    dataKey="sales"
+                                    fill="#06b6d4"
+                                    radius={[6, 6, 0, 0]}
+                                  />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+
+                          <div className="bg-white/80 dark:bg-slate-900/80 p-5 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-sm">
+                            <h6 className="text-xs font-bold text-slate-500 mb-3 text-right">
+                              عدد الطلبات المحققة حسب المحافظة
+                            </h6>
+                            <div className="h-60 w-full" dir="ltr">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                  data={govBreakdownData}
+                                  margin={{
+                                    top: 10,
+                                    right: 10,
+                                    left: -20,
+                                    bottom: 0,
+                                  }}
+                                >
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    stroke="#f1f5f9"
+                                    className="dark:hidden"
+                                  />
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    stroke="#334155"
+                                    className="hidden dark:block"
+                                    opacity={0.3}
+                                  />
+                                  <XAxis
+                                    dataKey="name"
+                                    tick={{ fontSize: 10, fill: "#94a3b8" }}
+                                    tickLine={false}
+                                  />
+                                  <YAxis
+                                    tick={{ fontSize: 10, fill: "#94a3b8" }}
+                                    tickLine={false}
+                                  />
+                                  <Tooltip
+                                    contentStyle={{
+                                      backgroundColor: "#1e293b",
+                                      border: "none",
+                                      borderRadius: "12px",
+                                      color: "#fff",
+                                      fontSize: "11px",
+                                    }}
+                                  />
+                                  <Bar
+                                    name="عدد الطلبيات"
+                                    dataKey="count"
+                                    fill="#4f46e5"
+                                    radius={[6, 6, 0, 0]}
+                                  />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -3616,9 +3791,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                                     <p className="text-xs font-black text-slate-700 dark:text-slate-200 line-clamp-1">
                                       {p.name}
                                     </p>
-                                    <p className="text-[9px] text-slate-400">
-                                      رقم التعريف: {p.id.substring(0, 10)}...
-                                    </p>
+                                    <div className="flex items-center gap-2 flex-row-reverse">
+                                      <p className="text-[9px] text-slate-400">
+                                        الإيراد: {p.revenue.toLocaleString()} ج.م
+                                      </p>
+                                      <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                                      <p className="text-[9px] text-emerald-500 font-bold">
+                                        الربح التقريبي: {p.estimatedProfit.toLocaleString()} ج.م
+                                      </p>
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="text-left font-black text-slate-800 dark:text-white shrink-0 pl-1">
@@ -3725,71 +3906,71 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                         الفئة المحددة.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-3 max-h-[350px] overflow-y-auto pr-1">
-                        {carrierPerformanceData.map((item, index) => (
-                          <div
-                            key={index}
-                            className="bg-white/80 dark:bg-slate-900/80 p-5 rounded-3xl border border-slate-150 dark:border-slate-800 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 items-center text-right flex-row-reverse"
-                          >
-                            <div className="flex items-center gap-3 flex-row-reverse font-sans">
-                              <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl text-indigo-600 dark:text-indigo-400">
-                                <Truck size={18} />
-                              </div>
-                              <div>
-                                <h6 className="text-xs font-black text-slate-800 dark:text-white">
-                                  {item.name || "غير محدد"}
-                                </h6>
-                                <p className="text-[10px] text-slate-400">
-                                  إجمالي شحنات الشركة: {item.total}
-                                </p>
-                              </div>
-                            </div>
+                      <div className="grid grid-cols-1 gap-4 max-h-[400px] overflow-y-auto pr-1 pb-4">
+                        {carrierPerformanceData.map((item, index) => {
+                          const deliveryRate = item.rate;
+                          const isHighPerformance = deliveryRate > 85;
+                          const isLowPerformance = deliveryRate < 50;
 
-                            <div>
-                              <p className="text-[10px] text-slate-400 pr-1">
-                                تفصيل الحالات للمفلتر
-                              </p>
-                              <p className="text-xs font-black text-emerald-600 dark:text-emerald-450 flex items-center gap-1 flex-row-reverse">
-                                <span>{item.delivered} شحنة ناجحة</span>
-                                <span className="text-slate-300 dark:text-slate-700 font-normal">
-                                  |
-                                </span>
-                                <span className="text-rose-500">
-                                  {item.returned} مسترجعة
-                                </span>
-                              </p>
-                            </div>
+                          return (
+                            <div
+                              key={index}
+                              className="bg-white/80 dark:bg-slate-900/80 p-5 rounded-[2rem] border border-slate-150 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-indigo-200 dark:hover:border-indigo-900/50 transition-all"
+                            >
+                              <div className="absolute top-0 right-0 p-2 opacity-[0.03] group-hover:opacity-10 transition-opacity">
+                                <Truck size={80} />
+                              </div>
+                              
+                              <div className="flex flex-col md:flex-row-reverse md:items-center justify-between gap-6 relative z-10">
+                                <div className="flex items-center gap-4 flex-row-reverse text-right">
+                                  <div className={`p-4 rounded-2xl ${isHighPerformance ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600' : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'}`}>
+                                    <Truck size={24} />
+                                  </div>
+                                  <div>
+                                    <h6 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2 flex-row-reverse">
+                                      {item.name || "غير محدد"}
+                                      {isHighPerformance && (
+                                        <span className="bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[8px] px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                                          <ShieldCheck size={10} /> موثوقة
+                                        </span>
+                                      )}
+                                    </h6>
+                                    <p className="text-[10px] text-slate-400 font-bold">
+                                      {item.total} شحنة بنطاق البحث
+                                    </p>
+                                  </div>
+                                </div>
 
-                            <div>
-                              <p className="text-[10px] text-slate-400 mb-1 pr-1">
-                                معدل التوصيل والنجاح
-                              </p>
-                              <div className="flex items-center gap-2 flex-row-reverse">
-                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
-                                  {item.rate.toFixed(0)}%
-                                </span>
-                                <div className="flex-1 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                  <div
-                                    className="bg-indigo-600 dark:bg-indigo-505 h-full rounded-full"
-                                    style={{ width: `${item.rate}%` }}
-                                  ></div>
+                                <div className="flex-1 md:px-8">
+                                  <div className="flex justify-between items-center flex-row-reverse mb-2">
+                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">معدل الانجاز</span>
+                                    <span className={`text-xs font-black tabular-nums ${deliveryRate > 80 ? 'text-emerald-600' : deliveryRate > 60 ? 'text-amber-600' : 'text-rose-600'}`}>
+                                      {deliveryRate.toFixed(1)}%
+                                    </span>
+                                  </div>
+                                  <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex flex-row-reverse">
+                                    <div
+                                      className={`h-full transition-all duration-1000 ${deliveryRate > 80 ? 'bg-emerald-500' : deliveryRate > 60 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                                      style={{ width: `${deliveryRate}%` }}
+                                    />
+                                  </div>
+                                  <div className="flex justify-between items-center flex-row-reverse mt-2">
+                                    <span className="text-[9px] text-emerald-500 font-bold">{item.delivered} ناجحة</span>
+                                    <span className="text-[9px] text-rose-400 font-bold">{item.returned} مرتجعات</span>
+                                  </div>
+                                </div>
+
+                                <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl text-center md:text-left min-w-[120px] border border-slate-100 dark:border-slate-800/60">
+                                  <p className="text-[9px] font-bold text-slate-400 mb-1 uppercase tracking-tighter">متوسط التكلفة</p>
+                                  <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums">
+                                    {(item.fees / (item.total || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                    <span className="text-[10px] font-bold text-slate-400 mr-1">ج.م</span>
+                                  </p>
                                 </div>
                               </div>
                             </div>
-
-                            <div className="text-left md:text-left font-bold text-slate-700 dark:text-slate-300 text-sm pl-1">
-                              <p className="text-[10px] text-slate-400">
-                                رسوم الشحن الكلية للمستلم
-                              </p>
-                              <p className="tabular-nums font-black text-slate-800 dark:text-white">
-                                {item.fees.toLocaleString(undefined, {
-                                  minimumFractionDigits: 0,
-                                })}{" "}
-                                ج.م
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -4712,7 +4893,7 @@ const OrderCard = ({
     : (order.isInsured ?? true)
       ? calculateInsuranceFee(order, insuranceRate, settings)
       : 0;
-  const inspectionFee =
+  const inspectionFeeAmount =
     !isPosOrder && (order.includeInspectionFee ?? true)
       ? useCustom
         ? (compFees?.inspectionFee ?? 0)
@@ -4720,6 +4901,7 @@ const OrderCard = ({
           ? settings.inspectionFee
           : 0
       : 0;
+  const inspectionFee = (order.inspectionFeePaidByCustomer !== false && order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
   const bostaVatFee = isPosOrder
     ? 0
     : calculateBostaVat(order, insuranceFee, settings);
@@ -4745,15 +4927,7 @@ const OrderCard = ({
   const totalAmount =
     order.totalAmountOverride !== undefined &&
     order.totalAmountOverride !== null
-      ? Math.max(
-          0,
-          Math.round(
-            Number(order.totalAmountOverride) -
-              safeAdvance -
-              safeCredit -
-              safeReturnCash,
-          ),
-        )
+      ? Math.max(0, Math.round(Number(order.totalAmountOverride)))
       : computedTotal;
   const displayTotal =
     order.source === "synced" && order.totalPrice != null
@@ -5162,18 +5336,20 @@ const ProfitBreakdown: React.FC<{
   const dynamicVatLabel = `ضريبة القيمة المضافة (${(currentVatRate * 100).toFixed(0)}%)`;
 
   const safeTax = Number(order.tax) || 0;
-  const inspectionAdjustment = order.inspectionFeePaidByCustomer
-    ? 0
-    : inspectionFee;
+  const inspectionAdjustment = isPosOrder ? 0 : inspectionFee;
 
-  const inspectionRevenue = order.inspectionFeePaidByCustomer ? inspectionFee : 0;
+  const inspectionRevenue =
+    (order.includeInspectionFee !== false && !isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
 
-  const baseRevenue = safeProductPrice + safeShippingFee + safeTax + inspectionRevenue;
+  const baseRevenue =
+    safeProductPrice + safeShippingFee + safeTax + inspectionRevenue;
+
   const amountCollectedFromCustomer =
     order.totalAmountOverride !== undefined &&
-    order.totalAmountOverride !== null
+    order.totalAmountOverride !== null &&
+    String(order.totalAmountOverride).trim() !== ""
       ? Number(order.totalAmountOverride)
-      : baseRevenue - safeDiscount;
+      : baseRevenue - safeDiscount - safeAdvance;
 
   const manualDifference = amountCollectedFromCustomer - (baseRevenue - safeDiscount);
 
@@ -5231,8 +5407,8 @@ const ProfitBreakdown: React.FC<{
       : 0;
 
   const netProfit = isReturnedOrFailed
-    ? flexPaidAmount - carrierCost - flexCompanyFeePaid // Loss is carrier costs minus what was recouped via Flex Ship
-    : amountCollectedFromCustomer - extraAdjustment - totalExpenses;
+    ? flexPaidAmount - carrierCost - flexCompanyFeePaid
+    : baseRevenue - safeDiscount - extraAdjustment - totalExpenses;
 
   const profitLabel = isReturnedOrFailed
     ? netProfit >= 0
@@ -5357,6 +5533,19 @@ const ProfitBreakdown: React.FC<{
                     </span>
                   </div>
                 )}
+                {safeAdvance > 0 && (
+                  <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
+                    <span className="text-slate-500 font-bold">عربون / دفعة مقدمة</span>
+                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      +
+                      {safeAdvance.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 3,
+                      })}{" "}
+                      ج.م
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-100 dark:border-slate-700/50">
                   <span className="text-slate-700 dark:text-slate-300 font-black">
                     إجمالي الإيرادات المحسوبة للربح =
@@ -5364,7 +5553,7 @@ const ProfitBreakdown: React.FC<{
                   <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
                     +
                     {(
-                      amountCollectedFromCustomer - extraAdjustment + inspectionRevenue + inspectionAdjustment
+                      baseRevenue - safeDiscount - extraAdjustment
                     ).toLocaleString(undefined, {
                       minimumFractionDigits: 0,
                       maximumFractionDigits: 3,
@@ -5680,7 +5869,7 @@ const ProfitBreakdown: React.FC<{
             <div className="flex justify-between items-center flex-row-reverse">
               <span className="text-slate-500">إجمالي فاتورة العميل:</span>
               <span className="text-slate-700 dark:text-slate-300">
-                {(amountCollectedFromCustomer + inspectionRevenue + inspectionAdjustment).toLocaleString(undefined, {
+                {(amountCollectedFromCustomer).toLocaleString(undefined, {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 3,
                 })}{" "}
@@ -5763,7 +5952,7 @@ const ProfitBreakdown: React.FC<{
               <span>
                 {Math.max(
                   0,
-                  amountCollectedFromCustomer + inspectionRevenue + inspectionAdjustment - safeAdvance,
+                  amountCollectedFromCustomer - safeAdvance,
                 ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
                 ج.م
               </span>
@@ -5964,7 +6153,7 @@ const OrderRow = ({
     : (order.isInsured ?? true)
       ? calculateInsuranceFee(order, insuranceRate, settings)
       : 0;
-  const inspectionFee =
+  const inspectionFeeAmount =
     !isPosOrder && (order.includeInspectionFee ?? true)
       ? useCustom
         ? (compFees?.inspectionFee ?? 0)
@@ -5972,6 +6161,7 @@ const OrderRow = ({
           ? settings.inspectionFee
           : 0
       : 0;
+  const inspectionFee = (order.inspectionFeePaidByCustomer !== false && order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
   const bostaVatFee = isPosOrder
     ? 0
     : calculateBostaVat(order, insuranceFee, settings);
@@ -5997,15 +6187,7 @@ const OrderRow = ({
   const totalAmount =
     order.totalAmountOverride !== undefined &&
     order.totalAmountOverride !== null
-      ? Math.max(
-          0,
-          Math.round(
-            Number(order.totalAmountOverride) -
-              safeAdvance -
-              safeCredit -
-              safeReturnCash,
-          ),
-        )
+      ? Math.max(0, Math.round(Number(order.totalAmountOverride)))
       : computedTotal;
   const displayTotal =
     order.source === "synced" && order.totalPrice != null
@@ -7112,8 +7294,11 @@ const OrderModal: React.FC<OrderModalProps> = ({
       (orderData.discount || 0),
     [subtotal, itemDiscounts, orderData.shippingFee, orderData.discount],
   );
-  const finalAmount =
-    totalBeforeCredit - creditAmount - (orderData.advancePayment || 0);
+  const finalAmount = useMemo(() => {
+    const tax = Number(orderData.tax) || 0;
+    const inspection = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== true) ? inspectionFee : 0;
+    return totalBeforeCredit + tax + inspection - creditAmount - (orderData.advancePayment || 0);
+  }, [totalBeforeCredit, creditAmount, orderData.advancePayment, orderData.includeInspectionFee, orderData.inspectionFeePaidByCustomer, inspectionFee, orderData.tax]);
 
   const liveProfitMargin = useMemo(() => {
     const costOfItems = (orderData.items || []).reduce(
@@ -7167,7 +7352,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
       insuranceRate,
       settings,
     );
-    const effectiveInspectionCost = orderData.includeInspectionFee
+    const effectiveInspectionCost = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== true)
       ? Number(inspectionCost)
       : 0;
     const codFee =
@@ -7182,12 +7367,15 @@ const OrderModal: React.FC<OrderModalProps> = ({
         ),
       ) || 0;
 
+    const taxAmount = Number(orderData.tax) || 0;
+
     const totalExpenses =
       costOfItems +
       Number(orderData.shippingFee || 0) +
       insuranceFee +
       effectiveInspectionCost +
-      codFee;
+      codFee +
+      taxAmount;
     const profit = totalCollected - totalExpenses;
 
     return {
@@ -9319,7 +9507,7 @@ const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({
           </button>
           <button
             onClick={() => {
-              const html = generateShippingLabelHTML(order, storeName);
+              const html = generateShippingLabelHTML(order, storeName, settings);
               printHTMLDirectly(html);
             }}
             className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-all flex items-center justify-center gap-3"
@@ -9429,7 +9617,8 @@ const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({
   const total =
     (order as any).totalAmountOverride ??
     order.productPrice +
-      actualShippingFee -
+      actualShippingFee +
+      inspectionFee -
       (order.discount || 0) -
       safeAdvance;
 

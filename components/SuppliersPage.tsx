@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Settings, Supplier, SupplyOrder, Transaction } from '../types';
+import { Settings, Supplier, SupplyOrder, Transaction, PurchaseReturn, PurchaseReturnItem } from '../types';
 import { 
   UserPlus, Truck, Save, Plus, Package, Calendar, DollarSign, User, Trash2, 
   Edit2, Eye, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
   ChevronDown, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
   PieChart as LucidePieChart, Download, Printer, Layers, HelpCircle, CheckCircle2,
-  Search, Info
+  Search, Info, RotateCw
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, 
@@ -59,6 +59,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [orderItems, setOrderItems] = useState<SupplyOrderItem[]>([]);
   const [shippingFees, setShippingFees] = useState(0);
   const [shippingFeesNote, setShippingFeesNote] = useState('');
+  const [shippingFeesPaymentMethod, setShippingFeesPaymentMethod] = useState<'with_order' | 'wallet'>('with_order');
   const [otherFees, setOtherFees] = useState(0);
   const [otherFeesNote, setOtherFeesNote] = useState('');
   const [expensePaidBy, setExpensePaidBy] = useState('');
@@ -70,6 +71,15 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [treasuryPayments, setTreasuryPayments] = useState<{ treasuryAccountId: string, amount: number }[]>([]);
   const [isSplitTreasury, setIsSplitTreasury] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState(''); 
+
+  // Return Product from Invoice States
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [selectedOrderForReturn, setSelectedOrderForReturn] = useState<SupplyOrder | null>(null);
+  const [returnQuantities, setReturnQuantities] = useState<{ [itemKey: string]: number }>({});
+  const [returnWarehouseId, setReturnWarehouseId] = useState('');
+  const [returnRefundMethod, setReturnRefundMethod] = useState<'credit' | 'treasury' | 'supply_wallet'>('credit');
+  const [returnTreasuryAccountId, setReturnTreasuryAccountId] = useState('');
+  const [expandedWarehouseId, setExpandedWarehouseId] = useState<string | null>(null);
 
   // Custom Alarm Dialog Modal
   const [modal, setModal] = useState<{
@@ -90,6 +100,21 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
     onConfirm: null
   });
 
+  React.useEffect(() => {
+    if (settings && (!settings.warehouses || settings.warehouses.length === 0)) {
+      const defaultWh = {
+        id: 'wh_default',
+        name: 'المستودع الرئيسي',
+        location: 'المقر الرئيسي',
+        isDefault: true
+      };
+      setSettings(prev => ({
+        ...prev,
+        warehouses: [defaultWh]
+      }));
+    }
+  }, [settings, setSettings]);
+
   const showAlert = (title: string, message: string, type: 'success' | 'warning' | 'error' | 'info' = 'info') => {
     try { audioSynth.playTone(type); } catch(e) {}
     setModal({
@@ -103,164 +128,134 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
     });
   };
 
-  const showConfirm = (title: string, message: string, onConfirm: () => void, type: 'warning' | 'error' = 'warning') => {
+  // State & Filter Variables
+  const [inventoryQuery, setInventoryQuery] = useState('');
+  const [inventoryStockFilter, setInventoryStockFilter] = useState<'all' | 'out_of_stock' | 'low_stock' | 'in_stock'>('all');
+  const [inventoryCollectionFilter, setInventoryCollectionFilter] = useState('');
+
+  // Derived Invoice & Order Calculations
+  const itemsSubtotal = orderItems.reduce((sum, item) => {
+    const qty = item.quantity || 0;
+    const cost = item.cost || 0;
+    const discountVal = item.discountValue || 0;
+    const discountType = item.discountType || 'amount';
+    const discountAmt = discountVal ? (discountType === 'percentage' ? (cost * qty * discountVal / 100) : (discountVal * qty)) : 0;
+    const lineTotal = (qty * cost) - discountAmt;
+    return sum + (item.isReturn ? -lineTotal : lineTotal);
+  }, 0);
+  const taxAmount = itemsSubtotal * (taxRate / 100);
+  const grandTotal = itemsSubtotal + taxAmount;
+  const totalCost = itemsSubtotal + taxAmount + shippingFees + otherFees;
+
+  // Edit Initiator Functions
+  const startEditSupplier = (supplier: Supplier) => {
+    setEditingSupplier(supplier);
+    setNewSupplier({
+      name: supplier.name,
+      phone: supplier.phone || '',
+      address: supplier.address || '',
+      notes: supplier.notes || ''
+    });
+  };
+
+  const startEditWarehouse = (warehouse: any) => {
+    setEditingWarehouse(warehouse);
+    setNewWarehouse({
+      name: warehouse.name,
+      location: warehouse.location || '',
+      isDefault: warehouse.isDefault || false
+    });
+  };
+
+  // Pricing Synchronizer Helper
+  const syncItemPricing = (item: any, field: string, val: any) => {
+    let updated = { ...item };
+    if (field === 'cost') {
+        updated.cost = Number(val) || 0;
+    } else if (field === 'profitMode') {
+        updated.profitMode = val;
+    } else if (field === 'sellingPrice') {
+        updated.sellingPrice = Number(val) || 0;
+    } else if (field === 'profitPercentage') {
+        updated.profitPercentage = Number(val) || 0;
+    } else if (field === 'basePrice') {
+        updated.basePrice = Number(val) || 0;
+    } else if (field === 'commissionPercentage') {
+        updated.commissionPercentage = Number(val) || 0;
+    }
+
+    // Recompute margins/commissions suggest:
+    const mode = updated.profitMode || 'manual';
+    const cost = updated.cost || 0;
+    if (mode === 'manual') {
+        // manual
+    } else if (mode === 'margin') {
+        const margin = updated.profitPercentage || 0;
+        if (margin < 100 && margin >= 0) {
+            updated.sellingPrice = Number((cost / (1 - (margin / 100))).toFixed(2));
+        } else {
+            updated.sellingPrice = cost;
+        }
+    } else if (mode === 'commission') {
+        const comm = updated.commissionPercentage || 0;
+        let base = updated.basePrice || 0;
+        if (base === 0 && cost > 0 && comm < 100) {
+            base = Number((cost / (1 - (comm / 100))).toFixed(2));
+            updated.basePrice = base;
+        }
+    }
+    return updated;
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, type: 'success' | 'warning' | 'error' | 'info' = 'warning') => {
     try { audioSynth.playTone(type); } catch(e) {}
     setModal({
       show: true,
       title,
       message,
       type,
-      buttonText: 'تأكيد الإجراء',
+      buttonText: 'تأكيد',
       isConfirm: true,
       onConfirm
     });
   };
 
-  const syncItemPricing = React.useCallback((item: SupplyOrderItem, fieldChanged: 'cost' | 'profitMode' | 'profitPercentage' | 'basePrice' | 'commissionPercentage' | 'sellingPrice', value: any) => {
-    const updated = { ...item };
-    
-    if (fieldChanged === 'cost') updated.cost = Number(value);
-    else if (fieldChanged === 'profitMode') updated.profitMode = value;
-    else if (fieldChanged === 'profitPercentage') updated.profitPercentage = Number(value);
-    else if (fieldChanged === 'basePrice') updated.basePrice = Number(value);
-    else if (fieldChanged === 'commissionPercentage') updated.commissionPercentage = Number(value);
-    else if (fieldChanged === 'sellingPrice') updated.sellingPrice = Number(value);
-
-    const mode = updated.profitMode || 'manual';
-
-    if (mode === 'manual') {
-      if (fieldChanged === 'cost' && (!updated.sellingPrice || updated.sellingPrice === 0)) {
-        updated.sellingPrice = updated.cost;
-      }
-    } else if (mode === 'margin') {
-      const cost = updated.cost || 0;
-      const margin = updated.profitPercentage || 0;
-      if (fieldChanged === 'cost' || fieldChanged === 'profitPercentage' || fieldChanged === 'profitMode') {
-        if (margin < 100 && margin >= 0) {
-          updated.sellingPrice = cost / (1 - (margin / 100));
-        } else {
-          updated.sellingPrice = cost;
-        }
-      } else if (fieldChanged === 'sellingPrice') {
-        const sPrice = updated.sellingPrice || 0;
-        if (sPrice > cost) {
-          updated.profitPercentage = Number(((sPrice - cost) / sPrice * 100).toFixed(2));
-        }
-      }
-    } else if (mode === 'commission') {
-      const comm = updated.commissionPercentage || 0;
-      if (fieldChanged === 'cost' || fieldChanged === 'commissionPercentage' || fieldChanged === 'profitMode') {
-        const cost = updated.cost || 0;
-        if (comm < 100 && comm >= 0) {
-          updated.basePrice = cost / (1 - (comm / 100));
-        } else {
-          updated.basePrice = cost;
-        }
-        updated.sellingPrice = updated.basePrice;
-      } else if (fieldChanged === 'basePrice') {
-        const base = updated.basePrice || 0;
-        if (comm < 100 && comm >= 0) {
-          updated.cost = base * (1 - (comm / 100));
-        } else {
-          updated.cost = base;
-        }
-        updated.sellingPrice = base;
-      }
-    }
-
-    return updated;
-  }, []);
-  
-  // Custom states for central inventory tab
-  const [inventoryQuery, setInventoryQuery] = useState('');
-  const [inventoryStockFilter, setInventoryStockFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
-  const [inventoryCollectionFilter, setInventoryCollectionFilter] = useState<'all' | string>('all');
-  
-  const itemsSubtotal = React.useMemo(() => {
-    return orderItems.reduce((sum, item) => {
-        let itemTotal = item.cost * (item.quantity || 0);
-        if (item.discountValue) {
-            if (item.discountType === 'percentage') {
-                itemTotal -= (itemTotal * (item.discountValue / 100));
-            } else {
-                itemTotal -= (item.discountValue * (item.quantity || 0));
-            }
-        }
-        return sum + itemTotal;
-    }, 0);
-  }, [orderItems]);
-
-  const taxAmount = React.useMemo(() => {
-    return itemsSubtotal * (taxRate / 100);
-  }, [itemsSubtotal, taxRate]);
-
-  const grandTotal = React.useMemo(() => {
-    return itemsSubtotal + taxAmount + shippingFees + otherFees;
-  }, [itemsSubtotal, taxAmount, shippingFees, otherFees]);
-
-  const totalCost = grandTotal; // Keep totalCost variable for compatibility with existing code
-
-  // Auto-initialize or keep in sync if only one partner
-  React.useEffect(() => {
-    if (paymentMethod === 'partner' && settings.partners?.length > 0) {
-        if (partnerPayments.length === 0) {
-            setPartnerPayments([{ partnerId: settings.partners[0].id, amount: totalCost }]);
-        } else if (partnerPayments.length === 1) {
-            // If there's only one partner, keep the amount in sync with totalCost
-            if (partnerPayments[0].amount !== totalCost) {
-                const newPayments = [...partnerPayments];
-                newPayments[0].amount = totalCost;
-                setPartnerPayments(newPayments);
-            }
-        }
-    }
-  }, [paymentMethod, settings.partners, totalCost, partnerPayments]);
-
   const handleAddSupplier = () => {
-      if(!newSupplier.name) return;
-      
-      const normalizedNewName = newSupplier.name.trim().toLowerCase().replace(/\s+/g, '');
-      const isDuplicate = (settings.suppliers || []).some(s => 
-          s.name.trim().toLowerCase().replace(/\s+/g, '') === normalizedNewName && 
-          (!editingSupplier || s.id !== editingSupplier.id)
-      );
+    if (!newSupplier.name) {
+        showAlert("تنبيه", "يرجى إدخال اسم المورد", "warning");
+        return;
+    }
 
-      if (isDuplicate) {
-          showAlert("مورد مكرر", "عفواً، اسم هذا المورد مسجل بالفعل. يرجى اختيار اسم فريد ومميز لتجنب التكرار.", "warning");
-          return;
-      }
+    setSettings(prev => {
+        const suppliers = prev.suppliers || [];
+        let updatedSuppliers;
+        
+        if (editingSupplier) {
+            updatedSuppliers = suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...newSupplier } : s);
+        } else {
+            const newId = Date.now().toString();
+            updatedSuppliers = [...suppliers, { 
+                name: '',
+                phone: '',
+                address: '',
+                notes: '',
+                ...newSupplier, 
+                id: newId,
+                balance: 0
+            } as Supplier];
+        }
 
-      if (editingSupplier) {
-          setSettings(prev => ({
-              ...prev,
-              suppliers: prev.suppliers.map(s => s.id === editingSupplier.id ? { ...editingSupplier, ...newSupplier } as Supplier : s)
-          }));
-          audioSynth.announce("تم تحديث بيانات المورد بنجاح", "success");
-          setEditingSupplier(null);
-      } else {
-        const supplier: Supplier = {
-            id: Date.now().toString(),
-            name: newSupplier.name!,
-            phone: newSupplier.phone || '',
-            address: newSupplier.address || '',
-            notes: newSupplier.notes || ''
-        };
-        setSettings(prev => ({...prev, suppliers: [...(prev.suppliers || []), supplier]}));
-        audioSynth.announce("تم تسجيل شريك التوريد الجديد بنجاح", "success");
-      }
-      setShowSupplierModal(false);
-      setNewSupplier({ name: '', phone: '', address: '', notes: '' });
-  };
+        return { ...prev, suppliers: updatedSuppliers };
+    });
 
-  const startEditSupplier = (supplier: Supplier) => {
-      setEditingSupplier(supplier);
-      setNewSupplier(supplier);
-      setShowSupplierModal(true);
+    audioSynth.announce(editingSupplier ? "تم تحديث بيانات المورد" : "تم تسجيل المورد الجديد بنجاح", "success");
+    setNewSupplier({ name: '', phone: '', address: '', notes: '' });
+    setEditingSupplier(null);
   };
 
   const handleDeleteSupplier = (id: string) => {
       // Check if supplier has any supply orders
-      const hasAssociatedOrders = settings.supplyOrders?.some(order => order.supplierId === id);
+      const hasAssociatedOrders = (settings.supplyOrders || [])?.some(order => order.supplierId === id);
 
       if (hasAssociatedOrders) {
           showAlert(
@@ -274,7 +269,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       showConfirm("تأكيد الحذف", "هل أنت متأكد من حذف هذا المورد؟ لا يمكن التراجع عن هذا الإجراء.", () => {
           setSettings(prev => ({
               ...prev,
-              suppliers: prev.suppliers.filter(s => s.id !== id)
+              suppliers: (prev.suppliers || []).filter(s => s.id !== id)
           }));
           audioSynth.announce("تم حذف المورد بنجاح", "success");
       });
@@ -306,18 +301,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
     });
 
     audioSynth.announce(editingWarehouse ? "تم تحديث بيانات المستودع" : "تم إعداد وإضافة المستودع الجديد بنجاح", "success");
-    setShowWarehouseModal(false);
-    setEditingWarehouse(null);
     setNewWarehouse({ name: '', location: '', isDefault: false });
-  };
-
-  const startEditWarehouse = (warehouse: any) => {
-    setEditingWarehouse(warehouse);
-    setNewWarehouse({ name: warehouse.name, location: warehouse.location || '', isDefault: !!warehouse.isDefault });
-    setShowWarehouseModal(true);
+    setEditingWarehouse(null);
   };
 
   const handleDeleteWarehouse = (id: string) => {
+    const warehouseToDelete = (settings.warehouses || []).find(w => w.id === id);
+    
     // 1. Check if the warehouse holds any products stock
     const productsWithStock = (settings.products || []).filter(p => {
         const stock = p.warehouseStock?.[id] || 0;
@@ -330,23 +320,99 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
     const supplyOrdersWithWh = (settings.supplyOrders || []).filter(o => o.warehouseId === id);
 
     if (productsWithStock.length > 0 || supplyOrdersWithWh.length > 0) {
-        const alertMsg = `ممنوع حذف هذا المستودع! المستودع مرتبط بعمليات تخزين حالية (يحتوي على مخزون لـ ${productsWithStock.length} منتجات ومسجل به ${supplyOrdersWithWh.length} أمر توريد دائن). يرجى تصفير الكميات والتسجيلات أولاً.`;
-        showAlert("تحذير", alertMsg, "error");
+        // Show Force Delete confirmation
+        showConfirm(
+            "حذف إجباري للمستودع",
+            `هذا المستودع مرتبط ومسجل به مخزون لـ (${productsWithStock.length}) منتج ومسجل به (${supplyOrdersWithWh.length}) أمر توريد. هل ترغب في حذفه إجبارياً وتصفير مخزونه تلقائياً في كل هذه المنتجات؟ (ملاحظة: المنتجات نفسها لن تُحذف، سيتم فقط تصفير الكميات الخاصة بهذا المستودع وتعديل إجمالي مخزونها).`,
+            () => {
+                setSettings(prev => {
+                    // Update products stock to clear this warehouse ID
+                    const updatedProducts = (prev.products || []).map(p => {
+                        let updatedProduct = { ...p };
+
+                        // Clear in main warehouseStock
+                        if (updatedProduct.warehouseStock && updatedProduct.warehouseStock[id] !== undefined) {
+                            const { [id]: _, ...remainingStock } = updatedProduct.warehouseStock;
+                            updatedProduct.warehouseStock = remainingStock;
+                            updatedProduct.stockQuantity = Object.values(remainingStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                        }
+
+                        // Clear in variants warehouseStock
+                        if (updatedProduct.variants) {
+                            const newVariants = updatedProduct.variants.map(v => {
+                                if (v.warehouseStock && v.warehouseStock[id] !== undefined) {
+                                    const { [id]: _, ...remainingVariantStock } = v.warehouseStock;
+                                    const newQty = Object.values(remainingVariantStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                                    return {
+                                        ...v,
+                                        warehouseStock: remainingVariantStock,
+                                        stockQuantity: newQty
+                                    };
+                                }
+                                return v;
+                            });
+                            updatedProduct.variants = newVariants;
+                            
+                            // Re-calculate stockQuantity of product based on variants if it has variants
+                            if (p.hasVariants) {
+                                updatedProduct.stockQuantity = newVariants.reduce((sum, v) => sum + (Number(v.stockQuantity) || 0), 0);
+                            }
+                        }
+
+                        return updatedProduct;
+                    });
+
+                    // Remove warehouse
+                    let updatedWarehouses = (prev.warehouses || []).filter(w => w.id !== id);
+
+                    // If it was default, set the first remaining one as default
+                    if (warehouseToDelete?.isDefault && updatedWarehouses.length > 0) {
+                        updatedWarehouses = updatedWarehouses.map((w, idx) => ({
+                            ...w,
+                            isDefault: idx === 0
+                        }));
+                    }
+
+                    return {
+                        ...prev,
+                        products: updatedProducts,
+                        warehouses: updatedWarehouses
+                    };
+                });
+                audioSynth.announce("تم الحذف الإجباري للمستودع وتصفير مخزونه بكفاءة", "success");
+            }
+        );
         return;
     }
 
     showConfirm("تأكيد حذف المستودع", "هل أنت متأكد من حذف هذا المستودع؟ لن يتم حذف المنتجات ولكن سيتم فقدان معلومات موقعها.", () => {
-        setSettings(prev => ({
-            ...prev,
-            warehouses: (prev.warehouses || []).filter(w => w.id !== id)
-        }));
+        setSettings(prev => {
+            let updatedWarehouses = (prev.warehouses || []).filter(w => w.id !== id);
+            if (warehouseToDelete?.isDefault && updatedWarehouses.length > 0) {
+                updatedWarehouses = updatedWarehouses.map((w, idx) => ({
+                    ...w,
+                    isDefault: idx === 0
+                }));
+            }
+            return {
+                ...prev,
+                warehouses: updatedWarehouses
+            };
+        });
         audioSynth.announce("تم إزالة المستودع بنجاح", "success");
     });
   };
 
+
+
+
   const handleAddOrder = () => {
       if(!selectedSupplierId) {
           showAlert("خطأ", "يرجى اختيار المورد أولاً", "error");
+          return;
+      }
+      if(!selectedWarehouseId) {
+          showAlert("خطأ", "يرجى اختيار مستودع الاستلام (تخزين البضاعة) والتعيين للفاتورة أولاً", "error");
           return;
       }
       if(orderItems.length === 0) {
@@ -388,6 +454,47 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           }
       }
 
+      // Validate returns against warehouse stock
+      const oldItemsMap = new Map<string, number>();
+      if (editingOrder) {
+          const currentOldOrder = editingOrder as SupplyOrder;
+          for (const oldItem of currentOldOrder.items) {
+              if (oldItem.isReturn) {
+                  const oldWhId = oldItem.warehouseId || currentOldOrder.warehouseId;
+                  const targetQty = (oldItem.receivedQuantity !== undefined ? oldItem.receivedQuantity : (oldItem.quantity || 0)) + (oldItem.bonusQuantity || 0);
+                  const key = `${oldWhId}_${oldItem.productId}_${oldItem.variantId || ''}`;
+                  oldItemsMap.set(key, (oldItemsMap.get(key) || 0) + targetQty);
+              }
+          }
+      }
+
+      for (const item of orderItems) {
+        if (item.isReturn && item.productId) {
+          const product = settings.products.find(p => p.id === item.productId);
+          if (product) {
+            const targetWhId = item.warehouseId || selectedWarehouseId;
+            const targetQty = (item.quantity || 0) + (item.bonusQuantity || 0);
+            const key = `${targetWhId}_${item.productId}_${item.variantId || ''}`;
+            let availableQty = 0;
+            if (item.variantId && product.variants) {
+               const variant = product.variants.find(v => v.id === item.variantId);
+               availableQty = Math.max(0, variant?.warehouseStock?.[targetWhId] || 0);
+            } else {
+               availableQty = Math.max(0, product.warehouseStock?.[targetWhId] || 0);
+            }
+            
+            const oldReturnQty = oldItemsMap.get(key) || 0;
+            const trueAvailable = availableQty + oldReturnQty;
+
+            if (targetQty > trueAvailable) {
+                const whName = settings.warehouses?.find((w: any) => w.id === targetWhId)?.name || 'المستودع المحدد';
+                showAlert("خطأ", `الكمية المرتجعة للصنف (${product.name}) (${targetQty}) تتجاوز رصيد ${whName} المتاح (${trueAvailable})`, "error");
+                return;
+            }
+          }
+        }
+      }
+
       const supplier = settings.suppliers.find(s => s.id === selectedSupplierId);
 
       setSettings(prev => {
@@ -410,7 +517,6 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
 
               // Revert Treasury if was treasury funded
               if (currentOldOrder.paymentMethod === 'treasury') {
-                const oldTxsIdPrefix = `supply_tx_${currentOldOrder.id}`;
                 const oldTreasuryPayments = currentOldOrder.treasuryPayments || (currentOldOrder.treasuryAccountId ? [{ treasuryAccountId: currentOldOrder.treasuryAccountId, amount: (currentOldOrder.grandTotal || currentOldOrder.totalCost) }] : []);
                 setTreasury((prev: any) => ({
                     ...prev,
@@ -421,7 +527,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                         }
                         return acc;
                     }),
-                    transactions: prev.transactions.filter((t: any) => !t.id.startsWith(oldTxsIdPrefix))
+                    transactions: prev.transactions.filter((t: any) => 
+                        !t.id.startsWith(`supply_tx_${currentOldOrder.id}`) &&
+                        !t.id.startsWith(`expense_tx_${currentOldOrder.id}`)
+                    )
                 }));
               }
 
@@ -446,16 +555,17 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   if (pIdx > -1) {
                       const receivedQty = oldItem.receivedQuantity !== undefined ? oldItem.receivedQuantity : (oldItem.quantity || 0);
                       const totalQty = receivedQty + (oldItem.bonusQuantity || 0);
-                      const oldWhId = currentOldOrder.warehouseId;
+                      const revertQty = oldItem.isReturn ? totalQty : -totalQty;
+                      const oldWhId = oldItem.warehouseId || currentOldOrder.warehouseId;
 
                       if (oldItem.variantId && updatedProducts[pIdx].variants) {
                           updatedProducts[pIdx].variants = updatedProducts[pIdx].variants!.map(v => {
                               if (v.id === oldItem.variantId) {
                                   let vUpdated = { ...v };
-                                  vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) - totalQty;
+                                  vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + revertQty;
                                   if (oldWhId) {
                                       vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
-                                      vUpdated.warehouseStock[oldWhId] = (vUpdated.warehouseStock[oldWhId] || 0) - totalQty;
+                                      vUpdated.warehouseStock[oldWhId] = (vUpdated.warehouseStock[oldWhId] || 0) + revertQty;
                                   }
                                   return vUpdated;
                               }
@@ -464,10 +574,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                           // Resync product stockQuantity from variants
                           updatedProducts[pIdx].stockQuantity = updatedProducts[pIdx].variants!.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
                       } else {
-                          updatedProducts[pIdx].stockQuantity = (updatedProducts[pIdx].stockQuantity || 0) - totalQty;
+                          updatedProducts[pIdx].stockQuantity = (updatedProducts[pIdx].stockQuantity || 0) + revertQty;
                           if (oldWhId) {
                               updatedProducts[pIdx].warehouseStock = { ...(updatedProducts[pIdx].warehouseStock || {}) };
-                              updatedProducts[pIdx].warehouseStock[oldWhId] = (updatedProducts[pIdx].warehouseStock[oldWhId] || 0) - totalQty;
+                              updatedProducts[pIdx].warehouseStock[oldWhId] = (updatedProducts[pIdx].warehouseStock[oldWhId] || 0) + revertQty;
                           }
                       }
                       updatedProducts[pIdx].inStock = (updatedProducts[pIdx].stockQuantity || 0) > 0;
@@ -497,7 +607,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   }
 
                   const currentProd = updatedProducts[productIndex];
-                  const shouldUpdatePricing = newItem.updateCatalogPrice !== false;
+                  const shouldUpdatePricing = newItem.updateCatalogPrice !== false && !newItem.isReturn;
                   
                   let costPrice = shouldUpdatePricing ? itemLandedCost : currentProd.costPrice;
                   let price = currentProd.price || 0;
@@ -507,29 +617,37 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                       if (profitMode === 'manual') {
                           if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) price = newItem.sellingPrice;
                       } else if (profitMode === 'margin') {
-                          const margin = newItem.profitPercentage ?? currentProd.profitPercentage ?? 0;
-                          price = (margin < 100 && margin >= 0) ? costPrice / (1 - (margin / 100)) : costPrice;
+                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) {
+                              price = newItem.sellingPrice;
+                          } else {
+                              const margin = newItem.profitPercentage ?? currentProd.profitPercentage ?? 0;
+                              price = (margin < 100 && margin >= 0) ? costPrice / (1 - (margin / 100)) : costPrice;
+                          }
                       } else if (profitMode === 'commission') {
                           const commission = newItem.commissionPercentage ?? currentProd.commissionPercentage ?? 0;
                           let basePrice = newItem.basePrice || currentProd.basePrice || 0;
                           if (basePrice === 0 && costPrice > 0 && commission < 100) basePrice = costPrice / (1 - (commission / 100));
-                          price = basePrice;
+                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) price = newItem.sellingPrice;
+                          else price = basePrice;
                           if (commission >= 0 && commission < 100) costPrice = basePrice * (1 - (commission / 100));
                       }
                   }
 
                   // Update the actual stock
+                  const stockChangeQty = newItem.isReturn ? -totalQty : totalQty;
+                  const targetWhId = newItem.warehouseId || selectedWarehouseId;
+
                   if (newItem.variantId && currentProd.variants) {
                       currentProd.variants = currentProd.variants.map(v => {
                           if (v.id === newItem.variantId) {
                               let vUpdated = { ...v };
-                              vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + totalQty;
-                              if (selectedWarehouseId) {
+                              vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + stockChangeQty;
+                              if (targetWhId) {
                                   vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
-                                  vUpdated.warehouseStock[selectedWarehouseId] = (vUpdated.warehouseStock[selectedWarehouseId] || 0) + totalQty;
+                                  vUpdated.warehouseStock[targetWhId] = (vUpdated.warehouseStock[targetWhId] || 0) + stockChangeQty;
                               }
                               // Also update variant cost/price if applicable
-                              if (shouldUpdatePricing) {
+                              if (shouldUpdatePricing && !newItem.isReturn) {
                                   vUpdated.costPrice = Number(costPrice);
                                   vUpdated.price = Number(price.toFixed(2));
                               }
@@ -539,10 +657,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                       });
                       currentProd.stockQuantity = currentProd.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
                   } else {
-                      currentProd.stockQuantity = (currentProd.stockQuantity || 0) + totalQty;
-                      if (selectedWarehouseId) {
+                      currentProd.stockQuantity = (currentProd.stockQuantity || 0) + stockChangeQty;
+                      if (targetWhId) {
                           currentProd.warehouseStock = { ...(currentProd.warehouseStock || {}) };
-                          currentProd.warehouseStock[selectedWarehouseId] = (currentProd.warehouseStock[selectedWarehouseId] || 0) + totalQty;
+                          currentProd.warehouseStock[targetWhId] = (currentProd.warehouseStock[targetWhId] || 0) + stockChangeQty;
                       }
                   }
 
@@ -562,11 +680,12 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           });
 
           // 3. Update Supplier Balance if Credit
+          const orderPayableAmount = totalCost - (shippingFeesPaymentMethod === 'wallet' ? shippingFees : 0);
           const supplierIdx = updatedSuppliers.findIndex(s => s.id === selectedSupplierId);
           if (supplierIdx > -1 && paymentMethod === 'credit') {
               updatedSuppliers[supplierIdx] = {
                   ...updatedSuppliers[supplierIdx],
-                  balance: (updatedSuppliers[supplierIdx].balance || 0) + totalCost
+                  balance: (updatedSuppliers[supplierIdx].balance || 0) + orderPayableAmount
               };
           }
 
@@ -580,8 +699,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                           balance: (updatedPartners[pIdx].balance || 0) + pp.amount
                       };
                       
-                      const partnerShareRatio = totalCost > 0 ? (pp.amount / totalCost) : 1;
-                      const partnerShippingShare = Number((shippingFees * partnerShareRatio).toFixed(2));
+                      const partnerShareRatio = orderPayableAmount > 0 ? (pp.amount / orderPayableAmount) : 1;
+                      const partnerShippingShare = shippingFeesPaymentMethod === 'with_order' ? Number((shippingFees * partnerShareRatio).toFixed(2)) : 0;
                       const partnerOtherFeesShare = Number((otherFees * partnerShareRatio).toFixed(2));
                       const partnerTaxShare = Number((taxAmount * partnerShareRatio).toFixed(2));
                       const partnerGoodsShare = pp.amount - partnerShippingShare - partnerOtherFeesShare;
@@ -636,11 +755,11 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               setTreasury((prev: any) => {
                  const activeTreasuryPayments = isSplitTreasury 
                    ? treasuryPayments 
-                   : (outerSelectedTreasuryAccountId ? [{ treasuryAccountId: outerSelectedTreasuryAccountId, amount: totalCost }] : []);
+                   : (outerSelectedTreasuryAccountId ? [{ treasuryAccountId: outerSelectedTreasuryAccountId, amount: orderPayableAmount }] : []);
                  
                  let newTxs = [...prev.transactions];
                   const firstAccountId = activeTreasuryPayments[0]?.treasuryAccountId || '';
-                   const baseAmount = totalCost;
+                   const baseAmount = orderPayableAmount;
                   const selectedTreasuryAccountId = firstAccountId || outerSelectedTreasuryAccountId;
                  let updatedAccounts = [...prev.accounts];
                   activeTreasuryPayments.forEach((p) => {
@@ -717,9 +836,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                  
                  return {
                      ...prev,
-                     accounts: prev.accounts.map((acc: any) => 
-                         acc.id === selectedTreasuryAccountId ? { ...acc, balance: acc.balance - 0 } : acc
-                     ),
+                     accounts: updatedAccounts,
                      transactions: newTxs
                  };
              });
@@ -734,12 +851,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   referenceNumber: orderReference,
                   notes: orderNotes,
                   items: orderItems,
-                  totalCost: grandTotal,
-                  grandTotal: grandTotal,
+                  totalCost: totalCost,
+                  grandTotal: totalCost,
                   taxRate,
                   taxAmount,
                   shippingFees,
                   shippingFeesNote,
+                  shippingFeesPaymentMethod,
                   otherFees,
                   otherFeesNote,
                   expensePaidBy,
@@ -760,12 +878,13 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   referenceNumber: orderReference || `supply_${currentOrderId}`,
                   notes: orderNotes,
                   items: orderItems,
-                  totalCost: grandTotal,
-                  grandTotal: grandTotal,
+                  totalCost: totalCost,
+                  grandTotal: totalCost,
                   taxRate,
                   taxAmount,
                   shippingFees,
                   shippingFeesNote,
+                  shippingFeesPaymentMethod,
                   otherFees,
                   otherFeesNote,
                   expensePaidBy,
@@ -814,30 +933,40 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               // 2. Prepare new transactions
               const newWalletTransactions: Transaction[] = [];
               const now = new Date();
-              const baseAmount = recordExpensesFormally ? (totalCost - shippingFees - otherFees) : totalCost;
+              const orderPayableAmount = totalCost - (shippingFeesPaymentMethod === 'wallet' ? shippingFees : 0);
+              const baseAmount = recordExpensesFormally ? (orderPayableAmount - otherFees) : orderPayableAmount;
 
               const pushFormalExpenses = (date: Date) => {
-                  if (recordExpensesFormally) {
-                      const isCapitalPayment = paymentMethod === 'supply_wallet' || paymentMethod === 'partner';
-                      if (shippingFees > 0) {
-                          const shippingNote = shippingFeesNote ? ` (${shippingFeesNote})` : '';
-                          const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
-                          newWalletTransactions.push({
-                              id: `supply_expense_shipping_${currentOrderId}`,
-                              type: 'سحب',
-                              amount: shippingFees,
-                              date: new Date(date.getTime() + 2).toISOString(),
-                              note: `مصاريف شحن${shippingNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})${payerNote}`,
-                              category: isCapitalPayment ? 'supply_expense_shipping' : 'expense_shipping_fees',
-                              status: 'completed',
-                              details: {
-                                expensePaidBy,
-                                note: shippingFeesNote,
-                                supplierId: supplier?.id,
-                                orderId: currentOrderId
-                              }
-                          } as Transaction);
+                  const isCapitalPayment = paymentMethod === 'supply_wallet' || paymentMethod === 'partner';
+                  
+                  // Always record shipping fees separately if paid from wallet, 
+                  // or if recorded formally
+                  if (shippingFees > 0 && (recordExpensesFormally || shippingFeesPaymentMethod === 'wallet')) {
+                      const shippingNote = shippingFeesNote ? ` (${shippingFeesNote})` : '';
+                      const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
+                      newWalletTransactions.push({
+                          id: `supply_expense_shipping_${currentOrderId}`,
+                          type: 'سحب',
+                          amount: shippingFees,
+                          date: new Date(date.getTime() + 2).toISOString(),
+                          note: `مصاريف شحن${shippingNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})${payerNote}`,
+                          category: (isCapitalPayment && shippingFeesPaymentMethod === 'with_order') ? 'supply_expense_shipping' : 'expense_shipping_fees',
+                          status: 'completed',
+                          details: {
+                            expensePaidBy,
+                            note: shippingFeesNote,
+                            supplierId: supplier?.id,
+                            orderId: currentOrderId
+                          }
+                      } as Transaction);
+                      
+                      // Deduct from appropriate wallet balance if paid via wallet
+                      if (shippingFeesPaymentMethod === 'wallet') {
+                          newBalance -= shippingFees;
                       }
+                  }
+                  
+                  if (recordExpensesFormally) {
                       if (otherFees > 0) {
                           const otherNote = otherFeesNote ? ` (${otherFeesNote})` : '';
                           const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
@@ -892,9 +1021,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   pushFormalExpenses(purchaseDate);
                   
                   // Payment comes out of the supply wallet
-                  newSupplyBalance -= totalCost;
+                  newSupplyBalance -= orderPayableAmount;
               } else if (paymentMethod === 'cash') {
-                  newBalance -= totalCost;
+                  newBalance -= orderPayableAmount;
                   newWalletTransactions.push({
                       id: `supply_purchase_${currentOrderId}`,
                       type: 'سحب',
@@ -906,7 +1035,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   } as Transaction);
                   pushFormalExpenses(now);
               } else if (paymentMethod === 'supply_wallet') {
-                  newSupplyBalance -= totalCost;
+                  newSupplyBalance -= orderPayableAmount;
                   newWalletTransactions.push({
                       id: `supply_purchase_${currentOrderId}`,
                       type: 'سحب',
@@ -972,6 +1101,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderNotes('');
       setShippingFees(0);
       setShippingFeesNote('');
+      setShippingFeesPaymentMethod('with_order');
       setOtherFees(0);
       setOtherFeesNote('');
       setExpensePaidBy('');
@@ -979,6 +1109,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setRecordExpensesFormally(false);
       setTaxRate(0);
       setSelectedTreasuryAccountId('');
+      setSelectedWarehouseId('');
   };
 
   const startEditOrder = (order: SupplyOrder) => {
@@ -991,6 +1122,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderNotes(order.notes || '');
       setShippingFees(order.shippingFees || 0);
       setShippingFeesNote(order.shippingFeesNote || '');
+      setShippingFeesPaymentMethod(order.shippingFeesPaymentMethod || 'with_order');
       setOtherFees(order.otherFees || 0);
       setOtherFeesNote(order.otherFeesNote || '');
       setExpensePaidBy(order.expensePaidBy || '');
@@ -1014,7 +1146,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setSelectedTreasuryAccountId(order.treasuryAccountId || '');
       setTreasuryPayments(order.treasuryPayments || []);
       setIsSplitTreasury(order.treasuryPayments ? order.treasuryPayments.length > 0 : false);
-      setSelectedWarehouseId(order.warehouseId || '');
+      
+      const defaultWhId = settings.warehouses?.find(w => w.isDefault)?.id || settings.warehouses?.[0]?.id || '';
+      setSelectedWarehouseId(order.warehouseId || defaultWhId);
       setShowOrderModal(true);
   };
 
@@ -1076,15 +1210,41 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                 if (item) {
                     const receivedQty = item.receivedQuantity !== undefined ? item.receivedQuantity : (item.quantity || 0);
                     const totalQty = receivedQty + (item.bonusQuantity || 0);
-                    const newQty = (p.stockQuantity || 0) - totalQty;
+                    const oldWhId = order.warehouseId;
                     
-                    // Update warehouse stock if order has warehouseId
+                    let updatedVariants = p.variants;
+                    let newQty = p.stockQuantity || 0;
                     let updatedWhStock = p.warehouseStock ? { ...p.warehouseStock } : undefined;
-                    if (order.warehouseId && updatedWhStock) {
-                       updatedWhStock[order.warehouseId] = (updatedWhStock[order.warehouseId] || 0) - totalQty;
+
+                    if (item.variantId && p.variants) {
+                        updatedVariants = p.variants.map(v => {
+                            if (v.id === item.variantId) {
+                                let vUpdated = { ...v };
+                                vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) - totalQty;
+                                if (oldWhId) {
+                                    vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+                                    vUpdated.warehouseStock[oldWhId] = (vUpdated.warehouseStock[oldWhId] || 0) - totalQty;
+                                }
+                                return vUpdated;
+                            }
+                            return v;
+                        });
+                        newQty = updatedVariants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                    } else {
+                        newQty = (p.stockQuantity || 0) - totalQty;
+                        if (oldWhId) {
+                            updatedWhStock = { ...(updatedWhStock || {}) };
+                            updatedWhStock[oldWhId] = (updatedWhStock[oldWhId] || 0) - totalQty;
+                        }
                     }
 
-                    return { ...p, stockQuantity: newQty, inStock: newQty > 0, warehouseStock: updatedWhStock };
+                    return { 
+                        ...p, 
+                        stockQuantity: newQty, 
+                        inStock: newQty > 0, 
+                        warehouseStock: updatedWhStock,
+                        variants: updatedVariants
+                    };
                 }
                 return p;
             }),
@@ -1138,6 +1298,249 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
         }));
       }
     });
+  };
+
+  const startReturnFromOrder = (order: SupplyOrder) => {
+    setSelectedOrderForReturn(order);
+    
+    // Default return warehouse is the one used in the order
+    setReturnWarehouseId(order.warehouseId || '');
+    
+    // Default refund method based on payment method of order
+    if (order.paymentMethod === 'credit') {
+      setReturnRefundMethod('credit');
+    } else if (order.paymentMethod === 'treasury') {
+      setReturnRefundMethod('treasury');
+      setReturnTreasuryAccountId(order.treasuryAccountId || '');
+    } else if (order.paymentMethod === 'supply_wallet') {
+      setReturnRefundMethod('supply_wallet');
+    } else {
+      setReturnRefundMethod('treasury'); 
+      const defaultAcc = treasury?.accounts?.[0]?.id || '';
+      setReturnTreasuryAccountId(defaultAcc);
+    }
+    
+    // Initialize return quantities to 0
+    const initialQtys: { [key: string]: number } = {};
+    order.items.forEach(item => {
+      initialQtys[`${item.productId}_${item.variantId || ''}`] = 0;
+    });
+    setReturnQuantities(initialQtys);
+    
+    setShowReturnModal(true);
+  };
+
+  const handleConfirmReturn = () => {
+    if (!selectedOrderForReturn) return;
+    
+    // 1. Validate return quantities
+    const itemsToReturn = selectedOrderForReturn.items.map(item => {
+      const key = `${item.productId}_${item.variantId || ''}`;
+      const qtyToReturn = returnQuantities[key] || 0;
+      return { ...item, qtyToReturn };
+    }).filter(item => item.qtyToReturn > 0);
+
+    if (itemsToReturn.length === 0) {
+      showAlert("تنبيه", "يرجى تحديد كمية مرتجع لمنتج واحد على الأقل.", "warning");
+      return;
+    }
+
+    // Check if they exceed purchased quantity minus any already returned quantity
+    for (const item of itemsToReturn) {
+      const alreadyReturned = item.returnedQuantity || 0;
+      const maxAllowed = (item.quantity + (item.bonusQuantity || 0)) - alreadyReturned;
+      if (item.qtyToReturn > maxAllowed) {
+        showAlert("تنبيه", `الكمية المدخلة لإرجاع المنتج [${item.name}] تتجاوز الكمية المتاحة المتبقية للإرجاع (${maxAllowed} قطعة).`, "warning");
+        return;
+      }
+    }
+
+    if (returnRefundMethod === 'treasury' && !returnTreasuryAccountId) {
+      showAlert("تنبيه", "يرجى تحديد الحساب النقدي لاستلام المرتجع.", "warning");
+      return;
+    }
+
+    const supplier = settings.suppliers.find(s => s.id === selectedOrderForReturn.supplierId);
+    const totalReturnCost = itemsToReturn.reduce((sum, item) => {
+      const discountAmt = item.discountValue ? (item.discountType === 'percentage' ? (item.cost * item.discountValue / 100) : item.discountValue) : 0;
+      const netCost = item.cost - discountAmt;
+      return sum + (item.qtyToReturn * netCost);
+    }, 0);
+
+    // 2. Perform the return
+    setSettings(prev => {
+      let updatedProducts = [...prev.products];
+      let updatedSuppliers = [...(prev.suppliers || [])];
+      let updatedOrders = [...(prev.supplyOrders || [])];
+      let updatedReturns = [...(prev.purchaseReturns || [])];
+
+      // Create PurchaseReturnItem array
+      const returnItems: PurchaseReturnItem[] = itemsToReturn.map(item => {
+        const discountAmt = item.discountValue ? (item.discountType === 'percentage' ? (item.cost * item.discountValue / 100) : item.discountValue) : 0;
+        const netCost = item.cost - discountAmt;
+        return {
+          productId: item.productId,
+          variantId: item.variantId,
+          name: item.name || '',
+          sku: item.sku || '',
+          quantity: item.qtyToReturn,
+          costPrice: netCost
+        };
+      });
+
+      const returnId = `PRT-${Date.now()}`;
+      const returnNumber = `PR-${String(updatedReturns.length + 1).padStart(5, '0')}`;
+
+      const returnData: PurchaseReturn = {
+        id: returnId,
+        returnNumber,
+        supplierId: selectedOrderForReturn.supplierId,
+        supplierName: supplier?.name || 'مورد عام',
+        date: new Date().toISOString(),
+        items: returnItems,
+        totalRefundAmount: totalReturnCost,
+        warehouseId: returnWarehouseId || selectedOrderForReturn.warehouseId || '',
+        status: 'completed',
+        notes: `مرتجع من الفاتورة رقم ${selectedOrderForReturn.referenceNumber || selectedOrderForReturn.id}`,
+        performedBy: currentUser?.fullName || currentUser?.email || 'System'
+      };
+
+      // Deduct stock from warehouse/product
+      returnItems.forEach(item => {
+        const pIdx = updatedProducts.findIndex(p => p.id === item.productId);
+        if (pIdx > -1) {
+          let prod = { ...updatedProducts[pIdx] };
+          const warehouseIdToUse = returnWarehouseId || selectedOrderForReturn.warehouseId || '';
+
+          if (item.variantId && prod.variants) {
+            prod.variants = prod.variants.map(v => {
+              if (v.id === item.variantId) {
+                const vUpdated = { ...v };
+                vUpdated.stockQuantity = Math.max(0, (vUpdated.stockQuantity || 0) - item.quantity);
+                vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+                vUpdated.warehouseStock[warehouseIdToUse] = Math.max(0, (vUpdated.warehouseStock[warehouseIdToUse] || 0) - item.quantity);
+                return vUpdated;
+              }
+              return v;
+            });
+            // Recalculate total product stock from variants
+            prod.stockQuantity = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+          } else {
+            prod.stockQuantity = Math.max(0, (prod.stockQuantity || 0) - item.quantity);
+            if (warehouseIdToUse) {
+              prod.warehouseStock = { ...(prod.warehouseStock || {}) };
+              prod.warehouseStock[warehouseIdToUse] = Math.max(0, (prod.warehouseStock[warehouseIdToUse] || 0) - item.quantity);
+            }
+          }
+          prod.inStock = (prod.stockQuantity || 0) > 0;
+          updatedProducts[pIdx] = prod;
+        }
+      });
+
+      // Update SupplyOrder's items `returnedQuantity`
+      updatedOrders = updatedOrders.map(o => {
+        if (o.id === selectedOrderForReturn.id) {
+          return {
+            ...o,
+            items: o.items.map(item => {
+              const key = `${item.productId}_${item.variantId || ''}`;
+              const toReturn = returnQuantities[key] || 0;
+              if (toReturn > 0) {
+                return {
+                  ...item,
+                  returnedQuantity: (item.returnedQuantity || 0) + toReturn
+                };
+              }
+              return item;
+            })
+          };
+        }
+        return o;
+      });
+
+      // Update Supplier Debt if using 'credit'
+      if (returnRefundMethod === 'credit') {
+        const sIdx = updatedSuppliers.findIndex(s => s.id === selectedOrderForReturn.supplierId);
+        if (sIdx > -1) {
+          updatedSuppliers[sIdx] = {
+            ...updatedSuppliers[sIdx],
+            balance: Math.max(0, (updatedSuppliers[sIdx].balance || 0) - totalReturnCost)
+          };
+        }
+      }
+
+      // Prepare Activity Log
+      const newLog = {
+        id: `log-${Date.now()}`,
+        user: currentUser?.fullName || 'النظام',
+        action: 'مرتجع مشتريات من فاتورة',
+        details: `إرجاع منتجات بقيمة ${totalReturnCost} ج.م للمورد ${supplier?.name || ''} من الفاتورة ${selectedOrderForReturn.referenceNumber || selectedOrderForReturn.id}`,
+        date: new Date().toLocaleString('ar-EG'),
+        timestamp: Date.now()
+      };
+
+      return {
+        ...prev,
+        products: updatedProducts,
+        suppliers: updatedSuppliers,
+        supplyOrders: updatedOrders,
+        purchaseReturns: [returnData, ...updatedReturns],
+        activityLogs: [newLog, ...(prev.activityLogs || [])]
+      };
+    });
+
+    // Handle Cash or Supply Wallet refunds
+    if (returnRefundMethod === 'treasury' && setTreasury) {
+      setTreasury((prev: any) => {
+        const updatedAccounts = prev.accounts.map((acc: any) => {
+          if (acc.id === returnTreasuryAccountId) {
+            return { ...acc, balance: acc.balance + totalReturnCost };
+          }
+          return acc;
+        });
+
+        const newTx = {
+          id: `return_refund_tx_${Date.now()}`,
+          date: new Date().toISOString(),
+          type: 'deposit' as const,
+          amount: totalReturnCost,
+          toAccountId: returnTreasuryAccountId,
+          description: `استلام دفعة مرتجع سلع من المورد ${supplier?.name} للفاتورة: ${selectedOrderForReturn.referenceNumber || selectedOrderForReturn.id}`
+        };
+
+        return {
+          ...prev,
+          accounts: updatedAccounts,
+          transactions: [newTx, ...prev.transactions]
+        };
+      });
+    }
+
+    if (returnRefundMethod === 'supply_wallet') {
+      setWallet((prev: any) => {
+        const currentSupplyBalance = prev.supplyBalance || 0;
+        const newTx = {
+          id: `wallet_return_${Date.now()}`,
+          date: new Date().toISOString(),
+          type: 'إيداع' as const,
+          amount: totalReturnCost,
+          category: 'supply_deposit' as const,
+          note: `استرداد مرتجع مشتريات: ${selectedOrderForReturn.referenceNumber || selectedOrderForReturn.id}`,
+          status: 'completed' as const
+        };
+
+        return {
+          ...prev,
+          supplyBalance: currentSupplyBalance + totalReturnCost,
+          transactions: [newTx, ...prev.transactions]
+        };
+      });
+    }
+
+    audioSynth.announce("تم إتمام المرتجع وتحديث الحسابات بنجاح", "success");
+    setShowReturnModal(false);
+    setSelectedOrderForReturn(null);
+    showAlert("نجاح الإرجاع", `تم بنجاح إرجاع السلع للمورد وتحديث المخزون والمالية بقيمة ${totalReturnCost} ج.م`, "success");
   };
 
 const ProductSelect = ({ value, onChange, products }: { value: string, onChange: (val: string) => void, products: any[] }) => {
@@ -1841,6 +2244,13 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
 
                       <div className="flex gap-1 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-100/50 dark:border-slate-800/40 shrink-0">
                         <button 
+                          onClick={() => startReturnFromOrder(order)} 
+                          className="p-2 text-slate-400 hover:text-amber-500 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                          title="إرجاع منتجات من هذه الفاتورة"
+                        >
+                          <RotateCw size={15}/>
+                        </button>
+                        <button 
                           onClick={() => {
                             const supplier = settings.suppliers.find(s => s.id === order.supplierId);
                             const dateStr = new Date(order.date).toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -1936,7 +2346,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                 <div class="footer-stats">
                                   <div class="stat-row">
                                     <div class="stat-label">إجمالي البضاعة (Subtotal):</div>
-                                    <div class="stat-val">${(order.grandTotal || order.totalCost - (order.shippingFees || 0) - (order.otherFees || 0) - (order.taxAmount || 0)).toLocaleString()} ج.م</div>
+                                    <div class="stat-val">${((order.grandTotal || order.totalCost) - (order.shippingFees || 0) - (order.otherFees || 0) - (order.taxAmount || 0)).toLocaleString()} ج.م</div>
                                   </div>
                                   ${(order.shippingFees || 0) > 0 ? `
                                     <div class="stat-row">
@@ -2964,13 +3374,66 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     <span>{warehouse.location || 'لا يوجد عنوان محدد'}</span>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800/40">
+                  <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800/40 space-y-3">
                     <div className="flex justify-between items-center text-xs font-black">
                       <span className="text-slate-400">إجمالي الأصناف:</span>
                       <span className="text-slate-900 dark:text-slate-100">
-                        {settings.products.filter(p => (p.warehouseStock?.[warehouse.id] || 0) > 0).length} صنف
+                        {settings.products.filter(p => {
+                          const mainStock = p.warehouseStock?.[warehouse.id] || 0;
+                          const hasVariantStock = (p.variants || []).some(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
+                          return mainStock > 0 || hasVariantStock;
+                        }).length} صنف
                       </span>
                     </div>
+
+                    {settings.products.filter(p => {
+                      const mainStock = p.warehouseStock?.[warehouse.id] || 0;
+                      const hasVariantStock = (p.variants || []).some(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
+                      return mainStock > 0 || hasVariantStock;
+                    }).length > 0 && (
+                      <div className="pt-1">
+                        <button 
+                          onClick={() => setExpandedWarehouseId(expandedWarehouseId === warehouse.id ? null : warehouse.id)}
+                          className="w-full py-1.5 px-3 text-right bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/20 dark:hover:bg-slate-800/40 rounded-xl text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 text-[10px] font-bold flex items-center justify-between cursor-pointer transition-all"
+                        >
+                          <span>{expandedWarehouseId === warehouse.id ? 'إخفاء قائمة الأصناف ▲' : 'عرض قائمة الأصناف بالتفصيل ▼'}</span>
+                        </button>
+                        
+                        {expandedWarehouseId === warehouse.id && (
+                          <div className="mt-2.5 max-h-48 overflow-y-auto space-y-2 p-2 rounded-xl bg-slate-50/50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-800/40 custom-scrollbar text-right">
+                            {settings.products.filter(p => {
+                              const mainStock = p.warehouseStock?.[warehouse.id] || 0;
+                              const hasVariantStock = (p.variants || []).some(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
+                              return mainStock > 0 || hasVariantStock;
+                            }).map(p => {
+                              const mainStock = p.warehouseStock?.[warehouse.id] || 0;
+                              const variantDetails = (p.variants || []).filter(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
+                              
+                              return (
+                                <div key={p.id} className="text-[10px] border-b border-dashed border-slate-100 dark:border-slate-800/60 pb-1.5 mb-1.5 last:border-0 last:pb-0 last:mb-0">
+                                  <div className="flex justify-between items-start gap-2">
+                                    <span className="font-extrabold text-slate-700 dark:text-slate-300 leading-normal flex-1">{p.name}</span>
+                                    {mainStock > 0 && (
+                                      <span className="shrink-0 text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.5 rounded-md">
+                                        {mainStock} قطعة
+                                      </span>
+                                    )}
+                                  </div>
+                                  {p.sku && <div className="text-[8px] text-slate-400 font-mono mt-0.5">SKU: {p.sku}</div>}
+                                  
+                                  {variantDetails.map(vd => (
+                                    <div key={vd.id} className="mr-3 mt-1 flex justify-between items-center bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-100/50 dark:border-slate-800/30 text-[9px]">
+                                      <span className="text-slate-500 dark:text-slate-400">النوع: {Object.values(vd.options || {}).join(' / ') || vd.sku}</span>
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-black">{vd.warehouseStock?.[warehouse.id]} قطعة</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -3430,6 +3893,22 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                          onChange={e => setShippingFeesNote(e.target.value)}
                          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-[10px] dark:text-white"
                        />
+                       {shippingFees > 0 && (
+                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg mt-2">
+                           <button 
+                             onClick={() => setShippingFeesPaymentMethod('with_order')}
+                             className={`flex-1 text-[9px] py-1.5 rounded-md transition font-bold ${shippingFeesPaymentMethod === 'with_order' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                           >
+                             مع الفاتورة
+                           </button>
+                           <button 
+                             onClick={() => setShippingFeesPaymentMethod('wallet')}
+                             className={`flex-1 text-[9px] py-1.5 rounded-md transition font-bold ${shippingFeesPaymentMethod === 'wallet' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                           >
+                             محفظة المتجر
+                           </button>
+                         </div>
+                       )}
                     </div>
                   </div>
                   <div>
@@ -3553,7 +4032,17 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                       <div key={idx} className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2.5rem rounded-2xl border border-slate-105 dark:border-slate-800/80">
                         <div className="grid grid-cols-2 md:grid-cols-12 gap-3 items-end">
                           <div className="col-span-2 md:col-span-5 text-right">
-                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">تحديد الموديل / المنتج المتاح</label>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-[10px] font-bold text-slate-400 block">تحديد الموديل / المنتج المتاح</label>
+                                <label className="flex items-center gap-1 cursor-pointer">
+                                  <input type="checkbox" checked={item.isReturn || false} onChange={e => {
+                                    const newItems = [...orderItems];
+                                    newItems[idx].isReturn = e.target.checked;
+                                    setOrderItems(newItems);
+                                  }} className="accent-rose-500 rounded cursor-pointer size-3"/>
+                                  <span className="text-[10px] font-black text-rose-500">إرجاع للمورد ومخصوم</span>
+                                </label>
+                            </div>
                             <ProductSelect 
                               value={item.productId || ''} 
                               onChange={val => {
@@ -3584,6 +4073,44 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                               }} 
                               products={settings.products}
                             />
+                            {item.isReturn && item.productId && (
+                              <div className="mt-2 flex flex-col gap-1">
+                                <label className="text-[9px] font-bold text-slate-500 px-1">سحب المرتجع من مخزن مستقل:</label>
+                                <select
+                                  value={item.warehouseId || selectedWarehouseId || ''}
+                                  onChange={e => {
+                                    const newItems = [...orderItems];
+                                    newItems[idx].warehouseId = e.target.value;
+                                    setOrderItems(newItems);
+                                  }}
+                                  className="w-full p-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold font-sans h-9 outline-none focus:border-indigo-400 group"
+                                  dir="rtl"
+                                >
+                                  {settings.warehouses?.map((w: any) => (
+                                    <option key={w.id} value={w.id}>{w.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                            {item.isReturn && item.productId && (item.warehouseId || selectedWarehouseId) && (
+                              <div className="mt-1 text-[9px] font-bold text-slate-500 px-1">
+                                {(() => {
+                                  let maxQty = 0;
+                                  const targetWarehouse = item.warehouseId || selectedWarehouseId;
+                                  const prod = settings.products.find(p => p.id === item.productId);
+                                  if (prod) {
+                                    if (item.variantId && prod.variants) {
+                                      const v = prod.variants.find(vx => vx.id === item.variantId);
+                                      maxQty = v?.warehouseStock?.[targetWarehouse] || 0;
+                                    } else {
+                                      maxQty = prod.warehouseStock?.[targetWarehouse] || 0;
+                                    }
+                                  }
+                                  const whName = settings.warehouses?.find((w: any) => w.id === targetWarehouse)?.name || 'المستودع المحدد';
+                                  return <span>رصيد {whName} القابل للارتجاع: {maxQty} قطعة</span>;
+                                })()}
+                              </div>
+                            )}
                           </div>
 
                           <div className="col-span-1 md:col-span-1">
@@ -3736,11 +4263,12 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                         {/* Cost & Calculation Method Configuration Drawer */}
                         {item.productId && (
                           <div className="mt-4 pt-4 border-t border-slate-200/50 dark:border-slate-700/50 space-y-3 font-sans select-none" dir="rtl">
-                            <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg">طريقة الحساب للتسعير والربح:</span>
-                                
-                                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                            {!item.isReturn && (
+                              <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg">طريقة الحساب للتسعير والربح:</span>
+                                  
+                                  <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                                   <button
                                     type="button"
                                     onClick={() => {
@@ -3793,7 +4321,6 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                               </div>
 
                               <div className="flex items-center gap-3 flex-wrap">
-                                {(item.profitMode || 'manual') === 'manual' && (
                                   <div className="flex items-center gap-2">
                                     <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">تحديد سعر البيع بالمتجر:</label>
                                     <div className="relative">
@@ -3812,7 +4339,6 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                       <span className="absolute left-1.5 top-1.5 text-[9px] text-slate-400 font-bold">ج.م</span>
                                     </div>
                                   </div>
-                                )}
 
                                 {item.profitMode === 'margin' && (
                                   <div className="flex items-center gap-2">
@@ -3838,7 +4364,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                 {item.profitMode === 'commission' && (
                                   <div className="flex gap-2.5 items-center flex-wrap">
                                     <div className="flex items-center gap-1.5">
-                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-sans">السعر الأساسي:</label>
+                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-sans">سعر البيع الأساسي:</label>
                                       <input
                                         type="number"
                                         value={item.basePrice || ''}
@@ -3869,6 +4395,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                 )}
                               </div>
                             </div>
+                            )}
 
                             {/* Dynamically simulated live comparison badge for cost changes */}
                             {(() => {
@@ -3899,21 +4426,47 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                                 ? (itemNetSubtotal * liveFeesFactor / itemLiveTotalUnits) 
                                 : (itemLiveCost * liveFeesFactor);
 
-                              let itemCalculatedSellingPrice = 0;
                               const itemProfitMode = item.profitMode || 'manual';
-                              if (itemProfitMode === 'manual') {
-                                itemCalculatedSellingPrice = Number(item.sellingPrice || item.cost || 0);
-                              } else if (itemProfitMode === 'margin') {
+                              let itemCalculatedSellingPrice = Number(item.sellingPrice || 0);
+                              
+                              if ((!item.sellingPrice || item.sellingPrice === 0) && itemProfitMode === 'manual') {
+                                itemCalculatedSellingPrice = Number(item.cost || 0);
+                              } else if ((!item.sellingPrice || item.sellingPrice === 0) && itemProfitMode === 'margin') {
                                 const margin = Number(item.profitPercentage || 0);
                                 if (margin < 100 && margin >= 0) {
                                   itemCalculatedSellingPrice = itemLiveLandedCost / (1 - (margin / 100));
                                 } else {
                                   itemCalculatedSellingPrice = itemLiveLandedCost;
                                 }
-                              } else if (itemProfitMode === 'commission') {
+                              } else if ((!item.sellingPrice || item.sellingPrice === 0) && itemProfitMode === 'commission') {
                                 itemCalculatedSellingPrice = Number(item.basePrice || 0);
                               }
                               
+                              if (item.isReturn) {
+                                return (
+                                  <div className="bg-rose-50/50 dark:bg-rose-900/10 p-4 rounded-xl border border-rose-200/50 dark:border-rose-800/30 flex flex-col gap-3 text-xs">
+                                     <div className="flex flex-wrap justify-between items-center w-full pb-2 border-b border-rose-200/40 dark:border-rose-800/40">
+                                      <span className="text-rose-600 dark:text-rose-400 font-extrabold text-[11px] flex items-center gap-1.5">
+                                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></span>
+                                        هذا الصنف عبارة عن مرتجع (تُخصم قيمته من الفاتورة ويُخصم من المخزون)
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 text-right">
+                                      <div>
+                                        <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">قيمة المرتجع للوحدة</span>
+                                        <div className="text-slate-700 dark:text-slate-300 font-mono font-black">{itemLiveCost.toFixed(2)} ج.م</div>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">إجمالي الخصم من الفاتورة</span>
+                                        <div className="text-rose-600 dark:text-rose-400 font-mono font-black">
+                                          {(itemLiveCost * itemLiveQty).toFixed(2)} ج.م
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
                               return (
                                 <div className="bg-slate-100 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-3 text-xs">
                                   <div className="flex flex-wrap justify-between items-center w-full pb-2 border-b border-slate-200/40 dark:border-slate-700/40">
@@ -3995,7 +4548,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                 <div>
                   <span className="text-slate-400 text-[10px] block mb-0.5">صافي إجمالي الفاتورة النهائي</span>
                   <div className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">
-                    {grandTotal.toLocaleString()} <span className="text-xs sm:text-base font-bold text-white/60">ج.م</span>
+                    {totalCost.toLocaleString()} <span className="text-xs sm:text-base font-bold text-white/60">ج.م</span>
                   </div>
                 </div>
               </div>
@@ -4014,6 +4567,243 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                   <span>{editingOrder ? 'حفظ وتحديث الفاتورة' : 'تأكيد وترحيل الفاتورة للمخازن'}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return Products from Purchase Invoice Modal Dialog */}
+      {showReturnModal && selectedOrderForReturn && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200 flex flex-col my-8">
+            <div className="bg-slate-900 dark:bg-black p-6 text-white flex justify-between items-center select-none shrink-0">
+              <div className="text-right">
+                <h3 className="text-base font-black flex items-center gap-2">
+                  <RotateCw size={18} className="text-amber-500 animate-spin-slow"/>
+                  <span>ارتجاع سلع من فاتورة الشراء للمورد</span>
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-1 uppercase font-mono tracking-wider">
+                  كود الفاتورة: #{selectedOrderForReturn.referenceNumber || selectedOrderForReturn.id}
+                </p>
+              </div>
+              <button 
+                onClick={() => { setShowReturnModal(false); setSelectedOrderForReturn(null); }} 
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1.5 hover:bg-white/5 rounded-xl"
+              >
+                <X size={20}/>
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-5 text-right overflow-y-auto max-h-[60vh] custom-scrollbar">
+              <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                <div>
+                  <span className="text-slate-400 block mb-0.5">اسم المورد:</span>
+                  <span className="font-extrabold text-slate-800 dark:text-white block text-sm">
+                    {settings.suppliers.find(s => s.id === selectedOrderForReturn.supplierId)?.name || 'مورد عام'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">تاريخ الفاتورة الأصلي:</span>
+                  <span className="font-extrabold text-slate-800 dark:text-white block text-sm">
+                    {new Date(selectedOrderForReturn.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-black text-slate-500 mb-3 block">المنتجات المسجلة في هذه الفاتورة:</h4>
+                <div className="space-y-3.5">
+                  {selectedOrderForReturn.items.map((item, idx) => {
+                    const key = `${item.productId}_${item.variantId || ''}`;
+                    const currentQty = returnQuantities[key] || 0;
+                    const alreadyReturned = item.returnedQuantity || 0;
+                    const maxAllowed = (item.quantity + (item.bonusQuantity || 0)) - alreadyReturned;
+                    const product = settings.products.find(p => p.id === item.productId);
+
+                    const discountAmt = item.discountValue ? (item.discountType === 'percentage' ? (item.cost * item.discountValue / 100) : item.discountValue) : 0;
+                    const netCost = item.cost - discountAmt;
+
+                    return (
+                      <div 
+                        key={idx} 
+                        className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-slate-200 dark:hover:border-slate-700 transition-all shadow-sm"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex-shrink-0 overflow-hidden border border-slate-100 dark:border-slate-800 flex items-center justify-center">
+                            {product?.thumbnail ? (
+                              <img src={product.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : <Package size={18} className="text-slate-400" />}
+                          </div>
+                          <div>
+                            <span className="font-black text-slate-800 dark:text-white text-xs block">{item.name || 'منتج غير معروف'}</span>
+                            <div className="text-[10px] text-slate-400 font-bold mt-1 space-y-1 space-x-1.5 space-x-reverse flex flex-wrap items-center">
+                              <span>سعر الشراء الأساسي: {item.cost.toLocaleString()} ج.م</span>
+                              {discountAmt > 0 && (
+                                <>
+                                  <span className="text-slate-300">|</span>
+                                  <span className="text-emerald-500 font-extrabold text-[9px]">الخصم المطبق: {item.discountValue}{item.discountType === 'percentage' ? '%' : ' ج.م'} (-{discountAmt.toLocaleString()} ج.م)</span>
+                                  <span className="text-slate-300">|</span>
+                                  <span className="text-amber-600 dark:text-amber-400 font-black">السعر الصافي للمرتجَع: {netCost.toLocaleString()} ج.م</span>
+                                </>
+                              )}
+                              <span className="text-slate-300">|</span>
+                              <span>الكمية: {item.quantity} {item.bonusQuantity ? `(+ ${item.bonusQuantity} بونص)` : ''}</span>
+                              {alreadyReturned > 0 && (
+                                <>
+                                  <span className="text-slate-300">|</span>
+                                  <span className="text-rose-500">تم إرجاع {alreadyReturned} سابقاً</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Return controller */}
+                        <div className="flex items-center gap-3 self-end sm:self-center">
+                          {maxAllowed <= 0 ? (
+                            <span className="text-[10px] font-black text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-3 py-1.5 rounded-xl border border-rose-100 dark:border-rose-900/10">
+                              تم إرجاع الكمية بالكامل
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              {/* Decrement Button */}
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  if (currentQty > 0) {
+                                    setReturnQuantities(prev => ({ ...prev, [key]: currentQty - 1 }));
+                                  }
+                                }}
+                                className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-white font-bold flex items-center justify-center cursor-pointer transition-colors"
+                              >
+                                -
+                              </button>
+                              
+                              <input 
+                                type="number"
+                                value={currentQty || 0}
+                                min="0"
+                                max={maxAllowed}
+                                onChange={e => {
+                                  const val = Math.max(0, Math.min(maxAllowed, Number(e.target.value)));
+                                  setReturnQuantities(prev => ({ ...prev, [key]: val }));
+                                }}
+                                className="w-12 h-8 text-center text-xs font-black p-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg outline-none dark:text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+
+                              {/* Increment Button */}
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  if (currentQty < maxAllowed) {
+                                    setReturnQuantities(prev => ({ ...prev, [key]: currentQty + 1 }));
+                                  }
+                                }}
+                                className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-white font-bold flex items-center justify-center cursor-pointer transition-colors"
+                              >
+                                +
+                              </button>
+
+                              <span className="text-[10px] text-slate-400 font-bold block whitespace-nowrap self-center mr-1">
+                                (المتبق للإرجاع: {maxAllowed})
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Logistics Warehouse & Refund Setup */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-black text-slate-500 mb-1.5 block">المستودع المراد خصم الكميات منه:</label>
+                  <select 
+                    value={returnWarehouseId} 
+                    onChange={e => setReturnWarehouseId(e.target.value)} 
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none dark:text-white text-xs font-bold"
+                  >
+                    <option value="">-- اختر مستودع صرف المرتجع --</option>
+                    {(settings.warehouses || []).map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-black text-slate-500 mb-1.5 block">طريقة رَدّ واسترداد القيمة المالية المرتجعة:</label>
+                  <select 
+                    value={returnRefundMethod} 
+                    onChange={e => setReturnRefundMethod(e.target.value as any)} 
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none dark:text-white text-xs font-bold"
+                  >
+                    <option value="credit">رصيد المورد (خصم وتقليص مديونية الآجل المستحقة له)</option>
+                    <option value="treasury">نقدي (إيداع نقدي فوري لحساب خزينة محددة)</option>
+                    <option value="supply_wallet">محفظة التوريد (إيداع رصيد المحفظة السحابية الدائري)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Account Dropdown if Treasury is selected */}
+              {returnRefundMethod === 'treasury' && (
+                <div className="animate-in slide-in-from-top-1 duration-200">
+                  <label className="text-xs font-black text-blue-600 dark:text-blue-400 mb-1.5 block">حساب الخزينة المستلم لدفعة المرتجع:</label>
+                  <select 
+                    value={returnTreasuryAccountId} 
+                    onChange={e => setReturnTreasuryAccountId(e.target.value)} 
+                    className="w-full p-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl outline-none dark:text-white text-xs font-bold"
+                  >
+                    <option value="">-- اختر حساب الخزينة المنفذ للإيداع --</option>
+                    {(treasury?.accounts || []).map((acc: any) => (
+                      <option key={acc.id} value={acc.id}>{acc.name} ({acc.balance.toLocaleString()} ج.م)</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Total calculations */}
+              <div className="bg-amber-50/50 dark:bg-amber-950/20 p-4 rounded-[1.8rem] border border-amber-100/50 dark:border-amber-900/30 flex justify-between items-center select-none">
+                <div>
+                  <span className="text-xs font-black text-amber-600 dark:text-amber-400 block mb-1">إجمالي قيمة المستردات المالية:</span>
+                  <span className="text-2xl font-black text-amber-600 dark:text-amber-500 tracking-tight block">
+                    {selectedOrderForReturn.items.reduce((sum, item) => {
+                      const key = `${item.productId}_${item.variantId || ''}`;
+                      const qty = returnQuantities[key] || 0;
+                      const discountAmt = item.discountValue ? (item.discountType === 'percentage' ? (item.cost * item.discountValue / 100) : item.discountValue) : 0;
+                      const netCost = item.cost - discountAmt;
+                      return sum + (qty * netCost);
+                    }, 0).toLocaleString()} <span className="text-xs font-bold text-slate-500">ج.م</span>
+                  </span>
+                </div>
+                <div className="text-left text-[10px] text-slate-400 font-bold">
+                  <div>
+                    عدد الأصناف المرتجعة: {selectedOrderForReturn.items.reduce((sum, item) => sum + (returnQuantities[`${item.productId}_${item.variantId || ''}`] ? 1 : 0), 0)} أصناف
+                  </div>
+                  <div className="mt-0.5">
+                    إجمالي الوحدات: {selectedOrderForReturn.items.reduce((sum, item) => sum + (returnQuantities[`${item.productId}_${item.variantId || ''}`] || 0), 0)} قطعة
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-slate-900 dark:bg-black flex gap-3 shrink-0 border-t border-white/5 select-none">
+              <button 
+                type="button"
+                onClick={() => { setShowReturnModal(false); setSelectedOrderForReturn(null); }} 
+                className="flex-1 py-3.5 text-slate-400 hover:text-white font-bold transition-all text-xs cursor-pointer text-center"
+              >
+                إلغاء المرتجع
+              </button>
+              <button 
+                type="button"
+                onClick={handleConfirmReturn} 
+                className="flex-1 py-3.5 bg-amber-500 text-slate-900 rounded-xl font-black shadow-lg shadow-amber-500/10 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
+              >
+                <Check size={16}/>
+                <span>تأكيد الإرجاع واسترداد القيمة</span>
+              </button>
             </div>
           </div>
         </div>

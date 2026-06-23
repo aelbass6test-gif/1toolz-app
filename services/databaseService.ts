@@ -964,9 +964,10 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         };
                         
                         // Parse missing column name
-                        const match = error.message.match(/Could not find the '([^']+)' column/i) || 
-                                      error.message.match(/column "([^"]+)"/i) ||
-                                      error.message.match(/column '([^']+)'/i);
+                        const msg = error.message || '';
+                        const match = msg.match(/Could not find the '([^']+)' column/i) || 
+                                      msg.match(/column "([^"]+)"/i) ||
+                                      msg.match(/column '([^']+)'/i);
                                       
                         if (match && match[1]) {
                             const missingCol = match[1];
