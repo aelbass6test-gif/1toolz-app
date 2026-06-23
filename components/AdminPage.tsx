@@ -40,10 +40,13 @@ const FinancialRequestsTab: React.FC<{
             
             storeData.wallet?.transactions?.forEach(t => {
                 if (t.status === 'pending') {
+                    // Skip withdrawal fee transactions as they are processed with the main withdrawal
+                    if (t.id.startsWith('WF-')) return;
+
                     // if it's a withdrawal, find the withdraw request to get bank details
                     let details = t.note || 'لا توجد تفاصيل';
                     if (t.type === 'سحب') {
-                        const reqId = t.id.replace('W-', '');
+                        const reqId = t.id.startsWith('W-') ? t.id.substring(2) : t.id;
                         const wReq = storeData.wallet?.withdrawRequests?.find(r => r?.id === reqId);
                         if (wReq) details = wReq.details || details;
                     }
@@ -73,8 +76,11 @@ const FinancialRequestsTab: React.FC<{
         if (!storeData || !storeData.wallet) return;
 
         // update transaction
+        const reqId = transaction.id.startsWith('W-') ? transaction.id.substring(2) : null;
+        const feeTxId = reqId ? `WF-${reqId}` : null;
+
         const updatedTransactions = storeData.wallet.transactions.map(t => {
-             if (t.id === transaction.id) {
+             if (t.id === transaction.id || (feeTxId && t.id === feeTxId)) {
                   return { ...t, status: action === 'approve' ? 'completed' : 'cancelled' };
              }
              return t;
@@ -83,9 +89,9 @@ const FinancialRequestsTab: React.FC<{
         // if withdrawal, update withdraw request too
         let updatedWithdrawRequests = storeData.wallet.withdrawRequests || [];
         if (transaction.type === 'سحب') {
-             const reqId = transaction.id.replace('W-', '');
+             const actualReqId = reqId || transaction.id.replace('W-', '');
              updatedWithdrawRequests = updatedWithdrawRequests.map(r => {
-                 if (r.id === reqId) {
+                 if (r.id === actualReqId) {
                      return { ...r, status: action === 'approve' ? 'accepted' : 'rejected' };
                  }
                  return r;
@@ -96,7 +102,16 @@ const FinancialRequestsTab: React.FC<{
         if (transaction.type === 'إيداع') {
              if (action === 'approve') newBalance += transaction.amount;
         } else if (transaction.type === 'سحب') {
-             if (action === 'reject') newBalance += transaction.amount;
+             if (action === 'reject') {
+                 newBalance += transaction.amount;
+                 // If there was a fee transaction, return it to balance too
+                 if (feeTxId) {
+                     const feeTx = storeData.wallet.transactions.find(t => t.id === feeTxId);
+                     if (feeTx && feeTx.status === 'pending') {
+                         newBalance += feeTx.amount;
+                     }
+                 }
+             }
         }
 
         const newStoreData = {

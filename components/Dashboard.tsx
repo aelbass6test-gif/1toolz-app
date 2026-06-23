@@ -358,7 +358,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         
         // Exclude supply wallet categories from liquid cash
         const category = t.category || '';
-        const isSupplyTx = ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply', 'supply_expense_shipping', 'supply_expense_other'].includes(category);
+        const isSupplyTx = (settings?.expenseCategories || []).includes(category) && category.startsWith('supply_');
         if (isSupplyTx) return sum;
 
         if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
@@ -372,10 +372,9 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     // Calculate Admin & Operational Expenses
     const adminExpenses = (wallet?.transactions || [])
       .filter(t => {
-        const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '');
-        const isManualWithdrawal = t.category === 'manual_withdrawal';
+        const isExpenseCategory = (settings?.expenseCategories || []).includes(t.category || '');
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
-        return t.type === 'سحب' && (isExpenseCategory || isManualWithdrawal) && isNotPartnerTx;
+        return t.type === 'سحب' && isExpenseCategory && isNotPartnerTx;
       })
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
@@ -438,7 +437,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
        // Simple month-based expense aggregation
        (wallet.transactions || []).forEach(t => {
-         const isExpense = t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category === 'manual_withdrawal');
+         const isExpense = t.type === 'سحب' && (settings?.expenseCategories || []).includes(t.category || '');
          if (isExpense) {
             const d = new Date(t.date);
             const key = `${d.getMonth()}-${d.getFullYear()}`;

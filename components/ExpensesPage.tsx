@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Wallet, Transaction, TransactionCategory, Settings, Treasury, TreasuryTransaction, PartnerTransaction } from '../types';
 import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User, Info, Printer } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import { TRANSACTION_CATEGORY_LABELS } from '../constants';
 
 interface ExpensesPageProps {
   wallet: Wallet;
@@ -51,7 +52,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
   const expenses = useMemo(() => {
       return wallet.transactions
-        .filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category)))
+        .filter(t => t.type === 'سحب' && t.category && (settings.expenseCategories || []).includes(t.category))
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [wallet.transactions, settings.expenseCategories]);
 
@@ -86,17 +87,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
     };
 
     const getLabel = (key: string) => {
-        const labels: Record<string, string> = {
-            'expense_ads': 'إعلانات وتسويق',
-            'expense_salary': 'رواتب ومكافآت',
-            'expense_rent': 'إيجار ومرافق',
-            'expense_packaging': 'أدوات تغليف',
-            'expense_shipping_fees': 'مصاريف شحن',
-            'expense_other': 'مصاريف أخرى',
-            'supply_expense_shipping': 'شحن مشتريات',
-            'supply_expense_other': 'إضافات مشتريات'
-        };
-        return labels[key] || key;
+        return TRANSACTION_CATEGORY_LABELS[key] || key;
     };
 
     return (settings.expenseCategories || []).map(cat => ({
@@ -137,12 +128,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       const partner = (settings.partners || []).find(p => p.id === selectedPartnerId);
       if (!partner) return;
 
-      const categoryLabel = category === 'expense_ads' ? 'إعلانات' : 
-             category === 'expense_salary' ? 'رواتب' : 
-             category === 'expense_rent' ? 'إيجار' : 
-             category === 'expense_packaging' ? 'تغليف' : 
-             category === 'expense_shipping_fees' ? 'رسوم شحن' : 
-             category === 'expense_other' ? 'أخرى' : category;
+      const categoryLabel = TRANSACTION_CATEGORY_LABELS[category] || category;
 
       const partnerTx: PartnerTransaction = {
           id: newTransactionId + 'pt',

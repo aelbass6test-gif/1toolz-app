@@ -1,15 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings, PlatformIntegration, Store } from '../types';
+import { Settings, PlatformIntegration, Store, TransactionCategory } from '../types';
 import { 
   Link2, CheckCircle2, Database, Upload, RefreshCw, AlertTriangle, Check, Trash2, XCircle, Lock, 
   ShoppingCart, Package, Users, Wallet, Activity, Tag, MessageSquare, PhoneCall, Plus, Edit3, 
   Save, X, Link as LinkIcon, AppWindow, Globe, CreditCard, Smartphone, Banknote, ShoppingBasket, LayoutDashboard, 
   UserPlus, TrendingUp, Settings as SettingsIcon, Grid, UserCog, Loader2, Cloud, CloudDownload, 
-  CloudUpload, ShieldCheck, Wifi, WifiOff, FileJson, Clock, HardDrive
+  CloudUpload, ShieldCheck, Wifi, WifiOff, FileJson, Clock, HardDrive, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 import { clearStoreData } from '../services/databaseService';
+import { TRANSACTION_CATEGORY_LABELS } from '../constants';
 
 interface SettingsPageProps {
   settings: Settings;
@@ -1849,18 +1850,22 @@ const ExpenseCategoriesSettingsCard: React.FC<{ settings: Settings, setSettings:
     const [newCategory, setNewCategory] = useState('');
     const categories = settings.expenseCategories || [];
 
-    const addCategory = () => {
+    const toggleCategory = (cat: string) => {
+        if (categories.includes(cat)) {
+            setSettings(prev => ({ ...prev, expenseCategories: categories.filter(c => c !== cat) }));
+        } else {
+            setSettings(prev => ({ ...prev, expenseCategories: [...categories, cat] }));
+        }
+    };
+
+    const addCustomCategory = () => {
         if (!newCategory || categories.includes(newCategory)) return;
         setSettings(prev => ({ ...prev, expenseCategories: [...categories, newCategory] }));
         setNewCategory('');
     };
 
-    const removeCategory = (cat: string) => {
-        setSettings(prev => ({ ...prev, expenseCategories: categories.filter(c => c !== cat) }));
-    };
-
     return (
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-right">
             <div className="flex items-center gap-3 text-red-600 dark:text-red-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
                 <div className="p-2 bg-red-50 dark:bg-red-900/30 rounded-lg"><Tag size={24}/></div>
                 <div>
@@ -1869,26 +1874,65 @@ const ExpenseCategoriesSettingsCard: React.FC<{ settings: Settings, setSettings:
                 </div>
             </div>
             
-            <div className="space-y-4">
-                <div className="flex gap-2">
-                    <input 
-                        type="text" 
-                        value={newCategory} 
-                        onChange={e => setNewCategory(e.target.value)}
-                        placeholder="أضف تصنيف جديد (مثال: expense_ads)"
-                        className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm outline-none transition-all dark:text-white"
-                    />
-                    <button onClick={addCategory} className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-red-700">إضافة</button>
+            <div className="space-y-6">
+                <div className="flex flex-col gap-3">
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300">اختر من التصنيفات الموجودة بالنظام:</label>
+                    <div className="flex flex-wrap gap-2">
+                        {Object.entries(TRANSACTION_CATEGORY_LABELS).map(([key, label]) => {
+                            const isActive = categories.includes(key);
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => toggleCategory(key)}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 ${
+                                        isActive 
+                                            ? 'bg-red-600 border-red-600 text-white shadow-lg shadow-red-600/20' 
+                                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-red-300'
+                                    }`}
+                                >
+                                    {isActive && <Check size={14} />}
+                                    <span>{label}</span>
+                                    <span className="opacity-40 font-mono text-[10px] ml-1">({key})</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                    <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">أضف تصنيف مخصص يدوي:</label>
+                    <div className="flex gap-2">
+                        <input 
+                            type="text" 
+                            value={newCategory} 
+                            onChange={e => setNewCategory(e.target.value)}
+                            placeholder="اسم التصنيف بالإنجليزية (مثال: my_custom_expense)"
+                            className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm outline-none transition-all dark:text-white"
+                        />
+                        <button 
+                            type="button"
+                            onClick={addCustomCategory} 
+                            className="bg-slate-900 dark:bg-white dark:text-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:opacity-90 transition-opacity"
+                        >
+                            إضافة مخصص
+                        </button>
+                    </div>
                 </div>
                 
-                <div className="flex flex-wrap gap-2 pt-2">
-                    {categories.map(cat => (
-                        <div key={cat} className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1 rounded-full text-sm">
-                            {cat}
-                            <button onClick={() => removeCategory(cat)} className="text-slate-500 hover:text-red-600"><X size={14}/></button>
+                {categories.some(cat => !TRANSACTION_CATEGORY_LABELS[cat]) && (
+                    <div className="pt-4">
+                        <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">تصنيفات مخصصة نشطة:</label>
+                        <div className="flex flex-wrap gap-2">
+                            {categories.filter(cat => !TRANSACTION_CATEGORY_LABELS[cat]).map(cat => (
+                                <div key={cat} className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 text-indigo-700 dark:text-indigo-400 px-4 py-2 rounded-xl text-xs font-bold">
+                                    <span>{cat}</span>
+                                    <button onClick={() => toggleCategory(cat)} className="text-indigo-400 hover:text-red-600"><X size={14}/></button>
+                                </div>
+                            ))}
                         </div>
-                    ))}
-                </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -2696,18 +2740,22 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
     };
 
     return (
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-right">
             <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
                 <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg"><Wallet size={24}/></div>
                 <div>
                     <h2 className="text-xl font-black dark:text-white">إعدادات رسوم المحفظة</h2>
-                    <p className="text-xs text-slate-500">تحديد النسب المئوية لرسوم السحب والإيداع والطرق المطبق عليها.</p>
+                    <p className="text-xs text-slate-500">تحديد النسب المئوية أو القيم الثابتة لرسوم السحب والإيداع والطرق المطبق عليها.</p>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                    <h3 className="font-bold text-slate-800 dark:text-white text-sm">رسوم الإيداع (الشحن)</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* 💳 رسوم الإيداع */}
+                <div className="space-y-6">
+                    <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
+                        <ArrowUpRight size={18} className="text-emerald-500" />
+                        رسوم الإيداع (الشحن)
+                    </h3>
                     <div className="flex items-center gap-3">
                         <div className="relative flex-1">
                             <input 
@@ -2721,20 +2769,21 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                         <span className="text-xs text-slate-500 font-bold">نسبة رسوم الإيداع</span>
                     </div>
 
-                    <div className="space-y-2">
-                        <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mb-2">تطبيق الرسوم على الطرق التالية:</p>
+                    <div className="space-y-3">
+                        <p className="text-xs font-bold text-slate-600 dark:text-slate-400">تطبيق الرسوم على الطرق التالية:</p>
                         <div className="flex flex-wrap gap-2">
                             {methods.map(method => (
                                 <button 
                                     key={method.id}
+                                    type="button"
                                     onClick={() => toggleMethod(method.id)}
-                                    className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 transition-all text-[10px] font-bold ${
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all text-[11px] font-black ${
                                         applicableMethods.includes(method.id)
-                                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
-                                        : 'border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50 dark:bg-slate-900'
+                                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm'
+                                        : 'border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50 dark:bg-slate-900 hover:border-slate-200'
                                     }`}
                                 >
-                                    <method.icon size={14} />
+                                    <method.icon size={16} />
                                     {method.label}
                                 </button>
                             ))}
@@ -2742,47 +2791,123 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                     </div>
                 </div>
 
-                <div className="space-y-4">
-                    <h3 className="font-bold text-slate-800 dark:text-white text-sm">رسوم السحب</h3>
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-3">
-                            <div className="relative flex-1">
-                                <input 
-                                    type="number" 
-                                    value={settings.withdrawalFeePercent || 0}
-                                    onChange={e => setSettings(prev => ({ ...prev, withdrawalFeePercent: parseFloat(e.target.value) }))}
-                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                />
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
-                            </div>
-                            <span className="text-xs text-slate-500 font-bold">نسبة السحب العادي</span>
+                {/* 💸 رسوم السحب */}
+                <div className="space-y-8 border-r border-slate-100 dark:border-slate-800 pr-0 lg:pr-8">
+                    <div className="space-y-6">
+                        <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
+                            <ArrowDownLeft size={18} className="text-rose-500" />
+                            رسوم السحب العادي
+                        </h3>
+                        
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                            <button 
+                                type="button"
+                                onClick={() => setSettings(prev => ({ ...prev, withdrawalFeeType: 'percent' }))}
+                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.withdrawalFeeType === 'percent' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                            >
+                                نسبة مئوية %
+                            </button>
+                            <button 
+                                type="button"
+                                onClick={() => setSettings(prev => ({ ...prev, withdrawalFeeType: 'flat' }))}
+                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.withdrawalFeeType === 'flat' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                            >
+                                قيمة ثابتة (ج.م)
+                            </button>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                            <div className="relative flex-1">
-                                <input 
-                                    type="number" 
-                                    value={settings.sameDayWithdrawalFeePercent || 0}
-                                    onChange={e => setSettings(prev => ({ ...prev, sameDayWithdrawalFeePercent: parseFloat(e.target.value) }))}
-                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                />
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                        {settings.withdrawalFeeType === 'percent' ? (
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <input 
+                                        type="number" 
+                                        value={settings.withdrawalFeePercent || 0}
+                                        onChange={e => setSettings(prev => ({ ...prev, withdrawalFeePercent: parseFloat(e.target.value) }))}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+                                    />
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                                </div>
+                                <span className="text-xs text-slate-500 font-bold">نسبة السحب</span>
                             </div>
-                            <span className="text-xs text-slate-500 font-bold">نسبة السحب الفوري (Same Day)</span>
+                        ) : (
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <input 
+                                        type="number" 
+                                        value={settings.withdrawalFlatFee || 0}
+                                        onChange={e => setSettings(prev => ({ ...prev, withdrawalFlatFee: parseFloat(e.target.value) }))}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+                                    />
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
+                                </div>
+                                <span className="text-xs text-slate-500 font-bold">رسوم ثابتة</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                        <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
+                            <Clock size={18} className="text-amber-500" />
+                            رسوم السحب الفوري (Same Day)
+                        </h3>
+
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                            <button 
+                                type="button"
+                                onClick={() => setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'percent' }))}
+                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.sameDayWithdrawalFeeType === 'percent' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                            >
+                                نسبة مئوية %
+                            </button>
+                            <button 
+                                type="button"
+                                onClick={() => setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'flat' }))}
+                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.sameDayWithdrawalFeeType === 'flat' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                            >
+                                قيمة ثابتة (ج.م)
+                            </button>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                            <div className="relative flex-1">
-                                <input 
-                                    type="number" 
-                                    value={settings.minWithdrawalFee || 0}
-                                    onChange={e => setSettings(prev => ({ ...prev, minWithdrawalFee: parseFloat(e.target.value) }))}
-                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                />
-                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
+                        {settings.sameDayWithdrawalFeeType === 'percent' ? (
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <input 
+                                        type="number" 
+                                        value={settings.sameDayWithdrawalFeePercent || 0}
+                                        onChange={e => setSettings(prev => ({ ...prev, sameDayWithdrawalFeePercent: parseFloat(e.target.value) }))}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+                                    />
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                                </div>
+                                <span className="text-xs text-slate-500 font-bold">نسبة الفوري</span>
                             </div>
-                            <span className="text-xs text-slate-500 font-bold">الحد الأدنى لرسوم السحب</span>
+                        ) : (
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <input 
+                                        type="number" 
+                                        value={settings.sameDayWithdrawalFlatFee || 0}
+                                        onChange={e => setSettings(prev => ({ ...prev, sameDayWithdrawalFlatFee: parseFloat(e.target.value) }))}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+                                    />
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
+                                </div>
+                                <span className="text-xs text-slate-500 font-bold">رسوم ثابتة</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
+                        <div className="relative flex-1">
+                            <input 
+                                type="number" 
+                                value={settings.minWithdrawalFee || 0}
+                                onChange={e => setSettings(prev => ({ ...prev, minWithdrawalFee: parseFloat(e.target.value) }))}
+                                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
+                            />
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
                         </div>
+                        <span className="text-xs text-slate-500 font-bold">الحد الأدنى لرسوم السحب (لأي عملية)</span>
                     </div>
                 </div>
             </div>

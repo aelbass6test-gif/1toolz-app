@@ -255,6 +255,39 @@ export const INITIAL_SETTINGS: Settings = {
   feeApplicableMethods: ['card', 'instapay', 'wallet'],
 };
 
+export const TRANSACTION_CATEGORY_LABELS: Record<string, string> = {
+    'shipping': 'شحن',
+    'insurance': 'تأمين',
+    'inspection': 'معاينة',
+    'collection': 'تحصيل',
+    'cod': 'الدفع عند الاستلام',
+    'return': 'مرتجعات',
+    'manual_deposit': 'إيداع يدوي',
+    'manual_withdrawal': 'سحب يدوي',
+    'expense_ads': 'إعلانات وتسويق',
+    'expense_salary': 'رواتب ومكافآت',
+    'expense_rent': 'إيجار ومرافق',
+    'expense_packaging': 'أدوات تغليف',
+    'expense_shipping_fees': 'مصاريف شحن إدارية',
+    'expense_other': 'مصاريف أخرى',
+    'inventory_purchase': 'شراء مخزون',
+    'capital_addition': 'إضافة رأس مال',
+    'profit_withdrawal': 'سحب أرباح',
+    'loan': 'قرض / سلفة',
+    'repayment': 'سداد مديونية',
+    'wallet_charge': 'شحن محفظة',
+    'wallet_withdrawal': 'سحب من المحفظة',
+    'withdrawal_fee': 'عمولة سحب رصيد',
+    'partner_supply': 'توريد شريك',
+    'supplier_payment': 'سداد مورد',
+    'supply_purchase': 'أمر توريد مخزون',
+    'supply_deposit': 'إيداع توريد',
+    'supply_funding': 'تمويل توريد',
+    'supply_expense_shipping': 'شحن مشتريات',
+    'supply_expense_other': 'إضافات مشتريات',
+    'pos_digital': 'مبيعات POS رقمية'
+};
+
 export const ORDER_STATUSES = [
   'في_انتظار_المكالمة',
   'جاري_المراجعة',

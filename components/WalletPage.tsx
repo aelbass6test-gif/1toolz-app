@@ -286,10 +286,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       if (type === 'percent') {
         const percent = parseFloat(settings.sameDayWithdrawalFeePercent as any) || 0;
         fee = (numAmount * percent) / 100;
-        // Minimum fee for small amounts as requested
-        if (numAmount < 2500) {
-          fee = Math.max(fee, 25);
-        }
       } else {
         fee = parseFloat(settings.sameDayWithdrawalFlatFee as any) || 0;
       }
@@ -302,8 +298,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         fee = (numAmount * percent) / 100;
       }
     }
+
+    // Apply global minimum fee if set
+    if (settings.minWithdrawalFee && fee < settings.minWithdrawalFee) {
+        fee = settings.minWithdrawalFee;
+    }
+
     return fee;
-  }, [amount, withdrawMode, settings]);
+  }, [amount, withdrawMode, settings, preferredMethod]);
 
   const handleWithdrawRequest = (e: React.FormEvent) => {
     e.preventDefault();
@@ -395,20 +397,33 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       isSameDay: withdrawMode === 'same_day'
     };
 
-    const newTransaction: Transaction = {
+    const mainTransaction: Transaction = {
       id: `W-${newRequest.id}`,
       type: 'سحب',
-      amount: totalDeduction,
-      fees: fee, 
+      amount: numAmount,
+      fees: 0, 
       date: new Date().toISOString(),
       status: 'pending',
-      note: `طلب سحب رصيد (${withdrawMode === 'same_day' ? 'فوري' : 'عادي'}) لمبلغ ${numAmount} - الرسوم: ${fee.toLocaleString()} ج.م (إجمالي الخصم: ${totalDeduction.toLocaleString()} ج.م)`,
+      note: `طلب سحب رصيد (${withdrawMode === 'same_day' ? 'فوري' : 'عادي'}) لمبلغ ${numAmount}`,
       category: 'wallet_withdrawal'
     };
 
+    const feeTransaction: Transaction | null = fee > 0 ? {
+      id: `WF-${newRequest.id}`,
+      type: 'سحب',
+      amount: fee,
+      fees: 0,
+      date: new Date().toISOString(),
+      status: 'pending',
+      note: `عمولة طلب سحب رصيد #${newRequest.id}`,
+      category: 'withdrawal_fee'
+    } : null;
+
+    const newTransactions = feeTransaction ? [mainTransaction, feeTransaction] : [mainTransaction];
+
     setWallet(prev => ({
       ...prev,
-      transactions: [newTransaction, ...prev.transactions],
+      transactions: [...newTransactions, ...prev.transactions],
       withdrawRequests: [newRequest, ...(prev.withdrawRequests || [])],
       // Deduct immediately on pending request
       balance: prev.balance - totalDeduction 

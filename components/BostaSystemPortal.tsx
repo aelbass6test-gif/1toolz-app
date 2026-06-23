@@ -304,6 +304,23 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           accounts: prev.accounts.map((a: any) => a.id === selectedPackagingPaymentId ? { ...a, balance: a.balance - total } : a),
           transactions: [newTx, ...prev.transactions]
         }));
+
+        // Mirror in wallet for expenses tracking
+        if (setWallet) {
+          setWallet((prev: any) => ({
+            ...prev,
+            transactions: [{
+              id: txId,
+              date: new Date().toISOString(),
+              type: 'سحب',
+              amount: total,
+              note: `شراء مواد تغليف بوسطة (خزينة: ${paymentSourceName}): ${itemsDisplay}`,
+              category: 'expense_packaging',
+              status: 'completed',
+              details: { treasuryAccountId: selectedPackagingPaymentId }
+            }, ...prev.transactions]
+          }));
+        }
       } else if (packagingPaymentType === 'wallet' && setWallet) {
           if (walletStats.liveBalance < total) {
               alert('الرصيد في المحفظة غير كافٍ');
@@ -319,7 +336,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                   date: new Date().toISOString(),
                   type: 'سحب',
                   amount: total,
-                  description: `شراء مواد تغليف بوسطة: ${itemsDisplay}`,
+                  note: `شراء مواد تغليف بوسطة: ${itemsDisplay}`,
                   category: 'expense_packaging',
                   status: 'completed'
               }, ...prev.transactions]
@@ -347,6 +364,23 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               partners: prev.partners.map((p: any) => p.id === selectedPackagingPaymentId ? { ...p, balance: (p.balance || 0) + total } : p),
               partnerTransactions: [newPartnerTx, ...(prev.partnerTransactions || [])]
           }));
+
+          // Mirror in wallet for expenses tracking
+          if (setWallet) {
+            setWallet((prev: any) => ({
+              ...prev,
+              transactions: [{
+                id: txId,
+                date: new Date().toISOString(),
+                type: 'سحب',
+                amount: total,
+                note: `شراء مواد تغليف بوسطة (بواسطة ${partner.name}): ${itemsDisplay}`,
+                category: 'expense_packaging',
+                status: 'completed',
+                details: { paidByPartnerId: selectedPackagingPaymentId }
+              }, ...prev.transactions]
+            }));
+          }
       }
 
       // Record in history
@@ -381,7 +415,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
       setWallet((prev: any) => ({
         ...prev,
         balance: prev.balance + order.total,
-        transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId && t.description !== `شراء مواد تغليف بوسطة: ${order.items.map((i: any) => `${i.name} (${i.quantity})`).join(' + ')}`)
+        transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId)
       }));
     } else if (order.paymentMethod === 'treasury' && setTreasury) {
       setTreasury((prev: any) => ({
@@ -389,12 +423,26 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
         accounts: prev.accounts.map((a: any) => a.id === order.paymentId ? { ...a, balance: a.balance + order.total } : a),
         transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId)
       }));
+      // Clean up mirrored wallet transaction
+      if (setWallet) {
+        setWallet((prev: any) => ({
+          ...prev,
+          transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId)
+        }));
+      }
     } else if (order.paymentMethod === 'partner' && setSettings) {
       setSettings((prev: any) => ({
         ...prev,
         partners: prev.partners.map((p: any) => p.id === order.paymentId ? { ...p, balance: (p.balance || 0) - order.total } : p),
         partnerTransactions: (prev.partnerTransactions || []).filter((t: any) => t.id !== order.transactionId)
       }));
+      // Clean up mirrored wallet transaction
+      if (setWallet) {
+        setWallet((prev: any) => ({
+          ...prev,
+          transactions: prev.transactions.filter((t: any) => t.id !== order.transactionId)
+        }));
+      }
     }
 
     // 2. Remove from history
