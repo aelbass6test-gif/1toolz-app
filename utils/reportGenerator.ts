@@ -339,8 +339,17 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
 export const generateOrdersReportHTML = (orders: Order[], settings: Settings, storeName: string, dateRangeText?: string): string => {
   
   const tableRows = orders.map(order => {
-    const amountToCollect = order.totalAmountOverride ?? (order.productPrice + order.shippingFee - (order.discount || 0));
-    const { net } = calculateOrderProfitLoss(order, settings);
+    const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+    const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+    const useCustom = compFees?.useCustomFees ?? false;
+    const inspectionFeeParams = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+    
+    const computedTotal = (Number(order.productPrice) || 0) + (Number(order.shippingFee) || 0) - (Number(order.discount) || 0) - (Number(order.advancePayment) || 0) + inspectionFeeParams;
+    const amountToCollect = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride) - (Number(order.advancePayment) || 0))) : computedTotal;
+    
+    const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) : amountToCollect;
+
+    const { net, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
 
     const getStatusColor = (status: string, type: 'status' | 'payment') => {
@@ -362,10 +371,11 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
         <td style="padding: 8px;">${order.customerName}</td>
         <td style="padding: 8px;">${order.productName}</td>
         <td style="padding: 8px;">${order.productPrice.toLocaleString()}</td>
+        <td style="padding: 8px;">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
         <td style="padding: 8px; text-align: center;">${totalQuantity}</td>
-        <td style="padding: 8px;">${order.shippingFee.toLocaleString()}</td>
-        <td style="padding: 8px;">${amountToCollect.toLocaleString()}</td>
-        <td style="padding: 8px; font-weight: bold;">${amountToCollect.toLocaleString()}</td>
+        <td style="padding: 8px;">${(carrierFees + (order.inspectionFeePaidByCustomer ? inspectionFeeParams : 0)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+        <td style="padding: 8px;">${displayTotal.toLocaleString()}</td>
+        <td style="padding: 8px; font-weight: bold;">${displayTotal.toLocaleString()}</td>
         <td style="padding: 8px; text-align: center;"><span style="padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; white-space: nowrap; ${getStatusColor(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
         <td style="padding: 8px; text-align: center;"><span style="padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; white-space: nowrap; ${getStatusColor(order.paymentStatus, 'payment')}">${order.paymentStatus}</span></td>
         <td style="padding: 8px; font-weight: bold; color: ${net >= 0 ? '#15803d' : '#b91c1c'};">${net.toLocaleString()}</td>
@@ -407,8 +417,9 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
               <th>اسم العميل</th>
               <th>المنتج</th>
               <th>سعر المنتج</th>
+              <th>تكلفة المنتج</th>
               <th>كمية</th>
-              <th>مصاريف الشحن</th>
+              <th>تكلفة الشحن (المقدرة)</th>
               <th>مبلغ التحصيل</th>
               <th>إجمالي المبلغ</th>
               <th>حالة الشحنة</th>

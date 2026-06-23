@@ -2707,19 +2707,28 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       "الحالة",
       "التاريخ",
     ];
-    const rows = filteredOrders.map((o) => [
-      o.orderNumber,
-      o.waybillNumber || "-",
-      o.customerName,
-      o.customerPhone,
-      o.governorate || o.shippingArea,
-      o.city || "-",
-      o.items.map((i) => `${i.name} (x${i.quantity})`).join(" | "),
-      o.totalAmountOverride ??
-        o.productPrice + o.shippingFee - (o.discount || 0),
-      o.status,
-      new Date(o.date).toLocaleDateString("ar-EG"),
-    ]);
+    const rows = filteredOrders.map((o) => {
+      const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+      const compFees = settings?.companySpecificFees?.[o.shippingCompany];
+      const useCustom = compFees?.useCustomFees ?? false;
+      const inspectionFeeParams = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const computedTotal = (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0) - (Number(o.advancePayment) || 0) + inspectionFeeParams;
+      const amountToCollect = o.totalAmountOverride != null ? Math.max(0, Math.round(Number(o.totalAmountOverride) - (Number(o.advancePayment) || 0))) : computedTotal;
+      const displayTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : amountToCollect;
+
+      return [
+        o.orderNumber,
+        o.waybillNumber || "-",
+        o.customerName,
+        o.customerPhone,
+        o.governorate || o.shippingArea,
+        o.city || "-",
+        o.items.map((i) => `${i.name} (x${i.quantity})`).join(" | "),
+        displayTotal,
+        o.status,
+        new Date(o.date).toLocaleDateString("ar-EG"),
+      ];
+    });
     const csvContent =
       "data:text/csv;charset=utf-8,\uFEFF" +
       headers.join(",") +
