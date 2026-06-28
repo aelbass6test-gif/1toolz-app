@@ -77,6 +77,7 @@ import ChatBot from './components/ChatBot';
 import CongratsModal from './components/CongratsModal';
 import OrderTrackingPage from './components/OrderTrackingPage';
 import OtpVerificationPage from './components/OtpVerificationPage';
+import FirebaseActionPage from './components/FirebaseActionPage';
 import IosInstallPrompt from './components/IosInstallPrompt';
 import ComingSoonPage from './components/ComingSoonPage';
 import AppsPage from './components/AppsPage';
@@ -2407,6 +2408,7 @@ export const AppComponent = () => {
             <Routes>
                 <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user) => completeLogin(user, null)} users={users} setUsers={setUsers} />} />
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
+                <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} />} />
                 
                 <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} />}>
