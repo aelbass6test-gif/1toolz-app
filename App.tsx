@@ -4,7 +4,10 @@ import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate,
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
-import { db as firebaseDb } from './services/firebaseClient';
+import { db as firebaseDb, auth } from './services/firebaseClient';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
+import { getApps, initializeApp } from 'firebase/app';
+import firebaseConfig from './firebase-applet-config.json';
 import { INITIAL_SETTINGS } from './constants';
 import { oneToolzProducts } from './data/one-toolz-products';
 
@@ -88,6 +91,7 @@ interface EmployeeRegisterRequestData {
 }
 
 import MobileNavigation from './components/MobileNavigation';
+import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
 
 const MainLayout = ({ 
     currentUser, 
@@ -105,7 +109,9 @@ const MainLayout = ({
     forcePullFromCloud,
     saveStatus,
     saveMessage,
-    unsavedChanges
+    unsavedChanges,
+    isShippingCalculatorOpen,
+    setIsShippingCalculatorOpen
 }: any) => {
     const inventoryAlerts = useMemo(() => {
         if (!settings) return [];
@@ -301,6 +307,7 @@ const MainLayout = ({
                         saveMessage={saveMessage}
                         unsavedChanges={unsavedChanges}
                         inventoryAlerts={inventoryAlerts}
+                        onOpenShippingCalculator={() => setIsShippingCalculatorOpen(true)}
                     />
                 </div>
                 <div className="flex flex-1 overflow-hidden relative">
@@ -315,27 +322,42 @@ const MainLayout = ({
                     </div>
                 </div>
             </div>
+            {settings && (
+                <ShippingCalculatorWidget 
+                    settings={settings} 
+                    isOpen={isShippingCalculatorOpen} 
+                    onClose={() => setIsShippingCalculatorOpen(false)} 
+                />
+            )}
         </div>
     );
 };
 
-const AdminLayout = ({ currentUser, handleLogout, theme, setTheme }: any) => (
-    <div className="flex flex-col h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-50 overflow-hidden relative" dir="rtl">
-        {/* Floating Ambient Glow Elements */}
-        <div className="absolute top-[-5%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[120px] pointer-events-none z-0 animate-ambient-pulse" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-500/8 dark:bg-purple-500/12 blur-[140px] pointer-events-none z-0 animate-ambient-pulse-slow" />
-        
-        <div className="relative z-10 flex flex-col h-full overflow-hidden">
-            <Header currentUser={currentUser} onLogout={handleLogout} theme={theme} setTheme={setTheme} onToggleSidebar={() => {}} />
-            <main className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar relative">
-                <Outlet />
-            </main>
+const AdminLayout = ({ currentUser, handleLogout, theme, setTheme }: any) => {
+    if (!currentUser || !currentUser.isAdmin) {
+        return <Navigate to="/owner-login" replace />;
+    }
+    return (
+        <div className="flex flex-col h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-50 overflow-hidden relative" dir="rtl">
+            {/* Floating Ambient Glow Elements */}
+            <div className="absolute top-[-5%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[120px] pointer-events-none z-0 animate-ambient-pulse" />
+            <div className="absolute bottom-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-500/8 dark:bg-purple-500/12 blur-[140px] pointer-events-none z-0 animate-ambient-pulse-slow" />
+            
+            <div className="relative z-10 flex flex-col h-full overflow-hidden">
+                <Header currentUser={currentUser} onLogout={handleLogout} theme={theme} setTheme={setTheme} onToggleSidebar={() => {}} />
+                <main className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar relative">
+                    <Outlet />
+                </main>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
-const EmployeeLayoutWrapper = ({ children, ...props }: any) => {
-    return <EmployeeLayout {...props}>{children}</EmployeeLayout>;
+const EmployeeLayoutWrapper = ({ children, isEmployeeSession, ...props }: any) => {
+    if (!props.currentUser || !isEmployeeSession) {
+        return <Navigate to="/employee-login" replace />;
+    }
+    return <EmployeeLayout currentUser={props.currentUser} {...props}>{children}</EmployeeLayout>;
 };
 
 function sanitizeData(storeData: StoreData): StoreData {
@@ -406,7 +428,9 @@ const OwnerLayoutWrapper = ({
     forcePullFromCloud,
     saveStatus,
     saveMessage,
-    unsavedChanges
+    unsavedChanges,
+    isShippingCalculatorOpen,
+    setIsShippingCalculatorOpen
 }: any) => {
     const location = useLocation();
     const { storeId: urlStoreId } = useParams();
@@ -535,6 +559,8 @@ const OwnerLayoutWrapper = ({
             saveStatus={saveStatus}
             saveMessage={saveMessage}
             unsavedChanges={unsavedChanges}
+            isShippingCalculatorOpen={isShippingCalculatorOpen}
+            setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
         />
     );
 };
@@ -575,6 +601,7 @@ export const AppComponent = () => {
     const [saveMessage, setSaveMessage] = useState('');
     const [isStandaloneStorefront, setIsStandaloneStorefront] = useState<boolean>(false);
     const [isStoreNotFound, setIsStoreNotFound] = useState<boolean>(false);
+    const [isShippingCalculatorOpen, setIsShippingCalculatorOpen] = useState<boolean>(false);
     
     const [dbSyncMode, setDbSyncModeState] = useState<'manual' | 'auto'>(() => {
         const value = localStorage.getItem('dbSyncMode');
@@ -1179,18 +1206,78 @@ export const AppComponent = () => {
         localStorage.setItem('theme', theme);
     }, [theme, location.pathname, isStandaloneStorefront]);
 
+    // Proactive background migration for legacy accounts when Admin loads user list
+    useEffect(() => {
+        if (currentUser?.isAdmin && users && users.length > 0) {
+            migrateLegacyUsersToAuth(users);
+        }
+    }, [currentUser, users]);
+
+    // Helper to wait for Firebase Auth to initialize and return the authenticated user
+    const getCurrentAuthenticatedUser = (): Promise<any> => {
+        return new Promise((resolve) => {
+            const unsubscribe = auth.onAuthStateChanged((user) => {
+                unsubscribe();
+                resolve(user);
+            });
+        });
+    };
+
+    // Background migration for legacy accounts using a secondary auth instance
+    const getMigrationAuth = () => {
+        const migrationApp = getApps().find(app => app.name === "MigrationApp") 
+            || initializeApp(firebaseConfig, "MigrationApp");
+        return getAuth(migrationApp);
+    };
+
+    const migrateLegacyUsersToAuth = async (usersToMigrate: User[]) => {
+        try {
+            const mAuth = getMigrationAuth();
+            console.log(`[MIGRATION] Starting background migration check for ${usersToMigrate.length} users...`);
+            // Run sequentially in the background to avoid rate limits
+            for (const user of usersToMigrate) {
+                if (!user.phone) continue;
+                const password = user.password;
+                if (!password) {
+                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: No legacy password stored in legacy database.`);
+                    continue;
+                }
+                if (password.length < 6) {
+                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: Password is shorter than 6 characters (does not meet Firebase Auth security requirements).`);
+                    continue;
+                }
+                
+                // Use real email if available, otherwise generated one
+                const email = (user.email && user.email.includes('@') && !user.email.includes('mystore-auth.app'))
+                    ? user.email
+                    : `${user.phone.trim()}@mystore-auth.app`;
+                
+                try {
+                    await createUserWithEmailAndPassword(mAuth, email, password);
+                    console.log(`[MIGRATION] Successfully created Firebase Auth account for legacy user ${user.phone}.`);
+                } catch (err: any) {
+                    if (err.code === 'auth/email-already-in-use') {
+                        // Already exists, skip
+                    } else if (err.code === 'auth/operation-not-allowed') {
+                        console.error('[MIGRATION] Email/Password provider is not enabled in Firebase project! Please enable it in the console.');
+                        break; // Stop if provider is disabled to avoid spamming errors
+                    } else {
+                        console.error(`[MIGRATION] Error migrating user ${user.phone}:`, err);
+                    }
+                }
+            }
+        } catch (migrationErr) {
+            console.error('[MIGRATION] Fatal migration error:', migrationErr);
+        }
+    };
+
     const loadData = async () => {
         setIsInitialLoad(true);
         isRefreshing.current = true;
         try {
-            let loadedUsers: User[] = [];
-            try {
-                const globalData = await db.getGlobalData();
-                loadedUsers = globalData?.users || [];
-                setUsers(loadedUsers);
-            } catch (globalErr) {
-                console.warn('[LOAD-DATA] Failed to fetch global user data (expected for guest storefront page):', globalErr);
-            }
+            // We no longer fetch all users on load to prevent Firestore permission errors.
+            // Admin users will fetch the global users list when needed or via the snapshot listener.
+            setUsers([]);
             
             const host = window.location.hostname.toLowerCase();
             const hostNoWww = host.replace(/^www\./, '');
@@ -1234,34 +1321,6 @@ export const AppComponent = () => {
                 } catch (lookupErr) {
                     console.error('[STOREFRONT-LOOKUP] Error in direct stores_data lookup:', lookupErr);
                 }
-
-                // 2. FALLBACK: LOOP OVER ALL USERS (IF ACCESSIBLE / CACHED)
-                if (!foundStoreId) {
-                    for (const u of loadedUsers) {
-                        if (!u.stores) continue;
-                        const store = u.stores.find(s => {
-                            const storeCustomDomain = (s.customDomain || '').toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].trim();
-                            const storeSubdomain = (s.subdomain || '').toLowerCase().trim();
-                            
-                            // 1. Match custom domain (e.g. 3bdomedia.com or www.3bdomedia.com)
-                            if (storeCustomDomain && (storeCustomDomain === hostNoWww || `www.${storeCustomDomain}` === host)) {
-                                return true;
-                            }
-                            
-                            // 2. Match free subdomain of abdomedi (e.g. mystore.abdomedi.com)
-                            if (storeSubdomain && host.endsWith('.abdomedi.com')) {
-                                const sub = host.split('.')[0].toLowerCase();
-                                if (sub === storeSubdomain) {
-                                    console.log('[DOMAIN-MATCH] Fallback matched subdomain:', sub);
-                                    return true;
-                                }
-                            }
-                            
-                            return false;
-                        });
-                        if (store) { foundStoreId = store.id; break; }
-                    }
-                }
             }
             
             if (foundStoreId) {
@@ -1283,24 +1342,40 @@ export const AppComponent = () => {
                 const savedStoreId = localStorage.getItem('lastActiveStoreId');
                 const savedSessionType = localStorage.getItem('sessionType');
                 
-                if (loadedUsers.length > 0) {
-                    let user = loadedUsers.find((u: User) => u.phone === savedUserPhone);
+                if (savedUserPhone) {
+                    // Wait for Firebase Auth session to be restored before making firestore queries
+                    const firebaseUser = await getCurrentAuthenticatedUser();
                     
-                    if (user) {
-                        setCurrentUser(user);
-                        if (savedSessionType === 'employee') {
-                            setIsEmployeeSession(true);
-                        }
-                        const storeId = savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
-                        if (storeId) {
-                            setActiveStoreId(storeId);
-                            
-                            const storeData = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
-                            if (storeData) {
-                                const sanitizedStoreData = sanitizeData(storeData);
-                                setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
+                    if (firebaseUser) {
+                        let user = await db.getUserByPhone(savedUserPhone);
+                        
+                        if (user) {
+                            setUsers(prev => prev.some(u => u.phone === user!.phone) ? prev : [...prev, user!]);
+                            setCurrentUser(user);
+                            if (savedSessionType === 'employee') {
+                                setIsEmployeeSession(true);
                             }
+                            const storeId = savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
+                            if (storeId) {
+                                setActiveStoreId(storeId);
+                                
+                                const storeData = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
+                                if (storeData) {
+                                    const sanitizedStoreData = sanitizeData(storeData);
+                                    setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
+                                }
+                            }
+                        } else {
+                            // Invalid session or doc not found
+                            localStorage.removeItem('currentUserPhone');
+                            localStorage.removeItem('lastActiveStoreId');
+                            localStorage.removeItem('sessionType');
                         }
+                    } else {
+                        // Firebase Auth is not signed in
+                        localStorage.removeItem('currentUserPhone');
+                        localStorage.removeItem('lastActiveStoreId');
+                        localStorage.removeItem('sessionType');
                     }
                 }
             }
@@ -1379,6 +1454,13 @@ export const AppComponent = () => {
     };
     
     const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null) => {
+        setUsers(prev => {
+            if (!prev.some(u => u.phone === user.phone)) {
+                return [...prev, user];
+            }
+            return prev.map(u => u.phone === user.phone ? user : u);
+        });
+
         if (sessionInfo?.isEmployee) {
             setCurrentUser(user);
             setIsEmployeeSession(true);
@@ -1434,11 +1516,6 @@ export const AppComponent = () => {
     };
 
     const handleEmployeeLogin = async ({ storeId, phone, password }: { storeId: string; phone: string; password: string }) => {
-        const owner = users.find(u => u.stores?.some(s => s.id === storeId));
-        if (!owner) {
-            throw new Error("كود المتجر غير صحيح.");
-        }
-
         let storeData = allStoresData[storeId];
         if (!storeData) {
             const data = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
@@ -1447,11 +1524,30 @@ export const AppComponent = () => {
                 setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedData }));
                 storeData = sanitizedData;
             } else {
-                 throw new Error("لا يمكن تحميل بيانات المتجر.");
+                 throw new Error("كود المتجر غير صحيح أو لا يمكن تحميل بياناته.");
             }
         }
         
-        const employeeRecord = storeData.settings.employees.find(e => e.id === phone);
+        const normalizePhoneForMatch = (p: string): string => {
+            if (!p) return '';
+            let clean = p.replace(/\D/g, '');
+            if (clean.startsWith('20') && clean.length === 12) {
+                clean = clean.substring(2);
+            } else if (clean.startsWith('0020') && clean.length === 14) {
+                clean = clean.substring(4);
+            }
+            return clean.replace(/^0+/, '');
+        };
+
+        const inputNormalized = normalizePhoneForMatch(phone);
+        const employeeRecord = storeData.settings.employees.find(e => {
+            const idNormalized = normalizePhoneForMatch(e.id);
+            const phoneNormalized = e.phone ? normalizePhoneForMatch(e.phone) : '';
+            return e.id === phone || 
+                   idNormalized === inputNormalized || 
+                   (phoneNormalized && phoneNormalized === inputNormalized);
+        });
+
         if (!employeeRecord) {
             throw new Error("لست موظفاً في هذا المتجر.");
         }
@@ -1462,9 +1558,109 @@ export const AppComponent = () => {
             throw new Error(`حالة حسابك هي "${statusText}". يرجى التواصل مع مدير المتجر.`);
         }
 
-        const employeeUser = users.find(u => u.phone === phone);
-        if (!employeeUser || employeeUser.password !== password) {
-            throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+        const authPhone = (employeeRecord.phone || employeeRecord.id || phone).trim();
+        const firebaseEmail = `${authPhone}@mystore-auth.app`;
+        console.log('[AUTH] Employee login attempt for phone:', authPhone);
+        try {
+             await signInWithEmailAndPassword(auth, firebaseEmail, password);
+             console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
+        } catch (err: any) {
+             const isUserNotFoundOrInvalid = err?.code === 'auth/user-not-found' || 
+                                            err?.code === 'auth/invalid-credential' || 
+                                            err?.message?.includes('user-not-found') || 
+                                            err?.message?.includes('invalid-credential');
+             if (isUserNotFoundOrInvalid) {
+                  console.log('[MIGRATION] Employee Auth failed. Checking Supabase for custom email or legacy account:', authPhone);
+                  // Search ONLY in Supabase for user
+                  const legacyUser = await db.getUserByPhoneFromSupabase(authPhone);
+                  
+                  if (legacyUser) {
+                      // 1. Check if they have a CUSTOM email
+                      if (legacyUser.email && legacyUser.email !== firebaseEmail) {
+                          console.log('[AUTH] Found custom email for employee in Supabase, trying login with:', legacyUser.email);
+                          try {
+                              await signInWithEmailAndPassword(auth, legacyUser.email, password);
+                              console.log('[AUTH] Firebase Auth custom email login successful for employee:', authPhone);
+                              return; // Success
+                          } catch (secondErr: any) {
+                              console.log('[AUTH] Custom email login failed for employee:', secondErr.code);
+                              // Continue to legacy check
+                          }
+                      }
+
+                      console.log('[MIGRATION] Legacy user found in Supabase. Verifying old password...');
+                      const storedPassword = legacyUser.password;
+                      if (storedPassword === password) {
+                          // Check if old password meets security length requirement (>= 6)
+                          if (password.length < 6) {
+                              console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy employee login:', authPhone);
+                              throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
+                          }
+                          
+                          // Use real email if available, otherwise generated one
+                          const emailToCreate = legacyUser.email || firebaseEmail;
+                          
+                          try {
+                              console.log('[MIGRATION] Creating Firebase Auth account for legacy employee:', authPhone, 'using email:', emailToCreate);
+                              await createUserWithEmailAndPassword(auth, emailToCreate, password);
+                              console.log('[MIGRATION] Creating Firestore user doc for legacy employee:', authPhone);
+                              await db.createUserDoc(legacyUser);
+                          } catch (createErr: any) {
+                              if (createErr.code === 'auth/email-already-in-use') {
+                                  console.log('[MIGRATION] Firebase Auth account already exists for legacy employee, attempting sign-in...');
+                                  try {
+                                      // Try signing in with BOTH potential emails
+                                      try {
+                                          await signInWithEmailAndPassword(auth, emailToCreate, password);
+                                      } catch (signInErr: any) {
+                                          if (emailToCreate !== firebaseEmail) {
+                                              await signInWithEmailAndPassword(auth, firebaseEmail, password);
+                                          } else {
+                                              throw signInErr;
+                                          }
+                                      }
+                                      // If sign-in succeeds now, ensure Firestore doc exists
+                                      console.log('[MIGRATION] Sign-in successful for existing account, checking Firestore doc...');
+                                      const existingFsUser = await db.getUserByPhone(authPhone);
+                                      if (!existingFsUser) {
+                                          await db.createUserDoc(legacyUser);
+                                      }
+                                  } catch (signInErr: any) {
+                                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
+                                          console.warn('[MIGRATION] Existing account found but password mismatch for legacy employee:', authPhone);
+                                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                                      }
+                                      console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
+                                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                                  }
+                              } else {
+                                  console.error('[MIGRATION] On-the-fly signup failed for legacy employee:', createErr);
+                                  if (createErr.code === 'auth/weak-password') {
+                                      throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
+                                  }
+                                  throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                              }
+                          }
+                      } else {
+                          console.log('[MIGRATION] Legacy password mismatch for employee:', authPhone);
+                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                      }
+                  } else {
+                      console.log('[MIGRATION] Legacy user not found in Supabase for employee:', authPhone);
+                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                  }
+             } else {
+                  if (err.code === 'auth/network-request-failed') {
+                      throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+                  }
+                  console.error('[AUTH] Employee login Firebase Auth failure:', err);
+                  throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+             }
+        }
+
+        const employeeUser = await db.getUserByPhone(authPhone);
+        if (!employeeUser) {
+            throw new Error("لم يتم العثور على بيانات الموظف.");
         }
 
         completeLogin(employeeUser, { isEmployee: true, storeId: storeId });
@@ -1472,11 +1668,6 @@ export const AppComponent = () => {
 
     const handleEmployeeRegisterRequest = async (data: EmployeeRegisterRequestData) => {
         const { fullName, phone, password, storeId, email } = data;
-
-        const owner = users.find(u => u.stores?.some(s => s.id === storeId));
-        if (!owner) throw new Error("كود المتجر غير صحيح.");
-        if (users.some(u => u.phone === phone)) throw new Error("رقم الهاتف هذا مسجل بالفعل.");
-        if (users.some(u => u.email === email)) throw new Error("هذا البريد الإلكتروني مسجل بالفعل.");
         
         let storeData = allStoresData[storeId];
         if (!storeData) {
@@ -1493,7 +1684,24 @@ export const AppComponent = () => {
             throw new Error("لديك بالفعل طلب انضمام معلق أو أنت موظف في هذا المتجر.");
         }
 
-        const newUser: User = { fullName, phone, password, email, joinDate: new Date().toISOString() };
+        const firebaseEmail = `${phone.trim()}@mystore-auth.app`;
+        try {
+            const userCred = await createUserWithEmailAndPassword(auth, firebaseEmail, password);
+            if (!userCred.user) {
+                throw new Error("فشل إنشاء حساب المصادقة.");
+            }
+        } catch (err: any) {
+            if (err.code === 'auth/email-already-in-use') {
+                throw new Error("هذا الرقم مسجل بالفعل في نظام المصادقة.");
+            }
+            throw new Error("حدث خطأ أثناء التسجيل.");
+        }
+
+        const newUser: User = { fullName, phone, email, joinDate: new Date().toISOString() };
+        const success = await db.createUserDoc(newUser);
+        if (!success) {
+            throw new Error("فشل إنشاء حساب الموظف في قاعدة البيانات.");
+        }
         setUsers(prev => [...prev, newUser]);
 
         const newEmployee: Employee = { id: phone, name: fullName, email, permissions: [], status: 'pending' };
@@ -1511,10 +1719,15 @@ export const AppComponent = () => {
             [storeId]: updatedStoreData
         }));
 
-        const storeInfo = owner!.stores!.find(s => s.id === storeId);
-        if (storeInfo) {
-            await db.saveStoreData(storeInfo, updatedStoreData);
-        }
+        await db.saveStoreData({
+            id: storeId,
+            name: (storeData.settings as any).storeName || storeId,
+            specialization: '',
+            language: 'ar',
+            currency: 'EGP',
+            url: '',
+            creationDate: new Date().toISOString()
+        }, updatedStoreData);
     };
 
     const handleStoreCreated = (newStore: Store) => {
@@ -1733,10 +1946,19 @@ export const AppComponent = () => {
                 if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
                     console.log('[REALTIME] Employees change detected via Firestore snapshot');
                     isRefreshing.current = true;
-                    const newEmployees = snap.docs.map(doc => ({ 
-                        ...doc.data(),
-                        phone: doc.id.split('_').pop() // doc.id is storeId_phone
-                    } as any));
+                    const newEmployees = snap.docs.map(doc => {
+                        const data = doc.data() || {};
+                        const phone = doc.id.split('_').pop() || '';
+                        const emp: Employee = {
+                            id: data.id || phone,
+                            name: data.name || '',
+                            email: data.email || '',
+                            phone: data.phone || phone,
+                            permissions: data.permissions || [],
+                            status: data.status || 'active'
+                        };
+                        return emp;
+                    });
                     setAllStoresData(prev => {
                         const store = prev[activeStoreId];
                         if (!store) return prev;
@@ -1753,29 +1975,32 @@ export const AppComponent = () => {
             unsubscribers.push(unsubEmployees);
         }
 
-        // Listen for user collections change
-        const unsubUsers = onSnapshot(collection(firebaseDb, 'users'), (snap) => {
-            if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                console.log('[REALTIME] Users collection change detected via Firestore snapshot');
-                isRefreshing.current = true;
-                const updatedUsers = snap.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        fullName: data.fullName || '',
-                        phone: doc.id,
-                        password: data.password || '',
-                        email: data.email || '',
-                        stores: data.stores || [],
-                        sites: data.sites || [],
-                        isAdmin: data.isAdmin || false,
-                        isBanned: data.isBanned || false,
-                        joinDate: data.joinDate || ''
-                    } as User;
-                });
-                setUsers(updatedUsers);
-            }
-        });
-        unsubscribers.push(unsubUsers);
+        // Listen for user collections change (Admin only)
+        let unsubUsers = () => {};
+        if (currentUser?.isAdmin) {
+            unsubUsers = onSnapshot(collection(firebaseDb, 'users'), (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    console.log('[REALTIME] Users collection change detected via Firestore snapshot');
+                    isRefreshing.current = true;
+                    const updatedUsers = snap.docs.map(doc => {
+                        const data = doc.data();
+                        return {
+                            fullName: data.fullName || '',
+                            phone: doc.id,
+                            password: data.password || '',
+                            email: data.email || '',
+                            stores: data.stores || [],
+                            sites: data.sites || [],
+                            isAdmin: data.isAdmin || false,
+                            isBanned: data.isBanned || false,
+                            joinDate: data.joinDate || ''
+                        } as User;
+                    });
+                    setUsers(updatedUsers);
+                }
+            });
+            unsubscribers.push(unsubUsers);
+        }
 
         // No redundant polling - onSnapshot handles real-time updates efficiently.
         // Background Auto-Sync for Platforms (Wuilt, etc.)
@@ -2193,6 +2418,7 @@ export const AppComponent = () => {
                 <Route path="/employee" element={
                     <EmployeeLayoutWrapper 
                         currentUser={currentUser} onLogout={handleLogout}
+                        isEmployeeSession={isEmployeeSession}
                         storeOwner={users.find(u => u.stores?.some(s => s.id === activeStoreId))}
                         activeStoreId={activeStoreId}
                         theme={theme} setTheme={setTheme}
@@ -2234,6 +2460,8 @@ export const AppComponent = () => {
                         saveStatus={saveStatus}
                         saveMessage={saveMessage}
                         unsavedChanges={getUnsavedChanges()}
+                        isShippingCalculatorOpen={isShippingCalculatorOpen}
+                        setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
                     />
                 }>
                     <Route index element={<Navigate to={`/store/${activeStoreId || (currentUser?.stores && currentUser.stores.length > 0 ? currentUser.stores[0].id : '')}/dashboard`} replace />} />
@@ -2265,6 +2493,8 @@ export const AppComponent = () => {
                         saveStatus={saveStatus}
                         saveMessage={saveMessage}
                         unsavedChanges={getUnsavedChanges()}
+                        isShippingCalculatorOpen={isShippingCalculatorOpen}
+                        setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
                     />
                 }>
                     <Route index element={<Navigate to="dashboard" replace />} />

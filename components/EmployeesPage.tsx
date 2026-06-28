@@ -2,6 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Settings, Employee, Permission, PERMISSIONS, User, Store } from '../types';
 import { Users, UserPlus, UserCog, Trash2, XCircle, KeyRound, AlertCircle, Check, Clock, Copy, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { createUserDoc } from '../services/databaseService';
+import { getApps, initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import firebaseConfig from '../firebase-applet-config.json';
+
+const secondaryApp = getApps().find(app => app.name === "SecondaryAppForEmployees") 
+    || initializeApp(firebaseConfig, "SecondaryAppForEmployees");
+const secondaryAuth = getAuth(secondaryApp);
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -61,11 +69,20 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
       [users, activeStoreId]
   );
 
-  const handleSaveEmployee = (employeeData: Omit<Employee, 'id'> & { id?: string }, newPassword: string | null) => {
+  const handleSaveEmployee = async (employeeData: Omit<Employee, 'id'> & { id?: string; phone?: string }) => {
     if (!employeeData.id) return;
     setEditEmployeeError('');
 
     const originalEmployee = settings.employees.find(e => e.id === employeeData.id);
+    const newPhone = employeeData.phone?.trim() || employeeData.id;
+
+    if (newPhone !== employeeData.id) {
+        if (settings.employees.some(e => e.id === newPhone)) {
+            setEditEmployeeError('رقم الهاتف الجديد مستخدم بالفعل لموظف آخر.');
+            return;
+        }
+    }
+
     if (originalEmployee && originalEmployee.email !== employeeData.email) {
         if (users.some(u => u.email === employeeData.email && u.phone !== employeeData.id)) {
             setEditEmployeeError('هذا البريد الإلكتروني مستخدم بالفعل لحساب آخر.');
@@ -73,28 +90,63 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
         }
     }
 
+    let tempPassword = '';
+    if (newPhone !== employeeData.id) {
+        tempPassword = Math.random().toString(36).slice(-8);
+        const firebaseEmail = `${newPhone}@mystore-auth.app`;
+        try {
+            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, tempPassword);
+            await secondaryAuth.signOut();
+        } catch (err: any) {
+            if (err.code !== 'auth/email-already-in-use') {
+                setEditEmployeeError(`فشل في إنشاء حساب المصادقة الجديد: ${err.message}`);
+                return;
+            }
+        }
+
+        const newUser: User = { 
+            fullName: employeeData.name, 
+            phone: newPhone, 
+            email: employeeData.email, 
+            joinDate: new Date().toISOString() 
+        };
+        const success = await createUserDoc(newUser);
+        if (!success) {
+            setEditEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
+            return;
+        }
+
+        setUsers(prev => {
+            const filtered = prev.filter(u => u.phone !== employeeData.id);
+            return [...filtered, newUser];
+        });
+    } else {
+        setUsers(prevUsers => prevUsers.map(u => {
+            if (u.phone === employeeData.id) {
+                const updatedUser: User = { 
+                    ...u, 
+                    fullName: employeeData.name,
+                    email: employeeData.email,
+                };
+                return updatedUser;
+            }
+            return u;
+        }));
+    }
+
+    const updatedEmployee: Employee = {
+        ...(employeeData as Employee),
+        id: newPhone,
+        phone: newPhone
+    };
+
     setSettings(s => ({
         ...s,
-        employees: s.employees.map(e => e.id === employeeData.id ? (employeeData as Employee) : e)
+        employees: s.employees.map(e => e.id === employeeData.id ? updatedEmployee : e)
     }));
 
-    setUsers(prevUsers => prevUsers.map(u => {
-        if (u.phone === employeeData.id) {
-            const updatedUser: User = { 
-                ...u, 
-                fullName: employeeData.name,
-                email: employeeData.email,
-            };
-            if (newPassword) {
-                updatedUser.password = newPassword;
-            }
-            return updatedUser;
-        }
-        return u;
-    }));
-    
-    if (newPassword) {
-        setResetPasswordCredentials({ phone: employeeData.id, pass: newPassword });
+    if (newPhone !== employeeData.id) {
+        setNewEmployeeCredentials({ phone: newPhone, pass: tempPassword });
     }
 
     setIsEmployeeModalOpen(false);
@@ -108,7 +160,7 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     setEmployeeToDelete(null);
   };
   
-  const handleAddEmployee = (data: { name: string; phone: string; email: string; password: string; }) => {
+  const handleAddEmployee = async (data: { name: string; phone: string; email: string; password: string; }) => {
     setAddEmployeeError('');
     setNewEmployeeCredentials(null);
 
@@ -131,7 +183,27 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
             return;
         }
 
-        const newUser: User = { fullName: data.name, phone: data.phone, email: data.email, password: data.password, joinDate: new Date().toISOString() };
+        if (!data.password || data.password.length < 8) {
+            setAddEmployeeError('يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.');
+            return;
+        }
+
+        const firebaseEmail = `${data.phone.trim()}@mystore-auth.app`;
+        try {
+            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, data.password);
+            await secondaryAuth.signOut();
+        } catch (err: any) {
+            setAddEmployeeError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
+            return;
+        }
+
+        const newUser: User = { fullName: data.name, phone: data.phone, email: data.email, joinDate: new Date().toISOString() };
+        const success = await createUserDoc(newUser);
+        if (!success) {
+            setAddEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
+            return;
+        }
+
         setUsers(prev => [...prev, newUser]);
         const newEmployee: Employee = { id: data.phone, phone: data.phone, name: data.name, email: data.email, permissions: [], status: 'active' };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
@@ -264,7 +336,7 @@ const PermissionsCard: React.FC<{
     });
     
     return list;
-  }, [employees, partners, owner]);
+  }, [employees, partners, owner, users]);
 
   const [filterRole, setFilterRole] = useState<string>('الكل');
 
@@ -415,20 +487,16 @@ const PermissionsCard: React.FC<{
   );
 };
 
-interface EmployeeModalProps { isOpen: boolean; onClose: () => void; onSave: (employee: Omit<Employee, 'id'> & { id?: string }, newPassword: string | null) => void; employee: Employee | null; error: string; }
+interface EmployeeModalProps { isOpen: boolean; onClose: () => void; onSave: (employee: Omit<Employee, 'id'> & { id?: string; phone?: string }) => void; employee: Employee | null; error: string; }
 const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, employee, error }) => {
-  const [formData, setFormData] = useState({ name: '', email: '', permissions: [] as Permission[] });
+  const [formData, setFormData] = useState({ name: '', phone: '', email: '', permissions: [] as Permission[] });
   const [activeRole, setActiveRole] = useState('custom');
-  const [newPassword, setNewPassword] = useState<string | null>(null);
-  
-  const generateRandomPassword = () => Math.random().toString(36).slice(-8);
 
   useEffect(() => {
     if (employee) { 
-        setFormData({ name: employee.name, email: employee.email, permissions: employee.permissions || [] });
-        setNewPassword(null);
+        setFormData({ name: employee.name, phone: employee.phone || employee.id || '', email: employee.email, permissions: employee.permissions || [] });
     } else { 
-        setFormData({ name: '', email: '', permissions: [] }); 
+        setFormData({ name: '', phone: '', email: '', permissions: [] }); 
     }
   }, [employee, isOpen]);
 
@@ -458,14 +526,10 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
       setFormData(prev => ({ ...prev, permissions: [...ROLES[roleKey].permissions] }));
     }
   };
-  
-  const handleResetPassword = () => {
-    setNewPassword(generateRandomPassword());
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ ...employee, ...formData }, newPassword);
+    onSave({ ...employee, ...formData });
   };
   
   if (!isOpen) return null;
@@ -482,22 +546,10 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
           <button onClick={onClose}><XCircle className="text-slate-400 hover:text-red-500"/></button>
         </div>
         <form onSubmit={handleSubmit} id="permission-form" className="flex-1 overflow-y-auto p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div><label className="text-sm font-bold text-slate-700 dark:text-slate-400">اسم الموظف</label><input type="text" value={formData.name} onChange={e => setFormData(p => ({...p, name: e.target.value}))} className="mt-2 w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" /></div>
+            <div><label className="text-sm font-bold text-slate-700 dark:text-slate-400">رقم الهاتف</label><input type="tel" value={formData.phone} onChange={e => setFormData(p => ({...p, phone: e.target.value}))} className="mt-2 w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" /></div>
             <div><label className="text-sm font-bold text-slate-700 dark:text-slate-400">البريد الإلكتروني</label><input type="email" value={formData.email} onChange={e => setFormData(p => ({...p, email: e.target.value}))} className="mt-2 w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" /></div>
-          </div>
-          <div>
-              <h4 className="text-lg font-bold dark:text-white mb-4 flex items-center gap-2"><KeyRound/> إعادة تعيين كلمة المرور</h4>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border dark:border-slate-800 flex justify-between items-center">
-                  <p className="font-bold text-sm text-slate-700 dark:text-slate-300">إنشاء كلمة مرور جديدة ومؤقتة للموظف.</p>
-                  <button type="button" onClick={handleResetPassword} className="px-4 py-2 text-xs font-bold bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 whitespace-nowrap">إنشاء كلمة مرور</button>
-              </div>
-              {newPassword && (
-                  <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-700 dark:text-emerald-300 font-bold text-sm flex items-center justify-between">
-                      <span>كلمة المرور الجديدة: <span className="font-mono">{newPassword}</span></span>
-                      <button type="button" onClick={() => navigator.clipboard.writeText(newPassword)}><Copy size={16}/></button>
-                  </div>
-              )}
           </div>
           <div>
               <h4 className="text-lg font-bold dark:text-white mb-4 flex items-center gap-2"><UserCog size={20}/> اختر دوراً سريعاً (قوالب جاهزة)</h4>

@@ -1,4 +1,4 @@
-import { db as firebaseDb } from './firebaseClient';
+import { db as firebaseDb, auth } from './firebaseClient';
 import { db as localDb } from '../src/lib/db';
 import { createClient } from '@supabase/supabase-js';
 import { 
@@ -733,7 +733,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             const mappedUsersList = usersList.map((user: any) => ({
                 phone: user.phone || '',
                 full_name: user.fullName || '',
-                password: user.password || '',
                 email: user.email || null,
                 is_admin: user.isAdmin || false,
                 is_banned: user.isBanned || false,
@@ -761,7 +760,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     placeholderUsers.push({
                         phone,
                         full_name: `موظف ${phone}`,
-                        password: 'no_password_stub',
                         email: null,
                         is_admin: false,
                         is_banned: false,
@@ -1230,25 +1228,57 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
 
     try {
         const queryUsers = collection(firebaseDb, 'users');
-        const snap = await getDocs(queryUsers).catch(err => {
-            handleFirestoreError(err, OperationType.LIST, 'users');
-            throw err;
-        });
+        let dbUsers: User[] = [];
+        let hasPermission = true;
+        try {
+            const snap = await getDocs(queryUsers);
+            dbUsers = snap.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    fullName: data.fullName || '',
+                    phone: doc.id,
+                    email: data.email || '',
+                    stores: data.stores || [],
+                    sites: data.sites || [],
+                    isAdmin: data.isAdmin || false,
+                    isBanned: data.isBanned || false,
+                    joinDate: data.joinDate || ''
+                };
+            });
+        } catch (err: any) {
+            if (err?.code === 'permission-denied') {
+                hasPermission = false;
+                console.warn('[DATABASE-SERVICE] Permission denied fetching users. Returning empty users list (expected for non-admins).');
+            } else {
+                handleFirestoreError(err, OperationType.LIST, 'users');
+                throw err;
+            }
+        }
 
-        const dbUsers: User[] = snap.docs.map(doc => {
-            const data = doc.data();
-            return {
-                fullName: data.fullName || '',
-                phone: doc.id,
-                password: data.password || '',
-                email: data.email || '',
-                stores: data.stores || [],
-                sites: data.sites || [],
-                isAdmin: data.isAdmin || false,
-                isBanned: data.isBanned || false,
-                joinDate: data.joinDate || ''
-            };
-        });
+        let supabaseUsers: User[] = [];
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                const { data: sbUsers, error: sbErr } = await supabase.from('users').select('*');
+                if (!sbErr && sbUsers) {
+                    supabaseUsers = sbUsers.map((su: any) => ({
+                        fullName: su.full_name || '',
+                        phone: su.phone,
+                        password: su.password || '',
+                        email: su.email || '',
+                        stores: su.stores || [],
+                        sites: su.sites || [],
+                        isAdmin: su.is_admin || false,
+                        isBanned: su.is_banned || false,
+                        joinDate: su.join_date || ''
+                    }));
+                } else if (sbErr) {
+                    console.warn('[DATABASE-SERVICE] Failed to fetch users from Supabase:', sbErr);
+                }
+            } catch (err) {
+                console.error('[DATABASE-SERVICE] Error fetching from Supabase users table:', err);
+            }
+        }
 
         const localGlobal = await getLocal('global');
         const localUsers: User[] = localGlobal?.users || [];
@@ -1256,27 +1286,11 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
         const mergedUsersMap = new Map<string, User>();
         localUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
         dbUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
+        supabaseUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
 
         const finalUsers = Array.from(mergedUsersMap.values());
 
-        const needsUpload = finalUsers.some(fu => !dbUsers.some(du => du.phone === fu.phone));
-        if (needsUpload && finalUsers.length > 0) {
-            const migrationPromises = finalUsers.map(async (u) => {
-                const userRef = doc(firebaseDb, 'users', u.phone);
-                const userPayload = cleanUndefined({
-                    fullName: u.fullName,
-                    password: u.password,
-                    email: u.email,
-                    stores: u.stores || [],
-                    sites: u.sites || [],
-                    isAdmin: u.isAdmin || false,
-                    isBanned: u.isBanned || false,
-                    joinDate: u.joinDate
-                });
-                await setDoc(userRef, userPayload, { merge: true }).catch(err => handleFirestoreError(err, OperationType.WRITE, `users/${u.phone}`));
-            });
-            await Promise.all(migrationPromises);
-        }
+        // Note: We no longer auto-create or auto-upload unauthenticated users into Firestore to comply with security rules and Auth requirements.
 
         const globalData = { users: finalUsers, loyaltyData: {} } as { users: User[], loyaltyData: any };
         await saveLocal('global', globalData);
@@ -1289,18 +1303,50 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
 export const saveGlobalData = async (data: { users: User[], loyaltyData: any }): Promise<{ success: boolean, error?: string }> => {
     await saveLocal('global', data);
     try {
+        if (!auth.currentUser) {
+            console.log('[AUTH GUARD] Skipping Firestore saveGlobalData user operations because user is not authenticated.');
+            return { success: true };
+        }
+
+        const me = data.users.find(u => auth.currentUser?.email?.replace("@mystore-auth.app", "") === u.phone);
+        const amIAdmin = me?.isAdmin || false;
+
         const savePromises = data.users.map(async (u) => {
             if (!u.phone) return;
+            
+            // Only allow saving the current user or any user if current user is admin
+            const isMe = auth.currentUser?.email?.replace("@mystore-auth.app", "") === u.phone;
+            
+            if (!isMe && !amIAdmin) {
+                return;
+            }
+
             const userRef = doc(firebaseDb, 'users', u.phone);
+
+            // Double check that user document already exists in Firestore before updating.
+            // This prevents creating Firestore documents for unmigrated legacy users.
+            try {
+                const docSnap = await getDoc(userRef);
+                if (!docSnap.exists()) {
+                    console.log(`[FIRESTORE] Skipping save for unmigrated legacy user ${u.phone} to avoid creating document before Firebase Auth.`);
+                    return;
+                }
+            } catch (err) {
+                // This is where the permission error happens if not handled.
+                // We've added amIAdmin check above, but keeping this try-catch for robustness.
+                console.warn(`[FIRESTORE] Failed to check document existence for user ${u.phone} before save:`, err);
+                return;
+            }
+
             const userPayload = cleanUndefined({
                 fullName: u.fullName,
-                password: u.password,
                 email: u.email,
                 stores: u.stores || [],
                 sites: u.sites || [],
                 isAdmin: u.isAdmin || false,
                 isBanned: u.isBanned || false,
-                joinDate: u.joinDate || ''
+                joinDate: u.joinDate || '',
+                ownedStoreIds: (u.stores || []).map(s => s.id)
             });
             await setDoc(userRef, userPayload, { merge: true }).catch(err => {
                 if (err?.code === 'resource-exhausted') {
@@ -1423,3 +1469,165 @@ export const migrateAllLegacyDataToRelational = async (users: User[]): Promise<{
         return { success: false, summary: "Failed", error: err.message };
     }
 };
+
+export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | null> => {
+    console.log('[SUPABASE] Fetching legacy user directly by phone:', phone);
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+        console.warn('[SUPABASE] Supabase client is not available in getUserByPhoneFromSupabase');
+        return null;
+    }
+    try {
+        const { data, error } = await supabase.from('users').select('*').eq('phone', phone).maybeSingle();
+        if (error) {
+            console.error('[SUPABASE] Supabase error in getUserByPhoneFromSupabase:', error);
+            return null;
+        }
+        if (!data) {
+            console.log(`[SUPABASE] User ${phone} not found in Supabase.`);
+            return null;
+        }
+        return {
+            fullName: data.full_name || '',
+            phone: data.phone,
+            email: data.email || '',
+            stores: data.stores || [],
+            sites: data.sites || [],
+            isAdmin: data.is_admin || false,
+            isBanned: data.is_banned || false,
+            joinDate: data.join_date || '',
+            password: data.password || ''
+        };
+    } catch (err) {
+        console.error('[SUPABASE] Fatal error in getUserByPhoneFromSupabase:', err);
+        return null;
+    }
+};
+
+export const updateUserInSupabase = async (user: User): Promise<{ success: boolean; error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase client not initialized' };
+    try {
+        const payload = cleanUndefined({
+            phone: user.phone,
+            email: user.email || null,
+            full_name: user.fullName,
+            is_admin: user.isAdmin || false,
+            is_banned: user.isBanned || false,
+            join_date: user.joinDate || new Date().toISOString(),
+            stores: user.stores || [],
+            sites: user.sites || [],
+            password: user.password
+        });
+
+        const { error } = await supabase.from('users').upsert(payload, { onConflict: 'phone' });
+        
+        if (error) {
+            console.error('[SUPABASE] Error updating user in Supabase:', error.message, error.details, error.hint);
+            if (error.code === '23505') { // Unique violation
+                if (error.message.includes('email') || (error.details && error.details.includes('email'))) {
+                    return { success: false, error: 'البريد الإلكتروني مستخدم بالفعل في حساب آخر.' };
+                }
+                return { success: false, error: 'هذه البيانات موجودة مسبقاً في حساب آخر.' };
+            }
+            return { success: false, error: error.message };
+        }
+        return { success: true };
+    } catch (err: any) {
+        console.error('[SUPABASE] Fatal error in updateUserInSupabase:', err);
+        return { success: false, error: err.message || 'خطأ غير متوقع في قاعدة البيانات.' };
+    }
+};
+
+export const getUserByPhone = async (phone: string): Promise<User | null> => {
+    try {
+        // Try Firestore first if authenticated
+        if (auth.currentUser) {
+            console.log('[FIRESTORE] Fetching user by phone:', phone);
+            const userRef = doc(firebaseDb, 'users', phone);
+            try {
+                const docSnap = await getDoc(userRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    return {
+                        fullName: data.fullName || '',
+                        phone: docSnap.id,
+                        email: data.email || '',
+                        stores: data.stores || [],
+                        sites: data.sites || [],
+                        isAdmin: data.isAdmin || false,
+                        isBanned: data.isBanned || false,
+                        joinDate: data.joinDate || ''
+                    };
+                }
+            } catch (fsErr: any) {
+                if (fsErr?.code === 'permission-denied') {
+                    console.log('[FIRESTORE] Access denied to user doc (expected for non-admins), falling back to Supabase...');
+                } else {
+                    console.warn('[DATABASE-SERVICE] Firestore fetch in getUserByPhone failed:', fsErr);
+                }
+            }
+        } else {
+            console.log('[AUTH GUARD] Skipping Firestore getUserByPhone because user is not authenticated.');
+        }
+
+        // If not found, failed, or not authenticated, try Supabase if active
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                console.log('[SUPABASE] Checking user in legacy Supabase table:', phone);
+                const { data, error } = await supabase.from('users').select('*').eq('phone', phone).maybeSingle();
+                if (!error && data) {
+                    const mappedUser: User = {
+                        fullName: data.full_name || '',
+                        phone: data.phone,
+                        email: data.email || '',
+                        stores: data.stores || [],
+                        sites: data.sites || [],
+                        isAdmin: data.is_admin || false,
+                        isBanned: data.is_banned || false,
+                        joinDate: data.join_date || '',
+                        password: data.password || ''
+                    };
+                    return mappedUser;
+                }
+            } catch (sbErr) {
+                console.error('[DATABASE-SERVICE] Supabase fetch in getUserByPhone failed:', sbErr);
+            }
+        }
+
+        return null;
+    } catch (err) {
+        console.error('[DATABASE-SERVICE] Error in getUserByPhone:', err);
+        return null;
+    }
+};
+
+export const createUserDoc = async (user: User): Promise<boolean> => {
+    try {
+        if (!auth.currentUser) {
+            console.log('[AUTH GUARD] Skipping Firestore createUserDoc because user is not authenticated.');
+            return false;
+        }
+        
+        console.log('[FIRESTORE] Creating user document inside Firestore (no password storage) for:', user.phone);
+        const userRef = doc(firebaseDb, 'users', user.phone);
+        const userPayload = {
+            fullName: user.fullName,
+            phone: user.phone,
+            email: user.email,
+            stores: user.stores || [],
+            sites: user.sites || [],
+            isAdmin: user.isAdmin || false,
+            isBanned: user.isBanned || false,
+            joinDate: user.joinDate || new Date().toISOString(),
+            ownedStoreIds: (user.stores || []).map(s => s.id)
+        };
+        await setDoc(userRef, userPayload);
+        return true;
+    } catch (err) {
+        console.error('[DATABASE-SERVICE] Error in createUserDoc:', err);
+        return false;
+    }
+};
+

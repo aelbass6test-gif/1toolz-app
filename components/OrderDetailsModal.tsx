@@ -50,7 +50,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const safeReturnCash = (order.returnCashToCustomer && order.cashToReturnAmount) ? Number(order.cashToReturnAmount) : 0;
   const computedTotal = Math.max(0, safeProductPrice + safeShippingFee - safeDiscount - safeAdvance - safeCredit - safeReturnCash + (order.inspectionFeePaidByCustomer ? inspectionAdjustment : 0));
   const totalAmountToCollect = order.totalAmountOverride != null 
-    ? Math.max(0, Math.round(Number(order.totalAmountOverride) - safeAdvance - safeCredit - safeReturnCash)) 
+    ? Math.max(0, Math.round(Number(order.totalAmountOverride))) 
     : computedTotal;
   
   const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);

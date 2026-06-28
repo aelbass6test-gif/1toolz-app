@@ -97,8 +97,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const isCashCollection = orderData.shipmentType === 'cash_collection';
         const isMaintenance = orderData.orderType === 'maintenance' || orderData.shipmentType?.startsWith('maintenance_');
         
-        const items = isExchangeCustom
-            ? [{
+        let items: any[] = [];
+        if (isExchangeCustom) {
+            items = [{
                 productId: 'custom-shipment',
                 name: orderData.shipmentDescription || 'شحنة تبديل مرسلة',
                 quantity: orderData.shipmentQuantity || 1,
@@ -106,16 +107,36 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 cost: 0,
                 weight: 1,
                 thumbnail: ''
-            }]
-            : (isReturn ? [{
-                productId: 'return-shipment',
-                name: orderData.useProductsForReturn ? (orderData.returnDescription || 'طلب إرجاع شحنة') : (orderData.returnDescription || 'طلب إرجاع شحنة'),
-                quantity: orderData.returnQuantity || 1,
-                price: 0,
-                cost: 0,
-                weight: 1,
-                thumbnail: orderData.returnImage || ''
-            }] : (isCashCollection ? [{
+            }];
+        } else if (isReturn) {
+            if (orderData.useProductsForReturn && orderData.returnProductId) {
+                const prod = settings?.products?.find((p: any) => p.id === orderData.returnProductId);
+                const variant = prod && orderData.returnVariantId
+                    ? prod.variants?.find((v: any) => v.id === orderData.returnVariantId)
+                    : null;
+                items = [{
+                    productId: orderData.returnProductId,
+                    variantId: orderData.returnVariantId || undefined,
+                    name: orderData.returnDescription || prod?.name || 'طلب إرجاع شحنة',
+                    quantity: orderData.returnQuantity || 1,
+                    price: 0,
+                    cost: Number(variant?.costPrice || prod?.costPrice || 0),
+                    weight: Number(prod?.weight || 1),
+                    thumbnail: prod?.thumbnail || orderData.returnImage || ''
+                }];
+            } else {
+                items = [{
+                    productId: 'return-shipment',
+                    name: orderData.returnDescription || 'طلب إرجاع شحنة',
+                    quantity: orderData.returnQuantity || 1,
+                    price: 0,
+                    cost: 0,
+                    weight: 1,
+                    thumbnail: orderData.returnImage || ''
+                }];
+            }
+        } else if (isCashCollection) {
+            items = [{
                 productId: 'cash-collection',
                 name: 'طلب تحصيل نقدي',
                 quantity: 1,
@@ -123,7 +144,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 cost: 0,
                 weight: 1,
                 thumbnail: ''
-            }] : (isMaintenance ? [{
+            }];
+        } else if (isMaintenance) {
+            items = [{
                 productId: 'maintenance-item',
                 name: orderData.maintenanceItemDescription || 'منتج صيانة',
                 quantity: 1,
@@ -131,7 +154,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 cost: 0,
                 weight: 1,
                 thumbnail: ''
-            }] : (orderData.items || []))));
+            }];
+        } else {
+            items = orderData.items || [];
+        }
         
         if (items.length === 0) {
             alert("يجب إضافة منتج واحد على الأقل.");
@@ -197,9 +223,11 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const safeAdvance = Number((orderToAdd as any).advancePayment) || 0;
         
         const useCustom = compFees?.useCustomFees ?? false;
-        const vatRate = useCustom ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
-        const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
-        const hasVat = compFees?.enableVat !== false;
+        const isCompanyBosta = orderToAdd.shippingCompany ? (orderToAdd.shippingCompany.toLowerCase().includes('bosta') || orderToAdd.shippingCompany.includes('بوسطة') || orderToAdd.shippingCompany.includes('بوسطه')) : false;
+        const defaultVatRate = isCompanyBosta ? 0.14 : 0;
+        const vatRate = useCustom ? (compFees?.shippingVatRate ?? defaultVatRate) : (settings.shippingVatRate ?? defaultVatRate);
+        const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : (settings?.vatBasis || 'shipping_only');
+        const hasVat = useCustom ? (compFees?.enableVat !== false) : true;
         const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
         const useStandard = orderToAdd.vatOnStandardShipping === true;
         const standardShippingFee = useStandard ? getStandardShippingFee(orderToAdd as Order, settings) : (orderToAdd.shippingFee || 0);
@@ -211,7 +239,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const baseTotal = basePrice + orderToAdd.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
         const returnCash = (orderToAdd.returnCashToCustomer && orderToAdd.cashToReturnAmount) ? Number(orderToAdd.cashToReturnAmount) : 0;
         const finalCollectedTotal = orderToAdd.totalAmountOverride !== undefined && orderToAdd.totalAmountOverride !== null
-            ? Math.max(0, Math.round(Number(orderToAdd.totalAmountOverride) - safeAdvance - (orderToAdd.creditAmount || 0) - returnCash))
+            ? Math.max(0, Math.round(Number(orderToAdd.totalAmountOverride)))
             : baseTotal;
 
         const id = `order-${Date.now()}`;

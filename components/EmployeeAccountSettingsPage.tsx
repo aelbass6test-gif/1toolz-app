@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Save, CheckCircle, User as UserIcon } from 'lucide-react';
+import { auth } from '../services/firebaseClient';
+import { updatePassword as firebaseUpdatePassword } from 'firebase/auth';
 
 interface EmployeeAccountSettingsPageProps {
   currentUser: User | null;
@@ -39,7 +41,7 @@ const EmployeeAccountSettingsPage: React.FC<EmployeeAccountSettingsPageProps> = 
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setShowSuccess(false);
@@ -55,10 +57,18 @@ const EmployeeAccountSettingsPage: React.FC<EmployeeAccountSettingsPageProps> = 
         return;
     }
     
+    if (formData.password && auth.currentUser) {
+        try {
+            await firebaseUpdatePassword(auth.currentUser, formData.password);
+        } catch (err: any) {
+            setError('حدث خطأ أثناء تحديث كلمة المرور. قد تحتاج لتسجيل الدخول مجدداً.');
+            return;
+        }
+    }
+
     const updatedUser: User = {
       ...currentUser,
-      fullName: formData.fullName.trim(),
-      password: formData.password ? formData.password : currentUser.password,
+      fullName: formData.fullName.trim()
     };
 
     setCurrentUser(updatedUser);

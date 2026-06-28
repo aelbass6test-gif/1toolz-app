@@ -73,7 +73,7 @@ const OtpVerificationPage: React.FC<OtpVerificationPageProps> = ({ user, onVerif
         </div>
         
         <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-2">التحقق بخطوتين</h1>
-        <p className="text-slate-500 dark:text-slate-400 mb-6">أرسلنا لك رمز تحقق من 6 أرقام عبر البريد الإلكتروني.</p>
+        <p className="text-slate-500 dark:text-slate-400 mb-6">أرسلنا لك رمز تحقق من 6 أرقام عبر البريد الإلكتروني. <br/><span className="text-[10px] text-amber-600 font-bold">(ملاحظة: في بيئة التجربة الحالية، الرمز هو 123456)</span></p>
         
         <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 mb-6">
             <div className="flex items-center gap-2">

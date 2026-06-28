@@ -144,32 +144,27 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
     const useCustom = compFees?.useCustomFees ?? false;
     
     const isCompanyBosta = isBosta(order.shippingCompany);
-    const defaultBasis = isCompanyBosta ? 'cost' : 'total';
+    // For Bosta, default to 'total' (COD amount) if no basis is specified, otherwise use global default or 'total'
+    const defaultBasis = isCompanyBosta ? 'total' : (settings?.insuranceBasis || 'total');
     const basis = useCustom ? (compFees?.insuranceBasis ?? defaultBasis) : (settings?.insuranceBasis ?? defaultBasis);
     
     let result = 0;
-    
     const shippingFeeForInsurance = settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
     
-    if (isCompanyBosta) {
-        // Bosta insurance is always computed on the COD amount expected from the customer 
-        // regardless of the drop-down (which is often misconfigured to 'cost' or 'base').
+    if (basis === 'cost') {
+        const productCost = getOrderProductCost(order, settings);
+        result = (productCost * insuranceRate) / 100;
+    } else if (basis === 'price') {
+        result = (order.productPrice * insuranceRate) / 100;
+    } else if (basis === 'base') {
+        const basePrice = getOrderBasePrice(order, settings);
+        result = (basePrice * insuranceRate) / 100;
+    } else {
+        // total basis: (Price + Shipping - Discount)
         const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - (Number(order.discount) || 0);
         result = (Math.max(0, totalAmount) * insuranceRate) / 100;
-    } else {
-        if (basis === 'cost') {
-            const productCost = getOrderProductCost(order);
-            result = (productCost * insuranceRate) / 100;
-        } else if (basis === 'price') {
-            result = (order.productPrice * insuranceRate) / 100;
-        } else if (basis === 'base') {
-            const basePrice = getOrderBasePrice(order, settings);
-            result = (basePrice * insuranceRate) / 100;
-        } else {
-            const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - (Number(order.discount) || 0);
-            result = (Math.max(0, totalAmount) * insuranceRate) / 100;
-        }
     }
+    
     return Math.round(result * 100) / 100;
 };
 
@@ -226,7 +221,7 @@ export const calculateCodFee = (order: Order, settings: Settings): number => {
     } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null) {
         totalAmount = Number(order.totalAmountOverride);
     } else {
-        totalAmount = Number(order.productPrice || 0) + Number(order.shippingFee || 0) + orderSalesTax + inspectionFee - Number(order.discount || 0);
+        totalAmount = Number(order.productPrice || 0) + Number(order.shippingFee || 0) + orderSalesTax + inspectionFee - Number(order.discount || 0) - Number(order.advancePayment || 0);
     }
     
     if (totalAmount <= threshold && threshold > 0) return 0;

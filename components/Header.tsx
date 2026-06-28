@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
@@ -46,6 +46,7 @@ interface HeaderProps {
     saveMessage?: string;
     unsavedChanges?: any[];
     inventoryAlerts?: any[];
+    onOpenShippingCalculator?: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
@@ -62,7 +63,8 @@ const Header: React.FC<HeaderProps> = ({
     saveStatus,
     saveMessage,
     unsavedChanges,
-    inventoryAlerts = []
+    inventoryAlerts = [],
+    onOpenShippingCalculator
 }) => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
@@ -543,6 +545,16 @@ const Header: React.FC<HeaderProps> = ({
                         )}
                     </div>
                 )}
+
+                <div className="relative" ref={alertsMenuRef}>
+                    <button 
+                        onClick={onOpenShippingCalculator}
+                        title="حاسبة الشحن"
+                        className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                    >
+                        <Calculator size={20} />
+                    </button>
+                </div>
 
                 <div className="relative" ref={alertsMenuRef}>
                     <button 

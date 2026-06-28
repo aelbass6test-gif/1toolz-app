@@ -2807,7 +2807,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       const useCustom = compFees?.useCustomFees ?? false;
       const inspectionFeeParams = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
       const computedTotal = (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0) - (Number(o.advancePayment) || 0) + inspectionFeeParams;
-      const amountToCollect = o.totalAmountOverride != null ? Math.max(0, Math.round(Number(o.totalAmountOverride) - (Number(o.advancePayment) || 0))) : computedTotal;
+      const amountToCollect = o.totalAmountOverride != null ? Math.max(0, Math.round(Number(o.totalAmountOverride))) : computedTotal;
       const displayTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) + inspectionFeeParams : amountToCollect;
 
       return [

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Store, Mail, User as UserIcon, ShieldAlert, Phone, KeyRound, LogIn, UserPlus, Loader2, X, BarChart, Settings, Users, ArrowLeft, CheckCircle, Database, AlertCircle, Copy, Check, RefreshCw, Shield } from 'lucide-react';
 import { User } from '../types';
+import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase } from '../services/databaseService';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '../services/firebaseClient';
 import { motion } from 'framer-motion';
 
 // --- Reusable UI Components ---
@@ -108,7 +111,13 @@ CREATE TABLE IF NOT EXISTS orders (
     channel TEXT DEFAULT 'online',
     warehouse_id TEXT,
     warehouseId TEXT,
-    details JSONB DEFAULT '{}'::jsonb
+    details JSONB DEFAULT '{}'::jsonb,
+    "advancePayment" NUMERIC DEFAULT 0,
+    "advancePaymentPartnerId" TEXT,
+    "advancePaymentTreasuryId" TEXT,
+    "advancePaymentEmployeeId" TEXT,
+    "advancePaymentRecipientPhone" TEXT,
+    "advancePaymentSenderDetails" TEXT
 );
 
 -- 5. TRANSACTIONS (الحركات المالية والمحفظة)
@@ -538,8 +547,19 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
   const [userPhone, setUserPhone] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
   const [userError, setUserError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // If coming from another page with forgot=true, show the modal
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('forgot') === 'true') {
+      setShowResetModal(true);
+    }
+  }, []);
 
   // Admin form state
   const [adminPhone, setAdminPhone] = useState('');
@@ -578,21 +598,132 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     }
   }, [userPhone]);
 
-  const handleUserSubmit = (e: React.FormEvent) => {
+  const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserError('');
     setIsLoading(true);
 
+    const firebaseEmail = `${userPhone.trim()}@mystore-auth.app`;
+
     if (isLoginView) {
-      const foundUser = users.find(user => user.phone === userPhone && user.password === userPassword);
-      if (foundUser) {
-        if (!Array.isArray(foundUser.stores) && !foundUser.isAdmin) {
-          setUserError('أنت مسجل كموظف. يرجى تسجيل الدخول من صفحة دخول الموظفين.');
+      console.log('[AUTH DEBUG]', {
+        phone: userPhone,
+        firebaseEmail,
+        passwordLength: userPassword?.length
+      });
+      try {
+        await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
+        const foundUser = await getUserByPhone(userPhone.trim());
+        if (foundUser) {
+          if (!Array.isArray(foundUser.stores) && !foundUser.isAdmin) {
+            setUserError('أنت مسجل كموظف. يرجى تسجيل الدخول من صفحة دخول الموظفين.');
+            setIsLoading(false);
+            return;
+          }
+          onPasswordSuccess(foundUser);
+        } else {
+          setUserError('لم يتم العثور على بيانات المستخدم.');
+          setIsLoading(false);
+        }
+      } catch (err: any) {
+        if (err.code === 'auth/network-request-failed') {
+          setUserError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
           setIsLoading(false);
           return;
         }
-        onPasswordSuccess(foundUser);
-      } else {
+        console.error('Login error:', err);
+        const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
+                                       err.code === 'auth/invalid-credential' || 
+                                       err?.message?.includes('user-not-found') || 
+                                       err?.message?.includes('invalid-credential');
+        if (isUserNotFoundOrInvalid) {
+          console.log('[MIGRATION/AUTH] Login failed. Checking Supabase for user:', userPhone);
+          try {
+            const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
+            
+            // 1. Check if they have a CUSTOM email in Supabase (meaning they updated it in settings)
+            if (legacyUser && legacyUser.email && legacyUser.email !== `${userPhone.trim()}@mystore-auth.app`) {
+              console.log('[AUTH] Found custom email in Supabase, trying login with:', legacyUser.email);
+              try {
+                await signInWithEmailAndPassword(auth, legacyUser.email, userPassword);
+                const foundUser = await getUserByPhone(userPhone.trim());
+                if (foundUser) {
+                  onPasswordSuccess(foundUser);
+                  return;
+                }
+              } catch (secondErr: any) {
+                console.log('[AUTH] Custom email login also failed:', secondErr.code);
+              }
+            }
+            
+            // 2. Original Migration Logic (Legacy users)
+            if (legacyUser) {
+              console.log('[MIGRATION] Legacy user found in Supabase. Checking password...');
+              const storedPassword = legacyUser.password;
+              if (storedPassword === userPassword) {
+                if (userPassword.length < 6) {
+                  console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy user login:', userPhone);
+                  setUserError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
+                  setIsLoading(false);
+                  return;
+                }
+                
+                // Use real email if available, otherwise generated one
+                const emailToCreate = legacyUser.email || firebaseEmail;
+
+                try {
+                  console.log('[MIGRATION] Creating Firebase Auth account for legacy user:', userPhone, 'using email:', emailToCreate);
+                  await createUserWithEmailAndPassword(auth, emailToCreate, userPassword);
+                  console.log('[MIGRATION] Creating Firestore user doc for legacy user:', userPhone);
+                  await createUserDoc(legacyUser);
+                  onPasswordSuccess(legacyUser);
+                } catch (createErr: any) {
+                  if (createErr.code === 'auth/email-already-in-use') {
+                    console.log('[MIGRATION] Firebase Auth account already exists for legacy user, attempting sign-in...');
+                    try {
+                      // Try signing in with BOTH potential emails
+                      try {
+                        await signInWithEmailAndPassword(auth, emailToCreate, userPassword);
+                      } catch (signInErr: any) {
+                        if (emailToCreate !== firebaseEmail) {
+                          await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
+                        } else {
+                          throw signInErr;
+                        }
+                      }
+                      
+                      const existingFsUser = await getUserByPhone(userPhone.trim());
+                      if (!existingFsUser) {
+                        await createUserDoc(legacyUser);
+                      }
+                      onPasswordSuccess(legacyUser);
+                    } catch (signInErr: any) {
+                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
+                        console.warn('[MIGRATION] Existing account found but password mismatch for legacy user:', userPhone);
+                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
+                      } else {
+                        console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
+                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
+                      }
+                      setIsLoading(false);
+                    }
+                  } else {
+                    console.error('[MIGRATION] On-the-fly signup failed for legacy user:', createErr);
+                    setUserError('فشل إنشاء حساب المصادقة.');
+                    setIsLoading(false);
+                  }
+                }
+                return;
+              } else {
+                console.log('[MIGRATION] Legacy password mismatch for user:', userPhone);
+              }
+            } else {
+              console.log('[MIGRATION] Legacy user not found in Supabase for user:', userPhone);
+            }
+          } catch (migrationErr) {
+            console.error('[MIGRATION] On login legacy check failed:', migrationErr);
+          }
+        }
         setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
         setIsLoading(false);
       }
@@ -608,34 +739,216 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         return;
       }
       
-      if (users.some(user => user.phone === userPhone)) {
-          setUserError('هذا الرقم مسجل بالفعل.');
+      try {
+        // ALWAYS use the generated email for the initial Firebase Auth account.
+        // This ensures the security rules can verify phone ownership via the email pattern.
+        // The real email will be stored in Firestore and used for recovery/login lookups.
+        const emailToUse = firebaseEmail;
+          
+        console.log('[SIGNUP] Creating account with identity email:', emailToUse);
+        await createUserWithEmailAndPassword(auth, emailToUse, userPassword);
+        
+        const newUser: User = { 
+          fullName, 
+          phone: userPhone.trim(), 
+          email: userEmail, 
+          password: userPassword, // Include password for Supabase sync
+          stores: [],
+          joinDate: new Date().toISOString() 
+        };
+        const success = await createUserDoc(newUser);
+        if (success) {
+          // Sync to Supabase as well for legacy compatibility
+          try {
+            await updateUserInSupabase(newUser);
+          } catch (e) {
+            console.warn('[SIGNUP] Failed to sync to Supabase (optional):', e);
+          }
+          
+          setUsers(prevUsers => [...prevUsers, newUser]);
+          onPasswordSuccess(newUser);
+        } else {
+          setUserError('فشل تسجيل الحساب في قاعدة البيانات. يرجى المحاولة لاحقاً.');
           setIsLoading(false);
-          return;
-      }
-      if (users.some(user => user.email === userEmail)) {
-        setUserError('هذا البريد الإلكتروني مسجل بالفعل.');
+        }
+      } catch (err: any) {
+        console.error('Signup error:', err);
+        if (err.code === 'auth/email-already-in-use') {
+           setUserError('هذا الرقم مسجل بالفعل.');
+        } else {
+           setUserError('حدث خطأ أثناء التسجيل. يرجى المحاولة لاحقاً.');
+        }
         setIsLoading(false);
-        return;
       }
-
-      const newUser: User = { fullName, phone: userPhone, password: userPassword, email: userEmail, stores: [], joinDate: new Date().toISOString() };
-      setUsers(prevUsers => [...prevUsers, newUser]);
-      onPasswordSuccess(newUser);
     }
   };
 
-  const handleAdminSubmit = (e: React.FormEvent) => {
+  const [sentToEmail, setSentToEmail] = useState('');
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserError('');
+    setResetError('');
+    setIsLoading(true);
+    setSentToEmail('');
+
+    if (!userPhone.trim()) {
+      setResetError('يرجى إدخال رقم الموبايل أولاً.');
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // 1. Try to find user in Firestore (already migrated)
+      let userEmailToUse = '';
+      const firestoreUser = await getUserByPhone(userPhone.trim());
+      
+      if (firestoreUser && firestoreUser.email) {
+        userEmailToUse = firestoreUser.email;
+        console.log('[RESET] Found email in Firestore:', userEmailToUse);
+      } else {
+        // 2. Try Supabase
+        const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
+        if (legacyUser && legacyUser.email && legacyUser.email.includes('@') && !legacyUser.email.includes('mystore-auth.app')) {
+          userEmailToUse = legacyUser.email;
+          console.log('[RESET] Found valid email in Supabase:', userEmailToUse);
+        } else {
+          // 3. Fallback to generated
+          userEmailToUse = `${userPhone.trim()}@mystore-auth.app`;
+          console.log('[RESET] Using generated email fallback:', userEmailToUse);
+        }
+      }
+      
+      console.log('[RESET] Final attempt to send reset link to:', userEmailToUse);
+      
+      // Before sending, check if it's the generated one and we are in a context where we can warn
+      const isGeneratedEmail = userEmailToUse.includes('@mystore-auth.app');
+      
+      if (isGeneratedEmail) {
+        setResetError('عذراً، لم تقم بربط بريد إلكتروني حقيقي بحسابك سابقاً (تستخدم بريد النظام التلقائي). يرجى التواصل مع الدعم الفني لاستعادة حسابك.');
+        setIsLoading(false);
+        return;
+      }
+      
+      await sendPasswordResetEmail(auth, userEmailToUse);
+      
+      setSentToEmail(userEmailToUse);
+      setResetSuccess(true);
+      
+      setTimeout(() => {
+        setShowResetModal(false);
+        setResetSuccess(false);
+        setSentToEmail('');
+      }, 8000); // Longer timeout to let them read it
+    } catch (err: any) {
+      console.error('Reset password error:', err);
+      if (err.code === 'auth/user-not-found') {
+        setResetError('هذا الحساب غير مسجل لدينا في نظام المصادقة.');
+      } else if (err.code === 'auth/invalid-email') {
+        setResetError('البريد الإلكتروني المرتبط بالحساب غير صالح.');
+      } else {
+        setResetError('حدث خطأ أثناء إرسال طلب إعادة التعيين. يرجى المحاولة لاحقاً.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const [resetError, setResetError] = useState('');
+
+  const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminError('');
     setIsLoading(true);
-    const adminUser = users.find(user => user.phone === adminPhone && user.isAdmin);
+    
+    const firebaseEmail = `${adminPhone.trim()}@mystore-auth.app`;
 
-    if (adminUser && adminPassword === adminUser.password) {
+    console.log('[AUTH DEBUG]', {
+      phone: adminPhone,
+      firebaseEmail,
+      passwordLength: adminPassword?.length
+    });
+
+    try {
+      await signInWithEmailAndPassword(auth, firebaseEmail, adminPassword);
+      const adminUser = await getUserByPhone(adminPhone.trim());
+      if (adminUser && adminUser.isAdmin) {
         onPasswordSuccess(adminUser);
-    } else {
-        setAdminError('بيانات دخول المدير غير صحيحة.');
+      } else {
+        setAdminError('ليس لديك صلاحيات المدير.');
         setIsLoading(false);
+      }
+    } catch (err: any) {
+      if (err.code === 'auth/network-request-failed') {
+        setAdminError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+        setIsLoading(false);
+        return;
+      }
+      console.error('Admin login error:', err);
+      const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
+                                     err.code === 'auth/invalid-credential' || 
+                                     err?.message?.includes('user-not-found') || 
+                                     err?.message?.includes('invalid-credential');
+      if (isUserNotFoundOrInvalid) {
+        console.log('[MIGRATION] Firebase Auth failed for admin. Checking legacy Supabase table for phone:', adminPhone);
+        // Search ONLY in Supabase for user
+        try {
+          const legacyUser = await getUserByPhoneFromSupabase(adminPhone.trim());
+          if (legacyUser && legacyUser.isAdmin) {
+            console.log('[MIGRATION] Legacy admin found in Supabase. Checking password...');
+            const storedPassword = legacyUser.password;
+            if (storedPassword === adminPassword) {
+              if (adminPassword.length < 6) {
+                console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy admin login:', adminPhone);
+                setAdminError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
+                setIsLoading(false);
+                return;
+              }
+              try {
+                console.log('[MIGRATION] Creating Firebase Auth account for legacy admin:', adminPhone);
+                await createUserWithEmailAndPassword(auth, firebaseEmail, adminPassword);
+                console.log('[MIGRATION] Creating Firestore user doc for legacy admin:', adminPhone);
+                await createUserDoc(legacyUser);
+                onPasswordSuccess(legacyUser);
+              } catch (createErr: any) {
+                if (createErr.code === 'auth/email-already-in-use') {
+                  console.log('[MIGRATION] Firebase Auth account already exists for legacy admin, attempting sign-in...');
+                  try {
+                    await signInWithEmailAndPassword(auth, firebaseEmail, adminPassword);
+                    const existingFsUser = await getUserByPhone(adminPhone.trim());
+                    if (!existingFsUser) {
+                      await createUserDoc(legacyUser);
+                    }
+                    onPasswordSuccess(legacyUser);
+                  } catch (signInErr: any) {
+                    if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
+                      console.warn('[MIGRATION] Existing account found but password mismatch for legacy admin:', adminPhone);
+                      setAdminError('رقم الهاتف أو كلمة المرور غير صحيحة للمدير.');
+                    } else {
+                      console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
+                      setAdminError('رقم الهاتف أو كلمة المرور غير صحيحة للمدير.');
+                    }
+                    setIsLoading(false);
+                  }
+                } else {
+                  console.error('[MIGRATION] On-the-fly signup failed for legacy admin:', createErr);
+                  setAdminError('فشل إنشاء حساب المصادقة للمدير.');
+                  setIsLoading(false);
+                }
+              }
+              return;
+            } else {
+              console.log('[MIGRATION] Legacy password mismatch for admin:', adminPhone);
+            }
+          } else {
+            console.log('[MIGRATION] Legacy admin user not found in Supabase for admin:', adminPhone);
+          }
+        } catch (migrationErr) {
+          console.error('[MIGRATION] On admin login legacy check failed:', migrationErr);
+        }
+      }
+      setAdminError('بيانات دخول المدير غير صحيحة.');
+      setIsLoading(false);
     }
   };
 
@@ -772,6 +1085,70 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         </div>
       </footer>
 
+      {/* --- Password Reset Modal --- */}
+      {showResetModal && (
+        <AuthModal onClose={() => {
+          setShowResetModal(false);
+          setResetError('');
+          setResetSuccess(false);
+        }}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 shadow-2xl">
+            <div className="text-center mb-8">
+              <div className="inline-block p-4 bg-indigo-500/10 rounded-2xl mb-4">
+                <KeyRound className="text-indigo-400" size={32} />
+              </div>
+              <h2 className="text-2xl font-bold mb-2">استعادة كلمة المرور</h2>
+              <p className="text-slate-400 text-sm">سنرسل رابطاً لتعيين كلمة مرور جديدة إلى بريدك الإلكتروني المسجل لهذا الرقم:</p>
+              <div className="mt-2 text-indigo-400 font-bold">{userPhone}</div>
+            </div>
+
+            {resetSuccess ? (
+              <div className="bg-green-900/30 border border-green-700/50 text-green-400 p-4 rounded-xl space-y-2 mb-6">
+                <div className="flex items-center gap-3 animate-pulse">
+                  <CheckCircle size={20} />
+                  <span className="text-sm font-bold">تم إرسال رابط إعادة التعيين بنجاح.</span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  تم الإرسال إلى: <span className="text-indigo-300 font-mono" dir="ltr">
+                    {sentToEmail.includes('@mystore-auth.app') 
+                      ? "⚠️ بريد النظام المؤقت (لن تستلم شيئاً)" 
+                      : (sentToEmail.split('@')[0].length > 3 
+                          ? `${sentToEmail.split('@')[0].substring(0, 3)}***@${sentToEmail.split('@')[1]}`
+                          : sentToEmail)
+                    }
+                  </span>
+                </p>
+                <p className="text-[10px] text-slate-400">يرجى التحقق من بريدك الإلكتروني (بما في ذلك ملفات الـ Spam).</p>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword} className="space-y-4">
+                {resetError && (
+                  <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-xs">
+                    {resetError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  {isLoading ? <Loader2 className="animate-spin" /> : 'إرسال الرابط'}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setShowResetModal(false)}
+                  className="w-full text-slate-500 hover:text-white text-xs font-bold py-2 transition-colors"
+                >
+                  إلغاء
+                </button>
+              </form>
+            )}
+          </div>
+        </AuthModal>
+      )}
+
       {/* --- Auth Modal --- */}
       {showAuthModal && (
         <AuthModal onClose={() => setShowAuthModal(false)}>
@@ -842,6 +1219,19 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   )}
                   <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="رقم الموبايل / اسم المستخدم" required className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} /></div>
                   <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" placeholder="كلمة المرور" required className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} /></div>
+                  
+                  {isLoginView && (
+                    <div className="text-left">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowResetModal(true)}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline"
+                      >
+                        نسيت كلمة المرور؟
+                      </button>
+                    </div>
+                  )}
+
                   {userError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{userError}</div>}
                   <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                       {isLoading ? <Loader2 className="animate-spin" /> : (isLoginView ? <><LogIn size={18}/> تسجيل الدخول</> : <><UserPlus size={18}/> إنشاء حساب</>)}

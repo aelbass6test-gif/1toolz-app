@@ -1,4 +1,5 @@
 import html2pdf from 'html2pdf.js';
+import DOMPurify from 'dompurify';
 
 export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orientation: 'portrait' | 'landscape' = 'landscape', filename: string = 'report.pdf', isContinuous: boolean = false) {
     let container: HTMLElement;
@@ -7,8 +8,9 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
     if (typeof elementOrHtml === 'string') {
         container = document.createElement('div');
         container.className = 'pdf-container';
-        // Ensure the HTML string is wrapped in a container with explicit white background for rendering
-        container.innerHTML = `<div style="background: white !important; width: 100%; min-height: 100%; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${elementOrHtml}</div>`;
+        // Ensure the HTML string is wrapped in a container with explicit white background for rendering and sanitized with DOMPurify
+        const sanitizedHtml = DOMPurify.sanitize(elementOrHtml, { ADD_ATTR: ['style'] });
+        container.innerHTML = `<div style="background: white !important; width: 100%; min-height: 100%; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${sanitizedHtml}</div>`;
         
         // Use visible but off-screen positioning to ensure browser renders it fully
         container.style.position = 'fixed';

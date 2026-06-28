@@ -65,6 +65,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [expensePaidBy, setExpensePaidBy] = useState('');
   const [distributeExpensesEqually, setDistributeExpensesEqually] = useState(false);
   const [recordExpensesFormally, setRecordExpensesFormally] = useState(true);
+  const [costUpdateMethod, setCostUpdateMethod] = useState<'last_purchase' | 'weighted_average'>('last_purchase');
   const [taxRate, setTaxRate] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury'>('cash');
   const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
@@ -609,28 +610,66 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   const currentProd = updatedProducts[productIndex];
                   const shouldUpdatePricing = newItem.updateCatalogPrice !== false && !newItem.isReturn;
                   
-                  let costPrice = shouldUpdatePricing ? itemLandedCost : currentProd.costPrice;
+                  // Helper function to calculate price and cost cleanly
+                  const calculatePriceAndCostForCatalog = (
+                      itemLandedCostVal: number,
+                      profitModeVal: string,
+                      newItemVal: any,
+                      currentProdVal: any,
+                      previousStockVal: number,
+                      previousCostVal: number
+                  ) => {
+                      let finalCostPrice = itemLandedCostVal;
+                      
+                      // Handle basic cost price first (weighted average vs last purchase)
+                      if (costUpdateMethod === 'weighted_average') {
+                          finalCostPrice = previousStockVal > 0 
+                              ? ((previousStockVal * previousCostVal) + (totalQty * itemLandedCostVal)) / (previousStockVal + totalQty) 
+                              : itemLandedCostVal;
+                      } else {
+                          finalCostPrice = itemLandedCostVal;
+                      }
+
+                      let priceVal = currentProdVal.price || 0;
+                      
+                      if (profitModeVal === 'manual') {
+                          if (newItemVal.sellingPrice !== undefined && newItemVal.sellingPrice > 0) priceVal = newItemVal.sellingPrice;
+                      } else if (profitModeVal === 'margin') {
+                          if (newItemVal.sellingPrice !== undefined && newItemVal.sellingPrice > 0) {
+                              priceVal = newItemVal.sellingPrice;
+                          } else {
+                              const margin = newItemVal.profitPercentage ?? currentProdVal.profitPercentage ?? 0;
+                              priceVal = (margin < 100 && margin >= 0) ? finalCostPrice / (1 - (margin / 100)) : finalCostPrice;
+                          }
+                      } else if (profitModeVal === 'commission') {
+                          const commission = newItemVal.commissionPercentage ?? currentProdVal.commissionPercentage ?? 0;
+                          let basePrice = newItemVal.basePrice || currentProdVal.basePrice || 0;
+                          if (basePrice === 0 && finalCostPrice > 0 && commission < 100) basePrice = finalCostPrice / (1 - (commission / 100));
+                          if (newItemVal.sellingPrice !== undefined && newItemVal.sellingPrice > 0) priceVal = newItemVal.sellingPrice;
+                          else priceVal = basePrice;
+                          if (commission >= 0 && commission < 100) finalCostPrice = basePrice * (1 - (commission / 100));
+                      }
+
+                      return { costPrice: finalCostPrice, price: priceVal };
+                  };
+
+                  let costPrice = currentProd.costPrice;
                   let price = currentProd.price || 0;
                   const profitMode = shouldUpdatePricing ? (newItem.profitMode || currentProd.profitMode || 'manual') : (currentProd.profitMode || 'manual');
-                  
+
                   if (shouldUpdatePricing) {
-                      if (profitMode === 'manual') {
-                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) price = newItem.sellingPrice;
-                      } else if (profitMode === 'margin') {
-                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) {
-                              price = newItem.sellingPrice;
-                          } else {
-                              const margin = newItem.profitPercentage ?? currentProd.profitPercentage ?? 0;
-                              price = (margin < 100 && margin >= 0) ? costPrice / (1 - (margin / 100)) : costPrice;
-                          }
-                      } else if (profitMode === 'commission') {
-                          const commission = newItem.commissionPercentage ?? currentProd.commissionPercentage ?? 0;
-                          let basePrice = newItem.basePrice || currentProd.basePrice || 0;
-                          if (basePrice === 0 && costPrice > 0 && commission < 100) basePrice = costPrice / (1 - (commission / 100));
-                          if (newItem.sellingPrice !== undefined && newItem.sellingPrice > 0) price = newItem.sellingPrice;
-                          else price = basePrice;
-                          if (commission >= 0 && commission < 100) costPrice = basePrice * (1 - (commission / 100));
-                      }
+                      const previousStock = currentProd.stockQuantity || 0;
+                      const previousCost = currentProd.costPrice || 0;
+                      const calcResult = calculatePriceAndCostForCatalog(
+                          itemLandedCost,
+                          profitMode,
+                          newItem,
+                          currentProd,
+                          previousStock,
+                          previousCost
+                      );
+                      costPrice = calcResult.costPrice;
+                      price = calcResult.price;
                   }
 
                   // Update the actual stock
@@ -648,8 +687,18 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                               }
                               // Also update variant cost/price if applicable
                               if (shouldUpdatePricing && !newItem.isReturn) {
-                                  vUpdated.costPrice = Number(costPrice);
-                                  vUpdated.price = Number(price.toFixed(2));
+                                  const previousVStock = v.stockQuantity || 0;
+                                  const previousVCost = v.costPrice || 0;
+                                  const vCalcResult = calculatePriceAndCostForCatalog(
+                                      itemLandedCost,
+                                      profitMode,
+                                      newItem,
+                                      currentProd,
+                                      previousVStock,
+                                      previousVCost
+                                  );
+                                  vUpdated.costPrice = Number(vCalcResult.costPrice);
+                                  vUpdated.price = Number(vCalcResult.price.toFixed(2));
                               }
                               return vUpdated;
                           }
@@ -744,11 +793,6 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               });
           }
 
-      // 5. Update Supply Wallet Balance
-          if (paymentMethod === 'supply_wallet') {
-            // This is handled in setWallet, but here we just ensure the order is tagged correctly
-          }
-
           // 6. Update Treasury Balance
           if (paymentMethod === 'treasury' && setTreasury) {
               const outerSelectedTreasuryAccountId = selectedTreasuryAccountId;
@@ -758,17 +802,18 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                    : (outerSelectedTreasuryAccountId ? [{ treasuryAccountId: outerSelectedTreasuryAccountId, amount: orderPayableAmount }] : []);
                  
                  let newTxs = [...prev.transactions];
-                  const firstAccountId = activeTreasuryPayments[0]?.treasuryAccountId || '';
-                   const baseAmount = orderPayableAmount;
-                  const selectedTreasuryAccountId = firstAccountId || outerSelectedTreasuryAccountId;
+                 const firstAccountId = activeTreasuryPayments[0]?.treasuryAccountId || '';
+                 const selectedTreasuryAccountId = firstAccountId || outerSelectedTreasuryAccountId;
                  let updatedAccounts = [...prev.accounts];
-                  activeTreasuryPayments.forEach((p) => {
-                      prev.accounts = updatedAccounts = updatedAccounts.map((acc: any) => 
+                 
+                 activeTreasuryPayments.forEach((p) => {
+                      updatedAccounts = updatedAccounts.map((acc: any) => 
                           acc.id === p.treasuryAccountId 
                           ? { ...acc, balance: acc.balance - p.amount } 
                           : acc
                       );
                   });
+
                  if (recordExpensesFormally) {
                      if (shippingFees > 0) {
                          newTxs.unshift({
@@ -776,12 +821,11 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                              date: new Date().toISOString(),
                              type: 'expense',
                              amount: shippingFees,
-                             category: 'expense_shipping_fees',
+                             category: 'supply_expense_shipping',
                              fromAccountId: selectedTreasuryAccountId,
                              description: `مصاريف شحن فاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
                          });
                          
-                         // Add to Wallet for Expenses Page
                          if (setWallet) {
                             setWallet((prevW: any) => ({
                                 ...prevW,
@@ -790,7 +834,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                                     date: new Date().toISOString(),
                                     type: 'سحب',
                                     amount: shippingFees,
-                                    category: 'expense_shipping_fees',
+                                    category: 'supply_expense_shipping',
                                     note: `شحن فاتورة مشتريات: ${orderReference || currentOrderId}`,
                                     status: 'completed'
                                 }, ...prevW.transactions]
@@ -803,12 +847,11 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                              date: new Date().toISOString(),
                              type: 'expense',
                              amount: otherFees,
-                             category: 'expense_other',
+                             category: 'supply_expense_other',
                              fromAccountId: selectedTreasuryAccountId,
                              description: `مصاريف إضافية لفاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
                          });
-
-                         // Add to Wallet for Expenses Page
+ 
                          if (setWallet) {
                             setWallet((prevW: any) => ({
                                 ...prevW,
@@ -817,7 +860,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                                     date: new Date().toISOString(),
                                     type: 'سحب',
                                     amount: otherFees,
-                                    category: 'expense_other',
+                                    category: 'supply_expense_other',
                                     note: `مصاريف إضافية شحنة: ${orderReference || currentOrderId}`,
                                     status: 'completed'
                                 }, ...prevW.transactions]
@@ -825,6 +868,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                          }
                      }
                  }
+
+                 const baseAmount = recordExpensesFormally ? (orderPayableAmount - shippingFees - otherFees) : orderPayableAmount;
+
                  newTxs.unshift({
                      id: `supply_tx_${currentOrderId}`,
                      date: new Date().toISOString(),
@@ -839,7 +885,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                      accounts: updatedAccounts,
                      transactions: newTxs
                  };
-             });
+              });
           }
 
           if (editingOrder) {
@@ -866,7 +912,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   treasuryPayments: paymentMethod === 'treasury' && isSplitTreasury ? treasuryPayments : undefined,
                   warehouseId: selectedWarehouseId,
                   recordExpensesFormally,
-                  distributeExpensesEqually
+                  distributeExpensesEqually,
+                  costUpdateMethod
               } as any : o);
           } else {
               const newOrder: SupplyOrder = {
@@ -894,7 +941,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   treasuryPayments: paymentMethod === 'treasury' && isSplitTreasury ? treasuryPayments : undefined,
                   warehouseId: selectedWarehouseId,
                   recordExpensesFormally,
-                  distributeExpensesEqually
+                  distributeExpensesEqually,
+                  costUpdateMethod
               } as SupplyOrder;
               updatedOrders.push(newOrder);
           }
@@ -1107,6 +1155,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setExpensePaidBy('');
       setDistributeExpensesEqually(false);
       setRecordExpensesFormally(false);
+      setCostUpdateMethod('last_purchase');
       setTaxRate(0);
       setSelectedTreasuryAccountId('');
       setSelectedWarehouseId('');
@@ -1128,6 +1177,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setExpensePaidBy(order.expensePaidBy || '');
       setDistributeExpensesEqually(order.distributeExpensesEqually || false);
       setRecordExpensesFormally(order.recordExpensesFormally || false);
+      setCostUpdateMethod(order.costUpdateMethod || 'last_purchase');
       setTaxRate(order.taxRate || 0);
       
       const itemsHydrated = (order.items || []).map(item => {
@@ -2132,6 +2182,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
               setTaxRate(0);
               setDistributeExpensesEqually(false);
               setRecordExpensesFormally(false);
+              setCostUpdateMethod('last_purchase');
               setSelectedTreasuryAccountId('');
               setTreasuryPayments([]);
               setIsSplitTreasury(false);
@@ -2193,6 +2244,19 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                             order.paymentMethod === 'credit' ? 'bg-rose-500' : order.paymentMethod === 'partner' ? 'bg-amber-500' : 'bg-emerald-500'
                           }`}></span>
                           {order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : 'مدفوعة كاش'}
+                        </span>
+
+                        <span className="text-slate-300">|</span>
+
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 border ${
+                          order.costUpdateMethod === 'weighted_average'
+                            ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/30'
+                            : 'bg-slate-50 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-800'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${
+                            order.costUpdateMethod === 'weighted_average' ? 'bg-blue-500' : 'bg-slate-400 dark:bg-slate-500'
+                          }`}></span>
+                          {order.costUpdateMethod === 'weighted_average' ? 'تسعير: متوسط مرجح (WAC)' : 'تسعير: آخر شراء مباشر'}
                         </span>
                         
                         {order.notes && (
@@ -3998,6 +4062,52 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                     </label>
                   </div>
                 )}
+
+                <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50 space-y-2">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
+                    نظام تسعير تكلفة المخزون (SaaS Cost System)
+                  </label>
+                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
+                    حدد كيف تؤثر أسعار الشراء الحالية لهذه الفاتورة على تكلفة المنتجات في كتالوج السلع والتقارير المالية لاحقاً:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setCostUpdateMethod('last_purchase')}
+                      className={`flex flex-col items-start p-3 rounded-xl border text-right transition-all duration-200 cursor-pointer ${
+                        costUpdateMethod === 'last_purchase'
+                          ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 ring-2 ring-indigo-500/20'
+                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400'
+                      }`}
+                    >
+                      <span className="text-xs font-bold flex items-center gap-1.5 mb-1">
+                        <span className={`w-2.5 h-2.5 rounded-full ${costUpdateMethod === 'last_purchase' ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                        سعر آخر شراء (مباشر)
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-normal">
+                        سيتم استبدال تكلفة المنتجات المشتراة في الكتالوج مباشرة بتكلفة هذه الفاتورة (Landed Cost).
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCostUpdateMethod('weighted_average')}
+                      className={`flex flex-col items-start p-3 rounded-xl border text-right transition-all duration-200 cursor-pointer ${
+                        costUpdateMethod === 'weighted_average'
+                          ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 ring-2 ring-indigo-500/20'
+                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400'
+                      }`}
+                    >
+                      <span className="text-xs font-bold flex items-center gap-1.5 mb-1">
+                        <span className={`w-2.5 h-2.5 rounded-full ${costUpdateMethod === 'weighted_average' ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                        المتوسط المرجح للتكلفة (WAC)
+                      </span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-normal">
+                        يُحسب متوسط جديد بناءً على: (الكمية القديمة × تكلفتها + الكمية الجديدة × تكلفتها) ÷ إجمالي الكمية.
+                      </span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Inventory items allocation */}

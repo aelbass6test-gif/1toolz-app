@@ -70,7 +70,13 @@ CREATE TABLE IF NOT EXISTS orders (
     channel TEXT DEFAULT 'online',
     warehouse_id TEXT,
     warehouseId TEXT,
-    details JSONB DEFAULT '{}'::jsonb
+    details JSONB DEFAULT '{}'::jsonb,
+    "advancePayment" NUMERIC DEFAULT 0,
+    "advancePaymentPartnerId" TEXT,
+    "advancePaymentTreasuryId" TEXT,
+    "advancePaymentEmployeeId" TEXT,
+    "advancePaymentRecipientPhone" TEXT,
+    "advancePaymentSenderDetails" TEXT
 );
 
 -- 5. TRANSACTIONS (الحركات المالية والمحفظة)
@@ -918,6 +924,8 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePayment" NUMERIC DEFAULT 0;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentPartnerId" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentTreasuryId" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentEmployeeId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentRecipientPhone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentSenderDetails" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentHistory" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdBy" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "source" TEXT;

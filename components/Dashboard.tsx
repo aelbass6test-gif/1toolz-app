@@ -3,9 +3,10 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAx
 import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from '../types';
 import { Link } from 'react-router-dom';
-import { motion, Variants } from 'framer-motion';
+import { motion, Variants, Reorder } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
 import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from '../utils/financials';
+import { DashboardManager, DashboardWidget, WidgetWrapper } from './dashboard/DashboardWidgets';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -120,7 +121,256 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   const [financialFilter, setFinancialFilter] = useState<'all' | 'with' | 'dep'>('all');
   const [showDetailedStats, setShowDetailedStats] = useState(false);
   const [showDetailedFinancials, setShowDetailedFinancials] = useState(false);
+  const [isEditingLayout, setIsEditingLayout] = useState(false);
 
+  const [widgets, setWidgets] = useState<DashboardWidget[]>(() => {
+    const saved = localStorage.getItem('dashboard_layout');
+    if (saved) {
+      // Basic migration/check if stored widgets match current schema
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return [
+      { id: 'suggestions', title: 'اقتراحات ذكية', icon: <Lightbulb size={16}/>, visible: true, type: 'full', component: null },
+      { id: 'kpis', title: 'مؤشرات الأداء', icon: <TrendingUp size={16}/>, visible: true, type: 'full', component: null },
+      { id: 'finance_history', title: 'سجل التداولات', icon: <ChartIcon size={16}/>, visible: true, type: 'full', component: null },
+      { id: 'team_performance', title: 'أداء الفريق', icon: <Users2 size={16}/>, visible: true, type: 'full', component: null },
+      { id: 'inventory_alerts', title: 'تنبيهات المخزون', icon: <AlertTriangle size={16}/>, visible: true, type: 'half', component: null },
+      { id: 'top_products', title: 'الأكثر مبيعاً', icon: <Sparkles size={16}/>, visible: true, type: 'half', component: null },
+      { id: 'supplier_debt', title: 'ديون الموردين', icon: <Layers size={16}/>, visible: true, type: 'full', component: null },
+      { id: 'distributed_custody', title: 'العهد النقدية', icon: <Users2 size={16}/>, visible: true, type: 'full', component: null },
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('dashboard_layout', JSON.stringify(widgets));
+  }, [widgets]);
+
+  const handleToggleWidget = (id: string) => {
+    setWidgets(prev => prev.map(w => w.id === id ? { ...w, visible: !w.visible } : w));
+  };
+
+  const handleAddWidget = (id: string) => {
+    setWidgets(prev => prev.map(w => w.id === id ? { ...w, visible: true } : w));
+  };
+
+  const SuggestionsWidget = () => (
+    <div className="glass-card p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden h-full">
+        <SmartSuggestions orders={orders} settings={settings} />
+    </div>
+  );
+
+  const KpisWidget = () => (
+    <div className="space-y-4 h-full">
+      <div className="flex items-center gap-2 px-2">
+        <TrendingUp className="text-primary" size={18} />
+        <h2 className="text-lg font-black text-slate-800 dark:text-slate-100">مؤشرات الأداء كفاءة المتجر (KPIs)</h2>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-emerald-500/40 transition-all text-right font-sans">
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-colors" />
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+              <TrendingUp size={20} />
+            </div>
+            <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-full font-black">أداء الشحن</span>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-black">معدل نجاح التسليم النهائي (Delivery Rate)</p>
+          <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+            <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.deliveryRate}%</span>
+          </div>
+          <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
+            <div className={`h-full rounded-full transition-all duration-500 ${stats.deliveryRate > 75 ? 'bg-emerald-500' : stats.deliveryRate > 50 ? 'bg-amber-500' : 'bg-rose-500'}`} style={{ width: `${stats.deliveryRate}%` }}></div>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-indigo-500/40 transition-all text-right font-sans">
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition-colors" />
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+              <DollarSign size={20} />
+            </div>
+            <span className="text-[10px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 px-2.5 py-1 rounded-full font-black">المعدل التجاري</span>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
+          <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+            <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString()}</span>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-cyan-500/40 transition-all text-right font-sans">
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan-500/5 rounded-full blur-xl group-hover:bg-cyan-500/10 transition-colors" />
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-2 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-xl">
+              <ChartIcon size={20} />
+            </div>
+            <span className="text-[10px] bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-300 px-2.5 py-1 rounded-full font-black">صحة الهامش</span>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-black">هامش صافي ربح المتجر (Profit Margin)</p>
+          <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+            <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.netMargin}%</span>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-purple-500/40 transition-all text-right font-sans">
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition-colors" />
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-2 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-xl">
+              <Users2 size={20} />
+            </div>
+            <span className="text-[10px] bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 px-2.5 py-1 rounded-full font-black">العملاء الفريدين</span>
+          </div>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-black">قاعدة العملاء الفريدين (Unique Customers)</p>
+          <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
+            <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.uniqueCustomerCount}</span>
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800/50">
+        <DashboardStatusCard title="بانتظار مكالمة" value={stats.counts['في_انتظار_المكالمة']} color="text-cyan-600" />
+        <DashboardStatusCard title="مراجعة" value={stats.counts['جاري_المراجعة']} color="text-purple-600" />
+        <DashboardStatusCard title="قيد التنفيذ" value={stats.processingCount} color="text-purple-600" />
+        <DashboardStatusCard title="المرتجعات" value={stats.returnedCount} color="text-rose-600" />
+        <DashboardStatusCard title="فشل التوصيل" value={stats.failedCount} color="text-red-500" />
+        <DashboardStatusCard title="التحصيل الفعلي" value={`${(stats.actualCollection).toLocaleString()} ج.م`} color="text-emerald-500" />
+      </div>
+    </div>
+  );
+
+  const FinanceHistoryWidget = () => (
+    <div className="glass-card p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden min-h-[350px]">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+            <ChartIcon size={24} />
+          </div>
+          <div>
+            <h3 className="text-xl font-black text-slate-800 dark:text-white">سجل التداولات المالية</h3>
+            <p className="text-xs font-bold text-slate-400 mt-0.5">مقارنة الإيرادات بالمصروفات التشغيلية (6 أشهر)</p>
+          </div>
+        </div>
+      </div>
+      <div className="h-[250px] w-full" dir="ltr">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={stats.financeHistory}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+            <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#fff' }} />
+            <Area type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={4} fill="#6366f1" fillOpacity={0.1} />
+            <Area type="monotone" dataKey="expenses" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" fill="none" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+
+  const renderWidgetContent = (id: string) => {
+    switch (id) {
+      case 'suggestions': return <SuggestionsWidget />;
+      case 'kpis': return <KpisWidget />;
+      case 'finance_history': return <FinanceHistoryWidget />;
+      case 'team_performance': return (
+        <div className="glass-card p-8 rounded-3xl h-full">
+           <h3 className="text-lg font-black text-slate-800 dark:text-slate-200 flex items-center gap-2 mb-6">
+              <TrendingUp className="text-emerald-500" size={20} /> أعلى الموظفين إنجازاً
+           </h3>
+           <TeamList />
+        </div>
+      );
+      case 'inventory_alerts': return (
+        <div className="glass-card p-8 rounded-3xl h-full">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6">تنبيهات المخزون</h3>
+          {lowStockProducts.length > 0 ? lowStockProducts.slice(0,4).map(p => (
+            <div key={p.id} className="flex justify-between p-3 border-b border-slate-100">
+               <span className="text-sm font-bold">{p.name}</span>
+               <span className="text-rose-500 font-black">{p.stockQuantity}</span>
+            </div>
+          )) : <p>المخزون سليم</p>}
+        </div>
+      );
+      case 'top_products': return (
+        <div className="glass-card p-8 rounded-3xl h-full">
+           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6">الأكثر مبيعاً</h3>
+           {stats.topProducts.map((p: any) => (
+             <div key={p.id} className="flex justify-between p-2">
+               <span className="text-sm">{p.name}</span>
+               <span className="font-bold">{p.salesCount}</span>
+             </div>
+           ))}
+        </div>
+      );
+      case 'supplier_debt': return (
+        <div className="glass-card p-8 rounded-3xl h-full">
+           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">ديون الموردين</h3>
+           <p className="text-2xl font-black text-rose-600">{stats.supplierDebt.toLocaleString()} ج.م</p>
+        </div>
+      );
+      case 'distributed_custody': return (
+        <div className="glass-card p-8 rounded-3xl h-full">
+           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">العهد النقدية الموزعة</h3>
+           <p className="text-2xl font-black">{stats.totalCustodyBalance.toLocaleString()} ج.م</p>
+        </div>
+      );
+      default: return null;
+    }
+  };
+
+  const TeamList = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const statsMap: Record<string, { name: string; confirmed: number; total: number }> = {};
+    
+    (settings.employees || []).filter(e => e.status === 'active' || !e.status).forEach(emp => {
+        statsMap[emp.phone] = { name: emp.name, confirmed: 0, total: 0 };
+    });
+
+    orders.forEach(o => {
+        (o.confirmationLogs || []).forEach(log => {
+            if (log.timestamp.startsWith(today)) {
+                if (!statsMap[log.userId]) {
+                    statsMap[log.userId] = { name: log.userName || 'موظف', confirmed: 0, total: 0 };
+                }
+                statsMap[log.userId].total++;
+                if (log.action === 'تم التأكيد') statsMap[log.userId].confirmed++;
+            }
+        });
+    });
+
+    const sortedStats = Object.entries(statsMap)
+        .filter(([_, info]) => info.total > 0)
+        .sort((a,b) => b[1].confirmed - a[1].confirmed)
+        .slice(0, 5);
+
+    if (sortedStats.length === 0) {
+        return (
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-12 rounded-3xl border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-slate-400">
+                <Users2 size={32} className="opacity-20 mb-2" />
+                <p className="text-xs font-bold">لا يوجد نشاط للفريق حتى الآن</p>
+            </div>
+        );
+    }
+
+    return (
+      <div className="space-y-3">
+        {sortedStats.map(([id, info], idx) => (
+          <div key={id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 transition-hover hover:border-indigo-200">
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-white dark:bg-slate-700 text-slate-500'}`}>
+                {idx + 1}
+              </div>
+              <div>
+                <p className="text-xs font-black text-slate-800 dark:text-white truncate max-w-[100px]">{info.name}</p>
+                <p className="text-[9px] font-bold text-slate-400 capitalize">{Math.round((info.confirmed/info.total)*100)}% معدل تأكيد</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-black text-emerald-600 tabular-nums">{info.confirmed}</p>
+              <p className="text-[8px] font-bold text-slate-400 uppercase">مؤكد</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
   const [announcementText, setAnnouncementText] = useState<string | null>(() => {
     const text = localStorage.getItem('platform_announcement_text');
     const type = localStorage.getItem('platform_announcement_type');
@@ -1815,6 +2065,31 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             )}
           </div>
         </motion.div>
+
+      <DashboardManager 
+        isEditing={isEditingLayout}
+        onToggleEditing={() => setIsEditingLayout(!isEditingLayout)}
+        widgets={widgets}
+        onAddWidget={handleAddWidget}
+      />
+
+      <Reorder.Group 
+        axis="y" 
+        onReorder={setWidgets} 
+        values={widgets} 
+        className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start"
+      >
+        {widgets.map((widget) => (
+          <WidgetWrapper 
+            key={widget.id} 
+            widget={widget} 
+            isEditing={isEditingLayout} 
+            onToggleVisibility={handleToggleWidget}
+          >
+            {renderWidgetContent(widget.id)}
+          </WidgetWrapper>
+        ))}
+      </Reorder.Group>
 
       {/* Footer Branding */}
       <motion.div variants={itemVariants} className="pt-12 border-t border-slate-200 dark:border-slate-800/50">

@@ -1,6 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Store, StoreData, Employee, Permission, PERMISSIONS, Transaction, WithdrawRequest, Settings } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
+import { createUserDoc } from '../services/databaseService';
+import { getApps, initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import firebaseConfig from '../firebase-applet-config.json';
+
+const secondaryApp = getApps().find(app => app.name === "SecondaryAppForAdmin") 
+    || initializeApp(firebaseConfig, "SecondaryAppForAdmin");
+const secondaryAuth = getAuth(secondaryApp);
 import { 
     Users, Store as StoreIcon, Activity, Search, ShieldAlert, LogIn, Ban, CheckCircle, 
     Lock, Unlock, LayoutDashboard, TrendingUp, MessageSquare, Send, UserPlus, Clock, 
@@ -657,22 +665,36 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         return;
     }
 
+    const firebaseEmail = `${newUserData.phone.trim()}@mystore-auth.app`;
+    
+    try {
+        await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, newUserData.password || 'password123');
+        await secondaryAuth.signOut();
+    } catch (err: any) {
+        setAddUserError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
+        return;
+    }
+
     const newUser: User = {
         fullName: newUserData.fullName,
-        phone: newUserData.phone,
+        phone: newUserData.phone.trim(),
         email: newUserData.email,
-        password: newUserData.password || 'password123',
         isAdmin: newUserData.isAdmin,
         isBanned: false,
         joinDate: new Date().toISOString(),
         stores: []
     };
 
+    const success = await createUserDoc(newUser);
+    if (!success) {
+        setAddUserError('فشل في إنشاء وثيقة المستخدم في قاعدة البيانات.');
+        return;
+    }
+
     const updatedUsersList = [...users, newUser];
     setUsers(updatedUsersList);
 
     try {
-        await db.saveGlobalData({ users: updatedUsersList, loyaltyData: {} });
         setShowAddUserModal(false);
         setNewUserData({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
         alert('تم تسجيل التاجر/المستخدم الجديد بنجاح على خادم المنصة الرئيسي.');

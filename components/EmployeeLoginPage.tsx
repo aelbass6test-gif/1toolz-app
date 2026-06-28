@@ -51,7 +51,19 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
             password: loginPassword
         });
     } catch (err: any) {
-        setLoginError(err.message);
+        console.error('Employee login error:', err);
+        const errorCode = err?.code || '';
+        const errorMessage = err?.message || '';
+        
+        if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorMessage.includes('invalid-credential')) {
+            setLoginError('رقم الموبايل أو كلمة المرور غير صحيحة.');
+        } else if (errorCode === 'auth/network-request-failed') {
+            setLoginError('فشل الاتصال بالخادم. يرجى التحقق من الإنترنت.');
+        } else if (errorCode === 'auth/too-many-requests') {
+            setLoginError('تمت محاولة تسجيل الدخول عدة مرات بشكل خاطئ. يرجى المحاولة لاحقاً.');
+        } else {
+            setLoginError(errorMessage || 'حدث خطأ أثناء تسجيل الدخول.');
+        }
     } finally {
         setIsLoading(false);
     }
@@ -125,7 +137,22 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                     <input type="password" placeholder="********" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required />
                   </div>
                   {loginError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{loginError}</div>}
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                  
+                  <div className="flex justify-between items-center px-1">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        // Redirect to main signup/login page's forgot password flow or implement here
+                        // For simplicity, we can redirect to signup which has the modal
+                        window.location.href = '/signup?forgot=true';
+                      }}
+                      className="text-xs text-indigo-400 hover:underline"
+                    >
+                      نسيت كلمة المرور؟
+                    </button>
+                  </div>
+
+                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-wait">
                     {isLoading ? <Loader2 className="animate-spin" /> : <><LogIn size={18}/> تسجيل الدخول</>}
                   </button>
                 </form>

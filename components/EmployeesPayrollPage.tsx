@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Settings, StaffMember, PayrollTransaction, Wallet, Treasury, Transaction, TransactionCategory } from '../types';
 import { 
   Users, UserPlus, DollarSign, TrendingUp, TrendingDown, 
@@ -106,27 +106,48 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       staffName: staff.name
     };
 
-    // 1. Create Wallet Transaction
-    const walletTx: Transaction = {
-      id: `staff-tx-${Date.now()}`,
-      type: 'سحب',
-      amount: payment.amount,
-      date: payment.date,
-      note: `${payment.type === 'salary' ? 'راتب' : payment.type === 'incentive' ? 'حافز' : 'خصم'} - ${staff.name} ${payment.note ? `(${payment.note})` : ''}`,
-      category: 'expense_salary',
-      status: 'completed'
-    };
+    const category = payment.type === 'deduction' ? 'expense_other' : 'expense_salary';
+    const amountLabel = payment.type === 'salary' ? 'راتب' : payment.type === 'incentive' ? 'حافز' : 'خصم';
 
-    setWallet(prev => ({
-      ...prev,
-      balance: prev.balance - payment.amount,
-      transactions: [walletTx, ...prev.transactions]
-    }));
+    // 1. Handle Treasury Deduction if selected
+    if (payment.treasuryAccountId && setTreasury) {
+      const treasuryTx = {
+        id: `staff-treasury-tx-${Date.now()}`,
+        date: payment.date,
+        type: 'withdrawal' as const,
+        amount: payment.amount,
+        description: `${amountLabel} - ${staff.name} ${payment.note ? `(${payment.note})` : ''}`,
+        fromAccountId: payment.treasuryAccountId
+      };
 
-    // 2. Update Settings
+      setTreasury((prev: Treasury) => ({
+        ...prev,
+        accounts: prev.accounts.map(acc => 
+          acc.id === payment.treasuryAccountId ? { ...acc, balance: acc.balance - payment.amount } : acc
+        ),
+        transactions: [treasuryTx, ...(prev.transactions || [])]
+      }));
+    } else {
+      // Deduct from Wallet if no treasury account selected
+      setWallet(prev => ({
+        ...prev,
+        balance: prev.balance - payment.amount,
+        transactions: [{
+          id: `staff-wallet-tx-${Date.now()}`,
+          type: 'سحب',
+          amount: payment.amount,
+          date: payment.date,
+          note: `${amountLabel} - ${staff.name} ${payment.note ? `(${payment.note})` : ''}`,
+          category: category as any,
+          status: 'completed'
+        }, ...prev.transactions]
+      }));
+    }
+
+    // 2. Update Settings History
     setSettings(prev => ({
       ...prev,
-      payrollTransactions: [...(prev.payrollTransactions || []), { ...newPayment, walletTransactionId: walletTx.id }]
+      payrollTransactions: [...(prev.payrollTransactions || []), newPayment]
     }));
 
     setShowPaymentModal(false);
@@ -349,6 +370,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
         {showPaymentModal && selectedStaff && (
           <PaymentModal 
             staff={selectedStaff}
+            treasury={treasury}
             onClose={() => { setShowPaymentModal(false); setSelectedStaff(null); }}
             onSave={handleRecordPayment}
           />
@@ -485,16 +507,24 @@ const StaffModal: React.FC<{ staff?: StaffMember; onClose: () => void; onSave: (
   );
 };
 
-const PaymentModal: React.FC<{ staff: StaffMember; onClose: () => void; onSave: (data: Omit<PayrollTransaction, 'id' | 'staffName'>) => void }> = ({ staff, onClose, onSave }) => {
+const PaymentModal: React.FC<{ staff: StaffMember; treasury?: Treasury; onClose: () => void; onSave: (data: Omit<PayrollTransaction, 'id' | 'staffName'>) => void }> = ({ staff, treasury, onClose, onSave }) => {
   const [type, setType] = useState<'salary' | 'incentive' | 'deduction'>('salary');
   const [amount, setAmount] = useState(type === 'salary' ? staff.baseSalary : 0);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [note, setNote] = useState('');
+  const [treasuryAccountId, setTreasuryAccountId] = useState<string>('');
+  const [paymentSource, setPaymentSource] = useState<'wallet' | 'treasury'>('wallet');
 
   // Auto-adjust amount when switching to salary
   React.useEffect(() => {
     if (type === 'salary') setAmount(staff.baseSalary);
   }, [type, staff.baseSalary]);
+
+  useEffect(() => {
+    if (treasury?.accounts && treasury.accounts.length > 0 && !treasuryAccountId) {
+      setTreasuryAccountId(treasury.accounts[0].id);
+    }
+  }, [treasury, treasuryAccountId]);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
@@ -528,6 +558,41 @@ const PaymentModal: React.FC<{ staff: StaffMember; onClose: () => void; onSave: 
           </div>
 
           <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 mb-1 block">مصدر الصرف</label>
+              <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button 
+                  type="button"
+                  onClick={() => setPaymentSource('wallet')}
+                  className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${paymentSource === 'wallet' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                >
+                  المحفظة العامة
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setPaymentSource('treasury')}
+                  className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${paymentSource === 'treasury' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                >
+                  الخزينة / العهدة
+                </button>
+              </div>
+            </div>
+
+            {paymentSource === 'treasury' && (
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">اختر الحساب</label>
+                <select 
+                  value={treasuryAccountId}
+                  onChange={e => setTreasuryAccountId(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-3 px-4 outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold"
+                >
+                  {treasury?.accounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>{acc.name} ({acc.balance.toLocaleString()} ج.م)</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div>
               <label className="text-xs font-bold text-slate-500 mb-1 block">المبلغ المستحق</label>
               <div className="relative">
@@ -570,7 +635,7 @@ const PaymentModal: React.FC<{ staff: StaffMember; onClose: () => void; onSave: 
             <div className="flex items-start gap-3">
               <AlertCircle size={18} className="text-indigo-600 mt-0.5" />
               <p className="text-[11px] text-indigo-700 dark:text-indigo-400 leading-relaxed font-medium">
-                بمجرد التأكيد، سيتم خصم المبلغ من **رصيد المحفظة** وتسجيله تلقائياً في قائمة **المصروفات** تحت بند **"الرواتب والمكافآت"**.
+                بمجرد التأكيد، سيتم خصم المبلغ من **{paymentSource === 'wallet' ? 'رصيد المحفظة' : 'الحساب المختار'}** وتسجيله تلقائياً في قائمة **المصروفات**.
               </p>
             </div>
           </div>
@@ -579,7 +644,7 @@ const PaymentModal: React.FC<{ staff: StaffMember; onClose: () => void; onSave: 
         <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2.5 font-bold text-slate-500 hover:text-slate-700 transition-colors">إلغاء</button>
           <button 
-            onClick={() => onSave({ staffId: staff.id, type, amount, date, note })}
+            onClick={() => onSave({ staffId: staff.id, type, amount, date, note, treasuryAccountId: paymentSource === 'treasury' ? treasuryAccountId : undefined })}
             className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 active:scale-95 transition-all"
           >
             تأكيد العملية

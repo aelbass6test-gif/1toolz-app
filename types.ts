@@ -497,6 +497,7 @@ export interface SupplyOrder {
   warehouseId?: string; // New field for warehouse allocation
   recordExpensesFormally?: boolean;
   distributeExpensesEqually?: boolean;
+  costUpdateMethod?: 'last_purchase' | 'weighted_average';
   otherFeesNote?: string;
   expensePaidBy?: string;
 }
@@ -588,6 +589,7 @@ export interface PayrollTransaction {
   date: string;
   note?: string;
   walletTransactionId?: string;
+  treasuryAccountId?: string;
 }
 
 export interface Settings {
@@ -1008,6 +1010,9 @@ export interface Order {
   maintenanceTechnicalReport?: string;
   maintenanceStatus?: 'not_started' | 'received' | 'in_repair' | 'ready_to_ship' | 'delivered' | 'cancelled';
   vatOnStandardShipping?: boolean;
+  returnProductValue?: number;
+  returnTrackingNumber?: string;
+  payWithBostaPoints?: boolean;
   originalOrderId?: string;
   confirmationLogs?: ConfirmationLog[];
   cancellationReason?: string;
@@ -1132,14 +1137,15 @@ export interface User {
   name?: string;
   fullName: string;
   phone: string;
-  password: string;
   email: string;
+  password?: string;
   stores?: Store[];
   sites?: Site[];
   isAdmin?: boolean; 
   isBanned?: boolean; 
   joinDate?: string;
   permissions?: Permission[];
+  ownedStoreIds?: string[];
 }
 
 export interface Invitation {
