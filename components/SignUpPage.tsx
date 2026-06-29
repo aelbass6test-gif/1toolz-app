@@ -5,6 +5,7 @@ import { User } from '../types';
 import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase } from '../services/databaseService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../services/firebaseClient';
+import { useAuthActions } from '../src/hooks/useAuthActions';
 import { motion } from 'framer-motion';
 
 // --- Reusable UI Components ---
@@ -566,6 +567,16 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
   const [adminPassword, setAdminPassword] = useState('');
   const [adminError, setAdminError] = useState('');
 
+  // Use the professional auth actions hook
+  const { 
+    handleCustomPasswordReset, 
+    loading: authActionsLoading, 
+    error: authActionsError, 
+    success: authActionsSuccess,
+    setError: setAuthActionsError,
+    setSuccess: setAuthActionsSuccess
+  } = useAuthActions();
+
   // Custom database state and actions
   const [hasCustomDb, setHasCustomDb] = useState(
     typeof window !== 'undefined' ? !!localStorage.getItem('custom_supabase_url') : false
@@ -788,12 +799,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserError('');
-    setResetError('');
     setIsLoading(true);
     setSentToEmail('');
 
     if (!userPhone.trim()) {
-      setResetError('يرجى إدخال رقم الموبايل أولاً.');
+      setAuthActionsError('يرجى إدخال رقم الموبايل أولاً.');
       setIsLoading(false);
       return;
     }
@@ -819,42 +829,35 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         }
       }
       
-      console.log('[RESET] Final attempt to send reset link to:', userEmailToUse);
-      
-      // Before sending, check if it's the generated one and we are in a context where we can warn
       const isGeneratedEmail = userEmailToUse.includes('@mystore-auth.app');
       
       if (isGeneratedEmail) {
-        setResetError('عذراً، لم تقم بربط بريد إلكتروني حقيقي بحسابك سابقاً (تستخدم بريد النظام التلقائي). يرجى التواصل مع الدعم الفني لاستعادة حسابك.');
+        setAuthActionsError('عذراً، لم تقم بربط بريد إلكتروني حقيقي بحسابك سابقاً (تستخدم بريد النظام التلقائي). يرجى التواصل مع الدعم الفني لاستعادة حسابك.');
         setIsLoading(false);
         return;
       }
       
-      await sendPasswordResetEmail(auth, userEmailToUse);
+      // Use the professional reset function with ActionCodeSettings
+      await handleCustomPasswordReset(userEmailToUse);
       
-      setSentToEmail(userEmailToUse);
-      setResetSuccess(true);
-      
-      setTimeout(() => {
-        setShowResetModal(false);
-        setResetSuccess(false);
-        setSentToEmail('');
-      }, 8000); // Longer timeout to let them read it
-    } catch (err: any) {
-      console.error('Reset password error:', err);
-      if (err.code === 'auth/user-not-found') {
-        setResetError('هذا الحساب غير مسجل لدينا في نظام المصادقة.');
-      } else if (err.code === 'auth/invalid-email') {
-        setResetError('البريد الإلكتروني المرتبط بالحساب غير صالح.');
-      } else {
-        setResetError('حدث خطأ أثناء إرسال طلب إعادة التعيين. يرجى المحاولة لاحقاً.');
+      if (!authActionsError) {
+        setSentToEmail(userEmailToUse);
+        setResetSuccess(true);
+        
+        setTimeout(() => {
+          setShowResetModal(false);
+          setResetSuccess(false);
+          setSentToEmail('');
+          setAuthActionsSuccess(null);
+        }, 8000);
       }
+    } catch (err: any) {
+      console.error('Reset password process error:', err);
+      setAuthActionsError('حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.');
     } finally {
       setIsLoading(false);
     }
   };
-
-  const [resetError, setResetError] = useState('');
 
   const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1089,8 +1092,8 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       {showResetModal && (
         <AuthModal onClose={() => {
           setShowResetModal(false);
-          setResetError('');
-          setResetSuccess(false);
+          setAuthActionsError(null);
+          setAuthActionsSuccess(null);
         }}>
           <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 shadow-2xl">
             <div className="text-center mb-8">
@@ -1102,7 +1105,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               <div className="mt-2 text-indigo-400 font-bold">{userPhone}</div>
             </div>
 
-            {resetSuccess ? (
+            {authActionsSuccess ? (
               <div className="bg-green-900/30 border border-green-700/50 text-green-400 p-4 rounded-xl space-y-2 mb-6">
                 <div className="flex items-center gap-3 animate-pulse">
                   <CheckCircle size={20} />
@@ -1122,9 +1125,9 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               </div>
             ) : (
               <form onSubmit={handleForgotPassword} className="space-y-4">
-                {resetError && (
+                {authActionsError && (
                   <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-xs">
-                    {resetError}
+                    {authActionsError}
                   </div>
                 )}
 

@@ -43,8 +43,10 @@ export default function FirebaseActionPage() {
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
+    console.log('Action Page Loaded:', { mode, hasCode: !!oobCode, hasApiKey: !!apiKey });
+
     if (!mode || !oobCode) {
-      setError('رابط غير صالح. يرجى التأكد من الرابط المرسل إليك.');
+      setError('رابط غير صالح. يرجى التأكد من الرابط المرسل إليك في البريد الإلكتروني.');
       setLoading(false);
       return;
     }
