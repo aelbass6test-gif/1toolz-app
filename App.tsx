@@ -2409,6 +2409,7 @@ export const AppComponent = () => {
                 <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user) => completeLogin(user, null)} users={users} setUsers={setUsers} />} />
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
+                <Route path="/auth/action/" element={<FirebaseActionPage />} />
                 <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} />} />
                 
                 <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} />}>
