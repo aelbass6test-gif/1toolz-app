@@ -51,8 +51,15 @@ create table if not exists public.orders (
   store_id text not null references public.stores_data(id) on delete cascade,
   order_number text,
   customer_name text,
+  customer_phone text,
+  shipping_company text,
   status text,
   total_price numeric,
+  shipping_fee numeric,
+  flexShipFee numeric,
+  flexShipCompanyFee numeric,
+  enableFlexShip boolean,
+  flexShipFeePaidByCustomer boolean,
   date timestamp with time zone,
   details jsonb default '{}', -- Contains items, shipping details, notes, etc.
   updated_at timestamp with time zone default timezone('utc'::text, now())

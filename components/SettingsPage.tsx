@@ -999,10 +999,17 @@ CREATE TABLE IF NOT EXISTS orders (
     orderNumber TEXT,
     customer_name TEXT NOT NULL,
     customerName TEXT,
+    customerPhone TEXT,
+    shippingCompany TEXT,
     status TEXT NOT NULL,
     date TEXT NOT NULL,
     total_price NUMERIC NOT NULL,
     totalPrice NUMERIC,
+    shippingFee NUMERIC,
+    flexShipFee NUMERIC,
+    flexShipCompanyFee NUMERIC,
+    enableFlexShip BOOLEAN,
+    flexShipFeePaidByCustomer BOOLEAN,
     details JSONB DEFAULT '{}'::jsonb
 );
 

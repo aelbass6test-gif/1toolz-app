@@ -120,7 +120,7 @@ export interface Product {
   stockThreshold?: number;
 }
 
-export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital';
+export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'vat';
 
 export type WithdrawStatus = 'pending' | 'accepted' | 'rejected' | 'processing';
 
@@ -1050,6 +1050,7 @@ export interface Order {
   flexShipFee?: number;
   flexShipCompanyFee?: number;
   flexShipFeePaidByCustomer?: boolean;
+  flexShipTransactionAdded?: boolean;
   warehouseId?: string; // New field for sales order fulfillment
   channel?: 'website' | 'pos';
   createdBy?: string;

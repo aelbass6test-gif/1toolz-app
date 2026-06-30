@@ -98,6 +98,10 @@
         "source": { "type": "string" },
         "channel": { "type": "string" },
         "vatOnStandardShipping": { "type": "boolean" },
+        "enableFlexShip": { "type": "boolean" },
+        "flexShipFee": { "type": "number" },
+        "flexShipCompanyFee": { "type": "number" },
+        "flexShipFeePaidByCustomer": { "type": "boolean" },
         "notes": { "type": "string" }
       }
     },

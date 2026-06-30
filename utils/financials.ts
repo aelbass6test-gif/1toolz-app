@@ -144,8 +144,8 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
     const useCustom = compFees?.useCustomFees ?? false;
     
     const isCompanyBosta = isBosta(order.shippingCompany);
-    // For Bosta, default to 'total' (COD amount) if no basis is specified, otherwise use global default or 'total'
-    const defaultBasis = isCompanyBosta ? 'total' : (settings?.insuranceBasis || 'total');
+    // For Bosta, default to 'cost' if no basis is specified, otherwise use global default or 'total'
+    const defaultBasis = isCompanyBosta ? 'cost' : (settings?.insuranceBasis || 'total');
     const basis = useCustom ? (compFees?.insuranceBasis ?? defaultBasis) : (settings?.insuranceBasis ?? defaultBasis);
     
     let result = 0;
@@ -180,12 +180,16 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
     const defaultVatRate = isCompanyBosta ? 0.14 : 0;
     const vatRate = useCustom ? (compFees?.shippingVatRate ?? defaultVatRate) : (settings?.shippingVatRate ?? defaultVatRate);
     
-    const useStandard = order.vatOnStandardShipping === true; // Default to actual shipping fee if undefined
-    const baseShippingFee = (useStandard || !order.shippingFee)
+    const useStandard = order.vatOnStandardShipping === true; 
+    // Fix: If useStandard is false, we should respect the shipping fee even if it's 0.
+    // Fallback only if the shipping fee is not a number (not yet entered)
+    const hasManualFee = typeof order.shippingFee === 'number';
+    const baseShippingFee = (useStandard || !hasManualFee)
         ? (settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0))
         : (order.shippingFee || 0);
         
-    const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : (settings?.vatBasis || 'shipping_only');
+    const defaultVatBasis = isCompanyBosta ? 'shipping_and_insurance' : 'shipping_only';
+    const vatBasis = useCustom ? (compFees?.vatBasis || defaultVatBasis) : (settings?.vatBasis || defaultVatBasis);
     const insuranceValue = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
     
     const isMaintenance = order.orderType === 'maintenance';
@@ -322,22 +326,27 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     const safeDiscount = Number(order.discount) || 0;
     const safeAdvance = Number(order.advancePayment) || 0;
 
-    const baseExpectedRevenue = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionRevenue;
+    const flexShipRevenue = (order.enableFlexShip && order.flexShipFeePaidByCustomer) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
+    const flexShipCompanyDeduction = (order.enableFlexShip && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
 
-    let totalRevenue = baseExpectedRevenue;
+    const baseExpectedRevenue = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionRevenue + flexShipRevenue;
+
+    let totalRevenueForProfit = baseExpectedRevenue;
+    let netRevenueCollected = baseExpectedRevenue;
 
     if (order.source === 'synced' && order.totalPrice != null) {
-        totalRevenue = Number(order.totalPrice) + inspectionRevenue;
+        netRevenueCollected = Number(order.totalPrice) + inspectionRevenue + flexShipRevenue;
     } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null && String(order.totalAmountOverride).trim() !== '') {
         // totalAmountOverride is the COD amount. Gross Revenue = COD + Advance.
-        totalRevenue = Number(order.totalAmountOverride) + safeAdvance;
+        netRevenueCollected = Number(order.totalAmountOverride) + safeAdvance;
     }
         
     const standardShippingFee = getStandardShippingFee(order, settings);
-    carrierFees = (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionExpense + codFee + bostaVat;
+    carrierFees = (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionExpense + codFee + bostaVat + flexShipCompanyDeduction;
     
-    netRevenue = totalRevenue;
-    profit = totalRevenue - carrierFees - productCostCalculated;
+    netRevenue = netRevenueCollected;
+    // Calculate profit based on base expected revenue (without manual differences)
+    profit = totalRevenueForProfit - carrierFees - productCostCalculated;
   } else {
     const isReturn = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(order.status);
     
@@ -346,10 +355,13 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
       const returnFeeAmount = (order.status === 'مرتجع' || order.status === 'فشل_التوصيل' || order.status === 'تمت_الاعادة_لشركة_الشحن' || order.status === 'مرتجع_بعد_الاستلام') ? (applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0) : 0;
       
       const isFlexShipEnabled = isPos ? false : (order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false)));
-      const flexShipCollected = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
       const flexShipCompanyDeduction = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
       
-      const inspectionFeeCollected = (order.inspectionFeePaidByCustomer && !isPos) ? effectiveInspectionCost : 0;
+      // For failed/returned orders, we assume nothing was collected from the customer 
+      // even if the setting said "on customer", because the delivery failed.
+      const inspectionFeeCollected = 0;
+      const flexShipCollected = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
+      
       const codFee = (order.status === 'مرتجع_بعد_الاستلام' && !isPos) ? calculateCodFee(order, settings) : 0;
       
       const standardShippingFee = getStandardShippingFee(order, settings);
@@ -357,8 +369,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
       // Basic carrier fee components
       carrierFees = (insuranceFee + (isPos ? 0 : standardShippingFee) + effectiveInspectionCost + returnFeeAmount + codFee + bostaVat + flexShipCompanyDeduction);
       
-      // Net loss is carrier fees minus what was partially collected (inspection or flexship)
-      loss = carrierFees - inspectionFeeCollected - flexShipCollected;
+      // Net loss is carrier fees reduced by FlexShip fees collected
+      loss = Math.max(0, carrierFees - flexShipCollected);
     }
   }
   
@@ -397,8 +409,12 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   let totalFees = baseShippingFee + insuranceFee + bostaVat + inspectionExpense;
 
   if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') {
-    const codFee = (o.status === 'مدفوعة') ? 0 : calculateCodFee(o, settings);
-    totalFees += codFee;
+    const codFee = (o.status === 'مدفوعة' || isPos || o.paymentStatus === 'مدفوع') ? 0 : calculateCodFee(o, settings);
+    const isFlexShipEnabled = o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+    const flexShipCompanyDeduction = (isFlexShipEnabled && o.flexShipFeePaidByCustomer) ? (o.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
+    const flexShipCollected = (isFlexShipEnabled && o.flexShipFeePaidByCustomer) ? (o.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
+    
+    totalFees += codFee + flexShipCompanyDeduction - flexShipCollected;
   } else if (o.status === 'مرتجع' || o.status === 'فشل_التوصيل' || o.status === 'تمت_الاعادة_لشركة_الشحن') {
     const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
     const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;

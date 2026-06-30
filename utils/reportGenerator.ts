@@ -349,7 +349,10 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
 };
 
 export const generateOrdersReportHTML = (orders: Order[], settings: Settings, storeName: string, dateRangeText?: string): string => {
-  
+  let totalProfit = 0;
+  let totalCollectedAmount = 0;
+  let totalItems = 0;
+
   const tableRows = orders.map(order => {
     const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
@@ -362,35 +365,61 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
     const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) + inspectionFeeParams : amountToCollect;
 
     const { net, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
-    const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    
+    // Calculate carrier fee breakdown for display
+    const standardShippingFee = getStandardShippingFee(order, settings);
+    const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+    const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+    const inspectionExpense = (!isPosOrder && (order.includeInspectionFee !== false)) ? inspectionFeeParams : 0;
+    const inspectionRevenue = (!isPosOrder && (order.includeInspectionFee !== false) && (order.inspectionFeePaidByCustomer !== false)) ? inspectionExpense : 0;
+    const codFee = (order.status === 'مدفوعة' || isPosOrder || order.paymentStatus === 'مدفوع') ? 0 : calculateCodFee(order, settings);
+    const bostaVat = calculateBostaVat(order, insuranceFee, settings);
 
-    const getStatusColor = (status: string, type: 'status' | 'payment') => {
+    const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    
+    totalProfit += net;
+    totalCollectedAmount += displayTotal;
+    totalItems += totalQuantity;
+
+    const getStatusStyles = (status: string, type: 'status' | 'payment') => {
         const paymentIsPaid = ['مدفوع'].includes(status);
         const statusIsCollected = ['تم_التحصيل', 'مدفوعة'].includes(status);
-        if ((type === 'payment' && paymentIsPaid) || (type === 'status' && statusIsCollected)) return 'background-color: #dcfce7; color: #166534;'; // green
+        if ((type === 'payment' && paymentIsPaid) || (type === 'status' && statusIsCollected)) return 'background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0;'; // green
         
         const isFailure = ['مرتجع', 'فشل_التوصيل', 'ملغي', 'تمت_الاعادة_لشركة_الشحن'].includes(status);
-        if (isFailure) return 'background-color: #fee2e2; color: #991b1b;'; // red
+        if (isFailure) return 'background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca;'; // red
 
         const inProgress = ['تم_توصيلها', 'تم_التوصيل', 'قيد_الشحن', 'تم_الارسال'].includes(status);
-        if (inProgress) return 'background-color: #dbeafe; color: #1e40af;'; // blue
+        if (inProgress) return 'background-color: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe;'; // blue
         
-        return 'background-color: #f1f5f9; color: #475569;'; // slate
+        return 'background-color: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;'; // slate
     }
 
     return `
-      <tr style="border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 8px;">${order.customerName}</td>
-        <td style="padding: 8px;">${order.productName}</td>
-        <td style="padding: 8px;">${order.productPrice.toLocaleString()}</td>
-        <td style="padding: 8px;">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
-        <td style="padding: 8px; text-align: center;">${totalQuantity}</td>
-        <td style="padding: 8px;">${carrierFees.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
-        <td style="padding: 8px;">${displayTotal.toLocaleString()}</td>
-        <td style="padding: 8px; font-weight: bold;">${displayTotal.toLocaleString()}</td>
-        <td style="padding: 8px; text-align: center;"><span style="padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; white-space: nowrap; ${getStatusColor(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
-        <td style="padding: 8px; text-align: center;"><span style="padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; white-space: nowrap; ${getStatusColor(order.paymentStatus, 'payment')}">${order.paymentStatus}</span></td>
-        <td style="padding: 8px; font-weight: bold; color: ${net >= 0 ? '#15803d' : '#b91c1c'};">${net.toLocaleString()}</td>
+      <tr>
+        <td>
+          <div class="font-bold text-gray-900">${order.customerName}</div>
+          <div class="text-xs text-gray-500 mt-1">${order.id.slice(0, 8)}</div>
+        </td>
+        <td>
+          <div class="text-gray-900 leading-tight">${order.productName}</div>
+        </td>
+        <td class="text-center font-medium">${order.productPrice.toLocaleString()}</td>
+        <td class="text-center text-gray-600">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+        <td class="text-center">${totalQuantity}</td>
+        <td class="text-center">
+          <div class="font-bold text-gray-900">${(carrierFees - inspectionRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+          ${(!isPosOrder && order.includeInspectionFee !== false && inspectionExpense > 0) ? `
+          <div class="badge mt-1 text-[9px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded border border-gray-200 inline-block">
+            المعاينة: ${order.inspectionFeePaidByCustomer !== false ? 'على العميل' : 'على المتجر'}
+          </div>
+          ` : ''}
+        </td>
+        <td class="text-center text-gray-600">${displayTotal.toLocaleString()}</td>
+        <td class="text-center font-bold text-gray-900">${displayTotal.toLocaleString()}</td>
+        <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
+        <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.paymentStatus}</span></td>
+        <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.م</td>
       </tr>
     `;
   }).join('');
@@ -401,42 +430,188 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
     <head>
       <meta charset="UTF-8">
       <title>تقرير الطلبات - ${storeName}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
         @page { size: A4 landscape; margin: 1cm; }
-        body { font-family: 'Cairo', sans-serif; font-size: 9px; -webkit-print-color-adjust: exact; color-adjust: exact; }
-        .report-container { width: 100%; }
-        h1 { text-align: center; margin-bottom: 5px; color: #111827; font-size: 20px; }
-        p { text-align: center; margin-top: 0; margin-bottom: 20px; font-size: 12px; color: #6b7280; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 6px; border: 1px solid #ddd; text-align: right; }
-        th { background-color: #1f2937 !important; color: white !important; font-size: 10px; }
-        tbody tr:nth-child(even) { background-color: #f9fafb !important; }
+        * { box-sizing: border-box; }
+        body { 
+          font-family: 'Cairo', sans-serif; 
+          font-size: 11px; 
+          -webkit-print-color-adjust: exact; 
+          color-adjust: exact; 
+          background-color: #f8fafc;
+          color: #334155;
+          margin: 0;
+          padding: 20px;
+        }
+        .report-container { 
+          width: 100%; 
+          max-width: 1200px;
+          margin: 0 auto;
+          background: white;
+          border-radius: 12px;
+          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+          padding: 30px;
+        }
+        .header-section {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #f1f5f9;
+          padding-bottom: 20px;
+        }
+        .header-title h1 { 
+          margin: 0 0 8px 0; 
+          color: #0f172a; 
+          font-size: 24px; 
+          font-weight: 800;
+        }
+        .header-title p { 
+          margin: 0; 
+          font-size: 13px; 
+          color: #64748b; 
+        }
+        .header-meta {
+          text-align: left;
+          background: #f8fafc;
+          padding: 12px 16px;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+        .header-meta p {
+          margin: 0 0 4px 0;
+          font-size: 12px;
+          color: #475569;
+        }
+        .header-meta p:last-child { margin: 0; }
+        
+        .summary-cards {
+          display: flex;
+          gap: 16px;
+          margin-bottom: 30px;
+        }
+        .card {
+          flex: 1;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 16px;
+          box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+          border-right: 4px solid #3b82f6;
+        }
+        .card.profit { border-right-color: #10b981; }
+        .card.orders { border-right-color: #6366f1; }
+        .card-title {
+          font-size: 12px;
+          color: #64748b;
+          margin-bottom: 8px;
+          font-weight: 600;
+        }
+        .card-value {
+          font-size: 20px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        
+        table { 
+          width: 100%; 
+          border-collapse: separate; 
+          border-spacing: 0;
+          border-radius: 8px;
+          overflow: hidden;
+          border: 1px solid #e2e8f0;
+        }
+        th, td { 
+          padding: 12px; 
+          text-align: right; 
+          border-bottom: 1px solid #e2e8f0;
+        }
+        th { 
+          background-color: #f8fafc; 
+          color: #475569; 
+          font-size: 11px; 
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        td {
+          background-color: #ffffff;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:nth-child(even) td { background-color: #fcfcfd; }
+        tbody tr:hover td { background-color: #f1f5f9; }
+        
+        .font-bold { font-weight: 700; }
+        .font-medium { font-weight: 600; }
+        .text-gray-900 { color: #0f172a; }
+        .text-gray-600 { color: #475569; }
+        .text-gray-500 { color: #64748b; }
+        .text-xs { font-size: 10px; }
+        .text-center { text-align: center; }
+        .mt-1 { margin-top: 4px; }
+        
+        .status-badge {
+          display: inline-block;
+          padding: 4px 8px;
+          border-radius: 9999px;
+          font-size: 10px;
+          font-weight: 700;
+          white-space: nowrap;
+        }
         ${getPrintControlBarCSS()}
+        
+        @media print {
+          body { background: white; padding: 0; }
+          .report-container { box-shadow: none; padding: 0; border: none; }
+        }
       </style>
     </head>
     <body>
       ${getPrintControlBarHTML('تقرير الطلبات والمبيعات')}
       <div class="report-container">
-        <h1>تقرير الطلبات لمتجر "${storeName}"</h1>
-        <p>
-          ${dateRangeText ? `<strong style="color: #2563eb;">الفترة: ${dateRangeText}</strong><br/>` : ''}
-          تاريخ التقرير: ${new Date().toLocaleString('ar-EG')}
-        </p>
+        
+        <div class="header-section">
+          <div class="header-title">
+            <h1>تقرير الطلبات والمبيعات</h1>
+            <p>متجر "${storeName}"</p>
+          </div>
+          <div class="header-meta">
+            ${dateRangeText ? `<p><strong>الفترة:</strong> ${dateRangeText}</p>` : ''}
+            <p><strong>تاريخ التقرير:</strong> ${new Date().toLocaleString('ar-EG', { dateStyle: 'long', timeStyle: 'short' })}</p>
+            <p><strong>إجمالي الطلبات بالتقرير:</strong> ${orders.length} طلب</p>
+          </div>
+        </div>
+        
+        <div class="summary-cards">
+          <div class="card orders">
+            <div class="card-title">إجمالي المنتجات</div>
+            <div class="card-value">${totalItems} قطعة</div>
+          </div>
+          <div class="card">
+            <div class="card-title">إجمالي المبالغ للتحصيل</div>
+            <div class="card-value">${totalCollectedAmount.toLocaleString()} ج.م</div>
+          </div>
+          <div class="card profit">
+            <div class="card-title">صافي الربح / الخسارة</div>
+            <div class="card-value" style="color: ${totalProfit >= 0 ? '#10b981' : '#ef4444'}" dir="ltr">${totalProfit > 0 ? '+' : ''}${totalProfit.toLocaleString()} ج.م</div>
+          </div>
+        </div>
+
         <table>
           <thead>
             <tr>
-              <th>اسم العميل</th>
+              <th>العميل</th>
               <th>المنتج</th>
-              <th>سعر المنتج</th>
-              <th>تكلفة المنتج</th>
-              <th>كمية</th>
-              <th>تكلفة الشحن (المقدرة)</th>
-              <th>مبلغ التحصيل</th>
-              <th>إجمالي المبلغ</th>
-              <th>حالة الشحنة</th>
-              <th>حالة الدفع</th>
-              <th>صافي الربح/الخسارة (ج.م)</th>
+              <th class="text-center">سعر المنتج</th>
+              <th class="text-center">تكلفة المنتج</th>
+              <th class="text-center">كمية</th>
+              <th class="text-center">تكلفة الشحن (المقدرة)</th>
+              <th class="text-center">مبلغ التحصيل</th>
+              <th class="text-center">إجمالي المبلغ</th>
+              <th class="text-center">حالة الشحنة</th>
+              <th class="text-center">حالة الدفع</th>
+              <th class="text-center">صافي الربح</th>
             </tr>
           </thead>
           <tbody>
@@ -461,9 +636,13 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
       const useCustom = compFees?.useCustomFees ?? false;
       const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
       const inspectionCost = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
-      const totalAmount = o.productPrice + o.shippingFee;
+      
+      const safeDiscount = o.discount || 0;
+      const safeAdvance = o.advancePayment || 0;
+      const defaultCollectionAmount = o.productPrice + o.shippingFee - safeDiscount - safeAdvance + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
+      const collectionAmount = (o.totalAmountOverride ?? null) !== null ? o.totalAmountOverride! : defaultCollectionAmount;
 
-      totalGross += totalAmount + (o.inspectionFeePaidByCustomer ? inspectionCost : 0);
+      totalGross += collectionAmount;
 
       const { net } = calculateOrderProfitLoss(o, settings);
       totalNetProfit += net;
@@ -471,16 +650,35 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
 
     const tableRows = orders.map(order => {
         const { net } = calculateOrderProfitLoss(order, settings);
-        const totalAmount = order.productPrice + order.shippingFee;
+        const compFees = settings.companySpecificFees?.[order.shippingCompany];
+        const useCustom = compFees?.useCustomFees ?? false;
+        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? compFees!.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         
+        const safeDiscount = order.discount || 0;
+        const safeAdvance = order.advancePayment || 0;
+        const defaultCollectionAmount = order.productPrice + order.shippingFee - safeDiscount - safeAdvance + (order.inspectionFeePaidByCustomer ? inspectionCost : 0);
+        const collectionAmount = (order.totalAmountOverride ?? null) !== null ? order.totalAmountOverride! : defaultCollectionAmount;
+        
+        let amountDisplay = `${collectionAmount.toLocaleString()} ج.م`;
+        if (collectionAmount !== defaultCollectionAmount) {
+            amountDisplay = `
+                <div style="font-weight: 800; color: #0f172a;">${collectionAmount.toLocaleString()} ج.م</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 4px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px; background: #f8fafc; text-align: right; display: inline-block;" dir="rtl">
+                  <div>المطلوب: ${defaultCollectionAmount.toLocaleString()} ج.م</div>
+                  <div style="font-weight: 700; color: #4f46e5;">الفعلي: ${collectionAmount.toLocaleString()} ج.م</div>
+                </div>
+            `;
+        }
+
         return `
-            <tr style="border-bottom: 1px solid #e5e7eb;">
-                <td style="padding: 8px;">${order.orderNumber}</td>
-                <td style="padding: 8px;">${order.customerName}</td>
-                <td style="padding: 8px; font-family: monospace;">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
-                <td style="padding: 8px;">${totalAmount.toLocaleString()}</td>
-                <td style="padding: 8px;">${order.productCost.toLocaleString()}</td>
-                <td style="padding: 8px; font-weight: bold; color: ${net >= 0 ? '#15803d' : '#b91c1c'};">${net.toLocaleString()}</td>
+            <tr>
+                <td class="text-center font-bold text-gray-900">${order.orderNumber || order.id.slice(0, 8)}</td>
+                <td class="text-gray-900">${order.customerName}</td>
+                <td class="text-center text-gray-500 font-mono">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
+                <td class="text-right">${amountDisplay}</td>
+                <td class="text-center text-gray-600">${order.productCost.toLocaleString()}</td>
+                <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.m</td>
             </tr>
         `;
     }).join('');
@@ -491,58 +689,172 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
     <head>
       <meta charset="UTF-8">
       <title>تقرير التحصيلات - ${storeName}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
-        @page { size: A4; margin: 1cm; }
-        body { font-family: 'Cairo', sans-serif; font-size: 10px; color: #333; }
-        .report-container { width: 100%; }
-        h1 { text-align: center; margin-bottom: 5px; color: #111827; font-size: 22px; }
-        p.subtitle { text-align: center; margin-top: 0; margin-bottom: 20px; font-size: 12px; color: #6b7280; }
-        .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
-        .stat-box { background-color: #f9fafb; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
-        .stat-box h3 { margin: 0 0 5px 0; font-size: 11px; color: #6b7280; font-weight: bold; text-transform: uppercase; }
-        .stat-box p { margin: 0; font-size: 20px; font-weight: 700; color: #111827; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 8px; border: 1px solid #ddd; text-align: right; }
-        th { background-color: #f3f4f6; font-weight: bold; font-size: 11px; }
-        tbody tr:nth-child(even) { background-color: #f9fafb; }
+        @page { size: A4 portrait; margin: 1cm; }
+        * { box-sizing: border-box; }
+        body { 
+          font-family: 'Cairo', sans-serif; 
+          font-size: 12px; 
+          -webkit-print-color-adjust: exact; 
+          color-adjust: exact; 
+          background-color: #f8fafc;
+          color: #334155;
+          margin: 0;
+          padding: 20px;
+        }
+        .report-container { 
+          width: 100%; 
+          max-width: 900px;
+          margin: 0 auto;
+          background: white;
+          border-radius: 12px;
+          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+          padding: 30px;
+        }
+        .header-section {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #f1f5f9;
+          padding-bottom: 20px;
+        }
+        .header-title h1 { 
+          margin: 0 0 8px 0; 
+          color: #0f172a; 
+          font-size: 24px; 
+          font-weight: 800;
+        }
+        .header-title p { 
+          margin: 0; 
+          font-size: 13px; 
+          color: #64748b; 
+        }
+        .header-meta {
+          text-align: left;
+          background: #f8fafc;
+          padding: 12px 16px;
+          border-radius: 8px;
+          border: 1px solid #e2e8f0;
+        }
+        .header-meta p {
+          margin: 0 0 4px 0;
+          font-size: 12px;
+          color: #475569;
+        }
+        .header-meta p:last-child { margin: 0; }
+        
+        .summary-cards {
+          display: flex;
+          gap: 16px;
+          margin-bottom: 30px;
+        }
+        .card {
+          flex: 1;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 16px;
+          box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+          border-right: 4px solid #8b5cf6;
+        }
+        .card.profit { border-right-color: #10b981; }
+        .card.orders { border-right-color: #6366f1; }
+        .card-title {
+          font-size: 12px;
+          color: #64748b;
+          margin-bottom: 8px;
+          font-weight: 600;
+        }
+        .card-value {
+          font-size: 22px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        
+        table { 
+          width: 100%; 
+          border-collapse: separate; 
+          border-spacing: 0;
+          border-radius: 8px;
+          overflow: hidden;
+          border: 1px solid #e2e8f0;
+        }
+        th, td { 
+          padding: 14px 12px; 
+          text-align: right; 
+          border-bottom: 1px solid #e2e8f0;
+        }
+        th { 
+          background-color: #f8fafc; 
+          color: #475569; 
+          font-size: 12px; 
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        td {
+          background-color: #ffffff;
+        }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:nth-child(even) td { background-color: #fcfcfd; }
+        tbody tr:hover td { background-color: #f1f5f9; }
+        
+        .font-bold { font-weight: 700; }
+        .font-medium { font-weight: 600; }
+        .text-gray-900 { color: #0f172a; }
+        .text-gray-600 { color: #475569; }
+        .text-gray-500 { color: #64748b; }
+        .text-center { text-align: center; }
+        
         ${getPrintControlBarCSS()}
+        
+        @media print {
+          body { background: white; padding: 0; }
+          .report-container { box-shadow: none; padding: 0; border: none; }
+        }
       </style>
     </head>
     <body>
-      ${getPrintControlBarHTML('تقرير التحصيلات والأمان')}
+      ${getPrintControlBarHTML('تقرير التحصيلات')}
       <div class="report-container">
-        <h1>تقرير التحصيلات المفصّل</h1>
-        <p class="subtitle">
-          متجر "${storeName}"
-          ${dateRangeText ? `<br/><strong style="color: #2563eb;">الفترة: ${dateRangeText}</strong>` : ''}
-          <br/>تاريخ التقرير: ${new Date().toLocaleString('ar-EG')}
-        </p>
-
-        <div class="summary-grid">
-            <div class="stat-box">
-                <h3>إجمالي المحصل</h3>
-                <p style="color: #059669;">${totalGross.toLocaleString()} ج.م</p>
-            </div>
-            <div class="stat-box">
-                <h3>صافي الأرباح</h3>
-                <p style="color: #2563eb;">${totalNetProfit.toLocaleString()} ج.م</p>
-            </div>
-            <div class="stat-box">
-                <h3>عدد الطلبات</h3>
-                <p>${orders.length}</p>
-            </div>
+        
+        <div class="header-section">
+          <div class="header-title">
+            <h1>تقرير التحصيلات والأرباح</h1>
+            <p>متجر "${storeName}"</p>
+          </div>
+          <div class="header-meta">
+            ${dateRangeText ? `<p><strong>الفترة:</strong> ${dateRangeText}</p>` : ''}
+            <p><strong>تاريخ التقرير:</strong> ${new Date().toLocaleString('ar-EG', { dateStyle: 'long', timeStyle: 'short' })}</p>
+          </div>
+        </div>
+        
+        <div class="summary-cards">
+          <div class="card orders">
+            <div class="card-title">إجمالي الطلبات المحصلة</div>
+            <div class="card-value">${orders.length} طلب</div>
+          </div>
+          <div class="card">
+            <div class="card-title">إجمالي المبالغ للتحصيل</div>
+            <div class="card-value" style="color: #059669;">${totalGross.toLocaleString()} ج.م</div>
+          </div>
+          <div class="card profit">
+            <div class="card-title">صافي الأرباح للطلبات المحصلة</div>
+            <div class="card-value" style="color: ${totalNetProfit >= 0 ? '#10b981' : '#ef4444'}" dir="ltr">${totalNetProfit > 0 ? '+' : ''}${totalNetProfit.toLocaleString()} ج.م</div>
+          </div>
         </div>
 
         <table>
           <thead>
             <tr>
-              <th>رقم الطلب</th>
+              <th class="text-center">رقم الطلب</th>
               <th>العميل</th>
-              <th>التاريخ</th>
-              <th>المبلغ المحصل</th>
-              <th>التكلفة</th>
-              <th>صافي الربح/الخسارة</th>
+              <th class="text-center">التاريخ</th>
+              <th class="text-center">المبلغ المحصل</th>
+              <th class="text-center">التكلفة</th>
+              <th class="text-center">صافي الربح/الخسارة</th>
             </tr>
           </thead>
           <tbody>
@@ -895,42 +1207,6 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
           هذا التقرير تم إنشاؤه آليًا بواسطة "مدير الأوردرات الذكي" &copy; ${new Date().getFullYear()}
         </div>
       </div>
-      <script>
-        window.onload = function() {
-          if (${isContinuous}) {
-            setTimeout(() => {
-              const container = document.querySelector('.report-container');
-              if (!container) { window.print(); return; }
-              
-              const height = container.scrollHeight;
-              
-              const div = document.createElement('div');
-              div.style.height = '100mm';
-              div.style.position = 'absolute';
-              div.style.visibility = 'hidden';
-              document.body.appendChild(div);
-              const mmInPx = div.offsetHeight / 100;
-              document.body.removeChild(div);
-              
-              const heightMm = Math.ceil(height / mmInPx) + 35; 
-              const pageWidth = "${orientation}" === "landscape" ? "297mm" : "210mm";
-              
-              const style = document.createElement('style');
-              style.innerHTML = "@page { size: " + pageWidth + " " + heightMm + "mm !important; margin: 0 !important; } " +
-                                "body, html { margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; min-height: 0 !important; } " +
-                                ".report-container { margin: 0 !important; padding: 40px !important; border: none !important; box-shadow: none !important; width: 100% !important; max-width: none !important; } " +
-                                "* { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; break-inside: avoid-page !important; } " +
-                                "table, tr, td, th { break-inside: auto !important; } " +
-                                ".no-break { break-inside: avoid !important; }";
-              document.head.appendChild(style);
-              
-              setTimeout(() => { window.print(); }, 1200);
-            }, 500);
-          } else {
-            setTimeout(() => { window.print(); }, 800);
-          }
-        };
-      </script>
     </body>
     </html>
     `;
@@ -939,8 +1215,6 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
 export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury): string => {
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
-    const notCollectedOrders = (orders || []).filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed);
-    const inShippingOrders = (orders || []).filter(o => o.status === 'قيد_الشحن');
     const adminExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_'));
     const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
     const totalInventoryPurchases = inventoryPurchases.reduce((sum, t) => sum + t.amount, 0);
@@ -948,6 +1222,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalProductRevenue = 0;
     let totalProductExtraMarkup = 0;
     let totalExtraMarkup = 0;
+    let totalSuccessShippingOnly = 0;
+    let totalSuccessFeesOnly = 0;
     let totalShippingRevenue = 0;
     let totalActualShipping = 0;
     let totalShippingMarkup = 0;
@@ -959,20 +1235,28 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalPercentageProfit = 0;
     let totalCommissionProfit = 0;
     let totalOverrideAdjustment = 0;
+    let totalInspectionRevenue = 0;
+    let totalRequiredCollection = 0;
 
     const collectedRows = collectedOrders.map(order => {
-        const { profit } = calculateOrderProfitLoss(order, settings);
+        const { profit, netRevenue, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
         const codFee = calculateCodFee(order, settings);
         
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
         const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+        
+        const standardShipping = isPosOrder ? 0 : getStandardShippingFee(order, settings);
+        const feesOnly = isPosOrder ? 0 : Math.max(0, carrierFees - standardShipping);
+        
+        totalSuccessShippingOnly += standardShipping;
+        totalSuccessFeesOnly += feesOnly;
+        
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
         const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const isInsured = order.isInsured ?? true;
         const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
-        const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer) ? 0 : inspectionCost;
+        const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer !== false) ? 0 : inspectionCost;
 
         const safeProductPrice = Number(order.productPrice) || 0;
         const safeShippingFee = Number(order.shippingFee) || 0;
@@ -983,14 +1267,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             ? order.totalAmountOverride + safeAdvance
             : (safeProductPrice + safeShippingFee - safeDiscount);
 
-        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
+        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionCost : 0;
         const baseExpected = safeProductPrice + safeShippingFee - safeDiscount + inspectionFeeCollected;
         const overrideAdjustment = totalCollected - baseExpected;
 
         totalShippingRevenue += order.shippingFee;
 
-        const standardShipping = isPosOrder ? 0 : getStandardShippingFee(order, settings);
-        totalActualShipping += standardShipping;
+        // Use the full carrierFees for accurate expense reporting
+        totalActualShipping += isPosOrder ? 0 : carrierFees;
 
         const shippingMarkup = isPosOrder ? 0 : Math.max(0, order.shippingFee - standardShipping);
         totalShippingMarkup += shippingMarkup;
@@ -1021,21 +1305,12 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
-        // Correct Revenue Logic: 
-        // 1. Product Revenue is the base price (minus discount)
-        // 2. Shipping Revenue is what the customer paid
-        // 3. Extra Markup here should only be the Product price difference + Manual adjustments
-        // Shipping markup is ALREADY inside totalShippingRevenue, so we don't add it again to the TOTAL REVENUE sum.
-        
         totalProductRevenue += (orderBaseRevenue - safeDiscount);
         totalProductExtraMarkup += orderProductExtraMarkup;
         totalOverrideAdjustment += overrideAdjustment;
-        
-        // This variable is for the "Extra Markup" display row - we only include price increase and manual adjustments
-        // to avoid double counting shipping fees.
+        totalInspectionRevenue += inspectionFeeCollected;
+        totalRequiredCollection += (safeProductPrice + safeShippingFee - safeDiscount + inspectionCost);
         totalExtraMarkup += (orderProductExtraMarkup + overrideAdjustment);
-        
-        // Profit Logic: Shipping markup is counted here because it's profit.
         
         totalCogs += (order.items || []).reduce((sum, item) => {
             const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
@@ -1065,7 +1340,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td class="col-products">${productDetails}</td>
                 <td>${order.productPrice.toLocaleString()}</td>
                 <td>${order.shippingFee.toLocaleString()}</td>
-                <td>${order.productCost.toLocaleString()}</td>
+                <td>${productCost.toLocaleString()}</td>
                 <td>${insuranceFee.toLocaleString()}</td>
                 <td>${inspectionAdjustment.toLocaleString()}</td>
                 <td>${codFee.toLocaleString()}</td>
@@ -1081,28 +1356,26 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
     const failedRows = failedOrders.map(order => {
         const { loss } = calculateOrderProfitLoss(order, settings);
+        
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
-        
         const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
         const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const isInsured = order.isInsured ?? true;
         const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
         
         const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
         const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
-        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
+        const inspectionFeeCollected = 0;
 
         totalFailedShipping += order.shippingFee;
         totalFailedInsurance += insuranceFee;
-        totalFailedInspection += (inspectionCost - inspectionFeeCollected);
+        totalFailedInspection += inspectionCost;
         totalReturnFees += returnFeeAmount;
         totalLoss += loss;
 
         const productDetails = order.items.map(item => `<div style="margin-bottom: 4px; line-height: 1.4;"><strong>${item.name}</strong> (${item.quantity})</div>`).join('');
-
         return `
             <tr>
                 <td>${order.orderNumber}</td>
@@ -1134,7 +1407,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             extraPosRevenue += (item.price * (item.quantity || 1));
             const itemProfit = (item.price - cost) * (item.quantity || 1);
             extraPosProfit += itemProfit;
-            totalPercentageProfit += itemProfit; // Add to percentage profit out of simplicity
+            totalPercentageProfit += itemProfit;
         });
     });
 
@@ -1143,82 +1416,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     totalProfit += extraPosProfit;
 
     const finalNet = totalProfit - totalLoss - totalExpenses;
-    
-    // Partner & Custody Logic
-    const custodyAccounts = (treasury?.accounts || []).filter(a => a.type === 'custody');
-    const partners = settings.partners || [];
-    
-    const partnerDetailsHtml = partners.length > 0 ? `
-        <div style="margin-top: 25px; page-break-inside: avoid;">
-            <h3 style="background: #1e3a8a; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">5. توزيع أرباح الشركاء والمراكز المالية (Partners Financial Position)</h3>
-            <table class="income-statement">
-                <thead>
-                    <tr style="background: #f1f5f9;">
-                        <th>اسم الشريك</th>
-                        <th style="text-align: center;">نسبة الربح (%)</th>
-                        <th style="text-align: left;">نصيبك من الربح (الفترة)</th>
-                        <th style="text-align: left;">إجمالي المسحوبات/القروض</th>
-                        <th style="text-align: left;">الرصيد المتاح حالياً</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${partners.map(p => {
-                        const partnerShare = (p.profitRatio / 100) * finalNet;
-                        const partnerTxs = settings.partnerTransactions?.filter(t => t.partnerId === p.id) || [];
-                        const totalWithdrawals = partnerTxs
-                            .filter(t => t.type === 'profit_withdrawal' || t.type === 'loan' || t.type === 'profit_distribution')
-                            .reduce((sum, t) => sum + t.amount, 0);
-
-                        return `
-                        <tr>
-                            <td style="font-weight: bold;">${p.name}</td>
-                            <td style="text-align: center;">${p.profitRatio}%</td>
-                            <td style="text-align: left; font-weight: bold; color: ${partnerShare >= 0 ? '#059669' : '#dc2626'};">+${partnerShare.toLocaleString()} ج.م</td>
-                            <td style="text-align: left; color: #b91c1c;">-${totalWithdrawals.toLocaleString()} ج.م</td>
-                            <td style="text-align: left; font-weight: bold; background: #f8fafc;">${p.balance.toLocaleString()} ج.م</td>
-                        </tr>
-                        `;
-                    }).join('')}
-                    <tr class="total-line" style="background: #f1f5f9;">
-                        <td colspan="2">إجمالي صافي أرباح الفترة المتوفرة للتوزيع</td>
-                        <td colspan="3" style="text-align: left; font-size: 16px;">${finalNet.toLocaleString()} ج.م</td>
-                    </tr>
-                </tbody>
-            </table>
-            <p style="font-size: 11px; color: #64748b; margin-top: 5px;">* ملاحظة: "نصيب الربح" هو القيمة النظرية بناءً على أداء الفترة الحالية، بينما "الرصيد المتاح" هو رصيد الشريك الفعلي في النظام شاملاً كافة العمليات السابقة.</p>
-        </div>
-    ` : '';
-
-    const custodyDetailsHtml = custodyAccounts.length > 0 ? `
-        <div style="margin-top: 25px; page-break-inside: avoid;">
-            <h3 style="background: #334155; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">6. المراقبة المالية: ذمم العُهد والموظفين (Custody Monitoring)</h3>
-            <table class="income-statement">
-                <thead>
-                    <tr style="background: #f1f5f9;">
-                        <th>اسم الموظف / صاحب العهدة</th>
-                        <th>مبلغ العهدة المتبقي</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${custodyAccounts.map(a => `
-                    <tr>
-                        <td>${a.name}</td>
-                        <td style="text-align: left; font-weight: bold; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td>
-                    </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-            <p style="font-size: 12px; color: #64748b; margin-top: 5px;">* المبالغ أعلاه تمثل السيولة المتبقية في ذمة الموظفين كعُهد مالية (Custody) لم يتم إغلاقها أو تسويتها بمصاريف بعد.</p>
-        </div>
-    ` : '';
-
-    // --- NEW CALCULATIONS ---
     const successRate = orders.length > 0 ? (collectedOrders.length / orders.length) * 100 : 0;
-    const grossProfit = totalPercentageProfit + totalCommissionProfit;
-    const lossRatio = grossProfit > 0 ? (totalLoss / grossProfit) * 100 : 0;
-    const avgProfitPerOrder = orders.length > 0 ? finalNet / orders.length : 0;
+    const avgOrderProfit = collectedOrders.length > 0 ? totalProfit / collectedOrders.length : 0;
+    const breakEvenOrders = avgOrderProfit > 0 ? Math.ceil(totalExpenses / avgOrderProfit) : 0;
 
-    // Carrier Performance (Filter to processed orders only)
+    // Carrier Performance
     const carrierStats: Record<string, { count: number, success: number, shipping: number, profit: number }> = {};
     orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)).forEach(o => {
         const name = o.shippingCompany || 'غير محدد';
@@ -1246,7 +1448,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     orders.forEach(o => {
         o.items.forEach(item => {
             if (!productStats[item.name]) productStats[item.name] = { revenue: 0, extra: 0, cost: 0, sold: 0, returns: 0 };
-            if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) {
                 const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
                 if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
                     productStats[item.name].revenue += product.basePrice * item.quantity;
@@ -1254,7 +1456,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 } else {
                     productStats[item.name].revenue += item.price * item.quantity;
                 }
-                productStats[item.name].cost += item.cost * item.quantity;
+                productStats[item.name].cost += (getLatestProductCost(item.productId, settings) || item.cost || 0) * item.quantity;
                 productStats[item.name].sold += item.quantity;
             } else if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)) {
                 productStats[item.name].returns += item.quantity;
@@ -1263,795 +1465,280 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     });
 
     const productRows = Object.entries(productStats)
-        .sort((a, b) => {
-            const profitA = (a[1].revenue - a[1].cost) + a[1].extra;
-            const profitB = (b[1].revenue - b[1].cost) + b[1].extra;
-            return profitB - profitA;
-        })
+        .sort((a, b) => ((b[1].revenue - b[1].cost) + b[1].extra) - ((a[1].revenue - a[1].cost) + a[1].extra))
         .map(([name, stats]) => {
             const totalProfit = (stats.revenue - stats.cost) + stats.extra;
-            const returnRate = (stats.sold + stats.returns) > 0 ? (stats.returns / (stats.sold + stats.returns)) * 100 : 0;
-            const isMultiProfit = stats.extra > 0;
-            const rowStyle = isMultiProfit ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
-            
-            return `<tr style="${rowStyle}">
-                <td>
-                    ${name}
-                    ${isMultiProfit ? '<br/><span style="font-size: 8px; background: #0ea5e9; color: white; padding: 1px 4px; border-radius: 4px; display: inline-block; margin-top: 2px;">ربح مركب (أساسي + زيادة)</span>' : ''}
-                </td>
-                <td>${stats.sold}</td>
-                <td>${stats.returns} (${returnRate.toFixed(1)}%)</td>
-                <td>${stats.revenue.toLocaleString()}</td>
-                <td>${stats.extra.toLocaleString()}</td>
-                <td style="font-weight: bold; color: #15803d;">${totalProfit.toLocaleString()}</td>
-            </tr>`;
+            return `<tr><td>${name}</td><td>${stats.sold}</td><td>${stats.returns}</td><td style="font-weight: bold; color: #15803d;">${totalProfit.toLocaleString()}</td></tr>`;
         }).join('');
 
-    // Break-even
-    const avgOrderProfit = collectedOrders.length > 0 ? totalProfit / collectedOrders.length : 0;
-    const breakEvenOrders = avgOrderProfit > 0 ? Math.ceil(totalExpenses / avgOrderProfit) : 0;
-
-    // Expense Breakdown
-    const expenseCats: Record<string, number> = {};
-    adminExpenses.forEach(t => {
-        let cat = t.category || 'other';
-        if (cat.startsWith('supply_expense_')) {
-            cat = cat.replace('supply_expense_', 'supply_');
-        } else if (cat.startsWith('expense_')) {
-            cat = cat.replace('expense_', '');
-        }
-        expenseCats[cat] = (expenseCats[cat] || 0) + t.amount;
-    });
-    const expenseCatRows = Object.entries(expenseCats).map(([cat, amount]) => {
-        const percent = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0;
-        const catName = cat === 'ads' ? 'إعلانات' : cat === 'salary' ? 'رواتب' : cat === 'rent' ? 'إيجار' : cat === 'supply_shipping' ? 'شحن مشتريات (توريد)' : cat === 'supply_other' ? 'مصاريف توريد أخرى' : 'أخرى';
-        return `<tr><td>${catName}</td><td>${amount.toLocaleString()} ج.م</td><td>${percent.toFixed(1)}%</td></tr>`;
-    }).join('');
-
-    // Wallet Sync
-    const pendingCollection = orders.filter(o => (o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') && !o.collectionProcessed).reduce((sum, o) => sum + (o.productPrice + o.shippingFee), 0);
-    const inventoryValue = (settings.products || []).reduce((sum, p) => {
-        if (p.hasVariants && p.variants) {
-            return sum + p.variants.reduce((vSum, v) => vSum + (getLatestProductCost(v.id, settings) * (v.stockQuantity || 0)), 0);
-        }
-        return sum + (getLatestProductCost(p.id, settings) * (p.stockQuantity || 0));
-    }, 0);
-
     // Geographic Analysis
-    const geoStats: Record<string, { count: number, success: number, revenue: number, loss: number }> = {};
+    const geoStats: Record<string, { count: number, success: number, revenue: number, net: number }> = {};
     orders.forEach(o => {
         const area = o.governorate || o.shippingArea || 'غير محدد';
-        if (!geoStats[area]) geoStats[area] = { count: 0, success: 0, revenue: 0, loss: 0 };
+        if (!geoStats[area]) geoStats[area] = { count: 0, success: 0, revenue: 0, net: 0 };
         geoStats[area].count++;
-        const { loss } = calculateOrderProfitLoss(o, settings);
-        if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
+        const { net } = calculateOrderProfitLoss(o, settings);
+        if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) {
             geoStats[area].success++;
             geoStats[area].revenue += (o.productPrice + o.shippingFee);
         }
-        geoStats[area].loss += loss;
+        geoStats[area].net += net;
     });
 
     const geoRows = Object.entries(geoStats)
-        .sort((a, b) => (b[1].revenue - b[1].loss) - (a[1].revenue - a[1].loss))
-        .map(([name, s]) => {
-            const rate = (s.success / s.count) * 100;
-            const net = s.revenue - s.loss;
-            return `<tr>
-                <td>${name}</td>
-                <td>${s.count}</td>
-                <td>${rate.toFixed(1)}%</td>
-                <td>${s.revenue.toLocaleString()}</td>
-                <td style="font-weight: bold; color: ${net >= 0 ? '#15803d' : '#b91c1c'};">${net.toLocaleString()}</td>
-            </tr>`;
-        }).join('');
+        .sort((a, b) => b[1].net - a[1].net)
+        .map(([name, s]) => `<tr><td>${name}</td><td>${s.count}</td><td>${((s.success/s.count)*100).toFixed(1)}%</td><td style="font-weight: bold; color: ${s.net >= 0 ? '#15803d' : '#b91c1c'};">${s.net.toLocaleString()}</td></tr>`).join('');
 
-    // Top Insights
-    const topProducts = Object.entries(productStats)
-        .sort((a, b) => b[1].revenue - a[1].revenue)
-        .slice(0, 3)
-        .map(([name, stats]) => `<li>${name} (${stats.sold} قطعة)</li>`)
-        .join('');
+    const partners = settings.partners || [];
+    const partnerDetailsHtml = partners.length > 0 ? `
+        <div style="margin-top: 25px; page-break-inside: avoid;">
+            <h3 style="background: #1e3a8a; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">5. توزيع أرباح الشركاء والمراكز المالية</h3>
+            <table class="modern-table">
+                <thead><tr><th>اسم الشريك</th><th>نسبة الربح (%)</th><th>نصيب الربح</th><th>المسحوبات</th><th>الرصيد المتاح</th></tr></thead>
+                <tbody>
+                    ${partners.map(p => {
+                        const partnerShare = (p.profitRatio / 100) * finalNet;
+                        const partnerTxs = settings.partnerTransactions?.filter(t => t.partnerId === p.id) || [];
+                        const totalWithdrawals = partnerTxs.filter(t => ['profit_withdrawal', 'loan', 'profit_distribution'].includes(t.type)).reduce((sum, t) => sum + t.amount, 0);
+                        return `<tr><td>${p.name}</td><td>${p.profitRatio}%</td><td style="font-weight: bold; color: ${partnerShare >= 0 ? '#059669' : '#dc2626'};">+${partnerShare.toLocaleString()}</td><td style="color: #b91c1c;">-${totalWithdrawals.toLocaleString()}</td><td style="font-weight: bold; background: #f8fafc;">${p.balance.toLocaleString()}</td></tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>` : '';
 
-    const topAreas = Object.entries(geoStats)
-        .sort((a, b) => (b[1].revenue - b[1].loss) - (a[1].revenue - a[1].loss))
-        .slice(0, 3)
-        .map(([name, s]) => `<li>${name} (${((s.success/s.count)*100).toFixed(0)}% نجاح)</li>`)
-        .join('');
+    const custodyAccounts = (treasury?.accounts || []).filter(a => a.type === 'custody');
+    const custodyDetailsHtml = custodyAccounts.length > 0 ? `
+        <div style="margin-top: 25px; page-break-inside: avoid;">
+            <h3 style="background: #334155; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">6. ذمم العُهد والموظفين</h3>
+            <table class="modern-table">
+                <thead><tr><th>اسم الموظف</th><th>مبلغ العهدة المتبقي</th></tr></thead>
+                <tbody>${custodyAccounts.map(a => `<tr><td>${a.name}</td><td style="font-weight: bold; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td></tr>`).join('')}</tbody>
+            </table>
+        </div>` : '';
 
-    // Smart Recommendations
     const recommendations = [];
-    if (successRate < 70) recommendations.push(`⚠️ نسبة النجاح منخفضة (${successRate.toFixed(1)}%). ننصح بمراجعة جودة تأكيد الأوردرات أو تغيير شركة الشحن في المناطق الضعيفة.`);
-    if (lossRatio > 15) recommendations.push(`📉 المرتجعات تستهلك نسبة كبيرة من أرباحك (${lossRatio.toFixed(1)}%). حاول تحسين وصف المنتجات لتقليل المرتجعات.`);
-    if (totalExpenses > (totalPercentageProfit + totalCommissionProfit) * 0.5) recommendations.push(`💸 المصروفات الإدارية مرتفعة جداً مقارنة بالأرباح. حاول ترشيد الإنفاق على الإعلانات أو الرواتب.`);
-    if (avgProfitPerOrder < 50) recommendations.push(`💡 متوسط الربح للطلب ضعيف. قد تحتاج لرفع أسعار المنتجات أو تقليل تكاليف الشحن.`);
-
+    if (successRate < 70) recommendations.push(`⚠️ نسبة النجاح منخفضة (${successRate.toFixed(1)}%). ننصح بمراجعة جودة تأكيد الأوردرات.`);
+    if (avgOrderProfit < 50) recommendations.push(`💡 متوسط الربح للطلب ضعيف. قد تحتاج لرفع أسعار المنتجات أو تقليل تكاليف الشحن.`);
     const recommendationHtml = recommendations.length > 0 ? `
-        <div class="recommendation-box">
-            <h4>توصيات ذكية لتحسين الأداء (Smart Insights)</h4>
-            <ul style="margin: 0; padding-right: 20px; font-size: 11px; color: #9a3412; line-height: 1.6;">
-                ${recommendations.map(r => `<li>${r}</li>`).join('')}
-            </ul>
-        </div>
-    ` : '';
+        <div style="background: #fffaf0; border: 1px solid #feebc8; border-radius: 12px; padding: 20px; margin-top: 30px;">
+            <h4 style="color: #c05621; margin: 0 0 10px 0;">توصيات ذكية لتحسين الأداء</h4>
+            <ul style="margin: 0; padding-right: 20px; font-size: 12px; color: #9a3412;">${recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
+        </div>` : '';
 
     return `
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
-      <meta charset="UTF-8">
-      <title>ملخص شامل لأداء متجرك والمركز المالي للشركاء - ${storeName}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet" crossorigin="anonymous">
-      <style>
-        @page { 
-          size: A4 ${orientation}; 
-          margin: ${isContinuous ? '0' : '0.8cm'}; 
-          @bottom-right {
-            content: "${isContinuous ? '' : 'صفحة ' + 'counter(page)' + ' من ' + 'counter(pages)'}";
-            font-family: 'Cairo', sans-serif;
-            font-size: 9px;
-            color: #94a3b8;
-          }
-        }
-        body { 
-          font-family: 'Cairo', sans-serif; 
-          font-size: 12px; 
-          color: #1e293b; 
-          line-height: 1.6;
-          margin: 0;
-          padding: 0;
-          -webkit-print-color-adjust: exact; 
-          color-adjust: exact; 
-          background-color: white;
-        }
-        
-        /* Fix for Arabic text in html2canvas */
-        * {
-          letter-spacing: normal !important;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-          text-rendering: optimizeLegibility;
-        }
-        
-        .report-container { 
-          width: 100%; 
-          margin: 0 auto; 
-          position: relative; 
-          background: #ffffff;
-          min-height: auto;
-          padding: ${isContinuous ? '60px' : '40px'};
-          box-sizing: border-box;
-        }
-        
-        /* Professional Header */
-        .report-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 50px;
-          padding: 30px;
-          background: #f1f5f9;
-          border-radius: 20px;
-          border: 1px solid #e2e8f0;
-        }
-        .store-info h1 { font-size: 32px; font-weight: 900; color: #0f172a; margin: 0; text-align: right; letter-spacing: -1px; }
-        .store-info p { margin: 5px 0; color: #64748b; font-size: 14px; font-weight: 600; }
-        .report-meta { text-align: left; }
-        .report-meta .title { 
-          font-size: 20px; 
-          font-weight: 900; 
-          color: #1e3a8a; 
-          display: block; 
-          background: #dbeafe; 
-          padding: 8px 20px; 
-          border-radius: 50px;
-          margin-bottom: 10px;
-        }
-        .report-meta .date { font-size: 12px; color: #94a3b8; font-weight: 600; }
+        <meta charset="UTF-8">
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --primary: #1e3a8a; --primary-soft: #dbeafe; --success: #059669; --danger: #dc2626;
+                --slate-50: #f8fafc; --slate-100: #f1f5f9; --slate-200: #e2e8f0; --slate-700: #334155; --slate-900: #0f172a;
+            }
+            @page { size: ${orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait'}; margin: 10mm; }
+            body { font-family: 'Cairo', sans-serif; background: #fdfdfd; color: var(--slate-900); margin: 0; padding: 0; line-height: 1.6; }
+            .report-container { width: 100%; max-width: 210mm; margin: 0 auto; background: white; padding: 40px; box-sizing: border-box; }
+            ${orientation === 'landscape' ? '.report-container { max-width: 297mm; }' : ''}
+            
+            .header-banner { background: var(--slate-900); color: white; padding: 40px; border-radius: 24px; margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+            .header-banner h1 { margin: 0; font-size: 36px; font-weight: 900; letter-spacing: -1px; }
+            
+            .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 40px; }
+            .stat-card { background: white; padding: 25px; border-radius: 20px; border: 1px solid var(--slate-200); text-align: center; position: relative; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+            .stat-card::before { content: ""; position: absolute; top: 0; right: 0; width: 5px; height: 100%; background: var(--primary); }
+            .stat-card .label { font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; margin-bottom: 10px; display: block; }
+            .stat-card .value { font-size: 26px; font-weight: 900; color: var(--slate-900); }
 
-        /* Typography */
-        h2 { font-size: 22px; font-weight: 900; color: #1e3a8a; margin: 40px 0 20px 0; display: flex; align-items: center; gap: 15px; }
-        h2::after { content: ""; flex: 1; height: 3px; background: linear-gradient(to left, #e5e7eb, transparent); }
-        h3 { font-size: 18px; font-weight: 700; margin: 30px 0 15px 0; color: #1e40af; }
-        h4 { font-size: 15px; font-weight: 700; margin: 20px 0 12px 0; color: #374151; }
+            .section-header { font-size: 22px; font-weight: 900; color: var(--primary); margin: 50px 0 25px 0; padding-bottom: 12px; border-bottom: 4px solid var(--slate-100); display: flex; align-items: center; gap: 15px; }
+            .section-header::before { content: ""; width: 8px; height: 30px; background: var(--primary); border-radius: 4px; }
 
-        /* Tables */
-        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 40px; background: white; table-layout: fixed; font-size: 11px; border-radius: 16px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
-        th, td { border: none; border-bottom: 1px solid #f1f5f9; padding: 14px 10px; text-align: center; word-wrap: break-word; white-space: normal !important; }
-        th { background-color: #f8fafc; color: #1e293b; font-weight: 800; font-size: 11px; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
-        thead { display: table-header-group; }
-        tr:last-child td { border-bottom: none; }
-        tr:nth-child(even) { background-color: #fafafa; }
-        tr:hover { background-color: #f1f5f9; }
-        
-        /* Column Widths */
-        .col-id { width: 40px; }
-        .col-customer { width: 120px; }
-        .col-products { width: 250px; text-align: right !important; }
-        .col-status { width: 100px; }
-        .col-num { width: 80px; }
-        .col-profit { width: 90px; }
+            .modern-table { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 30px; border: 1px solid var(--slate-200); border-radius: 16px; overflow: hidden; }
+            .modern-table th { background: var(--slate-50); color: var(--slate-700); font-size: 12px; font-weight: 800; padding: 18px 12px; border-bottom: 2px solid var(--slate-200); text-align: center; }
+            .modern-table td { padding: 15px 12px; font-size: 13px; border-bottom: 1px solid var(--slate-100); text-align: center; color: #475569; }
+            .modern-table tr:last-child td { border-bottom: none; }
+            .total-row { background: var(--slate-100) !important; font-weight: 900; color: var(--slate-900) !important; }
+            
+            .stage-banner { display: flex; align-items: center; gap: 20px; background: white; padding: 25px; border-radius: 20px; margin-bottom: 30px; border-right: 8px solid var(--primary); box-shadow: 0 4px 15px rgba(0,0,0,0.04); }
+            .stage-number { width: 45px; height: 45px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 22px; }
+            .stage-title { font-size: 20px; font-weight: 900; color: var(--primary); margin: 0; }
 
-        .total-row { background-color: #f1f5f9 !important; font-weight: 900; color: #0f172a; }
-        .total-row td { border-top: 2px solid #1e3a8a; }
+            .final-banner { background: linear-gradient(135deg, var(--slate-900) 0%, var(--primary) 100%); color: white; padding: 60px; border-radius: 32px; text-align: center; margin: 60px 0; box-shadow: 0 30px 60px rgba(30, 58, 138, 0.2); }
+            .final-banner .amount { font-size: 72px; font-weight: 900; margin: 25px 0; letter-spacing: -2px; }
+            
+            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+            .col-products { text-align: right !important; font-size: 11px; }
 
-        /* Layout Components */
-        .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; margin-bottom: 40px; }
-        .stat-card { 
-          background: #ffffff; 
-          border: 1px solid #e2e8f0; 
-          border-radius: 24px; 
-          padding: 30px; 
-          text-align: center; 
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
-          position: relative;
-          overflow: hidden;
-          border-bottom: 4px solid #e2e8f0;
-        }
-        .stat-card::before {
-          content: "";
-          position: absolute;
-          top: 0; right: 0; width: 6px; height: 100%;
-          background: #3b82f6;
-        }
-        .stat-card .label { font-size: 13px; color: #64748b; margin-bottom: 12px; display: block; font-weight: 700; text-transform: uppercase; }
-        .stat-card .value { font-size: 32px; font-weight: 900; color: #0f172a; letter-spacing: -1px; }
-        .stat-card .sub-label { font-size: 10px; color: #94a3b8; margin-top: 10px; display: block; font-weight: 500; }
-
-        .stage-banner { 
-          display: flex; 
-          align-items: center; 
-          gap: 20px; 
-          background: #ffffff; 
-          padding: 20px 30px; 
-          border-radius: 16px; 
-          margin-bottom: 20px; 
-          border-right: 8px solid #3b82f6;
-          break-inside: avoid;
-          box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-          position: relative;
-        }
-        .stage-banner.green { border-right-color: #10b981; background: #f0fdf4; }
-        .stage-banner.green .stage-number { background: #10b981; }
-        .stage-banner.green .stage-title { color: #065f46; }
-
-        .stage-number { 
-          width: 40px; 
-          height: 40px; 
-          background: #3b82f6; 
-          color: white; 
-          border-radius: 50%; 
-          display: flex; 
-          align-items: center; 
-          justify-content: center; 
-          font-weight: 900; 
-          font-size: 20px;
-          box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
-        }
-        .stage-title { font-size: 22px; font-weight: 900; color: #1e3a8a; margin: 0; }
-
-        .explanation-box { 
-          background: #ffffff; 
-          border-radius: 12px; 
-          padding: 18px 25px; 
-          margin-bottom: 30px; 
-          font-size: 12px; 
-          color: #475569; 
-          line-height: 1.8;
-          border-right: 4px solid #e2e8f0;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-        }
-
-        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 35px; }
-        .metric-box { 
-          background: #ffffff; 
-          border: 1px solid #f1f5f9; 
-          padding: 20px; 
-          border-radius: 16px; 
-          text-align: center;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-          transition: transform 0.2s;
-          position: relative;
-          overflow: hidden;
-        }
-        .metric-box h4 { margin: 0 0 12px 0; font-size: 12px; color: #64748b; font-weight: 600; }
-        .metric-box p { margin: 0; font-size: 22px; font-weight: 900; color: #1e2937; }
-        .metric-box .sub-text { font-size: 10px; color: #94a3b8; margin-top: 10px; display: block; }
-        
-        .progress-bar {
-          height: 6px;
-          background: #f1f5f9;
-          border-radius: 3px;
-          margin-top: 15px;
-          overflow: hidden;
-        }
-        .progress-fill {
-          height: 100%;
-          background: #3b82f6;
-          border-radius: 3px;
-        }
-        .progress-fill.green { background: #10b981; }
-        .progress-fill.red { background: #ef4444; }
-
-        .final-banner { 
-          background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); 
-          color: white; 
-          padding: 60px 40px; 
-          border-radius: 32px; 
-          text-align: center; 
-          margin: 60px 0;
-          box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.3);
-          position: relative;
-          overflow: hidden;
-        }
-        .final-banner::after {
-          content: "";
-          position: absolute;
-          top: -50%; left: -50%; width: 200%; height: 200%;
-          background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
-          pointer-events: none;
-        }
-        .final-banner h3 { margin: 0; font-size: 20px; font-weight: 600; opacity: 0.8; color: white; text-transform: uppercase; letter-spacing: 2px; }
-        .final-banner .amount { font-size: 64px; font-weight: 900; margin: 20px 0; letter-spacing: -2px; text-shadow: 0 10px 20px rgba(0,0,0,0.2); }
-        .final-banner p { font-size: 14px; opacity: 0.7; max-width: 600px; margin: 0 auto; line-height: 1.6; }
-        
-        .income-statement { border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.05); background: #fff; }
-        .income-statement tr td { padding: 18px 25px; text-align: right; border-bottom: 1px solid #f1f5f9; }
-        .income-statement tr td:last-child { text-align: left; font-weight: 800; width: 180px; font-size: 14px; color: #0f172a; }
-        .income-statement .group-header { background: #f8fafc; font-weight: 900; color: #1e3a8a; border-top: 1px solid #e2e8f0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
-        .income-statement .indent { padding-right: 50px; color: #64748b; font-size: 12px; }
-        .income-statement .total-line { border-top: 2px solid #1e3a8a; background: #f0f9ff; font-weight: 900; color: #1e3a8a; }
-        .income-statement tr:last-child td { border-bottom: none; }
-
-        .recommendation-box { 
-          background: #fffaf0; 
-          border: 1px solid #feebc8; 
-          border-radius: 12px; 
-          padding: 20px; 
-          margin-top: 30px;
-          break-inside: avoid;
-        }
-        .recommendation-box h4 { color: #c05621; margin-top: 0; display: flex; align-items: center; gap: 8px; }
-
-        .signature-section {
-          margin-top: 80px;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 60px;
-          padding: 40px;
-          background: #f8fafc;
-          border-radius: 24px;
-          border: 1px solid #e2e8f0;
-          break-inside: avoid;
-        }
-        .signature-box { text-align: center; color: #1e293b; }
-        .signature-box p { font-weight: 800; font-size: 14px; margin-bottom: 40px; color: #475569; }
-        .signature-line { border-top: 2px solid #cbd5e1; width: 200px; margin: 0 auto; }
-        .signature-box span { font-size: 11px; color: #94a3b8; display: block; margin-top: 10px; }
-
-        .page-break { height: 0; margin: 0; padding: 0; page-break-before: ${isContinuous ? 'avoid' : 'always'}; break-before: ${isContinuous ? 'avoid' : 'page'}; }
-        .no-break { break-inside: avoid; page-break-inside: avoid; }
-
-        ${orientation === 'portrait' ? `
-          .report-container { padding: ${isContinuous ? '40px 20px' : '15px'}; }
-          .report-header { padding: 15px; margin-bottom: 20px; flex-direction: column; text-align: center; gap: 10px; }
-          .store-info h1 { font-size: 22px; text-align: center; }
-          .report-meta { text-align: center; }
-          .summary-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-          .stat-card { padding: 12px; border-radius: 12px; }
-          .stat-card .value { font-size: 18px; }
-          .metrics-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
-          .metric-box { padding: 10px; }
-          .metric-box p { font-size: 14px; }
-          table { font-size: 7.5px; border-radius: 8px; margin-bottom: 15px; }
-          th, td { padding: 5px 3px; }
-          .col-products { width: 100px; }
-          .col-customer { width: 60px; }
-          .col-num { width: 40px; }
-          .col-profit { width: 50px; }
-          .col-status { width: 55px; }
-          .final-banner { padding: 25px 15px; margin: 25px 0; border-radius: 16px; }
-          .final-banner .amount { font-size: 32px; }
-          .income-statement tr td { padding: 8px 12px; font-size: 10px; }
-          .income-statement tr td:last-child { width: 100px; font-size: 11px; }
-          .signature-section { grid-template-columns: 1fr 1fr; gap: 20px; padding: 15px; margin-top: 30px; }
-          h2 { font-size: 16px; margin: 15px 0 8px 0; }
-          h3 { font-size: 14px; margin: 12px 0 8px 0; }
-        ` : ''}
-
-        /* Watermark */
-        .watermark {
-          position: fixed;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%) rotate(-45deg);
-          font-size: 150px;
-          color: rgba(0,0,0,0.02);
-          pointer-events: none;
-          z-index: -1;
-          white-space: nowrap;
-          font-weight: 900;
-        }
-
-        tfoot { display: table-row-group; }
-        ${getPrintControlBarCSS()}
-      </style>
+            .signature-section { margin-top: 100px; display: grid; grid-template-columns: 1fr 1fr; gap: 100px; padding: 40px; background: var(--slate-50); border-radius: 24px; border: 1px solid var(--slate-200); }
+            .signature-box { text-align: center; }
+            .signature-line { border-top: 2px solid var(--slate-200); width: 200px; margin: 30px auto 10px auto; }
+            
+            @media print {
+                body { background: white; }
+                .report-container { box-shadow: none; padding: 0; width: 100%; }
+                .header-banner { border-radius: 0; box-shadow: none; }
+                .final-banner { break-inside: avoid; }
+                .modern-table { break-inside: auto; }
+                tr { break-inside: avoid; }
+            }
+        </style>
     </head>
     <body>
-      ${getPrintControlBarHTML('ملخص الأداء والمركز المالي')}
-      <div class="watermark">${storeName}</div>
-      <div class="report-container">
-        <div class="report-header">
-          <div class="store-info">
-            <h1>${storeName}</h1>
-            <p>ملخص شامل لأداء متجرك والمركز المالي للشركاء</p>
-            ${dateRangeText ? `<p style="color: #1e3a8a; font-weight: bold; margin: 4px 0;">الفترة: ${dateRangeText}</p>` : ''}
-            <p>${new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-          </div>
-          <div class="report-meta">
-            <span class="title">الملخص الشامل</span>
-            <span class="date">تاريخ الاستخراج: ${new Date().toLocaleTimeString('ar-EG')}</span>
-          </div>
-        </div>
+        <div class="report-container">
+            <div class="header-banner">
+                <div>
+                    <h1>${storeName}</h1>
+                    <p style="opacity: 0.9; margin-top: 8px; font-weight: 600; font-size: 18px;">تقرير الأداء الاستراتيجي والمركز المالي الشامل</p>
+                </div>
+                <div style="text-align: left;">
+                    <div style="font-weight: 800; font-size: 22px; background: rgba(255,255,255,0.1); padding: 10px 25px; border-radius: 50px;">${dateRangeText || 'الفترة الكاملة'}</div>
+                    <div style="font-size: 13px; opacity: 0.7; margin-top: 15px;">استخراج: ${new Date().toLocaleDateString('ar-EG')} - ${new Date().toLocaleTimeString('ar-EG')}</div>
+                </div>
+            </div>
 
-        <div class="summary-grid no-break">
-          <div class="stat-card">
-            <span class="label">إجمالي المبيعات</span>
-            <span class="value">${(totalProductRevenue + totalProductExtraMarkup + totalShippingRevenue + totalOverrideAdjustment).toLocaleString()} ج.م</span>
-            <span class="sub-label">(ثمن المنتجات + الزيادة + تحصيل الشحن)</span>
-          </div>
-          <div class="stat-card" style="border-top: 4px solid #1e3a8a;">
-            <span class="label">صافي الربح النهائي</span>
-            <span class="value" style="color: #1e3a8a;">${finalNet.toLocaleString()} ج.م</span>
-            <span class="sub-label">(الأرباح - الخسائر - المصاريف)</span>
-          </div>
-          <div class="stat-card">
-            <span class="label">إجمالي المشتروات</span>
-            <span class="value" style="color: #e11d48;">${totalInventoryPurchases.toLocaleString()} ج.م</span>
-            <span class="sub-label">(بضاعة جديدة من الموردين)</span>
-          </div>
-          <div class="stat-card">
-            <span class="label">نسبة النجاح</span>
-            <span class="value" style="color: ${successRate >= 70 ? '#15803d' : '#b91c1c'};">${successRate.toFixed(1)}%</span>
-            <span class="sub-label">(الناجح ÷ إجمالي الطلبات)</span>
-          </div>
-          <div class="stat-card">
-            <span class="label">قيمة المخزون</span>
-            <span class="value">${inventoryValue.toLocaleString()} ج.م</span>
-            <span class="sub-label">(سعر التكلفة)</span>
-          </div>
-        </div>
+            <div class="stats-grid">
+                <div class="stat-card"><span class="label">إجمالي المطلوب تحصيله</span><span class="value">${totalRequiredCollection.toLocaleString()}</span></div>
+                <div class="stat-card"><span class="label">إجمالي مبيعات المنتجات</span><span class="value">${totalProductRevenue.toLocaleString()}</span></div>
+                <div class="stat-card"><span class="label">إجمالي المشتريات</span><span class="value" style="color: var(--danger);">${totalInventoryPurchases.toLocaleString()}</span></div>
+                <div class="stat-card"><span class="label">نسبة نجاح التوصيل</span><span class="value" style="color: var(--success);">${successRate.toFixed(1)}%</span></div>
+                <div class="stat-card" style="background: var(--primary-soft); border-color: var(--primary);"><span class="label" style="color: var(--primary);">صافي الربح النهائي</span><span class="value" style="color: var(--primary);">${finalNet.toLocaleString()}</span></div>
+            </div>
 
-        <!-- Stage 1 -->
-        <div class="stage-banner no-break">
-          <div class="stage-number">1</div>
-          <h3 class="stage-title">المرحلة الأولى: الإيرادات والتدفقات (Revenues)</h3>
-        </div>
-        <div class="explanation-box no-break">
-          تمثل هذه المرحلة "إجمالي المال الداخل" للمتجر قبل خصم أي تكاليف. تشمل ثمن المنتجات الأساسي، الزيادة السعرية (Markup)، ومبالغ الشحن المحصلة من العملاء.
-        </div>
-        <div class="metrics-grid no-break">
-          <div class="metric-box"><h4>مبيعات المنتجات</h4><p>${totalProductRevenue.toLocaleString()}</p></div>
-          <div class="metric-box"><h4>الزيادة والتعديل</h4><p>${(totalProductExtraMarkup + totalOverrideAdjustment).toLocaleString()}</p></div>
-          <div class="metric-box"><h4>تحصيل الشحن</h4><p>${totalShippingRevenue.toLocaleString()}</p></div>
-          <div class="metric-box" style="background: #eff6ff;"><h4>إجمالي الإيرادات</h4><p style="color: #1e40af;">${(totalProductRevenue + totalProductExtraMarkup + totalShippingRevenue + totalOverrideAdjustment).toLocaleString()}</p></div>
-        </div>
+            <div class="stage-banner">
+                <div class="stage-number">1</div>
+                <h3 class="stage-title">المرحلة الأولى: تحليل الإيرادات (Revenues)</h3>
+            </div>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">بند الإيرادات</th><th>المبلغ المحصل</th></tr></thead>
+                <tbody>
+                    <tr><td style="text-align: right;">مبيعات المنتجات (السعر الأساسي)</td><td style="color: var(--success);">+${totalProductRevenue.toLocaleString()} ج.م</td></tr>
+                    <tr><td style="text-align: right;">أرباح التعلية والتسويات اليدوية</td><td style="color: var(--success);">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
+                    <tr><td style="text-align: right;">إجمالي تحصيل الشحن من العملاء</td><td style="color: var(--success);">+${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
+                    ${totalInspectionRevenue > 0 ? `<tr><td style="text-align: right;">إجمالي رسوم المعاينة</td><td style="color: var(--success);">+${totalInspectionRevenue.toLocaleString()} ج.م</td></tr>` : ''}
+                    <tr class="total-row"><td style="text-align: right;">إجمالي التدفقات النقدية الداخلة</td><td>${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue + totalInspectionRevenue).toLocaleString()} ج.م</td></tr>
+                </tbody>
+            </table>
 
-        <!-- Stage 2 -->
-        <div class="stage-banner no-break" style="border-right-color: #475569;">
-          <div class="stage-number" style="background: #475569;">2</div>
-          <h3 class="stage-title">المرحلة الثانية: التكاليف المباشرة (Direct Costs)</h3>
-        </div>
-        <div class="explanation-box no-break">
-          نخصم هنا التكاليف الحتمية لإتمام البيع: ثمن البضاعة للموردين ومصاريف الشحن المدفوعة لشركات الشحن للطلبات الناجحة.
-        </div>
-        <div class="metrics-grid no-break" style="grid-template-columns: repeat(2, 1fr);">
-          <div class="metric-box"><h4>مستحقات الموردين</h4><p style="color: #475569;">${totalCogs.toLocaleString()}</p></div>
-          <div class="metric-box"><h4>مصاريف شحن الذهاب</h4><p style="color: #dc2626;">-${totalActualShipping.toLocaleString()}</p></div>
-        </div>
+            <div class="stage-banner" style="border-right-color: var(--danger);">
+                <div class="stage-number" style="background: var(--danger);">2</div>
+                <h3 class="stage-title">المرحلة الثانية: التكاليف والمصروفات التشغيلية (Operating Costs & Expenses)</h3>
+            </div>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">بند التكاليف</th><th>المبلغ</th></tr></thead>
+                <tbody>
+                    <tr><td style="text-align: right;">رسوم تشغيل (تأمين + معاينة + COD) للناجح</td><td style="color: var(--danger);">-${totalSuccessFeesOnly.toLocaleString()} ج.م</td></tr>
+                    <tr><td style="text-align: right;">خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">-${totalLoss.toLocaleString()} ج.م</td></tr>
+                    <tr><td style="text-align: right;">المصروفات الإدارية (إعلانات، رواتب، إيجار)</td><td style="color: var(--danger);">-${totalExpenses.toLocaleString()} ج.م</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">إجمالي التكاليف والمصروفات التشغيلية</td><td>-${(totalSuccessFeesOnly + totalLoss + totalExpenses).toLocaleString()} ج.م</td></tr>
+                </tbody>
+            </table>
 
-        <!-- Stage 3 -->
-        <div class="stage-banner no-break" style="border-right-color: #d97706;">
-          <div class="stage-number" style="background: #d97706;">3</div>
-          <h3 class="stage-title">المرحلة الثالثة: الرسوم والخدمات (Fees)</h3>
-        </div>
-        <div class="explanation-box no-break">
-          رسوم "تسهيل العمل" التي تقتطعها شركات الشحن أو الخدمات: التأمين، المعاينة، ورسوم تحصيل الكاش (COD).
-        </div>
-        <div class="metrics-grid no-break" style="grid-template-columns: repeat(3, 1fr);">
-          <div class="metric-box"><h4>إجمالي التأمين</h4><p>${totalInsuranceFees.toLocaleString()}</p></div>
-          <div class="metric-box"><h4>إجمالي المعاينة</h4><p>${totalInspectionFees.toLocaleString()}</p></div>
-          <div class="metric-box"><h4>رسوم COD</h4><p>${totalCodFees.toLocaleString(undefined, {maximumFractionDigits: 2})}</p></div>
-        </div>
+            <div class="final-banner">
+                <div style="font-size: 24px; opacity: 0.8; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">صافي الربح النهائي</div>
+                <div class="amount">${finalNet.toLocaleString()} ج.م</div>
+                <p style="opacity: 0.7; font-size: 18px;">نقطة التعادل: تحتاج إلى ${breakEvenOrders} طلب ناجح إضافي لتغطية المصروفات الثابتة.</p>
+            </div>
 
-        <!-- Stage 4 -->
-        <div class="stage-banner no-break" style="border-right-color: #dc2626;">
-          <div class="stage-number" style="background: #dc2626;">4</div>
-          <h3 class="stage-title">المرحلة الرابعة: الخسائر والمصروفات (Losses & Expenses)</h3>
-        </div>
-        <div class="explanation-box no-break">
-          التكاليف المهدرة والمصروفات العامة: خسائر شحن وتأمين المرتجعات، والمصروفات الإدارية (إعلانات، رواتب، إيجار).
-        </div>
-        <div class="metrics-grid no-break" style="grid-template-columns: repeat(2, 1fr);">
-          <div class="metric-box">
-            <h4>خسائر المرتجعات</h4>
-            <p style="color: #dc2626;">-${totalLoss.toLocaleString()}</p>
-            <span class="sub-text">تكلفة شحن المرتجعات المفقودة</span>
-          </div>
-          <div class="metric-box">
-            <h4>المصروفات الإدارية</h4>
-            <p style="color: #dc2626;">-${totalExpenses.toLocaleString()}</p>
-            <span class="sub-text">إعلانات، رواتب، إيجار، إلخ</span>
-          </div>
-        </div>
+            <h2 class="section-header">3. قائمة الدخل الموحدة (Statement of Income)</h2>
+            <table class="modern-table" style="background: var(--slate-50);">
+                <thead>
+                    <tr><th style="text-align: right;">البند المالي</th><th>القيمة (ج.م)</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td style="text-align: right; font-weight: bold;">(+) إجمالي مبيعات المنتجات والخدمات</td><td>${(totalProductRevenue + totalExtraMarkup + totalInspectionRevenue).toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) تكلفة البضاعة المباعة (COGS)</td><td style="color: var(--danger);">-${totalCogs.toLocaleString()}</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">(=) مجمل ربح المنتجات (Product Gross Profit)</td><td>${(totalProductRevenue + totalExtraMarkup + totalInspectionRevenue - totalCogs).toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(+) أرباح زيادة الشحن (Shipping Markup)</td><td style="color: var(--success);">+${(totalShippingRevenue - totalSuccessShippingOnly).toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) رسوم تشغيل الطلبات الناجحة (تأمين/معاينة/تحصيل)</td><td style="color: var(--danger);">-${totalSuccessFeesOnly.toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">-${totalLoss.toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) المصروفات الإدارية والتشغيلية</td><td style="color: var(--danger);">-${totalExpenses.toLocaleString()}</td></tr>
+                    <tr class="total-row" style="background: var(--primary) !important; color: white !important;">
+                        <td style="text-align: right;">(=) صافي الربح النهائي (Net Profit)</td>
+                        <td>${finalNet.toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>
 
-        <!-- Stage 5 -->
-        <div class="stage-banner green no-break">
-          <div class="stage-number">5</div>
-          <h3 class="stage-title">المرحلة الخامسة: تحليل الأداء والنمو (Analysis)</h3>
-        </div>
-        <div class="explanation-box no-break">
-          هذه المرحلة مخصصة لاتخاذ القرارات. توضح كفاءة العمل من خلال نسب النجاح، وتوزيع الأرباح حسب المناطق والمنتجات وشركات الشحن.
-        </div>
-        <div class="metrics-grid no-break" style="grid-template-columns: repeat(3, 1fr);">
-          <div class="metric-box" style="border: 2px solid #10b981;">
-            <h4>نسبة نجاح التوصيل</h4>
-            <p style="color: #10b981;">${successRate.toFixed(1)}%</p>
-            <span class="sub-text">تقيس مدى كفاءة الشحن وتأكيد الأوردرات</span>
-            <div class="progress-bar"><div class="progress-fill green" style="width: ${successRate}%"></div></div>
-          </div>
-          <div class="metric-box" style="border-bottom: 4px solid #ef4444;">
-            <h4>نسبة الخسارة إلى الربح</h4>
-            <p style="color: #ef4444;">${((totalLoss / (totalProfit || 1)) * 100).toFixed(1)}%</p>
-            <span class="sub-text">توضح كم يستهلك المرتجع من أرباحك الصافية</span>
-            <div class="progress-bar"><div class="progress-fill red" style="width: ${Math.min(100, (totalLoss / (totalProfit || 1)) * 100)}%"></div></div>
-          </div>
-          <div class="metric-box">
-            <h4>متوسط الربح للطلب</h4>
-            <p style="color: #3b82f6;">${(finalNet / (collectedOrders.length || 1)).toFixed(2)} ج.م</p>
-            <span class="sub-text">الربح الفعلي الصافي لكل أوردر بعد كل التكاليف</span>
-            <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
-          </div>
-        </div>
+            <h2 class="section-header">4. الأداء التشغيلي (Operational Performance)</h2>
+            <div class="grid-2">
+                <div>
+                    <h4 style="margin-bottom: 15px; color: var(--slate-700);">أداء شركات الشحن</h4>
+                    <table class="modern-table">
+                        <thead><tr><th>الشركة</th><th>الطلبات</th><th>النجاح</th><th>الشحن</th><th>الصافي</th></tr></thead>
+                        <tbody>${carrierRows}</tbody>
+                    </table>
+                </div>
+                <div>
+                    <h4 style="margin-bottom: 15px; color: var(--slate-700);">التحليل الجغرافي</h4>
+                    <table class="modern-table">
+                        <thead><tr><th>المنطقة</th><th>الطلبات</th><th>النجاح</th><th>الصافي</th></tr></thead>
+                        <tbody>${geoRows}</tbody>
+                    </table>
+                </div>
+            </div>
 
-        <div style="break-before: ${isContinuous ? 'avoid' : 'page'}; page-break-before: ${isContinuous ? 'avoid' : 'always'};">
-          <h2 class="no-break">القائمة المالية الموحدة (Unified Statement)</h2>
-          <table class="income-statement no-break">
-            <tr class="group-header"><td colspan="2">1. الإيرادات (Revenues)</td></tr>
-            <tr><td class="indent">إجمالي مبيعات المنتجات (بالسعر الأساسي)</td><td style="color: #10b981;">+${totalProductRevenue.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">إيرادات الزيادة في السعر والتعديلات اليدوية</td><td style="color: #10b981;">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">إجمالي تحصيل الشحن من العملاء</td><td style="color: #10b981;">+${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
-            <tr class="total-line"><td>(=) إجمالي الإيرادات (Total Revenue)</td><td>${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue).toLocaleString()} ج.م</td></tr>
+            <h2 class="section-header">4. ربحية المنتجات (Product Profitability)</h2>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">اسم المنتج</th><th>المباع</th><th>المرتجع</th><th>إجمالي الربح</th></tr></thead>
+                <tbody>${productRows}</tbody>
+            </table>
 
-            <tr class="group-header"><td colspan="2">2. تكلفة المبيعات (Cost of Goods Sold)</td></tr>
-            <tr><td class="indent">(-) إجمالي مستحقات الموردين (ثمن البضاعة)</td><td style="color: #dc2626;">-${totalCogs.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">(-) إجمالي مصاريف شحن الذهاب (لشركات الشحن)</td><td style="color: #dc2626;">-${totalActualShipping.toLocaleString()} ج.م</td></tr>
-            
-            <tr class="group-header"><td colspan="2">3. إجمالي الربح التشغيلي (Gross Profit)</td></tr>
-            <tr><td class="indent">تفصيل الربح: ربح العمولة</td><td style="color: #10b981;">+${(totalCommissionProfit - totalProductExtraMarkup).toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">تفصيل الربح: الزيادة في السعر وفرق الشحن</td><td style="color: #10b981;">+${(totalExtraMarkup + totalShippingMarkup).toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">تفصيل الربح: ربح المبيعات</td><td style="color: #10b981;">+${(totalPercentageProfit - (totalOverrideAdjustment < 0 ? totalOverrideAdjustment : 0)).toLocaleString()} ج.م</td></tr>
-            <tr class="total-line"><td>(=) إجمالي الربح التشغيلي</td><td>${(totalCommissionProfit + totalPercentageProfit + totalShippingMarkup + totalOverrideAdjustment).toLocaleString()} ج.م</td></tr>
+            <h2 class="section-header">6. سجل التحصيل المالي (Collection Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
+                <tbody>${collectedRows}</tbody>
+            </table>
 
-            <tr class="group-header"><td colspan="2">4. الخسائر والمصروفات (Losses & Expenses)</td></tr>
-            <tr><td class="indent">(-) إجمالي رسوم التأمين والمعاينة والتحصيل</td><td style="color: #dc2626;">-${(totalInsuranceFees + totalInspectionFees + totalCodFees).toLocaleString(undefined, {maximumFractionDigits: 2})} ج.م</td></tr>
-            <tr><td class="indent">(-) إجمالي خسائر المرتجعات والفشل</td><td style="color: #dc2626;">-${totalLoss.toLocaleString()} ج.م</td></tr>
-            <tr><td class="indent">(-) إجمالي المصروفات الإدارية (إعلانات، رواتب...)</td><td style="color: #dc2626;">-${totalExpenses.toLocaleString()} ج.م</td></tr>
-            
-            <tr class="group-header"><td colspan="2">5. المشتروات (Purchases)</td></tr>
-            <tr><td class="indent">إجمالي مشتريات البضاعة الجديدة</td><td style="color: #e11d48;">-${totalInventoryPurchases.toLocaleString()} ج.م</td></tr>
+            ${failedRows ? `
+            <h2 class="section-header" style="color: var(--danger);">7. سجل المرتجعات والخسائر (Loss Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>الحالة</th><th>شحن</th><th>تأمين</th><th>معاينة</th><th>مرتجع</th><th>الخسارة</th></tr></thead>
+                <tbody>${failedRows}</tbody>
+            </table>` : ''}
 
-            <tr class="total-line" style="background: #1e3a8a; color: white; font-size: 18px;">
-              <td>صافي الربح النهائي</td>
-              <td>${finalNet.toLocaleString()} ج.م</td>
-            </tr>
-          </table>
+            <h2 class="section-header">8. المصروفات الإدارية والتشغيلية (Expenses Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>التاريخ</th><th style="text-align: right;">البيان</th><th>المبلغ</th></tr></thead>
+                <tbody>
+                    ${expenseRows || '<tr><td colspan="3">لا توجد مصروفات إدارية خلال هذه الفترة.</td></tr>'}
+                    <tr class="total-row"><td colspan="2" style="text-align: right;">إجمالي المصروفات</td><td>${totalExpenses.toLocaleString()} ج.م</td></tr>
+                </tbody>
+            </table>
 
-          <div class="final-banner no-break">
-            <h3>صافي الربح النهائي (The Bottom Line)</h3>
-            <div class="amount">${finalNet.toLocaleString()} ج.م</div>
-            <p style="font-size: 14px; opacity: 0.8;">نقطة التعادل: تحتاج إلى ${breakEvenOrders} أوردر ناجح إضافي لتغطية المصروفات الإدارية.</p>
-          </div>
+            <h2 class="section-header">9. حركة المخزون والمشتريات (Inventory & Purchases)</h2>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">البند</th><th>المبلغ (ج.م)</th></tr></thead>
+                <tbody>
+                    <tr><td style="text-align: right;">إجمالي قيمة مشتريات المخزون (خلال الفترة)</td><td>${totalInventoryPurchases.toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">تكلفة البضاعة المباعة (المسحوبة من المخزون)</td><td>${totalCogs.toLocaleString()}</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">التدفق النقدي للمخزون</td><td style="color: ${totalInventoryPurchases > totalCogs ? 'var(--danger)' : 'var(--success)'};">${(totalCogs - totalInventoryPurchases).toLocaleString()}</td></tr>
+                </tbody>
+            </table>
 
-          <div class="no-break">
+            ${partnerDetailsHtml}
+            ${custodyDetailsHtml}
             ${recommendationHtml}
-          </div>
 
-          ${partnerDetailsHtml}
-          ${custodyDetailsHtml}
+            <div class="signature-section">
+                <div class="signature-box">
+                    <p style="font-weight: 800; color: var(--slate-700); margin-bottom: 40px;">توقيع المحاسب المسئول</p>
+                    <div class="signature-line"></div>
+                    <span style="font-size: 12px; color: #94a3b8;">الاسم: ...........................................</span>
+                </div>
+                <div class="signature-box">
+                    <p style="font-weight: 800; color: var(--slate-700); margin-bottom: 40px;">اعتماد إدارة المتجر</p>
+                    <div class="signature-line"></div>
+                    <span style="font-size: 12px; color: #94a3b8;">الاسم: ...........................................</span>
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 50px; color: #94a3b8; font-size: 12px; border-top: 1px solid var(--slate-200); padding-top: 25px;">
+                تم استخراج هذا التقرير آلياً بواسطة نظام "مدير الأوردرات الذكي" &copy; ${new Date().getFullYear()}
+            </div>
         </div>
-
-        <div style="break-before: ${isContinuous ? 'avoid' : 'page'}; page-break-before: ${isContinuous ? 'avoid' : 'always'};">
-          <h2>الملاحق التفصيلية (Detailed Tables)</h2>
-        
-        <h3>أ- تفاصيل الأرباح (الطلبات الناجحة)</h3>
-        <table>
-          <colgroup>
-            <col class="col-id">
-            <col class="col-customer">
-            <col class="col-products">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-profit">
-          </colgroup>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>العميل</th>
-              <th>المنتجات المباعة</th>
-              <th>سعر البيع</th>
-              <th>الشحن</th>
-              <th>التكلفة</th>
-              <th>تأمين</th>
-              <th>معاينة</th>
-              <th>COD</th>
-              <th>صافي الربح</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${collectedRows || '<tr><td colspan="10">لا توجد طلبات ناجحة.</td></tr>'}
-            ${collectedOrders.length > 0 ? `
-            <tr class="total-row">
-              <td colspan="3">إجمالي الطلبات الناجحة (${collectedOrders.length})</td>
-              <td>${(totalProductRevenue + totalExtraMarkup).toLocaleString()}</td>
-              <td>${totalShippingRevenue.toLocaleString()}</td>
-              <td>${totalCogs.toLocaleString()}</td>
-              <td>${totalInsuranceFees.toLocaleString()}</td>
-              <td>${totalInspectionFees.toLocaleString()}</td>
-              <td>${totalCodFees.toLocaleString()}</td>
-              <td style="color: #15803d;">${totalProfit.toLocaleString()}</td>
-            </tr>` : ''}
-          </tbody>
-        </table>
-
-        <h3>ب- تفاصيل الخسائر (الطلبات الفاشلة)</h3>
-        <table>
-          <colgroup>
-            <col class="col-id">
-            <col class="col-customer">
-            <col class="col-products">
-            <col class="col-status">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-num">
-            <col class="col-profit">
-          </colgroup>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>العميل</th>
-              <th>المنتجات</th>
-              <th>الحالة</th>
-              <th>شحن ذهاب</th>
-              <th>تأمين</th>
-              <th>معاينة</th>
-              <th>شحن مرتجع</th>
-              <th>الخسارة</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${failedRows || '<tr><td colspan="9">لا توجد طلبات فاشلة.</td></tr>'}
-            ${failedOrders.length > 0 ? `
-            <tr class="total-row">
-              <td colspan="4">إجمالي الطلبات الفاشلة (${failedOrders.length})</td>
-              <td>${totalFailedShipping.toLocaleString()}</td>
-              <td>${totalFailedInsurance.toLocaleString()}</td>
-              <td>${totalFailedInspection.toLocaleString()}</td>
-              <td>${totalReturnFees.toLocaleString()}</td>
-              <td style="color: #b91c1c;">-${totalLoss.toLocaleString()}</td>
-            </tr>` : ''}
-          </tbody>
-        </table>
-
-        <div style="break-before: ${isContinuous ? 'avoid' : 'page'}; page-break-before: ${isContinuous ? 'avoid' : 'always'};">
-          <h3>ج- تحليل البيانات والنمو</h3>
-        
-        <h4>تحليل المناطق</h4>
-        <table>
-          <thead><tr><th>المنطقة</th><th>الطلبات</th><th>نسبة النجاح</th><th>الإيرادات</th><th>صافي الربح</th></tr></thead>
-          <tbody>${geoRows}</tbody>
-        </table>
-
-        <h4>أداء شركات الشحن</h4>
-        <table>
-          <thead><tr><th>الشركة</th><th>الطلبات</th><th>نسبة النجاح</th><th>مصاريف الشحن</th><th>صافي الربح</th></tr></thead>
-          <tbody>${carrierRows}</tbody>
-        </table>
-
-        <h4>ربحية المنتجات</h4>
-        <table>
-          <colgroup>
-            <col style="width: 200px;">
-            <col style="width: 80px;">
-            <col style="width: 120px;">
-            <col style="width: 100px;">
-            <col style="width: 100px;">
-            <col style="width: 100px;">
-          </colgroup>
-          <thead><tr><th>المنتج</th><th>المباع</th><th>المرتجع</th><th>المبيعات</th><th>الزيادة</th><th>صافي الربح</th></tr></thead>
-          <tbody>${productRows}</tbody>
-        </table>
-
-        <h4>المصروفات الإدارية</h4>
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
-          <table>
-            <colgroup>
-              <col style="width: 100px;">
-              <col>
-              <col style="width: 100px;">
-            </colgroup>
-            <thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr></thead>
-            <tbody>${expenseRows || '<tr><td colspan="3">لا توجد مصروفات إدارية.</td></tr>'}</tbody>
-          </table>
-          <table>
-            <colgroup>
-              <col>
-              <col style="width: 100px;">
-              <col style="width: 60px;">
-            </colgroup>
-            <thead><tr><th>التصنيف</th><th>المبلغ</th><th>النسبة</th></tr></thead>
-            <tbody>${expenseCatRows || '<tr><td colspan="3">-</td></tr>'}</tbody>
-          </table>
-        </div>
-
-        <div class="signature-section">
-          <div class="signature-box">
-            <p>توقيع المحاسب المسئول</p>
-            <div class="signature-line"></div>
-            <span>الاسم: ____________________</span>
-          </div>
-          <div class="signature-box">
-            <p>اعتماد مدير المتجر</p>
-            <div class="signature-line"></div>
-            <span>الاسم: ____________________</span>
-          </div>
-        </div>
-
-        <div style="text-align: center; margin-top: 40px; font-size: 9px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 10px;">
-          هذا التقرير تم إنشاؤه آلياً بواسطة "مدير الأوردرات الذكي" &copy; ${new Date().getFullYear()}
-        </div>
-      </div>
-      <script>
-        window.onload = function() {
-          if (${isContinuous}) {
-            setTimeout(() => {
-              const container = document.querySelector('.report-container');
-              if (!container) { window.print(); return; }
-              
-              const height = container.scrollHeight;
-              
-              const div = document.createElement('div');
-              div.style.height = '100mm';
-              div.style.position = 'absolute';
-              div.style.visibility = 'hidden';
-              document.body.appendChild(div);
-              const mmInPx = div.offsetHeight / 100;
-              document.body.removeChild(div);
-              
-              const heightMm = Math.ceil(height / mmInPx) + 35; 
-              const pageWidth = "${orientation}" === "landscape" ? "297mm" : "210mm";
-              
-              const style = document.createElement('style');
-              style.innerHTML = "@page { size: " + pageWidth + " " + heightMm + "mm !important; margin: 0 !important; } " +
-                                "body, html { margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; min-height: 0 !important; } " +
-                                ".report-container { margin: 0 !important; padding: 40px !important; border: none !important; box-shadow: none !important; width: 100% !important; max-width: none !important; } " +
-                                "* { -webkit-print-color-adjust: exact !important; color-adjust: exact !important; break-inside: avoid-page !important; } " +
-                                "table, tr, td, th { break-inside: auto !important; } " +
-                                ".no-break { break-inside: avoid !important; }";
-              document.head.appendChild(style);
-              
-              setTimeout(() => { window.print(); }, 1200);
-            }, 500);
-          } else {
-            setTimeout(() => { window.print(); }, 800);
-          }
-        };
-      </script>
+        <script>window.onload = function() { setTimeout(() => { window.print(); }, 1200); };</script>
     </body>
     </html>
     `;
 };
+

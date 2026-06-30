@@ -500,7 +500,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const inspection = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
     const insurance = insuranceFee;
     const vat = activeVatAmount;
-    const flexShip = orderData.enableFlexShip ? Number(orderData.flexShipFee || 150) : 0;
+    const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
+    const useCustom = compFees?.useCustomFees ?? false;
+    const defaultFlexFee = useCustom ? (compFees?.flexShipFee ?? 150) : (settings.flexShipFee ?? 150);
+    const flexShip = orderData.enableFlexShip ? (orderData.flexShipFee !== undefined ? Number(orderData.flexShipFee) : defaultFlexFee) : 0;
     const discount = Number(orderData.discount) || 0;
     const advance = Number(orderData.advancePayment) || 0;
     const credit = Number(creditAmount) || 0;
@@ -2238,9 +2241,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                           checked={orderData.enableFlexShip || false}
                           onChange={(e) => {
                             handleFieldChange("enableFlexShip", e.target.checked);
-                            if (e.target.checked && !orderData.flexShipFee) {
-                              handleFieldChange("flexShipFee", 150);
-                            }
                           }}
                           className="w-5 h-5 accent-sky-500 rounded cursor-pointer"
                         />
@@ -2251,7 +2251,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                             <label className="text-[10px] text-slate-400 font-bold block mb-1 text-right">رسوم فليكس شيب</label>
                             <input
                               type="number"
-                              value={orderData.flexShipFee || 150}
+                              value={(() => {
+                                if (orderData.flexShipFee !== undefined) return orderData.flexShipFee;
+                                const compFees = settings.companySpecificFees?.[orderData.shippingCompany!];
+                                const useCustom = compFees?.useCustomFees ?? false;
+                                return useCustom ? (compFees?.flexShipFee ?? 150) : (settings.flexShipFee ?? 150);
+                              })()}
                               onChange={(e) => handleFieldChange("flexShipFee", Number(e.target.value))}
                               className="p-3 bg-white dark:bg-slate-900 border border-slate-200 rounded-xl w-full text-center font-bold"
                             />
@@ -2925,7 +2930,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-900 dark:text-white font-black">{activeVatAmount} ج.م</span>
-                      <span className="text-slate-500">ضريبة قيمة مضافة 14%</span>
+                      <span className="text-slate-500">
+                        ضريبة قيمة مضافة {(() => {
+                          const comp = orderData.shippingCompany;
+                          const compFees = settings.companySpecificFees?.[comp!];
+                          const useCustom = compFees?.useCustomFees ?? false;
+                          const isCompanyBosta = comp && (comp.toLowerCase().includes('bosta') || comp.includes('بوسطة') || comp.includes('بوسطه'));
+                          const defaultVatRate = isCompanyBosta ? 0.14 : 0;
+                          const rate = useCustom ? (compFees?.shippingVatRate ?? defaultVatRate) : (settings?.shippingVatRate ?? defaultVatRate);
+                          return (rate * 100).toFixed(0);
+                        })()}%
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-slate-900 dark:text-white font-black">{insuranceFee} ج.م</span>

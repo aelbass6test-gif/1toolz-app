@@ -53,7 +53,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     ? Math.max(0, Math.round(Number(order.totalAmountOverride))) 
     : computedTotal;
   
-  const flexFeeValue = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
+  const flexFeeValue = order.flexShipFee !== undefined 
+    ? order.flexShipFee 
+    : (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0));
 
   // Success rate calculations
   let customerSuccessRate = -1;

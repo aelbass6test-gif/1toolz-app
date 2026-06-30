@@ -764,12 +764,30 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="font-black text-slate-800 dark:text-slate-200">{collectionAmount.toLocaleString()} ج.م</span>
-                        {extraAdjustment !== 0 && (
-                          <span className={`block text-[9px] font-bold ${extraAdjustment > 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                            {extraAdjustment > 0 ? 'تعديل إضافي +' : 'خصم يدوي '}{extraAdjustment.toLocaleString()}ج
-                          </span>
-                        )}
+                        <div className="flex flex-col items-end gap-1 justify-end">
+                          <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
+                            <span className="text-sm font-black text-slate-900 dark:text-white tabular-nums">
+                              {collectionAmount.toLocaleString()}
+                            </span>
+                            <span className="text-xs text-slate-400 font-bold mr-1">ج.م</span>
+                          </div>
+                          {extraAdjustment !== 0 && (
+                            <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-100/50 dark:border-slate-800/50">
+                              <div className="flex items-center gap-1">
+                                <span className="font-bold text-[9px]">المطلوب:</span>
+                                <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
+                                  {defaultCollectionAmount.toLocaleString()} ج.م
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="font-bold text-[9px]">الفعلي:</span>
+                                <span className="font-extrabold text-slate-700 dark:text-slate-305">
+                                  {collectionAmount.toLocaleString()} ج.م
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-bold">
                         {(order.productCost || 0).toLocaleString()} ج.م

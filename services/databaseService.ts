@@ -440,6 +440,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             advancePaymentEmployeeId: o.advancePaymentEmployeeId ?? (localOrder as any).advancePaymentEmployeeId,
                             advancePaymentRecipientPhone: o.advancePaymentRecipientPhone ?? localOrder.advancePaymentRecipientPhone,
                             advancePaymentSenderDetails: o.advancePaymentSenderDetails ?? localOrder.advancePaymentSenderDetails,
+                            flexShipFee: o.flexShipFee ?? localOrder.flexShipFee,
+                            flexShipCompanyFee: o.flexShipCompanyFee ?? localOrder.flexShipCompanyFee,
+                            flexShipFeePaidByCustomer: o.flexShipFeePaidByCustomer ?? localOrder.flexShipFeePaidByCustomer,
+                            enableFlexShip: o.enableFlexShip ?? localOrder.enableFlexShip,
                         };
                     }
                     return o;

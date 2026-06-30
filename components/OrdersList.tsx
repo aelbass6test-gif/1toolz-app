@@ -727,9 +727,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             ? (compFees?.enableFlexShip ?? false)
             : (settings.enableFlexShip ?? false));
       const flexFeeValue = isFlexShipEnabled
-        ? useCustom
+        ? (o.flexShipFee !== undefined ? o.flexShipFee : (useCustom
           ? (compFees?.flexShipFee ?? 0)
-          : (settings.flexShipFee ?? 0)
+          : (settings.flexShipFee ?? 0)))
         : 0;
 
       // Use central utility for accurate P&L
@@ -765,7 +765,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       }
 
       shippingExpenses += totalCarrierExpenses;
-      flexFeesTotal += o.flexShipFee || flexFeeValue;
+      flexFeesTotal += o.flexShipFee !== undefined ? o.flexShipFee : flexFeeValue;
       netProfitTotal += net;
 
       // Status Logic for Funnel
@@ -1502,7 +1502,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           amount: bostaVatAmount,
           date: new Date().toISOString(),
           note: `خصم ضريبة القيمة المضافة لطلب شحن (${vatPercentageText}) #${orderToUpdate.orderNumber}`,
-          category: "expense_other",
+          category: "vat",
           status: "completed",
           orderId: orderToUpdate.id,
           orderNumber: orderToUpdate.orderNumber,
@@ -1571,7 +1571,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         (useCustom
           ? (compFees?.flexShipFee ?? 0)
           : (settings.flexShipFee ?? 0));
-      if (flexShipFeeAmount > 0 && !orderToUpdate.flexShipFeePaidByCustomer) {
+      if (flexShipFeeAmount > 0 && updatedOrderData.flexShipFeePaidByCustomer && !updatedOrderData.flexShipTransactionAdded) {
         newTransactions.push({
           id: `flexship_${orderToUpdate.id}`,
           type: "إيداع",
@@ -1583,6 +1583,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           orderId: orderToUpdate.id,
           orderNumber: orderToUpdate.orderNumber,
         });
+
+        updatedOrderData.flexShipTransactionAdded = true;
 
         const flexShipCompanyFee =
           updatedOrderData.flexShipCompanyFee ??
@@ -1699,7 +1701,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           amount: bostaVatAmount,
           date: new Date().toISOString(),
           note: `إعادة ضريبة القيمة المضافة لطلب شحن أوردر #${orderToUpdate.orderNumber}`,
-          category: "expense_other",
+          category: "vat",
           status: "completed",
           orderId: orderToUpdate.id,
           orderNumber: orderToUpdate.orderNumber,
@@ -2157,6 +2159,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     const isNowPaid = !isCurrentlyPaid;
 
     const newTransactions: Transaction[] = [];
+    
+    const flexShipCompanyFee =
+        orderToUpdate.flexShipCompanyFee ??
+        (useCustom
+          ? (compFees?.flexShipCompanyFee ?? 0)
+          : (settings.flexShipCompanyFee ?? 0));
+
     if (isNowPaid) {
       newTransactions.push({
         id: `flexship_${orderToUpdate.id}_${Date.now()}`,
@@ -2169,6 +2178,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         orderId: orderToUpdate.id,
         orderNumber: orderToUpdate.orderNumber,
       });
+
+      if (flexShipCompanyFee > 0) {
+        newTransactions.push({
+          id: `flexship_company_${orderToUpdate.id}_${Date.now()}`,
+          type: "سحب",
+          amount: flexShipCompanyFee,
+          date: new Date().toISOString(),
+          note: `خصم حصة شركة الشحن من خدمة فليكس شيب أوردر #${orderToUpdate.orderNumber}`,
+          category: "expense_other",
+          status: "completed",
+          orderId: orderToUpdate.id,
+          orderNumber: orderToUpdate.orderNumber,
+        });
+      }
     } else {
       newTransactions.push({
         id: `revert_flexship_${orderToUpdate.id}_${Date.now()}`,
@@ -2200,6 +2223,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       ...orderToUpdate,
       flexShipFeePaidByCustomer: isNowPaid,
       flexShipFee: flexShipFeeAmount,
+      flexShipCompanyFee: flexShipCompanyFee,
     };
 
     setOrders((prevOrders) =>
@@ -2373,7 +2397,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         order.productPrice + order.shippingFee - (order.discount || 0);
 
       let inspectionFeeMessage = "";
-      if (order.inspectionFeePaidByCustomer) {
+      if (order.inspectionFeePaidByCustomer !== false) {
         inspectionFeeMessage = `\nلن يتم إرجاع رسوم المعاينة (${inspectionFee} ج.م) لأنها غير قابلة للاسترداد.`;
       }
 
@@ -4934,6 +4958,21 @@ const OrderCard = ({
       ? Number(order.totalPrice) + inspectionFee
       : totalAmount;
 
+  const standardInspectionFee = (order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
+  const standardRequiredTotal = Math.max(
+    0,
+    Math.round(
+      safeProductPrice +
+        safeShippingFee +
+        safeTax +
+        standardInspectionFee -
+        safeDiscount -
+        safeAdvance -
+        safeCredit -
+        safeReturnCash,
+    ),
+  );
+
   return (
     <motion.div
       variants={itemVariants}
@@ -5155,14 +5194,38 @@ const OrderCard = ({
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
             المبلغ الإجمالي
           </p>
-          <div className="flex items-baseline gap-1 justify-end">
-            <span className="text-xs font-black text-indigo-600">ج.م</span>
-            <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums group-hover/total:scale-105 transition-transform origin-right">
-              {displayTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 3,
-              })}
-            </h4>
+          <div className="flex flex-col items-end gap-1 text-right">
+            <div className="flex items-baseline gap-1 justify-end">
+              <span className="text-xs font-black text-indigo-600">ج.م</span>
+              <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums group-hover/total:scale-105 transition-transform origin-right">
+                {displayTotal.toLocaleString(undefined, {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 3,
+                })}
+              </h4>
+            </div>
+            {displayTotal !== standardRequiredTotal && (
+              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-100/50 dark:border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
+                  <span className="font-black text-indigo-600 dark:text-indigo-400">
+                    {standardRequiredTotal.toLocaleString(undefined, {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 3,
+                    })} ج.م
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-[10px]">المحصل فعلياً:</span>
+                  <span className="font-black text-slate-700 dark:text-slate-300">
+                    {displayTotal.toLocaleString(undefined, {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 3,
+                    })} ج.م
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           {(order.advancePayment || 0) > 0 && (
             <div className="text-[10px] text-teal-600 font-bold mt-1 text-right space-y-0.5">
@@ -5388,9 +5451,9 @@ const ProfitBreakdown: React.FC<{
         ? (compFees?.enableFlexShip ?? false)
         : (settings.enableFlexShip ?? false);
   const flexFeeValue = isFlexShipEnabled
-    ? useCustom
+    ? (order.flexShipFee !== undefined ? order.flexShipFee : (useCustom
       ? (compFees?.flexShipFee ?? 0)
-      : (settings.flexShipFee ?? 0)
+      : (settings.flexShipFee ?? 0)))
     : 0;
   const flexPaidAmount =
     isFlexShipEnabled && order.flexShipFeePaidByCustomer
@@ -5962,15 +6025,21 @@ const ProfitBreakdown: React.FC<{
 
         {/* Flex Ship Service Display */}
         {(() => {
-          const isFlexEnabled = useCustom
-            ? (compFees?.enableFlexShip ?? false)
-            : (settings.enableFlexShip ?? false);
-          const flexFee = useCustom
-            ? (compFees?.flexShipFee ?? 0)
-            : (settings.flexShipFee ?? 0);
-          const flexCompanyFee = useCustom
-            ? (compFees?.flexShipCompanyFee ?? 0)
-            : (settings.flexShipCompanyFee ?? 0);
+          const isFlexEnabled = order.enableFlexShip !== undefined
+            ? order.enableFlexShip
+            : (useCustom
+              ? (compFees?.enableFlexShip ?? false)
+              : (settings.enableFlexShip ?? false));
+          const flexFee = order.flexShipFee !== undefined 
+            ? order.flexShipFee 
+            : (useCustom
+              ? (compFees?.flexShipFee ?? 0)
+              : (settings.flexShipFee ?? 0));
+          const flexCompanyFee = order.flexShipCompanyFee !== undefined
+            ? order.flexShipCompanyFee
+            : (useCustom
+              ? (compFees?.flexShipCompanyFee ?? 0)
+              : (settings.flexShipCompanyFee ?? 0));
           if (isFlexEnabled && flexFee > 0 && !isReturnedOrFailed) {
             return (
               <div className="p-4 bg-violet-50 dark:bg-violet-950/20 rounded-2xl border border-violet-100 dark:border-violet-900/40 text-xs text-right mt-4 flex flex-col gap-1.5 animate-in fade-in zoom-in-95 duration-200">
@@ -6194,6 +6263,21 @@ const OrderRow = ({
       ? Number(order.totalPrice) + inspectionFee
       : totalAmount;
 
+  const standardInspectionFee = (order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
+  const standardRequiredTotal = Math.max(
+    0,
+    Math.round(
+      safeProductPrice +
+        safeShippingFee +
+        safeTax +
+        standardInspectionFee -
+        safeDiscount -
+        safeAdvance -
+        safeCredit -
+        safeReturnCash,
+    ),
+  );
+
   const getStatusBadgeStyle = (status: OrderStatus) => {
     switch (status) {
       case "تم_التحصيل":
@@ -6222,9 +6306,9 @@ const OrderRow = ({
         ? (compFees?.enableFlexShip ?? false)
         : (settings.enableFlexShip ?? false);
   const flexFeeValue = isFlexShipEnabled
-    ? useCustom
+    ? (order.flexShipFee !== undefined ? order.flexShipFee : (useCustom
       ? (compFees?.flexShipFee ?? 0)
-      : (settings.flexShipFee ?? 0)
+      : (settings.flexShipFee ?? 0)))
     : 0;
 
   const { net } = calculateOrderProfitLoss(order, settings);
@@ -6381,7 +6465,7 @@ const OrderRow = ({
         {/* 4. مبلغ التحصيل */}
         <td className="p-6">
           <div className="text-right space-y-1 relative">
-            <div className="flex items-center gap-1.5 justify-end group/collection">
+            <div className="flex flex-col items-end gap-1 justify-end group/collection">
               <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
                 <span className="text-lg font-black text-slate-900 dark:text-white tabular-nums drop-shadow-sm">
                   {displayTotal.toLocaleString(undefined, {
@@ -6393,8 +6477,30 @@ const OrderRow = ({
                   ج.م
                 </span>
               </div>
+              {displayTotal !== standardRequiredTotal && (
+                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-100/50 dark:border-slate-800/50">
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-[9px]">المطلوب:</span>
+                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
+                      {standardRequiredTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 3,
+                      })} ج.م
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-[9px]">الفعلي:</span>
+                    <span className="font-extrabold text-slate-700 dark:text-slate-300">
+                      {displayTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 3,
+                      })} ج.م
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-1.5 justify-end mix-blend-multiply dark:mix-blend-normal">
+            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-1.5 justify-end mix-blend-multiply dark:mix-blend-normal mt-1">
               <span className="text-indigo-600 dark:text-indigo-400">
                 {order.shippingCompany}
               </span>
@@ -6429,7 +6535,7 @@ const OrderRow = ({
                     "مرتجع_بعد_الاستلام",
                     "مرتجع_جزئي",
                   ].includes(order.status)
-                    ? "مستحق للفصل"
+                    ? (order.flexShipFeePaidByCustomer ? "مدفوعة" : "مستحق للفصل")
                     : "غير مستحق"}
                 </span>
               </div>
@@ -7296,7 +7402,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
   );
   const finalAmount = useMemo(() => {
     const tax = Number(orderData.tax) || 0;
-    const inspection = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== true) ? inspectionFee : 0;
+    const inspection = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
     return totalBeforeCredit + tax + inspection - creditAmount - (orderData.advancePayment || 0);
   }, [totalBeforeCredit, creditAmount, orderData.advancePayment, orderData.includeInspectionFee, orderData.inspectionFeePaidByCustomer, inspectionFee, orderData.tax]);
 
@@ -7352,7 +7458,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
       insuranceRate,
       settings,
     );
-    const effectiveInspectionCost = (orderData.includeInspectionFee && orderData.inspectionFeePaidByCustomer !== true)
+    const effectiveInspectionCost = (orderData.includeInspectionFee)
       ? Number(inspectionCost)
       : 0;
     const codFee =

@@ -63,10 +63,20 @@ CREATE TABLE IF NOT EXISTS orders (
     orderNumber TEXT,
     customer_name TEXT NOT NULL,
     customerName TEXT,
+    customerPhone TEXT,
+    customer_phone TEXT,
+    shippingCompany TEXT,
+    shipping_company TEXT,
     status TEXT NOT NULL,
     date TEXT NOT NULL,
     total_price NUMERIC NOT NULL,
     totalPrice NUMERIC,
+    shippingFee NUMERIC,
+    shipping_fee NUMERIC,
+    flexShipFee NUMERIC,
+    flexShipCompanyFee NUMERIC,
+    enableFlexShip BOOLEAN,
+    flexShipFeePaidByCustomer BOOLEAN,
     channel TEXT DEFAULT 'online',
     warehouse_id TEXT,
     warehouseId TEXT,
@@ -895,6 +905,25 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const [integrations, setIntegrations] = useState<WebhookIntegration[]>(settings.webhookIntegrations || []);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
+  const handleFixFlexShipSchema = () => {
+    const instructions = `
+-- انسخ هذا الكود والصقه في SQL Editor في Supabase
+-- لتحديث أعمدة الفليكس شيب والبيانات المرتبطة بالشحن
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customer_phone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingCompany" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_company" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_fee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipCompanyFee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "enableFlexShip" BOOLEAN;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFeePaidByCustomer" BOOLEAN;
+`;
+    navigator.clipboard.writeText(instructions);
+    triggerAlarm("✅ تم نسخ كود تحديث أعمدة الفليكس شيب والشحن! قم بلصقه وتشغيله في Supabase SQL Editor.", 'success', 'إصلاح أعمدة الفليكس شيب');
+  };
+
   const handleFixDBSchema = () => {
     const instructions = `
 -- انسخ هذا الكود والصقه في SQL Editor في Supabase
@@ -930,6 +959,16 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentHistory" JSONB DEFAUL
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdBy" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "source" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "vatOnStandardShipping" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customer_phone" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingCompany" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_company" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_fee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipCompanyFee" NUMERIC;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "enableFlexShip" BOOLEAN;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFeePaidByCustomer" BOOLEAN;
 
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
@@ -1393,6 +1432,13 @@ ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
                 >
                   <RefreshCw size={18} />
                   إصلاح "advancePayment" والأعمدة المفقودة
+                </button>
+                <button 
+                  onClick={handleFixFlexShipSchema}
+                  className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-teal-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
+                >
+                  <RefreshCw size={18} />
+                  إصلاح "flexShip" وأعمدة الشحن
                 </button>
               </div>
             </div>

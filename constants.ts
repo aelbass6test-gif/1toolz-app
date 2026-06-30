@@ -237,7 +237,7 @@ export const INITIAL_SETTINGS: Settings = {
   collections: [],
   whatsappTemplates: DEFAULT_WHATSAPP_TEMPLATES,
   callScripts: DEFAULT_CALL_SCRIPTS,
-  expenseCategories: ['expense_ads', 'expense_salary', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other', 'supply_expense_shipping', 'supply_expense_other'],
+  expenseCategories: ['expense_ads', 'expense_salary', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other', 'supply_expense_shipping', 'supply_expense_other', 'vat'],
   employeeDashboardSettings: {
     showAssignedOrders: true,
     showOrderStatuses: ['في_انتظار_المكالمة', 'قيد_التنفيذ', 'جاري_المراجعة'],
@@ -287,7 +287,8 @@ export const TRANSACTION_CATEGORY_LABELS: Record<string, string> = {
     'supply_funding': 'تمويل توريد',
     'supply_expense_shipping': 'مصاريف شحن مشتريات',
     'supply_expense_other': 'مصاريف أخرى / إضافية مشتريات',
-    'pos_digital': 'مبيعات POS رقمية'
+    'pos_digital': 'مبيعات POS رقمية',
+    'vat': 'ضريبة القيمة المضافة'
 };
 
 export const ORDER_STATUSES = [
