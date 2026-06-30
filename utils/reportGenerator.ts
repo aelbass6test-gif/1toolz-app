@@ -377,6 +377,9 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
 
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
     
+    const isFlexShipEnabled = isPosOrder ? false : (order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false)));
+    const flexShipCompanyDeduction = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
+
     totalProfit += net;
     totalCollectedAmount += displayTotal;
     totalItems += totalQuantity;
@@ -408,7 +411,7 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
         <td class="text-center text-gray-600">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
         <td class="text-center">${totalQuantity}</td>
         <td class="text-center">
-          <div class="font-bold text-gray-900">${(carrierFees - inspectionRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+          <div class="font-bold text-gray-900">${(carrierFees - inspectionRevenue - flexShipCompanyDeduction).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
           ${(!isPosOrder && order.includeInspectionFee !== false && inspectionExpense > 0) ? `
           <div class="badge mt-1 text-[9px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded border border-gray-200 inline-block">
             المعاينة: ${order.inspectionFeePaidByCustomer !== false ? 'على العميل' : 'على المتجر'}
@@ -418,7 +421,7 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
         <td class="text-center text-gray-600">${displayTotal.toLocaleString()}</td>
         <td class="text-center font-bold text-gray-900">${displayTotal.toLocaleString()}</td>
         <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
-        <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.paymentStatus}</span></td>
+        <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.flexShipFeePaidByCustomer ? 'فليكس ✅' : order.paymentStatus}</span></td>
         <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.م</td>
       </tr>
     `;
