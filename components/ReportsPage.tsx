@@ -1089,7 +1089,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         let totalRequiredCollection = 0;
 
         collectedOrders.forEach(order => {
-            const { profit } = calculateOrderProfitLoss(order, settings);
+            const { profit, netRevenue } = calculateOrderProfitLoss(order, settings);
             const codFee = calculateCodFee(order, settings);
             
             const compFees = settings.companySpecificFees?.[order.shippingCompany];
@@ -1115,7 +1115,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
             totalRevenue += totalCollected;
             totalShippingRevenue += order.shippingFee;
-            totalRequiredCollection += (safeProductPrice + safeShippingFee + (Number((order as any).tax) || 0) - safeDiscount + inspectionFeeParams);
+            totalRequiredCollection += netRevenue;
 
             const standardShipping = isPosOrder ? 0 : getStandardShippingFee(order, settings);
             totalActualShipping += standardShipping;
@@ -2989,7 +2989,7 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             totalProductRevenue += safeProductPrice;
             totalShippingRevenue += safeShippingFee;
             totalInspectionRevenue += inspectionRevenue;
-            totalRequiredCollection += (safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionFeeRate);
+            totalRequiredCollection += netRevenue;
             
             totalCogs += productCost;
             totalProfit += profit;

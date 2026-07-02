@@ -1364,7 +1364,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         totalProductExtraMarkup += orderProductExtraMarkup;
         totalOverrideAdjustment += overrideAdjustment;
         totalInspectionRevenue += inspectionFeeCollected;
-        totalRequiredCollection += (safeProductPrice + safeShippingFee - safeDiscount + inspectionCost);
+        totalRequiredCollection += netRevenue;
         totalExtraMarkup += (orderProductExtraMarkup + overrideAdjustment);
         
         totalCogs += (order.items || []).reduce((sum, item) => {
