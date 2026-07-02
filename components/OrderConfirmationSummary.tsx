@@ -15,7 +15,7 @@ interface OrderConfirmationSummaryProps {
 
 export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({ order, settings, onClose, storeName }) => {
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
-    const inspectionFee = order.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+    const inspectionFee = (order.includeInspectionFee !== false && order.allowOpenShipment !== false) ? (compFees?.useCustomFees ? compFees.inspectionFee : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
     
     // Insurance
     const insuranceRate = order.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : (settings?.enableInsurance ? settings.insuranceFeePercent : 0)) : 0;

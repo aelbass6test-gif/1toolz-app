@@ -430,23 +430,37 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     whatsappTemplates, callScripts
                 },
                 orders: (orders || []).map((o: any) => {
+                    const detailsObj = o.details && typeof o.details === 'object' ? o.details : (typeof o.details === 'string' && o.details ? JSON.parse(o.details) : {});
+                    const cleanTopLevel = Object.entries(o).reduce((acc: any, [key, val]) => {
+                        if (val !== null && val !== undefined) acc[key] = val;
+                        return acc;
+                    }, {});
+                    const baseOrder = { ...detailsObj, ...cleanTopLevel };
                     const localOrder = local?.orders?.find((lo: any) => lo.id === o.id);
-                    if (localOrder) {
-                        return {
-                            ...o,
-                            advancePayment: o.advancePayment ?? localOrder.advancePayment,
-                            advancePaymentPartnerId: o.advancePaymentPartnerId ?? localOrder.advancePaymentPartnerId,
-                            advancePaymentTreasuryId: o.advancePaymentTreasuryId ?? localOrder.advancePaymentTreasuryId,
-                            advancePaymentEmployeeId: o.advancePaymentEmployeeId ?? (localOrder as any).advancePaymentEmployeeId,
-                            advancePaymentRecipientPhone: o.advancePaymentRecipientPhone ?? localOrder.advancePaymentRecipientPhone,
-                            advancePaymentSenderDetails: o.advancePaymentSenderDetails ?? localOrder.advancePaymentSenderDetails,
-                            flexShipFee: o.flexShipFee ?? localOrder.flexShipFee,
-                            flexShipCompanyFee: o.flexShipCompanyFee ?? localOrder.flexShipCompanyFee,
-                            flexShipFeePaidByCustomer: o.flexShipFeePaidByCustomer ?? localOrder.flexShipFeePaidByCustomer,
-                            enableFlexShip: o.enableFlexShip ?? localOrder.enableFlexShip,
-                        };
-                    }
-                    return o;
+                    const rawCloudItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : (Array.isArray(detailsObj.items) && detailsObj.items.length > 0 ? detailsObj.items : (Array.isArray(baseOrder.items) ? baseOrder.items : (baseOrder.items && typeof baseOrder.items === 'object' ? Object.values(baseOrder.items) : [])));
+                    const localItems = localOrder && Array.isArray(localOrder.items) ? localOrder.items : [];
+                    const itemsArray = (rawCloudItems.length > 0 || !localItems.length) ? rawCloudItems : localItems;
+                    return {
+                        ...baseOrder,
+                        items: itemsArray,
+                        advancePayment: baseOrder.advancePayment ?? localOrder?.advancePayment ?? 0,
+                        advancePaymentPartnerId: baseOrder.advancePaymentPartnerId ?? localOrder?.advancePaymentPartnerId,
+                        advancePaymentTreasuryId: baseOrder.advancePaymentTreasuryId ?? localOrder?.advancePaymentTreasuryId,
+                        advancePaymentEmployeeId: baseOrder.advancePaymentEmployeeId ?? (localOrder as any)?.advancePaymentEmployeeId,
+                        advancePaymentRecipientPhone: baseOrder.advancePaymentRecipientPhone ?? localOrder?.advancePaymentRecipientPhone,
+                        advancePaymentSenderDetails: baseOrder.advancePaymentSenderDetails ?? localOrder?.advancePaymentSenderDetails,
+                        advancePaymentHistory: baseOrder.advancePaymentHistory ?? localOrder?.advancePaymentHistory ?? [],
+                        flexShipFee: baseOrder.flexShipFee ?? localOrder?.flexShipFee,
+                        flexShipCompanyFee: baseOrder.flexShipCompanyFee ?? localOrder?.flexShipCompanyFee,
+                        flexShipFeePaidByCustomer: baseOrder.flexShipFeePaidByCustomer ?? localOrder?.flexShipFeePaidByCustomer,
+                        enableFlexShip: baseOrder.enableFlexShip ?? localOrder?.enableFlexShip,
+                        channel: baseOrder.channel ?? localOrder?.channel ?? 'online',
+                        warehouseId: baseOrder.warehouseId ?? baseOrder.warehouse_id ?? localOrder?.warehouseId,
+                        warehouse_id: baseOrder.warehouse_id ?? baseOrder.warehouseId ?? localOrder?.warehouseId,
+                        createdBy: baseOrder.createdBy ?? localOrder?.createdBy,
+                        source: baseOrder.source ?? localOrder?.source,
+                        vatOnStandardShipping: baseOrder.vatOnStandardShipping ?? localOrder?.vatOnStandardShipping
+                    };
                 }),
                 wallet: { balance: 0, transactions },
                 treasury: { 
@@ -505,16 +519,34 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         const fetchCollection = async <T>(collectionName: string, localItems: T[]): Promise<T[]> => {
             try {
                 let snap = await getDocs(query(collection(firebaseDb, collectionName), where('storeId', '==', storeId)));
-                let items = snap.docs.map(doc => ({ 
-                    id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
-                    ...doc.data() 
-                } as any));
+                let items = snap.docs.map(doc => {
+                    const data = doc.data();
+                    const detailsObj = data.details && typeof data.details === 'object' ? data.details : (typeof data.details === 'string' && data.details ? JSON.parse(data.details) : {});
+                    const mergedData = { ...detailsObj, ...data };
+                    const rawDocItems = Array.isArray(mergedData.items) ? mergedData.items : (mergedData.items && typeof mergedData.items === 'object' ? Object.values(mergedData.items) : []);
+                    const localOrder = (localItems as any[])?.find(lo => lo.id === doc.id || lo.id === (doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id));
+                    const docItems = (rawDocItems.length > 0 || !(localOrder?.items?.length)) ? rawDocItems : (Array.isArray(localOrder.items) ? localOrder.items : []);
+                    return { 
+                        id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
+                        ...mergedData,
+                        ...(collectionName === 'orders' ? { items: docItems } : {})
+                    } as any;
+                });
                 if (items.length === 0) {
                     const snap_snake = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', storeId)));
-                    items = snap_snake.docs.map(doc => ({ 
-                        id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
-                        ...doc.data() 
-                    } as any));
+                    items = snap_snake.docs.map(doc => {
+                        const data = doc.data();
+                        const detailsObj = data.details && typeof data.details === 'object' ? data.details : (typeof data.details === 'string' && data.details ? JSON.parse(data.details) : {});
+                        const mergedData = { ...detailsObj, ...data };
+                        const rawDocItems = Array.isArray(mergedData.items) ? mergedData.items : (mergedData.items && typeof mergedData.items === 'object' ? Object.values(mergedData.items) : []);
+                        const localOrder = (localItems as any[])?.find(lo => lo.id === doc.id || lo.id === (doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id));
+                        const docItems = (rawDocItems.length > 0 || !(localOrder?.items?.length)) ? rawDocItems : (Array.isArray(localOrder.items) ? localOrder.items : []);
+                        return { 
+                            id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
+                            ...mergedData,
+                            ...(collectionName === 'orders' ? { items: docItems } : {})
+                        } as any;
+                    });
                 }
                 
                 // If forceRemote is true, we trust the cloud even if it's empty
@@ -734,16 +766,53 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             const usersList = localGlobal?.users || [];
             
             // Map users to relational format
-            const mappedUsersList = usersList.map((user: any) => ({
-                phone: user.phone || '',
-                full_name: user.fullName || '',
-                email: user.email || null,
-                is_admin: user.isAdmin || false,
-                is_banned: user.isBanned || false,
-                join_date: user.joinDate || null,
-                stores: user.stores || [],
-                sites: user.sites || []
-            })).filter((u: any) => !!u.phone);
+            const emailSeenInPayload = new Set<string>();
+            const mappedUsersList = usersList.map((user: any) => {
+                let userEmail = user.email ? user.email.trim() : null;
+                if (userEmail) {
+                    const lowerEmail = userEmail.toLowerCase();
+                    if (emailSeenInPayload.has(lowerEmail)) {
+                        userEmail = null;
+                    } else {
+                        emailSeenInPayload.add(lowerEmail);
+                    }
+                }
+                return {
+                    phone: user.phone || '',
+                    full_name: user.fullName || '',
+                    email: userEmail,
+                    is_admin: user.isAdmin || false,
+                    is_banned: user.isBanned || false,
+                    join_date: user.joinDate || null,
+                    stores: user.stores || [],
+                    sites: user.sites || []
+                };
+            }).filter((u: any) => !!u.phone);
+
+            // Fetch existing users to prevent duplicate email clashing on different phones
+            try {
+                const { data: existingSbUsers } = await supabase.from('users').select('phone, email');
+                if (existingSbUsers) {
+                    const dbEmailToPhone = new Map<string, string>();
+                    existingSbUsers.forEach((su: any) => {
+                        if (su.email) {
+                            dbEmailToPhone.set(su.email.toLowerCase().trim(), su.phone);
+                        }
+                    });
+
+                    mappedUsersList.forEach((u: any) => {
+                        if (u.email) {
+                            const lowerEmail = u.email.toLowerCase().trim();
+                            const existingPhone = dbEmailToPhone.get(lowerEmail);
+                            if (existingPhone && existingPhone !== u.phone) {
+                                u.email = null; // Clash! Nullify to bypass unique constraint
+                            }
+                        }
+                    });
+                }
+            } catch (userCheckErr) {
+                console.warn('Failed to pre-verify existing user emails:', userCheckErr);
+            }
 
             if (mappedUsersList.length > 0) {
                 const { error: usersError } = await supabase.from('users').upsert(mappedUsersList);
@@ -904,6 +973,111 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             description: cleanItem.description || '',
                             reference: cleanItem.reference || ''
                         };
+                    } else if (table === 'orders') {
+                        const firstClassColumns = [
+                            'id', 'store_id', 'storeId',
+                            'order_number', 'orderNumber',
+                            'customer_name', 'customerName',
+                            'customer_phone', 'customerPhone', 'customerPhone2',
+                            'shipping_company', 'shippingCompany',
+                            'status', 'date',
+                            'total_price', 'totalPrice',
+                            'shipping_fee', 'shippingFee',
+                            'flexShipFee', 'flexShipCompanyFee',
+                            'enableFlexShip', 'flexShipFeePaidByCustomer',
+                            'channel', 'warehouse_id', 'warehouseId',
+                            'advancePayment', 'advancePaymentPartnerId', 'advancePaymentTreasuryId',
+                            'advancePaymentEmployeeId', 'advancePaymentRecipientPhone', 'advancePaymentSenderDetails',
+                            'advancePaymentHistory', 'items', 'createdBy', 'source', 'vatOnStandardShipping',
+                            'customerAddress', 'city', 'governorate', 'shippingArea', 'paymentMethod', 'paymentStatus',
+                            'notes', 'discount', 'isInsured', 'includeInspectionFee', 'inspectionFeePaidByCustomer',
+                            'recordedAsDebt', 'deferPaymentToReturn', 'returnCashToCustomer', 'cashToReturnAmount',
+                            'creditAmount', 'totalAmountOverride', 'totalAmountOverrideReason', 'orderType', 'shipmentType',
+                            'maintenanceCost', 'maintenanceItemDescription', 'maintenanceItemSerial', 'maintenanceItemValue',
+                            'maintenanceTechnicalReport', 'maintenanceStatus', 'originalOrderId', 'exchangeDifference',
+                            'returnProductValue', 'returnTrackingNumber',
+                            'details'
+                        ];
+
+                        const detailsObj: any = {
+                            ...(cleanItem.details || {})
+                        };
+
+                        Object.keys(cleanItem).forEach(key => {
+                            if (key !== 'details') {
+                                detailsObj[key] = cleanItem[key];
+                            }
+                        });
+
+                        mappedItem = {
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            order_number: cleanItem.orderNumber || cleanItem.order_number || '',
+                            orderNumber: cleanItem.orderNumber || cleanItem.order_number || '',
+                            customer_name: cleanItem.customerName || cleanItem.customer_name || '',
+                            customerName: cleanItem.customerName || cleanItem.customer_name || '',
+                            customer_phone: cleanItem.customerPhone || cleanItem.customer_phone || '',
+                            customerPhone: cleanItem.customerPhone || cleanItem.customer_phone || '',
+                            customerPhone2: cleanItem.customerPhone2 || null,
+                            shipping_company: cleanItem.shippingCompany || cleanItem.shipping_company || '',
+                            shippingCompany: cleanItem.shippingCompany || cleanItem.shipping_company || '',
+                            status: cleanItem.status || '',
+                            date: cleanItem.date || new Date().toISOString(),
+                            total_price: Number(cleanItem.totalPrice ?? cleanItem.total_price ?? 0),
+                            totalPrice: Number(cleanItem.totalPrice ?? cleanItem.total_price ?? 0),
+                            shipping_fee: Number(cleanItem.shippingFee ?? cleanItem.shipping_fee ?? 0),
+                            shippingFee: Number(cleanItem.shippingFee ?? cleanItem.shipping_fee ?? 0),
+                            flexShipFee: cleanItem.flexShipFee !== undefined ? Number(cleanItem.flexShipFee) : null,
+                            flexShipCompanyFee: cleanItem.flexShipCompanyFee !== undefined ? Number(cleanItem.flexShipCompanyFee) : null,
+                            enableFlexShip: cleanItem.enableFlexShip !== undefined ? Boolean(cleanItem.enableFlexShip) : null,
+                            flexShipFeePaidByCustomer: cleanItem.flexShipFeePaidByCustomer !== undefined ? Boolean(cleanItem.flexShipFeePaidByCustomer) : null,
+                            channel: cleanItem.channel || null,
+                            warehouse_id: cleanItem.warehouseId || cleanItem.warehouse_id || null,
+                            warehouseId: cleanItem.warehouseId || cleanItem.warehouse_id || null,
+                            advancePayment: cleanItem.advancePayment !== undefined ? Number(cleanItem.advancePayment) : null,
+                            advancePaymentPartnerId: cleanItem.advancePaymentPartnerId || null,
+                            advancePaymentTreasuryId: cleanItem.advancePaymentTreasuryId || null,
+                            advancePaymentEmployeeId: cleanItem.advancePaymentEmployeeId || null,
+                            advancePaymentRecipientPhone: cleanItem.advancePaymentRecipientPhone || null,
+                            advancePaymentSenderDetails: cleanItem.advancePaymentSenderDetails || null,
+                            advancePaymentHistory: cleanItem.advancePaymentHistory || [],
+                            items: Array.isArray(cleanItem.items) ? cleanItem.items : [],
+                            createdBy: cleanItem.createdBy || null,
+                            source: cleanItem.source || null,
+                            vatOnStandardShipping: cleanItem.vatOnStandardShipping ?? false,
+                            customerAddress: cleanItem.customerAddress || null,
+                            city: cleanItem.city || null,
+                            governorate: cleanItem.governorate || null,
+                            shippingArea: cleanItem.shippingArea || null,
+                            paymentMethod: cleanItem.paymentMethod || null,
+                            paymentStatus: cleanItem.paymentStatus || null,
+                            notes: cleanItem.notes || null,
+                            discount: Number(cleanItem.discount ?? 0),
+                            isInsured: Boolean(cleanItem.isInsured ?? false),
+                            includeInspectionFee: Boolean(cleanItem.includeInspectionFee ?? false),
+                            inspectionFeePaidByCustomer: Boolean(cleanItem.inspectionFeePaidByCustomer ?? false),
+                            recordedAsDebt: Boolean(cleanItem.recordedAsDebt ?? false),
+                            deferPaymentToReturn: Boolean(cleanItem.deferPaymentToReturn ?? false),
+                            returnCashToCustomer: Boolean(cleanItem.returnCashToCustomer ?? false),
+                            cashToReturnAmount: Number(cleanItem.cashToReturnAmount ?? 0),
+                            creditAmount: Number(cleanItem.creditAmount ?? 0),
+                            totalAmountOverride: cleanItem.totalAmountOverride !== undefined ? Number(cleanItem.totalAmountOverride) : null,
+                            totalAmountOverrideReason: cleanItem.totalAmountOverrideReason || null,
+                            orderType: cleanItem.orderType || 'standard',
+                            shipmentType: cleanItem.shipmentType || 'delivery',
+                            maintenanceCost: cleanItem.maintenanceCost !== undefined ? Number(cleanItem.maintenanceCost) : null,
+                            maintenanceItemDescription: cleanItem.maintenanceItemDescription || null,
+                            maintenanceItemSerial: cleanItem.maintenanceItemSerial || null,
+                            maintenanceItemValue: cleanItem.maintenanceItemValue !== undefined ? Number(cleanItem.maintenanceItemValue) : null,
+                            maintenanceTechnicalReport: cleanItem.maintenanceTechnicalReport || null,
+                            maintenanceStatus: cleanItem.maintenanceStatus || null,
+                            originalOrderId: cleanItem.originalOrderId || null,
+                            exchangeDifference: cleanItem.exchangeDifference !== undefined ? Number(cleanItem.exchangeDifference) : null,
+                            returnProductValue: cleanItem.returnProductValue !== undefined ? Number(cleanItem.returnProductValue) : null,
+                            returnTrackingNumber: cleanItem.returnTrackingNumber || null,
+                            details: detailsObj
+                        };
                     }
                     
                     return mappedItem;
@@ -976,6 +1150,11 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             console.warn(`[SYNC-SELF-HEAL] Stripping missing column '${missingCol}' from table '${table}' payload and retrying...`);
                             currentItemsToUpsert = currentItemsToUpsert.map(item => {
                                 const copy = { ...item };
+                                if (copy.details && typeof copy.details === 'object') {
+                                    copy.details = { ...copy.details, [missingCol]: item[missingCol] };
+                                } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data'].includes(table)) {
+                                    copy.details = { [missingCol]: item[missingCol] };
+                                }
                                 delete copy[missingCol];
                                 return copy;
                             });
@@ -1055,8 +1234,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     try {
         await ensureStoreRecordExists(store.id, store.name);
 
-        const syncCollection = async (collectionName: string, stateItems: any[], idField = 'id') => {
+        const syncCollection = async (collectionName: string, rawStateItems: any[], idField = 'id') => {
             try {
+                const stateItems = Array.isArray(rawStateItems) ? rawStateItems : (rawStateItems && typeof rawStateItems === 'object' ? Object.values(rawStateItems) : []);
                 const hashKey = `${store.id}_${collectionName}`;
                 const currentHash = getCollectionHash(stateItems);
                 if (LAST_SYNCED_HASHES[hashKey] === currentHash) {

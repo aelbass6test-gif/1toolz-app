@@ -1604,7 +1604,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             required
                           >
                             <option value="">-- اختر الوجهة --</option>
-                            {treasury?.accounts.map(acc => (
+                            {treasury?.accounts && (Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {})).map((acc: any) => (
                               <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {acc.balance.toLocaleString()} ج.م)</option>
                             ))}
                           </select>

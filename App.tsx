@@ -243,7 +243,7 @@ const MainLayout = ({
                     type: 'supplier_debt',
                     id: `debt-${sup.id}`,
                     title: 'مديونية مورد مرتفعة',
-                    message: `المورد "${sup.name}" لديه مديونية مستحقة بقيمة ${sup.balance.toLocaleString()} ج.م`,
+                    message: `المورد "${sup.name}" لديه مديونية مستحقة بقيمة ${(sup.balance ?? 0).toLocaleString()} ج.م`,
                     severity: 'warning'
                 });
             }
@@ -252,12 +252,12 @@ const MainLayout = ({
         // 4. Check High Cash Holder Balances (Threshold: 5000)
         const cashHolders = settings.cashHolders || [];
         cashHolders.forEach(ch => {
-            if (ch.currentBalance >= 5000) {
+            if ((ch.currentBalance || 0) >= 5000) {
                 alerts.push({
                     type: 'cash_balance',
                     id: `cash-${ch.userId}`,
                     title: 'عهدة نقدية مرتفعة',
-                    message: `الموظف "${ch.userName}" يحمل عهدة نقدية كبيرة بقيمة ${ch.currentBalance.toLocaleString()} ج.م`,
+                    message: `الموظف "${ch.userName}" يحمل عهدة نقدية كبيرة بقيمة ${(ch.currentBalance ?? 0).toLocaleString()} ج.م`,
                     severity: 'warning'
                 });
             }
@@ -266,7 +266,7 @@ const MainLayout = ({
         // 5. Check Abandoned Carts (High value: 2000+)
         const abandonedCarts = settings.abandonedCarts || [];
         abandonedCarts.forEach(cart => {
-            if (cart.totalValue >= 2000) {
+            if ((cart.totalValue || 0) >= 2000) {
                 const cartDate = new Date(cart.date);
                 const hoursDiff = Math.abs(now.getTime() - cartDate.getTime()) / 36e5;
                 if (hoursDiff <= 48) { // Only alert for recent ones
@@ -274,7 +274,7 @@ const MainLayout = ({
                         type: 'abandoned_cart',
                         id: `abandoned-${cart.id}`,
                         title: 'سلة متروكة هامة',
-                        message: `العميل "${cart.customerName}" ترك سلة بقيمة ${cart.totalValue.toLocaleString()} ج.م`,
+                        message: `العميل "${cart.customerName}" ترك سلة بقيمة ${(cart.totalValue ?? 0).toLocaleString()} ج.م`,
                         severity: 'info'
                     });
                 }
@@ -1149,7 +1149,7 @@ export const AppComponent = () => {
             };
 
             syncWithTimeout();
-        }, 15000); // 15s debounce for efficiency - reduced from 5s to conserve writes
+        }, 2000); // 2s debounce for fast persistence before refresh
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1900,10 +1900,15 @@ export const AppComponent = () => {
                 if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
                     console.log('[REALTIME] Orders change detected via Firestore snapshot');
                     isRefreshing.current = true;
-                    const newOrders = snap.docs.map(doc => ({ 
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
-                        ...doc.data() 
-                    } as Order));
+                    const newOrders = snap.docs.map(doc => {
+                        const data = doc.data();
+                        const docItems = Array.isArray(data.items) ? data.items : (data.items && typeof data.items === 'object' ? Object.values(data.items) : []);
+                        return { 
+                            id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
+                            ...data,
+                            items: docItems
+                        } as Order;
+                    });
                     setAllStoresData(prev => {
                         const store = prev[activeStoreId];
                         if (!store) return prev;
@@ -2502,7 +2507,7 @@ export const AppComponent = () => {
                 }>
                     <Route index element={<Navigate to="dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard {...pageProps} />} />
-                    <Route path="maintenance" element={<MaintenancePage currentStoreId={activeStoreId!} settings={pageProps.settings} />} />
+                    <Route path="maintenance" element={<MaintenancePage currentStoreId={activeStoreId!} settings={pageProps.settings} setSettings={pageProps.setSettings} customers={pageProps.customers} setCustomers={pageProps.setCustomers} products={pageProps.products} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} setOrders={pageProps.setOrders} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />

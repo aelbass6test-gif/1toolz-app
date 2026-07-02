@@ -62,6 +62,104 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
   // Custom alert state
   const [alertConfig, setAlertConfig] = useState<{ isOpen: boolean; title: string; message: string; isError?: boolean } | null>(null);
 
+  // Delete transactions state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState<TreasuryTransaction | null>(null);
+  const [associatedTransactions, setAssociatedTransactions] = useState<TreasuryTransaction[]>([]);
+
+  const initiateDeleteTransaction = (tx: TreasuryTransaction) => {
+    setTransactionToDelete(tx);
+    
+    // Extract a reference like #MNT-9128 or #9128 or general #\S+ from description
+    const match = tx.description.match(/#(MNT-\d+|\d+)/i) || tx.description.match(/#\S+/);
+    const reference = match ? match[0] : null;
+
+    if (reference) {
+      // Find all transactions containing that reference (excluding the current one)
+      const associated = transactions.filter(t => t.id !== tx.id && t.description.includes(reference));
+      setAssociatedTransactions(associated);
+    } else {
+      setAssociatedTransactions([]);
+    }
+    
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDeleteTransaction = () => {
+    if (!transactionToDelete) return;
+
+    // List of transactions to delete: the main one + all associated ones
+    const txsToDelete = [transactionToDelete, ...associatedTransactions];
+    const txIdsToDelete = txsToDelete.map(t => t.id);
+
+    if (setTreasury) {
+      setTreasury((prev: Treasury) => {
+        let updatedAccounts = [...prev.accounts];
+
+        // Process reversals for each transaction being deleted
+        txsToDelete.forEach(tx => {
+          const amount = tx.amount;
+
+          // Revert impact on fromAccountId (add back the amount that was spent)
+          if (tx.fromAccountId) {
+            updatedAccounts = updatedAccounts.map(acc => 
+              acc.id === tx.fromAccountId ? { ...acc, balance: acc.balance + amount } : acc
+            );
+          }
+
+          // Revert impact on toAccountId (subtract the amount that was received)
+          if (tx.toAccountId && tx.toAccountId !== 'supply_wallet') {
+            updatedAccounts = updatedAccounts.map(acc => 
+              acc.id === tx.toAccountId ? { ...acc, balance: acc.balance - amount } : acc
+            );
+          }
+        });
+
+        // Revert wallet supply balance if any of the transactions were a transfer to supply_wallet
+        const totalSupplyRefund = txsToDelete
+          .filter(tx => tx.toAccountId === 'supply_wallet')
+          .reduce((sum, tx) => sum + tx.amount, 0);
+
+        if (totalSupplyRefund > 0 && setWallet) {
+          setWallet((prevWallet: any) => {
+            const match = transactionToDelete.description.match(/#(MNT-\d+|\d+)/i) || transactionToDelete.description.match(/#\S+/);
+            const ref = match ? match[0] : '';
+            
+            // Filter out wallet transactions that might be associated with this deletion
+            const filteredWalletTx = (prevWallet.transactions || []).filter((wTx: any) => {
+              if (ref && wTx.note && wTx.note.includes(ref)) return false;
+              return true;
+            });
+
+            return {
+              ...prevWallet,
+              supplyBalance: Math.max(0, (prevWallet.supplyBalance || 0) - totalSupplyRefund),
+              transactions: filteredWalletTx
+            };
+          });
+        }
+
+        // Filter out the deleted transactions
+        const remainingTransactions = prev.transactions.filter(t => !txIdsToDelete.includes(t.id));
+
+        return {
+          accounts: updatedAccounts,
+          transactions: remainingTransactions
+        };
+      });
+    }
+
+    setShowDeleteModal(false);
+    setTransactionToDelete(null);
+    setAssociatedTransactions([]);
+
+    setAlertConfig({
+      isOpen: true,
+      title: 'تم الحذف والتسوية بنجاح',
+      message: `تم حذف ${txsToDelete.length} حركة مالية بنجاح وإعادة تسوية أرصدة الحسابات المتأثرة تلقائياً.`,
+    });
+  };
+
   const startEditAccount = (acc: TreasuryAccount) => {
     setEditingAccount(acc);
     setEditingName(acc.name);
@@ -434,12 +532,13 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 <th className="p-4 font-bold">من حساب</th>
                 <th className="p-4 font-bold">إلى حساب</th>
                 <th className="p-4 font-bold">المبلغ (ج.م)</th>
+                <th className="p-4 font-bold text-center">إجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center justify-center text-slate-500">
+                  <td colSpan={7} className="p-8 text-center justify-center text-slate-500">
                     <History className="w-12 h-12 mx-auto mb-3 opacity-20" />
                     <p className="font-bold">لا توجد حركات مسجلة</p>
                   </td>
@@ -474,6 +573,15 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                     'text-indigo-600'
                   }`}>
                     {tx.type === 'withdrawal' ? '-' : tx.type === 'deposit' ? '+' : ''}{tx.amount.toLocaleString()}
+                  </td>
+                  <td className="p-4 text-center">
+                    <button
+                      onClick={() => initiateDeleteTransaction(tx)}
+                      className="p-2 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 rounded-xl transition-all duration-200 cursor-pointer"
+                      title="حذف الحركة وتسوية الرصيد"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -789,6 +897,92 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && transactionToDelete && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl shadow-2xl p-6 border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 text-right" dir="rtl">
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-4 pb-3 border-b border-slate-150 dark:border-slate-800">
+              <Trash2 className="w-6 h-6" />
+              <h3 className="text-xl font-black">حذف الحركة وتسوية الحسابات</h3>
+            </div>
+            
+            <p className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+              أنت على وشك حذف هذه الحركة المالية وإعادة تسوية حساباتها المتأثرة بالرصيد. يرجى تأكيد العملية:
+            </p>
+
+            {/* Main Transaction Card */}
+            <div className="bg-rose-50/50 dark:bg-rose-950/15 border border-rose-100 dark:border-rose-900/30 rounded-2xl p-4 mb-4">
+              <span className="text-[10px] font-black uppercase text-rose-600 dark:text-rose-400 bg-rose-100/60 dark:bg-rose-900/40 px-2.5 py-1 rounded-full mb-2 inline-block">
+                الحركة المحددة للحذف
+              </span>
+              <div className="flex justify-between items-start gap-4">
+                <div>
+                  <h4 className="font-extrabold text-slate-800 dark:text-slate-100 text-base">{transactionToDelete.description}</h4>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    {new Date(transactionToDelete.date).toLocaleDateString('ar-EG')} | الحساب: {
+                      transactionToDelete.fromAccountId ? accounts.find(a => a.id === transactionToDelete.fromAccountId)?.name :
+                      transactionToDelete.toAccountId ? accounts.find(a => a.id === transactionToDelete.toAccountId)?.name : '-'
+                    }
+                  </p>
+                </div>
+                <div className="text-rose-600 dark:text-rose-400 font-black text-lg whitespace-nowrap">
+                  {transactionToDelete.amount.toLocaleString()} ج.م
+                </div>
+              </div>
+            </div>
+
+            {/* Associated Transactions list */}
+            {associatedTransactions.length > 0 && (
+              <div className="mb-6 text-right">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                  <h4 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                    الحركات المرتبطة المكتشفة ({associatedTransactions.length} حركات)
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-3">
+                  تم اكتشاف حركات مالية أخرى تشترك في نفس رمز مرجع الطلب وسيتم حذفها وتسوية أرصدتها تلقائياً مع الحركة الأساسية لضمان سلامة الدفاتر:
+                </p>
+                <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                  {associatedTransactions.map(tx => (
+                    <div key={tx.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-xl p-3 flex justify-between items-center gap-4 hover:border-indigo-500/10 transition-all duration-200">
+                      <div className="text-right">
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{tx.description}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                          الحساب: {
+                            tx.fromAccountId ? accounts.find(a => a.id === tx.fromAccountId)?.name :
+                            tx.toAccountId ? accounts.find(a => a.id === tx.toAccountId)?.name : '-'
+                          }
+                        </p>
+                      </div>
+                      <div className="text-xs font-extrabold text-slate-700 dark:text-slate-300 tabular-nums">
+                        {tx.amount.toLocaleString()} ج.م
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/70">
+              <button 
+                type="button"
+                onClick={handleConfirmDeleteTransaction}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl py-3 font-black text-sm transition-all duration-200 shadow-lg shadow-rose-500/10 hover:shadow-rose-500/20"
+              >
+                تأكيد الحذف والموازنة
+              </button>
+              <button 
+                type="button"
+                onClick={() => { setShowDeleteModal(false); setTransactionToDelete(null); setAssociatedTransactions([]); }}
+                className="px-6 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-sm transition-colors"
+              >
+                إلغاء
+              </button>
+            </div>
           </div>
         </div>
       )}

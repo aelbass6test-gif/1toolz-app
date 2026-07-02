@@ -23,6 +23,7 @@ interface CreateOrderPageProps {
     setTreasury?: React.Dispatch<React.SetStateAction<any>>;
     currentUser: User | null;
     allStoresData?: Record<string, any>;
+    forceSync?: () => Promise<void>;
 }
 
 const CreateOrderPage: React.FC<CreateOrderPageProps> = ({ 
@@ -36,7 +37,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
     treasury,
     setTreasury,
     currentUser,
-    allStoresData
+    allStoresData,
+    forceSync
 }) => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -60,7 +62,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         date: new Date().toISOString(),
         orderType: 'standard',
         shipmentType: 'delivery',
-        includeInspectionFee: false,
+        warehouseId: settings?.warehouses?.find((w: any) => w.isDefault)?.id || settings?.warehouses?.[0]?.id || '',
+        includeInspectionFee: settings?.enableInspection ?? true,
+        allowOpenShipment: settings?.enableInspection ?? true,
         isInsured: true,
         vatOnStandardShipping: false,
         source: 'manual',
@@ -156,7 +160,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 thumbnail: ''
             }];
         } else {
-            items = orderData.items || [];
+            items = Array.isArray(orderData.items) ? orderData.items : (orderData.items && typeof orderData.items === 'object' ? Object.values(orderData.items) : []);
         }
         
         if (items.length === 0) {
@@ -217,7 +221,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         
         // Calculate exact customer billing/collection amount to save in totalPrice
         const compFees = settings?.companySpecificFees?.[orderToAdd.shippingCompany];
-        const inspectionFee = orderToAdd.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
+        const inspectionFee = (orderToAdd.includeInspectionFee !== false && orderToAdd.allowOpenShipment !== false) ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
         const insuranceRate = orderToAdd.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
         const insuranceFee = calculateInsuranceFee(orderToAdd as Order, insuranceRate, settings);
         const safeAdvance = Number((orderToAdd as any).advancePayment) || 0;
@@ -278,6 +282,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const orderWithId: Order = { 
             ...orderToAdd, 
             id,
+            date: orderToAdd.date || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
             totalPrice: Math.round(finalCollectedTotal),
             advancePaymentHistory: advanceHistory.length > 0 ? advanceHistory : undefined
         } as Order;
@@ -309,7 +315,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             const treasuryTxId = `tx-${Date.now()}`;
             setTreasury((prev: any) => {
                 const currentTreasury = prev || { accounts: [], transactions: [] };
-                const updatedAccounts = currentTreasury.accounts.map((acc: any) => 
+                const accountsArray = Array.isArray(currentTreasury.accounts) ? currentTreasury.accounts : Object.values(currentTreasury.accounts || {});
+                const updatedAccounts = accountsArray.map((acc: any) => 
                     acc.id === treasuryId ? { ...acc, balance: acc.balance + difference } : acc
                 );
                 const newTx = {
@@ -464,6 +471,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         // ----------------------------------
 
         triggerWebhooks(orderWithId, settings);
+        if (forceSync) {
+            void forceSync();
+        }
         
         // تشغيل صوت واحتفالات نجاح تسجيل الطلب
         triggerCelebration('create_order', settings);

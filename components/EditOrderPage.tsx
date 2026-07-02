@@ -19,6 +19,7 @@ interface EditOrderPageProps {
     setTreasury?: React.Dispatch<React.SetStateAction<any>>;
     currentUser: User | null;
     allStoresData?: Record<string, any>;
+    forceSync?: () => Promise<void>;
 }
 
 const EditOrderPage: React.FC<EditOrderPageProps> = ({ 
@@ -32,7 +33,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
     treasury,
     setTreasury,
     currentUser,
-    allStoresData
+    allStoresData,
+    forceSync
 }) => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -57,11 +59,21 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const govKey = (order.governorate || order.shippingArea || '').toUpperCase();
         const mappedGov = GOVERNORATE_MAP[govKey] || order.governorate || order.shippingArea || '';
 
-        const normalizedItems = (order.items || []).map(item => ({
-            ...item,
-            productId: item.productId.startsWith('wuilt-') ? item.productId : `wuilt-${item.productId}`,
-            price: (item.price === 0 && (order.items || []).length === 1 && order.productPrice > 0) ? order.productPrice : item.price
-        }));
+        const rawItems = Array.isArray(order.items) ? order.items : (order.items && typeof order.items === 'object' ? Object.values(order.items) : []);
+        const productsList = Array.isArray(settings?.products) ? settings.products : (settings?.products && typeof settings.products === 'object' ? Object.values(settings.products) : []);
+
+        const normalizedItems = rawItems.map((item: any) => {
+            const existsDirectly = productsList.some((p: any) => p.id === item.productId || p.variants?.some((v: any) => v.id === item.productId));
+            const wuiltId = `wuilt-${item.productId}`;
+            const existsAsWuilt = !existsDirectly && productsList.some((p: any) => p.id === wuiltId || p.variants?.some((v: any) => v.id === wuiltId));
+            const targetProductId = existsDirectly ? item.productId : (existsAsWuilt ? wuiltId : (item.productId?.startsWith('wuilt-') ? item.productId : item.productId));
+
+            return {
+                ...item,
+                productId: targetProductId || item.productId || '',
+                price: (item.price === 0 && rawItems.length === 1 && order.productPrice > 0) ? order.productPrice : (item.price || 0)
+            };
+        });
 
         return {
             ...order,
@@ -151,7 +163,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                 thumbnail: ''
             }];
         } else {
-            items = editingOrder.items || [];
+            items = Array.isArray(editingOrder.items) ? editingOrder.items : (editingOrder.items && typeof editingOrder.items === 'object' ? Object.values(editingOrder.items) : []);
         }
 
         const totalProductPrice = items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
@@ -160,7 +172,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const productNames = items.map(item => item.name).join(', ');
 
         const compFees = settings?.companySpecificFees?.[editingOrder.shippingCompany];
-        const inspectionFee = editingOrder.includeInspectionFee ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
+        const inspectionFee = (editingOrder.includeInspectionFee !== false && editingOrder.allowOpenShipment !== false) ? (compFees?.useCustomFees ? compFees.inspectionFee : settings.inspectionFee) : 0;
         const insuranceRate = editingOrder.isInsured ? (compFees?.useCustomFees ? compFees.insuranceFeePercent : settings.insuranceFeePercent) : 0;
         const insuranceFee = calculateInsuranceFee(editingOrder as Order, insuranceRate, settings);
         const safeAdvance = Number((editingOrder as any).advancePayment) || 0;
@@ -192,6 +204,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             productCost: totalProductCost,
             weight: totalWeight,
             productName: productNames,
+            updatedAt: new Date().toISOString(),
             totalPrice: Math.round(finalCollectedTotal),
         };
 
@@ -260,7 +273,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             } else if (oldTreasuryId && setTreasury) {
                 setTreasury((prev: any) => {
                     const currentTreasury = prev || { accounts: [], transactions: [] };
-                    const updatedAccounts = currentTreasury.accounts.map((acc: any) => 
+                    const accountsArr = Array.isArray(currentTreasury.accounts) ? currentTreasury.accounts : Object.values(currentTreasury.accounts || {});
+                    const updatedAccounts = accountsArr.map((acc: any) => 
                         acc.id === oldTreasuryId ? { ...acc, balance: acc.balance - oldAdvance } : acc
                     );
                     const newTx = {
@@ -300,7 +314,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             } else if (newTreasuryId && setTreasury) {
                 setTreasury((prev: any) => {
                     const currentTreasury = prev || { accounts: [], transactions: [] };
-                    const updatedAccounts = currentTreasury.accounts.map((acc: any) => 
+                    const accountsArr = Array.isArray(currentTreasury.accounts) ? currentTreasury.accounts : Object.values(currentTreasury.accounts || {});
+                    const updatedAccounts = accountsArr.map((acc: any) => 
                         acc.id === newTreasuryId ? { ...acc, balance: acc.balance + newAdvance } : acc
                     );
                     const newTx = {
@@ -377,6 +392,9 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         }
 
         setOrders(prev => prev.map(o => o.id === id ? updatedOrder : o));
+        if (forceSync) {
+            void forceSync();
+        }
         
         // تشغيل صوت واحتفالات نجاح تعديل الطلب
         triggerCelebration('edit_order', settings);

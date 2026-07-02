@@ -51,9 +51,9 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
      const selectedAccount = treasury?.accounts?.find((a: any) => a.id === custodyTreasuryId);
      if (!selectedAccount) return;
 
+     let warningMsg = '';
      if (custodyType === 'give' && selectedAccount.balance < amount) {
-        alert(`عفواً، رصيد الحساب المختار (${selectedAccount.name}) لا يكفي. المتاح: ${selectedAccount.balance.toLocaleString()} ج.م`);
-        return;
+        warningMsg = ' (تنبيه: رصيد الخزينة المختار أصبح بالسالب مؤقتاً)';
      }
 
      const partnerHolderId = `part_${partner?.id}`;
@@ -154,7 +154,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
      setCustodyAmount('');
      setCustodyNotes('');
-     alert('تم تسجيل عملية العهدة بنجاح وتحديث كشفي الحساب والخزائن.');
+     alert('تم تسجيل عملية العهدة بنجاح وتحديث كشفي الحساب والخزائن.' + warningMsg);
   };
 
   const deleteCustodyTx = (h: any) => {
@@ -339,9 +339,10 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   };
 
   const stats = useMemo(() => {
-    if (!partner) return { totalInvested: 0, totalWithdrawn: 0, totalLoans: 0, totalAdvances: 0, totalRepaid: 0 };
+    if (!partner) return { totalInvested: 0, totalDividends: 0, totalWithdrawn: 0, totalLoans: 0, totalAdvances: 0, totalRepaid: 0 };
     return {
        totalInvested: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((sum, t) => sum + t.amount, 0),
+       totalDividends: transactions.filter(t => t.type === 'profit_distribution').reduce((sum, t) => sum + t.amount, 0),
        totalWithdrawn: transactions.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + t.amount, 0),
        totalLoans: transactions.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0),
        totalAdvances: transactions.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0),
@@ -670,12 +671,12 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6">
           {[
-            { label: 'إجمالي الاستثمار', value: stats.totalInvested, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/20', icon: ArrowUpLeft },
+            { label: 'إجمالي رأس المال المضاف', value: stats.totalInvested, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/20', icon: ArrowUpLeft },
+            { label: 'الأرباح الموزعة له', value: stats.totalDividends, color: 'text-emerald-600', bg: 'bg-emerald-100 dark:bg-emerald-900/20', icon: TrendingUp },
             { label: 'الأرباح المسحوبة', value: stats.totalWithdrawn, color: 'text-amber-600', bg: 'bg-amber-100 dark:bg-amber-900/20', icon: DollarSign },
-            { label: 'إجمالي السلف', value: stats.totalLoans, color: 'text-rose-600', bg: 'bg-rose-100 dark:bg-rose-900/20', icon: ArrowDownRight },
-            { label: 'إجمالي العرابين', value: stats.totalAdvances, color: 'text-teal-600', bg: 'bg-teal-100 dark:bg-teal-900/20', icon: Coins },
-            { label: 'إجمالي العهد المالية', value: partnerCustody, color: 'text-indigo-600', bg: 'bg-indigo-100 dark:bg-indigo-900/20', icon: WalletIcon },
-            { label: 'صافي مديونية السلف', value: stats.totalLoans - stats.totalRepaid, color: 'text-slate-700 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-700/20', icon: History },
+            { label: 'إجمالي السلف الشخصية', value: stats.totalLoans, color: 'text-rose-600', bg: 'bg-rose-100 dark:bg-rose-900/20', icon: ArrowDownRight },
+            { label: 'العهد التشغيلية طرفه', value: partnerCustody, color: 'text-indigo-600', bg: 'bg-indigo-100 dark:bg-indigo-900/20', icon: WalletIcon },
+            { label: 'صافي مديونية السلف', value: Math.max(0, stats.totalLoans - stats.totalRepaid), color: 'text-slate-700 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-700/20', icon: History },
           ].map((stat, i) => (
             <motion.div 
               key={i}
@@ -697,6 +698,13 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                </p>
             </motion.div>
           ))}
+      </div>
+
+      <div className="bg-indigo-50/80 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/40 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-slate-700 dark:text-slate-300">
+        <div className="flex items-center gap-2">
+           <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse"></span>
+           <span>💡 <strong>قاعدة الرصيد الصافي للشريك:</strong> (الأرباح الموزعة + رأس المال والإيداعات) - (المسحوبات الشخصية والسلف المالية). الرصيد الأخضر يعني مستحقات للشريك، والأحمر يعني سلف زائدة.</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

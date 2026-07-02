@@ -595,6 +595,8 @@ export interface PayrollTransaction {
 export interface Settings {
   id?: string;
   data?: any; // For flexible local storage
+  storeBranches?: any[];
+  companyNames?: string[];
   enableGlobalFinancials: boolean; 
   webhookIntegrations?: WebhookIntegration[];
   supabaseUrl?: string;
@@ -911,11 +913,13 @@ export interface AuditLog {
 
 export interface MaintenancePart {
   id: string;
+  productId?: string;
   name: string;
   cost: number;
   priceToCustomer: number;
   purchaseSource?: string;
   purchaseDate?: string;
+  quantity?: number;
 }
 
 export interface MaintenanceRequest {
@@ -949,6 +953,29 @@ export interface MaintenanceRequest {
   technicianName?: string;
   internalNotes?: string;
   attachments?: string[];
+
+  // Shipping details
+  shippingCompany?: string;
+  shippingTrackingNumber?: string;
+  shippingCostToShop?: number;
+  shippingCostToCustomer?: number;
+  shippingPaymentMethod?: 'cash' | 'add_to_debt';
+  shippingStatus?: 'none' | 'pickup_requested' | 'picked_up' | 'received_at_shop' | 'ready_for_shipping' | 'shipped_to_customer' | 'delivered' | 'returned_without_repair';
+
+  // Payment & Financial integration
+  paymentMethod?: 'cash' | 'add_to_debt' | 'wallet' | 'bank';
+  paymentStatus?: 'unpaid' | 'paid';
+  treasuryAccountId?: string;
+  financialLogged?: boolean;
+
+  // Commission details
+  commissionType?: 'percentage' | 'fixed';
+  commissionValue?: number;
+  commissionAmount?: number;
+
+  // Waybill and companion order
+  waybillOrderId?: string;
+  stockDeducted?: boolean;
 }
 
 export interface Order {
@@ -1059,6 +1086,12 @@ export interface Order {
   returnCashToCustomer?: boolean;
   cashToReturnAmount?: number;
   creditAmount?: number;
+  updatedAt?: string;
+  exchangeDifference?: number;
+  storeBranchId?: string;
+  allowOpenShipment?: boolean;
+  assignedEmployeeId?: string;
+  deliveryNotes?: string;
 }
 
 export interface TreasuryAccount {

@@ -66,6 +66,8 @@ import {
   CheckCircle2,
   PackageCheck,
   Hash,
+  ShoppingCart,
+  BookOpen,
 } from "lucide-react";
 import { db } from "../services/firebaseClient";
 import {
@@ -470,6 +472,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const [activeTab, setActiveTab] = useState("الجميع");
+  const [mainSection, setMainSection] = useState<'orders' | 'analytics'>('orders');
+  const [showStatusGuide, setShowStatusGuide] = useState(false);
   const [showAnalyticsHub, setShowAnalyticsHub] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState<
     "summary" | "chart" | "govs" | "products" | "carriers"
@@ -608,14 +612,26 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     });
 
     let tabFiltered = searched;
-    if (activeTab !== "الجميع") {
+    if (activeTab === "processing_group") {
+      tabFiltered = searched.filter((o) => ["في_انتظار_المكالمة", "جاري_المراجعة", "قيد_التنفيذ"].includes(o.status));
+    } else if (activeTab === "transit_group") {
+      tabFiltered = searched.filter((o) => o.status === "تم_الارسال");
+    } else if (activeTab === "delivered_group") {
+      tabFiltered = searched.filter((o) => o.status === "تم_التحصيل");
+    } else if (activeTab === "failed_group") {
+      tabFiltered = searched.filter((o) => ["مرتجع", "فشل_التوصيل"].includes(o.status));
+    } else if (activeTab === "canceled_group") {
+      tabFiltered = searched.filter((o) => ["ملغي", "مؤرشف"].includes(o.status));
+    } else if (activeTab === "مؤرشف") {
+      tabFiltered = searched.filter((o) => o.status === "مؤرشف");
+    } else if (activeTab !== "الجميع") {
       tabFiltered = searched.filter((o) => o.status === activeTab);
     }
 
     return tabFiltered.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
-  }, [orders, searchTerm, activeTab]);
+  }, [orders, searchTerm, activeTab, filterGov, filterCompany, filterEmployee, dateRange]);
 
   const paginatedOrders = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -2959,6 +2975,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const quickStats = useMemo(() => {
     const nonArchivedOrders = orders.filter((o) => o.status !== "مؤرشف");
     return {
+      allActive: nonArchivedOrders.length,
+      processingGroup: nonArchivedOrders.filter((o) =>
+        ["في_انتظار_المكالمة", "جاري_المراجعة", "قيد_التنفيذ"].includes(o.status)
+      ).length,
       awaitingWaybill: nonArchivedOrders.filter(
         (o) => o.status === "جاري_المراجعة",
       ).length,
@@ -2969,7 +2989,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       failed: nonArchivedOrders.filter((o) =>
         ["مرتجع", "فشل_التوصيل"].includes(o.status),
       ).length,
-      canceled: nonArchivedOrders.filter((o) => o.status === "ملغي").length,
+      canceled: orders.filter((o) => ["ملغي", "مؤرشف"].includes(o.status)).length,
     };
   }, [orders]);
 
@@ -3000,7 +3020,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
               <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                سجل الطلبات المركزي
+                إدارة الطلبات وسجل المبيعات
               </h1>
               <motion.button
                 whileHover={{ scale: 1.05 }}
@@ -3015,9 +3035,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 </span>
               </motion.button>
             </div>
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-1">
+              نظام موحد ومبسط لمتابعة الشحنات، معالجة وتجهيز الأوردرات، وتحليل مبيعات وأرباح المتجر بكل سهولة
+            </p>
             <div className="flex items-center gap-3 mt-2">
               <div className="px-3 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full text-[10px] font-black border border-indigo-100 dark:border-indigo-900/30">
-                {filteredOrders.length} طلب نشط
+                {filteredOrders.length} طلب مطابق للفلتر
               </div>
               <div className="px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-full text-[10px] font-black border border-emerald-100 dark:border-emerald-900/30">
                 المتجر النشط: {activeStore?.id}
@@ -3025,218 +3048,290 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             </div>
           </div>
 
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => navigate(`${storePrefix}/orders/new`)}
-            className="lg:hidden bg-indigo-600 text-white p-4 rounded-2xl font-black shadow-xl shadow-indigo-500/20 transition-all flex items-center justify-center shrink-0"
-          >
-            <Plus size={24} />
-          </motion.button>
-        </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowStatusGuide(true)}
+              className="flex items-center gap-1.5 px-4 py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 transition-all font-bold text-xs"
+              title="شرح مبسط لحالات الطلبات"
+            >
+              <Info size={18} />
+              <span>💡 دليل استخدام الحالات</span>
+            </button>
 
-        <div className="flex items-center gap-3 overflow-x-auto no-scrollbar pb-2 lg:pb-0 px-1">
-          <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0">
-            {[
-              { id: "list", icon: LayoutList },
-              { id: "kanban", icon: LayoutGrid },
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => setViewMode(mode.id as any)}
-                className={`p-2.5 rounded-xl transition-all ${viewMode === mode.id ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md" : "text-slate-400 hover:text-slate-600"}`}
-              >
-                <mode.icon size={20} />
-              </button>
-            ))}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => navigate(`${storePrefix}/orders/new`)}
+              className="bg-indigo-600 text-white px-5 py-3 rounded-2xl font-black shadow-xl shadow-indigo-500/25 transition-all flex items-center gap-2 text-sm shrink-0"
+            >
+              <Plus size={20} />
+              <span className="hidden sm:inline">طلب جديد</span>
+            </motion.button>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleAutoAssign}
-              className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-600 dark:text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 hover:text-indigo-600 transition-all shadow-sm"
-              title="توزيع الطلبات"
-            >
-              <Users size={20} />
-            </button>
-
-            <button
-              onClick={handleExportPDF}
-              className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-600 dark:text-slate-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 hover:text-rose-600 transition-all shadow-sm"
-              title="تصدير PDF"
-            >
-              <FileText size={20} />
-            </button>
-
-            <button
-              onClick={handleExportExcel}
-              className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-600 dark:text-slate-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-600 transition-all shadow-sm"
-              title="تصدير Excel"
-            >
-              <FileDown size={20} />
-            </button>
-          </div>
-
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => navigate(`${storePrefix}/orders/new`)}
-            className="hidden lg:flex bg-indigo-600 text-white px-5 py-3 rounded-2xl font-black shadow-xl shadow-indigo-500/25 transition-all items-center gap-3 text-sm shrink-0"
-          >
-            <Plus size={20} />
-            <span>طلب جديد</span>
-          </motion.button>
         </div>
       </div>
 
-      {/* Quick Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {[
-          {
-            label: "بانتظار المراجعة",
-            count: quickStats.awaitingWaybill,
-            icon: FileSearch,
-            color: "indigo",
-            targetTab: "جاري_المراجعة",
-            isSelected: activeTab === "جاري_المراجعة",
-            hideOnMobile: false,
-          },
-          {
-            label: "قيد الشحن",
-            count: quickStats.onTheWay,
-            icon: Truck,
-            color: "blue",
-            targetTab: "تم_الارسال",
-            isSelected: activeTab === "تم_الارسال",
-            hideOnMobile: false,
-          },
-          {
-            label: "تم التوصيل",
-            count: quickStats.delivered,
-            icon: CheckCircle,
-            color: "emerald",
-            targetTab: "تم_التحصيل",
-            isSelected: activeTab === "تم_التحصيل",
-            hideOnMobile: false,
-          },
-          {
-            label: "مرتجع / فشل",
-            count: quickStats.failed,
-            icon: XCircle,
-            color: "rose",
-            targetTab: "مرتجع",
-            isSelected: ["مرتجع", "فشل_التوصيل"].includes(activeTab),
-            hideOnMobile: false,
-          },
-          {
-            label: "طلبات ملغاة",
-            count: quickStats.canceled,
-            icon: Trash2,
-            color: "slate",
-            targetTab: "ملغي",
-            isSelected: activeTab === "ملغي",
-            hideOnMobile: true,
-          },
-        ].map((stat, idx) => {
-          const classes = {
-            indigo: {
-              active:
-                "border-indigo-500/50 dark:border-indigo-400/40 shadow-lg shadow-indigo-500/10 dark:shadow-indigo-500/5 bg-indigo-50/50 dark:bg-indigo-950/20",
-              bg: "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
-            },
-            blue: {
-              active:
-                "border-blue-500/50 dark:border-blue-400/40 shadow-lg shadow-blue-500/10 dark:shadow-blue-500/5 bg-blue-50/50 dark:bg-blue-950/20",
-              bg: "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400",
-            },
-            emerald: {
-              active:
-                "border-emerald-500/50 dark:border-emerald-400/40 shadow-lg shadow-emerald-500/10 dark:shadow-emerald-500/5 bg-emerald-50/50 dark:bg-emerald-950/20",
-              bg: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-            },
-            rose: {
-              active:
-                "border-rose-500/50 dark:border-rose-400/40 shadow-lg shadow-rose-500/10 dark:shadow-rose-500/5 bg-rose-50/50 dark:bg-rose-950/20",
-              bg: "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400",
-            },
-            slate: {
-              active:
-                "border-slate-500/50 dark:border-slate-400/40 shadow-lg shadow-slate-500/10 dark:shadow-slate-500/5 bg-slate-50/50 dark:bg-slate-950/20",
-              bg: "bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400",
-            },
-          }[stat.color as "indigo" | "blue" | "emerald" | "rose" | "slate"];
-
-          return (
-            <div
-              key={idx}
-              onClick={() =>
-                setActiveTab(stat.isSelected ? "الجميع" : stat.targetTab)
-              }
-              className={`cursor-pointer select-none active:scale-95 bg-white/70 dark:bg-[#0b0f19]/60 backdrop-blur-xl p-5 sm:p-6 rounded-3xl border transition-all duration-300 flex flex-col justify-between group overflow-hidden relative ${
-                stat.isSelected
-                  ? classes.active
-                  : "border-slate-200/40 dark:border-white/5 shadow-xs hover:shadow-lg hover:-translate-y-1 hover:border-indigo-500/20 dark:hover:border-white/10"
-              } ${stat.hideOnMobile ? "hidden lg:flex" : "flex"}`}
+        {/* Main Section Switcher: Operational Orders vs Sales Analytics */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-slate-100/80 dark:bg-slate-900/80 backdrop-blur-xl p-2 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar p-1 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 w-full sm:w-auto">
+            <button
+              onClick={() => { setMainSection('orders'); setShowAnalyticsHub(false); }}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap ${
+                mainSection === 'orders'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+              }`}
             >
-              {stat.isSelected && (
-                <div
-                  className={`absolute inset-0 bg-${stat.color}-500/[0.03] dark:bg-${stat.color}-500/[0.05] pointer-events-none`}
-                ></div>
-              )}
-              <div className="flex items-start justify-between relative z-10 w-full">
-                <div
-                  className={`p-3 rounded-2xl group-hover:scale-110 transition-transform shadow-sm ${classes.bg}`}
-                >
-                  <stat.icon size={20} />
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] sm:text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1">
-                    {stat.label}
-                  </p>
-                  <p className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tabular-nums leading-none tracking-tight">
-                    {stat.count}
-                  </p>
-                </div>
+              <ShoppingCart size={18} />
+              <span>📦 سجل الطلبات ومتابعة الشحنات</span>
+            </button>
+            <button
+              onClick={() => { setMainSection('analytics'); setShowAnalyticsHub(true); }}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap ${
+                mainSection === 'analytics'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              <TrendingUp size={18} />
+              <span>📊 تحليلات ومؤشرات المبيعات والأرباح</span>
+            </button>
+          </div>
+
+          {mainSection === 'orders' && (
+            <div className="flex items-center justify-end gap-2 px-2">
+              <span className="text-xs font-bold text-slate-400">طريقة العرض:</span>
+              <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                {[
+                  { id: "list", icon: LayoutList, title: "عرض جدول" },
+                  { id: "kanban", icon: LayoutGrid, title: "عرض كانبان" },
+                ].map((mode) => (
+                  <button
+                    key={mode.id}
+                    onClick={() => setViewMode(mode.id as any)}
+                    className={`p-2 rounded-lg transition-all ${viewMode === mode.id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"}`}
+                    title={mode.title}
+                  >
+                    <mode.icon size={18} />
+                  </button>
+                ))}
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Advanced Filter Analytics Hub Option Trigger */}
-      <div className="w-full">
-        <div
-          onClick={() => setShowAnalyticsHub(!showAnalyticsHub)}
-          className="flex justify-between items-center text-right bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent border border-indigo-500/20 dark:border-indigo-500/10 rounded-[2rem] p-4 px-6 cursor-pointer transition-all select-none shadow-sm hover:shadow-md"
-        >
-          <div className="flex items-center gap-3 text-indigo-700 dark:text-indigo-400 font-bold text-sm flex-row-reverse">
-            <div className="p-2 bg-indigo-500/10 rounded-xl">
-              <Sparkles size={18} className="animate-pulse" />
-            </div>
-            <div>
-              <span className="block">لوحة تحكم وتحليلات المبيعات الذكية</span>
-              <span className="text-[10px] text-slate-500 font-medium">
-                عرض نتائج {filteredOrders.length} طلب نشط بالاعتماد على التصفية
-              </span>
-            </div>
-          </div>
-          <div className="text-slate-400 dark:text-slate-600 bg-white/50 dark:bg-slate-800/50 p-2 rounded-full">
-            <ChevronDown
-              size={20}
-              className={`transform transition-transform duration-300 ${showAnalyticsHub ? "rotate-180" : ""}`}
-            />
-          </div>
+          )}
         </div>
 
+        {/* Status Guide Modal */}
         <AnimatePresence>
-          {showAnalyticsHub && (
-            <motion.div
-              initial={{ opacity: 0, height: 0, scale: 0.98 }}
-              animate={{ opacity: 1, height: "auto", scale: 1 }}
-              exit={{ opacity: 0, height: 0, scale: 0.98 }}
-              className="overflow-hidden mt-4"
-            >
-              <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-900/50 p-6 sm:p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-200/20 dark:shadow-none space-y-6 text-right relative overflow-hidden">
+          {showStatusGuide && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowStatusGuide(false)}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl max-h-[85vh] overflow-y-auto text-right space-y-4"
+                dir="rtl"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl">
+                      <Info size={20} />
+                    </div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white">💡 دليل استخدام حالات الطلبات والمبيعات</h3>
+                  </div>
+                  <button onClick={() => setShowStatusGuide(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400">
+                    <X size={18} />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  هذا الدليل يساعدك على فهم دورة حياة الطلب داخل المتجر لتسهيل العمل والتعامل مع الشحنات:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 rounded-2xl">
+                    <div className="font-black text-amber-800 dark:text-amber-300 mb-1">📞 في انتظار المكالمة</div>
+                    <div className="text-slate-600 dark:text-slate-400">العميل قام بتسجيل الطلب حديثاً ولم يتم التواصل معه بعد لتأكيد العنوان والبيانات.</div>
+                  </div>
+                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-900/30 rounded-2xl">
+                    <div className="font-black text-indigo-800 dark:text-indigo-300 mb-1">🔍 جاري المراجعة</div>
+                    <div className="text-slate-600 dark:text-slate-400">تم تأكيد البيانات مع العميل، والطلب جاهز لطباعة بوليصة الشحن وتجهيزه في المخزن.</div>
+                  </div>
+                  <div className="p-3 bg-purple-50 dark:bg-purple-950/20 border border-purple-200/50 dark:border-purple-900/30 rounded-2xl">
+                    <div className="font-black text-purple-800 dark:text-purple-300 mb-1">📦 قيد التنفيذ (تغليف)</div>
+                    <div className="text-slate-600 dark:text-slate-400">الشحنة يتم تغليفها حالياً وبانتظار تسليمها لمندوب شركة الشحن.</div>
+                  </div>
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/30 rounded-2xl">
+                    <div className="font-black text-blue-800 dark:text-blue-300 mb-1">🚚 تم الارسال (قيد الشحن)</div>
+                    <div className="text-slate-600 dark:text-slate-400">الشحنة خرجت مع المندوب وفي طريقها للتسليم النهائي للعميل.</div>
+                  </div>
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl">
+                    <div className="font-black text-emerald-800 dark:text-emerald-300 mb-1">✅ تم التحصيل (ناجح)</div>
+                    <div className="text-slate-600 dark:text-slate-400">تم تسليم الشحنة للعميل بنجاح واستلام المبلغ المحصل (إيراد مؤكد).</div>
+                  </div>
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl">
+                    <div className="font-black text-rose-800 dark:text-rose-300 mb-1">↩️ مرتجع / فشل التوصيل</div>
+                    <div className="text-slate-600 dark:text-slate-400">تعذر تسليم الشحنة (إلغاء، رفض، أو عدم رد) وتم إرجاعها إلى المخزون.</div>
+                  </div>
+                </div>
+                <div className="pt-2 flex justify-end">
+                  <button onClick={() => setShowStatusGuide(false)} className="px-6 py-2 bg-slate-900 dark:bg-slate-800 text-white font-bold rounded-xl text-xs hover:bg-slate-800 transition-all">
+                    فهمت، إغلاق الدليل
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+      {/* 6 Operational Category Cards (Rendered when mainSection === 'orders') */}
+      {mainSection === 'orders' && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+            {[
+              { id: "الجميع", label: "كل الطلبات النشطة", subtitle: "جميع الأوردرات الحالية", count: quickStats.allActive, color: "indigo", icon: LayoutList },
+              { id: "processing_group", label: "قيد المراجعة والتجهيز", subtitle: "بانتظار التأكيد أو التغليف", count: quickStats.processingGroup, color: "amber", icon: FileSearch },
+              { id: "transit_group", label: "جاري الشحن والتوصيل", subtitle: "مع مندوب التوصيل بالطريق", count: quickStats.onTheWay, color: "blue", icon: Truck },
+              { id: "delivered_group", label: "تم التوصيل والتحصيل", subtitle: "شحنات ناجحة ومحصلة", count: quickStats.delivered, color: "emerald", icon: CheckCircle },
+              { id: "failed_group", label: "مرتجع وفشل التوصيل", subtitle: "تعذر التسليم أو مرتجع", count: quickStats.failed, color: "rose", icon: XCircle },
+              { id: "canceled_group", label: "ملغي ومؤرشف", subtitle: "طلبات ملغاة أو مؤرشفة", count: quickStats.canceled, color: "slate", icon: Trash2 },
+            ].map((cat) => {
+              const isSelected = activeTab === cat.id || (
+                cat.id === "processing_group" && ["في_انتظار_المكالمة", "جاري_المراجعة", "قيد_التنفيذ"].includes(activeTab)
+              ) || (
+                cat.id === "failed_group" && ["مرتجع", "فشل_التوصيل"].includes(activeTab)
+              ) || (
+                cat.id === "canceled_group" && ["ملغي", "مؤرشف"].includes(activeTab)
+              ) || (
+                cat.id === "transit_group" && activeTab === "تم_الارسال"
+              ) || (
+                cat.id === "delivered_group" && activeTab === "تم_التحصيل"
+              );
+
+              const borderBg = {
+                indigo: "border-indigo-500/60 bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-500/20",
+                amber: "border-amber-500/60 bg-amber-50/80 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 ring-2 ring-amber-500/20",
+                blue: "border-blue-500/60 bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/20",
+                emerald: "border-emerald-500/60 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 ring-2 ring-emerald-500/20",
+                rose: "border-rose-500/60 bg-rose-50/80 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 ring-2 ring-rose-500/20",
+                slate: "border-slate-500/60 bg-slate-50/80 dark:bg-slate-950/40 text-slate-600 dark:text-slate-400 ring-2 ring-slate-500/20",
+              }[cat.color];
+
+              const iconBg = {
+                indigo: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400",
+                amber: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                blue: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+                emerald: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                rose: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+                slate: "bg-slate-500/10 text-slate-600 dark:text-slate-400",
+              }[cat.color];
+
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => setActiveTab(isSelected && cat.id === activeTab ? "الجميع" : cat.id)}
+                  className={`cursor-pointer select-none active:scale-95 p-4 rounded-3xl border transition-all duration-300 flex flex-col justify-between relative overflow-hidden ${
+                    isSelected
+                      ? `${borderBg} shadow-md`
+                      : "bg-white/80 dark:bg-slate-900/60 border-slate-200/60 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs hover:shadow-md"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className={`p-2.5 rounded-2xl ${iconBg}`}>
+                      <cat.icon size={18} />
+                    </div>
+                    <span className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">
+                      {cat.count}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-black text-slate-800 dark:text-slate-200 mb-0.5">
+                      {cat.label}
+                    </p>
+                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">
+                      {cat.subtitle}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sub-filter drilldown bars */}
+          {(activeTab === "processing_group" || ["في_انتظار_المكالمة", "جاري_المراجعة", "قيد_التنفيذ"].includes(activeTab)) && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 rounded-2xl overflow-x-auto no-scrollbar text-xs">
+              <span className="font-black text-amber-800 dark:text-amber-300 whitespace-nowrap px-2 flex items-center gap-1.5">
+                <FileSearch size={14} /> تحديد فرعي داخل قسم التجهيز:
+              </span>
+              {[
+                { id: "processing_group", label: "⭐ كل طلبات التجهيز" },
+                { id: "في_انتظار_المكالمة", label: "📞 في انتظار المكالمة" },
+                { id: "جاري_المراجعة", label: "🔍 جاري المراجعة (تأكيد)" },
+                { id: "قيد_التنفيذ", label: "📦 قيد التنفيذ (تغليف)" },
+              ].map(sub => (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveTab(sub.id)}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold transition-all whitespace-nowrap ${
+                    activeTab === sub.id ? "bg-amber-600 text-white shadow-sm" : "bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 border border-amber-200/60 dark:border-amber-800/40"
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(activeTab === "failed_group" || ["مرتجع", "فشل_التوصيل"].includes(activeTab)) && (
+            <div className="flex items-center gap-2 p-3 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl overflow-x-auto no-scrollbar text-xs">
+              <span className="font-black text-rose-800 dark:text-rose-300 whitespace-nowrap px-2 flex items-center gap-1.5">
+                <XCircle size={14} /> تحديد فرعي للرفض والفشل:
+              </span>
+              {[
+                { id: "failed_group", label: "⭐ كل المرتجعات والفشل" },
+                { id: "مرتجع", label: "↩️ مرتجع إلى المخزن" },
+                { id: "فشل_التوصيل", label: "❌ فشل التوصيل مع المندوب" },
+              ].map(sub => (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveTab(sub.id)}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold transition-all whitespace-nowrap ${
+                    activeTab === sub.id ? "bg-rose-600 text-white shadow-sm" : "bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 border border-rose-200/60 dark:border-rose-800/40"
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {(activeTab === "canceled_group" || ["ملغي", "مؤرشف"].includes(activeTab)) && (
+            <div className="flex items-center gap-2 p-3 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-x-auto no-scrollbar text-xs">
+              <span className="font-black text-slate-700 dark:text-slate-300 whitespace-nowrap px-2 flex items-center gap-1.5">
+                <Trash2 size={14} /> تحديد فرعي للملغي والمؤرشف:
+              </span>
+              {[
+                { id: "canceled_group", label: "⭐ الكل" },
+                { id: "ملغي", label: "🗑️ طلبات ملغاة" },
+                { id: "مؤرشف", label: "🗄️ طلبات مؤرشفة" },
+              ].map(sub => (
+                <button
+                  key={sub.id}
+                  onClick={() => setActiveTab(sub.id)}
+                  className={`px-3.5 py-1.5 rounded-xl font-bold transition-all whitespace-nowrap ${
+                    activeTab === sub.id ? "bg-slate-700 text-white shadow-sm" : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600"
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sales Analytics Dashboard (Rendered when mainSection === 'analytics') */}
+      {mainSection === 'analytics' && (
+        <div className="w-full mt-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-900/50 p-6 sm:p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-200/20 dark:shadow-none space-y-6 text-right relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -mr-32 -mt-32"></div>
                 <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -ml-24 -mb-24"></div>
 
@@ -4000,68 +4095,81 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                   </div>
                 )}
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
-      </div>
 
-      {/* Floating Filter Hub */}
-      <div className="sticky top-4 z-40 px-4 md:px-0 mt-6">
-        <div className="bg-white/70 dark:bg-[#0b0f19]/75 backdrop-blur-2xl p-2.5 rounded-3xl shadow-xl shadow-slate-200/10 dark:shadow-none border border-slate-200/40 dark:border-white/5 flex flex-col xl:flex-row gap-3 items-center">
-          <div className="w-full xl:flex-1 flex flex-row-reverse items-center gap-1.5 p-1.5 bg-slate-50/50 dark:bg-slate-950/40 rounded-[1.75rem] overflow-x-auto no-scrollbar scroll-smooth">
-            {[
-              "الجميع",
-              "في_انتظار_المكالمة",
-              "جاري_المراجعة",
-              "قيد_التنفيذ",
-              "تم_الارسال",
-              "تم_التحصيل",
-              "مرتجع",
-              "فشل_التوصيل",
-              "ملغي",
-              "مؤرشف",
-            ].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-5 py-2.5 rounded-[1.25rem] text-[11px] font-extrabold transition-all duration-300 whitespace-nowrap active:scale-95 ${
-                  activeTab === tab
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/15"
-                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200/40 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                {tab.replace(/_/g, " ")}
-              </button>
-            ))}
-          </div>
-
-          <div className="w-full xl:w-auto flex items-center gap-2 p-1">
-            <div className="relative flex-1 md:min-w-[320px]">
+      {/* Floating Smart Search & Actions Toolbar (Rendered when mainSection === 'orders') */}
+      {mainSection === 'orders' && (
+        <div className="sticky top-4 z-40 px-4 md:px-0 mt-4">
+          <div className="bg-white/85 dark:bg-[#0b0f19]/85 backdrop-blur-2xl p-3.5 rounded-3xl shadow-xl shadow-slate-200/10 dark:shadow-none border border-slate-200/60 dark:border-slate-800 flex flex-col sm:flex-row gap-3 items-center justify-between">
+            {/* Search Input */}
+            <div className="relative w-full sm:flex-1">
               <Search
-                className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
                 size={18}
               />
               <input
                 type="text"
-                placeholder="ابحث برقم الطلب، اسم العميل، الهاتف..."
+                placeholder="🔍 بحث ذكي برقم الطلب، اسم العميل، الهاتف، أو رقم البوليصة..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pr-12 pl-4 py-3.5 bg-white/80 dark:bg-slate-900/60 border border-slate-200/40 dark:border-white/5 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-400 dark:focus:border-indigo-500 transition-all outline-none dark:text-white shadow-sm"
+                className="w-full pr-11 pl-4 py-3 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none dark:text-white shadow-inner"
               />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
-            <button
-              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className={`p-3.5 rounded-2xl border transition-all shrink-0 active:scale-95 flex items-center justify-center ${
-                showAdvancedFilters
-                  ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-500/30"
-                  : "bg-white dark:bg-slate-800 border-slate-200/40 dark:border-white/5 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700/50 shadow-sm"
-              }`}
-            >
-              <Filter size={20} />
-            </button>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end overflow-x-auto no-scrollbar py-1">
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`px-4 py-2.5 rounded-2xl border transition-all shrink-0 active:scale-95 flex items-center gap-2 text-xs font-black ${
+                  showAdvancedFilters || filterGov || filterCompany || filterEmployee || dateRange.start || dateRange.end
+                    ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-500/25"
+                    : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-sm"
+                }`}
+              >
+                <Filter size={16} />
+                <span>تصفية وفلاتر</span>
+                {(filterGov || filterCompany || filterEmployee || dateRange.start || dateRange.end) && (
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                )}
+              </button>
+
+              <button
+                onClick={handleAutoAssign}
+                className="px-3.5 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 hover:text-indigo-600 transition-all shadow-sm flex items-center gap-1.5 text-xs font-bold shrink-0"
+                title="توزيع الطلبات على الموظفين"
+              >
+                <Users size={16} />
+                <span className="hidden md:inline">توزيع الطلبات</span>
+              </button>
+
+              <button
+                onClick={handleExportPDF}
+                className="p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-600 dark:text-slate-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 hover:text-rose-600 transition-all shadow-sm shrink-0"
+                title="تصدير قائمة الطلبات PDF"
+              >
+                <FileText size={16} />
+              </button>
+
+              <button
+                onClick={handleExportExcel}
+                className="p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-600 dark:text-slate-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 hover:text-emerald-600 transition-all shadow-sm shrink-0"
+                title="تصدير Excel"
+              >
+                <FileDown size={16} />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Advanced Filters Panel */}
       <AnimatePresence>
@@ -4236,8 +4344,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         </motion.div>
       )}
 
-      {/* Orders View */}
-      {viewMode === "list" ? (
+      {/* Orders View Section */}
+      {mainSection === 'orders' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Orders View */}
+          {viewMode === "list" ? (
         <div className="space-y-6">
           {/* Table for Desktop */}
           <div className="overflow-x-auto hidden lg:block bg-white/70 dark:bg-[#0b0f19]/70 backdrop-blur-2xl rounded-[2rem] border border-slate-200/40 dark:border-white/5 shadow-2xl shadow-indigo-500/[0.02] pb-4 transition-all duration-300">
@@ -4458,6 +4569,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               <ChevronLeft size={18} />
             </button>
           </div>
+        </div>
+      )}
         </div>
       )}
 
@@ -4764,6 +4877,111 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             setShowAssignment(null);
           }}
         />
+      )}
+
+      {/* Status Guide Modal for Employees */}
+      {showStatusGuide && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div
+            className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2.5rem] shadow-2xl p-6 sm:p-8 text-right border border-slate-200 dark:border-slate-800 max-h-[85vh] overflow-y-auto no-scrollbar"
+            style={{ direction: "rtl" }}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-2xl">
+                  <BookOpen size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white">
+                    دليل حالات الطلبات وسير العمل
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    شرح مبسط لدورة حياة الطلب من لحظة تسجيله حتى تحصيل المبلغ
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowStatusGuide(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs leading-relaxed">
+              {[
+                {
+                  title: "1. قيد المراجعة والتجهيز 📦",
+                  color: "amber",
+                  desc: "المرحلة الأولى للطلب في المخزن. تشمل ثلاث حالات فرعية:",
+                  points: [
+                    "📞 في انتظار المكالمة: طلب جديد يحتاج اتصال هاتفي لتأكيد العنوان والجدية.",
+                    "🔍 جاري المراجعة: تم التأكيد ومراجعة الأصناف والأسعار وبانتظار أمر التجهيز.",
+                    "📦 قيد التنفيذ: يتم الآن جمع المنتجات وتغليفها وتجهيز البوليصة في المخزن.",
+                  ],
+                },
+                {
+                  title: "2. جاري الشحن والتوصيل 🚚",
+                  color: "blue",
+                  desc: "تم تسليم الشحنة لشركة الشحن أو مندوب التوصيل (تم الارسال). الشحنة الآن في الطريق للعميل وبانتظار التحديث النهائي.",
+                  points: [],
+                },
+                {
+                  title: "3. تم التوصيل والتحصيل ✅",
+                  color: "emerald",
+                  desc: "المرحلة الناجحة للطلب (تم التحصيل). استلم العميل الشحنة وتم توريد المبلغ النقدي للخزينة أو الكاشير.",
+                  points: [],
+                },
+                {
+                  title: "4. مرتجع وفشل التوصيل ↩️",
+                  color: "rose",
+                  desc: "الشحنات التي لم تكتمل بنجاح لأحد الأسباب التالية:",
+                  points: [
+                    "❌ فشل التوصيل: تعذر الوصول للعميل، الهاتف مغلق، أو تم تأجيل التسليم عدة مرات.",
+                    "↩️ مرتجع: رفض العميل استلام الشحنة وعادت الفاتورة والأصناف إلى المخزن مرة أخرى.",
+                  ],
+                },
+                {
+                  title: "5. طلبات ملغاة ومؤرشفة 🗑️",
+                  color: "slate",
+                  desc: "طلبات تم إلغاؤها من قِبل العميل أو الإدارة قبل خروجها للشحن، أو طلبات قديمة تم نقلها للأرشيف لتخفيف زحام القائمة النشطة.",
+                  points: [],
+                },
+              ].map((item, idx) => {
+                const badgeBg = {
+                  amber: "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-200",
+                  blue: "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/40 text-blue-900 dark:text-blue-200",
+                  emerald: "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-200",
+                  rose: "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/40 text-rose-900 dark:text-rose-200",
+                  slate: "bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-300",
+                }[item.color];
+
+                return (
+                  <div key={idx} className={`p-4 rounded-2xl border ${badgeBg} space-y-2`}>
+                    <h4 className="font-black text-sm">{item.title}</h4>
+                    <p className="font-bold opacity-90">{item.desc}</p>
+                    {item.points.length > 0 && (
+                      <ul className="list-disc list-inside space-y-1 pt-1 opacity-85 font-semibold">
+                        {item.points.map((pt, i) => (
+                          <li key={i}>{pt}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <button
+                onClick={() => setShowStatusGuide(false)}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
+              >
+                فهمت الدليل، إغلاق <CheckCircle size={16} className="inline ml-1" />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </motion.div>
   );
@@ -6646,25 +6864,57 @@ const OrderRow = ({
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: -10 }}
                     transition={{ duration: 0.15, ease: "easeOut" }}
-                    className="absolute top-full left-0 mt-2 w-52 bg-white/90 dark:bg-[#0b0f19]/90 backdrop-blur-2xl rounded-[1.5rem] shadow-2xl border border-slate-200/50 dark:border-white/5 p-1.5 z-[60] origin-top-left"
+                    className="absolute top-full left-0 mt-2 w-64 bg-white/95 dark:bg-[#0b0f19]/95 backdrop-blur-2xl rounded-[1.75rem] shadow-2xl border border-slate-200/80 dark:border-white/10 p-2 z-[60] origin-top-left divide-y divide-slate-100 dark:divide-white/5"
                   >
-                    <div className="p-3 mb-1 border-b border-slate-100/50 dark:border-white/5">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">
-                        إدارة الطلب
-                      </p>
-                    </div>
-                    <div className="space-y-0.5">
+                    {/* SECTION 1: DAILY ACTIONS */}
+                    <div className="pb-2 space-y-0.5">
+                      <div className="px-3 py-1.5">
+                        <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block text-right">
+                          ⚡ إجراءات المتابعة والتعديل
+                        </span>
+                      </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowOps(false);
                           onEdit();
                         }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
+                        className="w-full text-right p-2.5 hover:bg-indigo-50/80 dark:hover:bg-indigo-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
-                        تعديل البيانات{" "}
-                        <Edit3 size={14} className="opacity-70" />
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                            تعديل بيانات الطلب
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 block">
+                            تغيير العميل، العنوان أو المنتجات
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <Edit3 size={15} />
+                        </div>
                       </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowOps(false);
+                          onShowAssignment();
+                        }}
+                        className="w-full text-right p-2.5 hover:bg-indigo-50/80 dark:hover:bg-indigo-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                      >
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                            تعيين موظف مسؤول
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 block">
+                            تخصيص الطلب لمتابعة موظف
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <UserIcon size={15} />
+                        </div>
+                      </button>
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -6675,35 +6925,73 @@ const OrderRow = ({
                               : "مدفوع",
                           );
                         }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
+                        className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
-                        {order.paymentStatus === "مدفوع"
-                          ? "تحديد كغير مدفوع"
-                          : "تحديد كمدفوع"}{" "}
-                        <Coins size={14} className="opacity-70" />
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                            {order.paymentStatus === "مدفوع"
+                              ? "تحديد كـ معلق (غير مدفوع)"
+                              : "تحديد كـ مدفوع ومسوى"}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 block">
+                            تحديث حالة التحصيل والمحفظة
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <Coins size={15} />
+                        </div>
                       </button>
+                    </div>
+
+                    {/* SECTION 2: DOCUMENTS & SHIPPING */}
+                    <div className="py-2 space-y-0.5">
+                      <div className="px-3 py-1.5">
+                        <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest block text-right">
+                          📦 المستندات والشحن
+                        </span>
+                      </div>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowOps(false);
                           onPrintInvoice();
                         }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
+                        className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
-                        طباعة الفاتورة{" "}
-                        <Printer size={14} className="opacity-70" />
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-purple-600 dark:group-hover:text-purple-400">
+                            طباعة الفاتورة للعميل
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 block">
+                            إصدار فاتورة ضريبية منسقة
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <Printer size={15} />
+                        </div>
                       </button>
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowOps(false);
                           onPrintLabel();
                         }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
+                        className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
-                        بوليصة شحن{" "}
-                        <LayoutList size={14} className="opacity-70" />
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-purple-600 dark:group-hover:text-purple-400">
+                            بوليصة الشحن والتجهيز
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 block">
+                            طباعة بوليصة ولصقة الطرد
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <LayoutList size={15} />
+                        </div>
                       </button>
+
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -6712,37 +7000,49 @@ const OrderRow = ({
                             state: { exchangeData: order },
                           });
                         }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
+                        className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
-                        إنشاء استبدال{" "}
-                        <RefreshCcw size={14} className="opacity-70" />
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-purple-600 dark:group-hover:text-purple-400">
+                            إنشاء استبدال أو مرتجع
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 block">
+                            فتح طلب بديل أو تسوية مرتجع
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <RefreshCcw size={15} />
+                        </div>
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowOps(false);
-                          onShowAssignment();
-                        }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
-                      >
-                        تعيين موظف <UserIcon size={14} className="opacity-70" />
-                      </button>
-                      <div className="h-[1px] bg-slate-100/50 dark:bg-white/5 mx-2 my-1" />
+                    </div>
+
+                    {/* SECTION 3: MANAGEMENT & DELETION */}
+                    <div className="pt-2 space-y-0.5">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowOps(false);
                           if (
                             confirm(
-                              "هل أنت متأكد من حذف هذا الطلب؟ لا يمكن التراجع عن هذا الإجراء.",
+                              "هل أنت متأكد من حذف هذا الطلب نهائياً؟ لا يمكن التراجع عن هذا الإجراء وسيتم إزالته من قاعدة البيانات.",
                             )
                           ) {
                             onDelete();
                           }
                         }}
-                        className="w-full text-right px-3 py-2.5 text-[11px] font-bold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl flex items-center justify-end gap-2.5 transition-colors"
+                        className="w-full text-right p-2.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
-                        حذف الطلب <Trash2 size={14} />
+                        <div className="text-right flex-1">
+                          <span className="text-xs font-black text-rose-600 dark:text-rose-400 block">
+                            حذف الطلب نهائياً
+                          </span>
+                          <span className="text-[10px] font-bold text-rose-400/80 block">
+                            مسح السجل من قاعدة البيانات
+                          </span>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                          <Trash2 size={15} />
+                        </div>
                       </button>
                     </div>
                   </motion.div>
@@ -6789,6 +7089,8 @@ const KanbanView: React.FC<{
   onEdit: (order: Order) => void;
   settings: Settings;
 }> = ({ orders, onStatusChange, onEdit, settings }) => {
+  const [activeStatusDropdown, setActiveStatusDropdown] = useState<string | null>(null);
+
   const columns: OrderStatus[] = [
     "في_انتظار_المكالمة",
     "جاري_المراجعة",
@@ -6801,107 +7103,161 @@ const KanbanView: React.FC<{
   ];
 
   const statusColors: Record<OrderStatus, string> = {
-    في_انتظار_المكالمة: "border-indigo-500 bg-indigo-500/5",
-    جاري_المراجعة: "border-purple-500 bg-purple-500/5",
-    قيد_التنفيذ: "border-amber-500 bg-amber-500/5",
-    تم_الارسال: "border-blue-500 bg-blue-500/5",
-    قيد_الشحن: "border-sky-500 bg-sky-500/5",
-    تم_توصيلها: "border-emerald-500 bg-emerald-500/5",
-    تم_التوصيل: "border-emerald-500 bg-emerald-500/5",
-    تم_التحصيل: "border-teal-500 bg-teal-500/5",
-    مدفوعة: "border-emerald-600 bg-emerald-600/5",
-    مرتجع: "border-rose-500 bg-rose-500/5",
-    مرتجع_بعد_الاستلام: "border-orange-500 bg-orange-500/5",
-    تم_الاستبدال: "border-slate-500 bg-slate-500/5",
-    مرتجع_جزئي: "border-orange-500 bg-orange-500/5",
-    فشل_التوصيل: "border-rose-600 bg-rose-600/5",
-    تمت_الاعادة_لشركة_الشحن: "border-rose-800 bg-rose-800/5",
-    ملغي: "border-slate-500 bg-slate-500/5",
-    مؤرشف: "border-slate-500 bg-slate-500/5",
-    مؤجل: "border-amber-600 bg-amber-600/5",
-    مجدول: "border-indigo-600 bg-indigo-600/5",
+    في_انتظار_المكالمة: "border-indigo-500 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
+    جاري_المراجعة: "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-300",
+    قيد_التنفيذ: "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    تم_الارسال: "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+    قيد_الشحن: "border-sky-500 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    تم_توصيلها: "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    تم_التوصيل: "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    تم_التحصيل: "border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-300",
+    مدفوعة: "border-emerald-600 bg-emerald-600/10 text-emerald-700 dark:text-emerald-300",
+    مرتجع: "border-rose-500 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    مرتجع_بعد_الاستلام: "border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    تم_الاستبدال: "border-slate-500 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+    مرتجع_جزئي: "border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-300",
+    فشل_التوصيل: "border-rose-600 bg-rose-600/10 text-rose-700 dark:text-rose-300",
+    تمت_الاعادة_لشركة_الشحن: "border-rose-800 bg-rose-800/10 text-rose-800 dark:text-rose-300",
+    ملغي: "border-slate-500 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+    مؤرشف: "border-slate-500 bg-slate-500/10 text-slate-700 dark:text-slate-300",
+    مؤجل: "border-amber-600 bg-amber-600/10 text-amber-700 dark:text-amber-300",
+    مجدول: "border-indigo-600 bg-indigo-600/10 text-indigo-700 dark:text-indigo-300",
   };
 
   return (
-    <div className="flex gap-6 p-4 overflow-x-auto min-h-[70vh] no-scrollbar scroll-smooth">
+    <div className="flex gap-6 p-4 md:p-6 overflow-x-auto min-h-[75vh] no-scrollbar scroll-smooth">
       {columns.map((status, idx) => {
         const columnOrders = orders.filter((o) => o.status === status);
+        const columnTotalSum = columnOrders.reduce(
+          (sum, o) => sum + (Number(o.totalAmountOverride ?? o.productPrice) || 0),
+          0,
+        );
+
         return (
           <div
             key={status}
-            className="flex-shrink-0 w-[340px] flex flex-col gap-4"
+            className="flex-shrink-0 w-[350px] flex flex-col gap-4"
           >
+            {/* Upgraded Column Header with Stats */}
             <div
-              className={`p-5 rounded-[2rem] border-t-4 shadow-sm ${statusColors[status]} flex justify-between items-center bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-x-slate-100 border-b-slate-100 dark:border-x-slate-800 dark:border-b-slate-800`}
+              className={`p-4 rounded-[1.75rem] border-t-4 shadow-sm ${statusColors[status].split(" ")[0]} bg-white/95 dark:bg-[#0f1523]/95 backdrop-blur-xl border border-x-slate-200/80 border-b-slate-200/80 dark:border-x-white/10 dark:border-b-white/10 flex flex-col gap-2`}
             >
-              <h3 className="font-black text-slate-800 dark:text-white text-xs tracking-wider">
-                {ORDER_STATUS_METADATA[status]?.label ||
-                  status.replace(/_/g, " ")}
-              </h3>
-              <span className="bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl text-xs font-black shadow-inner opacity-80">
-                {columnOrders.length}
-              </span>
+              <div className="flex justify-between items-center">
+                <h3 className="font-black text-slate-900 dark:text-white text-sm tracking-tight flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${statusColors[status].split(" ")[0].replace("border-", "bg-")}`}></span>
+                  <span>{ORDER_STATUS_METADATA[status]?.label || status.replace(/_/g, " ")}</span>
+                </h3>
+                <span className="bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl text-xs font-black text-slate-700 dark:text-slate-300 shadow-inner">
+                  {columnOrders.length} طلب
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 dark:text-slate-400 pt-1.5 border-t border-slate-100 dark:border-white/5">
+                <span>إجمالي القيمة:</span>
+                <span className="font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
+                  {columnTotalSum.toLocaleString()} <span className="text-[10px] font-normal">ج.م</span>
+                </span>
+              </div>
             </div>
-            <div className="flex-1 space-y-4">
+
+            {/* Column Cards Container */}
+            <div className="flex-1 space-y-3.5">
               {columnOrders.map((order, oIdx) => (
                 <motion.div
                   key={order.id}
                   layoutId={order.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.1 + oIdx * 0.05 }}
-                  className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-6 rounded-[2rem] border border-slate-100/60 dark:border-slate-800/60 shadow-sm hover:shadow-xl hover:-translate-y-1.5 hover:border-indigo-200 transition-all cursor-pointer group relative overflow-hidden"
+                  transition={{ delay: idx * 0.05 + oIdx * 0.03 }}
+                  className="bg-white/90 dark:bg-[#0f1523]/90 backdrop-blur-md p-5 rounded-[1.75rem] border border-slate-200/70 dark:border-white/10 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all cursor-pointer group relative overflow-visible"
                   onClick={() => onEdit(order)}
                 >
+                  {/* Left status color accent line */}
                   <div
-                    className={`absolute top-0 right-0 w-1.5 h-full opacity-50 ${statusColors[status].split(" ")[0].replace("border-", "bg-")}`}
+                    className={`absolute top-0 right-0 w-1.5 h-full rounded-r-[1.75rem] opacity-70 ${statusColors[status].split(" ")[0].replace("border-", "bg-")}`}
                   ></div>
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-black text-slate-400 tracking-wider">
-                        #{order.orderNumber || order.id.slice(0, 4)}
+
+                  {/* Top Bar: Order number & Payment pill */}
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-black text-slate-900 dark:text-white font-mono bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg">
+                        #{order.orderNumber || order.id.slice(0, 5)}
                       </span>
-                      {order.channel !== "pos" &&
-                        !order.shippingCompany?.startsWith("كاشير -") && (
-                          <ShipmentTypeBadge type={order.shipmentType} />
-                        )}
-                      <PosSourceBadge order={order} />
+                      {order.paymentStatus === "مدفوع" ? (
+                        <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                          ✓ مدفوع
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/20">
+                          ⏳ معلق
+                        </span>
+                      )}
                     </div>
-                    <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-1.5 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-600 transition-colors">
-                        <Edit3 size={14} />
+
+                    <div className="flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(`https://wa.me/${order.customerPhone.replace(/\D/g, "")}`, "_blank");
+                        }}
+                        className="p-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg transition-colors shadow-2xs"
+                        title="مراسلة واتساب"
+                      >
+                        <MessageCircle size={13} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(`tel:${order.customerPhone}`);
+                        }}
+                        className="p-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors shadow-2xs"
+                        title="اتصال مباشر"
+                      >
+                        <Phone size={13} />
                       </button>
                     </div>
                   </div>
-                  <h4 className="font-black text-slate-900 dark:text-white text-sm mb-1">
+
+                  {/* Customer & Product */}
+                  <h4 className="font-black text-slate-900 dark:text-white text-sm mb-1 line-clamp-1">
                     {order.customerName}
                   </h4>
-                  <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-4 line-clamp-1">
-                    {order.productName}
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-3 line-clamp-1 bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-xl">
+                    📦 {order.productName || "منتج عام"} <span className="opacity-60 font-normal">({order.items?.length || 1} أصناف)</span>
                   </p>
-                  <div className="flex justify-between items-center flex-row-reverse border-t border-slate-50 dark:border-slate-800/50 pt-3">
+
+                  {/* Financial & Location Bottom Bar */}
+                  <div className="flex justify-between items-center flex-row-reverse border-t border-slate-100 dark:border-white/5 pt-3">
                     <div className="flex items-baseline gap-1">
-                      <span className="text-[10px] font-black text-indigo-600">
+                      <span className="text-base font-black text-slate-900 dark:text-white tabular-nums">
+                        {(order.totalAmountOverride ?? order.productPrice).toLocaleString()}
+                      </span>
+                      <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400">
                         ج.م
                       </span>
-                      <span className="text-base font-black text-slate-900 dark:text-white">
-                        {(
-                          order.totalAmountOverride ?? order.productPrice
-                        ).toLocaleString()}
-                      </span>
                     </div>
-                    <div className="flex items-center gap-1.5 p-1.5 bg-slate-50 dark:bg-slate-800 rounded-xl">
-                      <MapPin size={10} className="text-slate-400" />
-                      <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
-                        {order.governorate || "---"}
+                    <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 rounded-xl">
+                      <MapPin size={11} className="text-indigo-500" />
+                      <span className="text-[10px] font-black text-slate-600 dark:text-slate-300">
+                        {order.governorate || order.shippingArea?.split("-")[0] || "---"}
                       </span>
                     </div>
                   </div>
+
+                  {/* Assigned Employee Tag if available */}
+                  {order.assignedToName && (
+                    <div className="mt-2 pt-2 border-t border-slate-100/60 dark:border-white/5 flex items-center justify-end gap-1.5 text-[10px] font-bold text-slate-400">
+                      <span>👤 مسؤول التوصيل: <strong className="text-slate-600 dark:text-slate-300">{order.assignedToName}</strong></span>
+                    </div>
+                  )}
                 </motion.div>
               ))}
+
+              {/* Clean Executive Empty State */}
               {columnOrders.length === 0 && (
-                <div className="h-32 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[2rem] flex items-center justify-center text-slate-300 dark:text-slate-700 text-xs font-black uppercase tracking-widest italic p-8 text-center">
-                  لا تتوفر طلبات
+                <div className="h-40 border-2 border-dashed border-slate-200/80 dark:border-white/10 rounded-[1.75rem] flex flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-600 p-6 text-center bg-white/40 dark:bg-slate-900/40">
+                  <Package size={24} className="opacity-40" />
+                  <span className="text-xs font-black text-slate-500 dark:text-slate-400">لا توجد شحنات هنا حالياً</span>
+                  <span className="text-[10px] font-bold opacity-60">سيتم إدراج الطلبات تلقائياً فور انتقالها لهذه المرحلة</span>
                 </div>
               )}
             </div>
@@ -6911,59 +7267,140 @@ const KanbanView: React.FC<{
     </div>
   );
 };
+
 const AuditLogModal: React.FC<{ order: Order; onClose: () => void }> = ({
   order,
   onClose,
 }) => {
+  const [filter, setFilter] = useState<'all' | 'status' | 'financial' | 'shipping'>('all');
+
+  const filteredLogs = (order.auditLogs || []).filter(log => {
+    if (filter === 'all') return true;
+    if (filter === 'status') return log.action.includes('حالة') || log.action.includes('تغيير');
+    if (filter === 'financial') return log.action.includes('مالي') || log.action.includes('سعر') || log.action.includes('عربون') || log.action.includes('سحب') || log.action.includes('إيداع');
+    if (filter === 'shipping') return log.action.includes('بوليصة') || log.action.includes('شحن') || log.action.includes('بوسطة');
+    return true;
+  });
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800"
+        className="bg-white dark:bg-[#0b0f19] w-full max-w-3xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-200/80 dark:border-white/10 flex flex-col max-h-[88vh]"
       >
-        <div className="p-8">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-black text-slate-800 dark:text-white">
-              سجل التدقيق (Audit Log)
-            </h3>
+        {/* Header */}
+        <div className="p-6 bg-slate-50/80 dark:bg-[#0f1523]/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-white/10 flex flex-col gap-4">
+          <div className="flex justify-between items-center">
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+              className="p-2.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 rounded-2xl transition-colors border border-slate-200/60 dark:border-white/5"
             >
-              <X size={20} className="text-slate-400" />
+              <X size={20} />
             </button>
+            <div className="text-right">
+              <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center justify-end gap-2.5">
+                <span>سجل التدقيق وتاريخ الحالات (Audit Trail)</span>
+                <History className="text-indigo-500" size={22} />
+              </h3>
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                تتبع شامل لكافة الحركات، التعديلات المالية، وتغييرات الحالة التي تمت على طلب #{order.orderNumber || order.id.slice(0,6)}
+              </p>
+            </div>
           </div>
 
-          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 no-scrollbar">
-            {order.auditLogs && order.auditLogs.length > 0 ? (
-              order.auditLogs.map((log, idx) => (
-                <div
-                  key={idx}
-                  className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700"
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                      {log.action}
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {new Date(log.timestamp).toLocaleString("ar-EG")}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-700 dark:text-slate-300 mb-2">
-                    {log.details}
-                  </p>
-                  <div className="text-[10px] text-slate-500 font-bold">
-                    بواسطة: {log.userEmail}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-12 text-slate-400">
-                لا يوجد سجل تدقيق لهذا الطلب.
-              </div>
-            )}
+          {/* Filter Bar */}
+          <div className="flex justify-end gap-2 pt-2 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setFilter('shipping')}
+              className={`px-4 py-1.5 rounded-xl font-black text-xs transition-all ${filter === 'shipping' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200/60 dark:border-white/5'}`}
+            >
+              📦 بوليصة وشحن
+            </button>
+            <button
+              onClick={() => setFilter('financial')}
+              className={`px-4 py-1.5 rounded-xl font-black text-xs transition-all ${filter === 'financial' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200/60 dark:border-white/5'}`}
+            >
+              💰 تعديلات مالية
+            </button>
+            <button
+              onClick={() => setFilter('status')}
+              className={`px-4 py-1.5 rounded-xl font-black text-xs transition-all ${filter === 'status' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200/60 dark:border-white/5'}`}
+            >
+              🔄 تغييرات الحالة
+            </button>
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-4 py-1.5 rounded-xl font-black text-xs transition-all ${filter === 'all' ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200/60 dark:border-white/5'}`}
+            >
+              الكل ({order.auditLogs?.length || 0})
+            </button>
           </div>
+        </div>
+
+        {/* Timeline Content */}
+        <div className="p-6 overflow-y-auto flex-1 custom-scrollbar space-y-4">
+          {filteredLogs.length > 0 ? (
+            <div className="space-y-4 relative before:absolute before:right-5 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
+              {filteredLogs.slice().reverse().map((log, idx) => {
+                const isStatus = log.action.includes('حالة') || log.action.includes('تغيير');
+                const isFin = log.action.includes('مالي') || log.action.includes('سعر') || log.action.includes('عربون');
+                const isShip = log.action.includes('بوليصة') || log.action.includes('شحن');
+
+                return (
+                  <div key={idx} className="relative pr-12 group">
+                    <div className={`absolute right-2.5 top-4 w-6 h-6 rounded-full border-4 border-white dark:border-[#0b0f19] flex items-center justify-center text-[9px] z-10 shadow-xs ${
+                      isStatus ? 'bg-indigo-600 text-white' : isFin ? 'bg-emerald-600 text-white' : isShip ? 'bg-purple-600 text-white' : 'bg-slate-500 text-white'
+                    }`}>
+                      {isStatus ? '🔄' : isFin ? '💰' : isShip ? '📦' : '•'}
+                    </div>
+
+                    <div className="p-5 bg-slate-50/80 dark:bg-[#0f1523] rounded-2xl border border-slate-200/70 dark:border-white/5 hover:border-indigo-300 dark:hover:border-indigo-500/30 transition-all text-right shadow-2xs">
+                      <div className="flex justify-between items-start mb-2.5 flex-row-reverse">
+                        <span className={`px-3 py-1 rounded-xl text-xs font-black ${
+                          isStatus ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400' :
+                          isFin ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' :
+                          isShip ? 'bg-purple-50 text-purple-600 dark:bg-purple-500/15 dark:text-purple-400' :
+                          'bg-slate-200/60 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                        }`}>
+                          {log.action}
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-400 font-mono">
+                          {new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(log.timestamp))}
+                        </span>
+                      </div>
+
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 leading-relaxed mb-3">
+                        {log.details}
+                      </p>
+
+                      <div className="flex items-center justify-end gap-1.5 text-[11px] font-bold text-slate-400 pt-2.5 border-t border-slate-200/50 dark:border-white/5">
+                        <span>المستخدم الذي قام بالإجراء: <strong className="text-slate-700 dark:text-slate-300 font-mono">{log.userEmail || 'نظام تلقائي'}</strong></span>
+                        <UserIcon size={12} className="opacity-60" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-16 text-slate-400 bg-slate-50/50 dark:bg-[#0f1523]/50 rounded-3xl border border-dashed border-slate-200 dark:border-white/5 space-y-2">
+              <History size={36} className="mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+              <p className="text-base font-black text-slate-600 dark:text-slate-300">لا توجد سجلات مطابقة للفلتر المحدد</p>
+              <p className="text-xs font-bold text-slate-400">حاول اختيار فلتر آخر أو عرض الكل</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 bg-slate-50/80 dark:bg-[#0f1523]/80 backdrop-blur-xl border-t border-slate-200/80 dark:border-white/10 flex justify-between items-center flex-row-reverse">
+          <span className="text-xs font-black text-slate-400">إجمالي الحركات: {order.auditLogs?.length || 0} حركة</span>
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 rounded-xl font-black text-xs transition-all shadow-sm active:scale-95"
+          >
+            إغلاق النافذة
+          </button>
         </div>
       </motion.div>
     </div>
@@ -9215,7 +9652,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         <option value="">-- اختر حساب الاستلام --</option>
                         {treasury?.accounts && (
                           <optgroup label="الحسابات البنكية">
-                            {treasury.accounts.map((acc: any) => (
+                            {(Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {})).map((acc: any) => (
                               <option
                                 key={`treasury_${acc.id}`}
                                 value={`treasury_${acc.id}`}
@@ -9227,7 +9664,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         )}
                         {settings.partners && (
                           <optgroup label="محافظ الشركاء">
-                            {settings.partners.map((p) => (
+                            {(Array.isArray(settings.partners) ? settings.partners : Object.values(settings.partners || {})).map((p: any) => (
                               <option
                                 key={`partner_${p.id}`}
                                 value={`partner_${p.id}`}
@@ -9240,7 +9677,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         {(settings.employees || []).length >= 0 && (
                           <optgroup label="العهدة النقدية (شركاء وموظفين)">
                             <option value="employee_admin">المدير (أنت)</option>
-                            {settings.partners?.map((p) => (
+                            {(Array.isArray(settings.partners) ? settings.partners : Object.values(settings.partners || {})).map((p: any) => (
                               <option
                                 key={`employee_${p.id}`}
                                 value={`employee_${p.id}`}

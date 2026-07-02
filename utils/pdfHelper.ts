@@ -10,7 +10,9 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         container.className = 'pdf-container';
         // Ensure the HTML string is wrapped in a container with explicit white background for rendering and sanitized with DOMPurify
         const sanitizedHtml = DOMPurify.sanitize(elementOrHtml, { ADD_ATTR: ['style'] });
-        container.innerHTML = `<div style="background: white !important; width: 100%; min-height: 100%; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${sanitizedHtml}</div>`;
+        // Replace oklab/oklch colors with a fallback to avoid PDF export error
+        const cleanHtml = convertOklchAndOklabToRgb(sanitizedHtml);
+        container.innerHTML = `<div style="background: white !important; width: 100%; min-height: 100%; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${cleanHtml}</div>`;
         
         // Use visible but off-screen positioning to ensure browser renders it fully
         container.style.position = 'fixed';
@@ -23,14 +25,77 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         document.body.appendChild(container);
         shouldCleanup = true;
     } else {
-        container = elementOrHtml;
+        container = elementOrHtml.cloneNode(true) as HTMLElement;
+        
+        // Ensure white background
+        container.style.background = 'white';
+        
+        // Position it off-screen
+        container.style.position = 'fixed';
+        container.style.left = '-9999px';
+        container.style.top = '0';
+        container.style.width = orientation === 'landscape' ? '297mm' : '210mm';
+        container.style.zIndex = '-9999';
+        
+        document.body.appendChild(container);
+        
+        // Fast cleanup of direct inline styles on cloned elements
+        cleanInlineStyles(container);
+        
+        shouldCleanup = true;
     }
+
+    const originalGetComputedStyle = window.getComputedStyle;
+    const originalGetPropertyValue = CSSStyleDeclaration.prototype.getPropertyValue;
+
+    // Temporarily patch window.getComputedStyle during PDF generation
+    (window as any).getComputedStyle = function (elt: Element, pseudoElt?: string) {
+        const style = originalGetComputedStyle.call(window, elt, pseudoElt);
+        return new Proxy(style, {
+            get(target, prop) {
+                if (prop === 'getPropertyValue') {
+                    return function(propertyName: string) {
+                        const value = target.getPropertyValue(propertyName);
+                        if (typeof value === 'string' && (value.includes('oklch') || value.includes('oklab'))) {
+                            return convertOklchAndOklabToRgb(value);
+                        }
+                        return value;
+                    };
+                }
+                
+                let value;
+                try {
+                    value = Reflect.get(target, prop, target);
+                } catch (e) {
+                    return undefined;
+                }
+
+                if (typeof value === 'string' && (value.includes('oklch') || value.includes('oklab'))) {
+                    return convertOklchAndOklabToRgb(value);
+                }
+                if (typeof value === 'function') {
+                    return value.bind(target);
+                }
+                return value;
+            }
+        });
+    };
+
+    // Temporarily patch CSSStyleDeclaration.prototype.getPropertyValue during PDF generation
+    CSSStyleDeclaration.prototype.getPropertyValue = function(property: string) {
+        const value = originalGetPropertyValue.call(this, property);
+        if (typeof value === 'string' && (value.includes('oklch') || value.includes('oklab'))) {
+            return convertOklchAndOklabToRgb(value);
+        }
+        return value;
+    };
 
     try {
         const opt = {
             margin:       [10, 10, 10, 10] as [number, number, number, number],
             filename:     filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
             image:        { type: 'jpeg' as const, quality: 0.98 },
+            pagebreak:    isContinuous ? { mode: 'avoid-all' } : { mode: 'css' },
             html2canvas:  { 
                 scale: 3, 
                 useCORS: true, 
@@ -41,7 +106,7 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
             },
             jsPDF:        { 
                 unit: 'mm' as const, 
-                format: isContinuous ? [orientation === 'landscape' ? 297 : 210, 800] as [number, number] : 'a4', 
+                format: isContinuous ? [orientation === 'landscape' ? 297 : 210, 3000] as [number, number] : 'a4', 
                 orientation: orientation as 'portrait' | 'landscape',
                 compress: true,
                 precision: 16
@@ -53,8 +118,113 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
 
         await html2pdf().set(opt).from(container).save();
     } finally {
+        // Restore original functions
+        (window as any).getComputedStyle = originalGetComputedStyle;
+        CSSStyleDeclaration.prototype.getPropertyValue = originalGetPropertyValue;
+
         if (shouldCleanup && container.parentNode) {
             document.body.removeChild(container);
         }
+    }
+}
+
+// OKLAB to RGB Conversion Formulas
+function oklabToRgbString(L: number, a: number, b: number, A: number): string {
+    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+    const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+
+    const l = l_ * l_ * l_;
+    const m = m_ * m_ * m_;
+    const s = s_ * s_ * s_;
+
+    const r = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+    const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+    const b_val = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+
+    const gamma = (x: number) => {
+        return x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+    };
+
+    const R = Math.max(0, Math.min(255, Math.round(gamma(r) * 255)));
+    const G = Math.max(0, Math.min(255, Math.round(gamma(g) * 255)));
+    const B = Math.max(0, Math.min(255, Math.round(gamma(b_val) * 255)));
+
+    if (A === 1) {
+        return `rgb(${R}, ${G}, ${B})`;
+    } else {
+        return `rgba(${R}, ${G}, ${B}, ${A})`;
+    }
+}
+
+function oklchToRgb(match: string, content: string): string {
+    const parts = content.trim().split(/[\s,/]+/);
+    if (parts.length < 3) return 'rgb(0,0,0)';
+    
+    const L_str = parts[0];
+    const C_str = parts[1];
+    const H_str = parts[2];
+    const A_str = parts[3] || '1';
+    
+    let L = L_str.endsWith('%') ? parseFloat(L_str) / 100 : parseFloat(L_str);
+    let C = C_str.endsWith('%') ? parseFloat(C_str) / 100 : parseFloat(C_str);
+    let H = parseFloat(H_str);
+    let A = A_str.endsWith('%') ? parseFloat(A_str) / 100 : parseFloat(A_str);
+    
+    if (isNaN(L)) L = 0;
+    if (isNaN(C)) C = 0;
+    if (isNaN(H)) H = 0;
+    if (isNaN(A)) A = 1;
+    
+    const h_rad = (H * Math.PI) / 180;
+    const a = C * Math.cos(h_rad);
+    const b = C * Math.sin(h_rad);
+    
+    return oklabToRgbString(L, a, b, A);
+}
+
+function oklabToRgb(match: string, content: string): string {
+    const parts = content.trim().split(/[\s,/]+/);
+    if (parts.length < 3) return 'rgb(0,0,0)';
+    
+    const L_str = parts[0];
+    const a_str = parts[1];
+    const b_str = parts[2];
+    const A_str = parts[3] || '1';
+    
+    let L = L_str.endsWith('%') ? parseFloat(L_str) / 100 : parseFloat(L_str);
+    let a = a_str.endsWith('%') ? parseFloat(a_str) / 100 : parseFloat(a_str);
+    let b = b_str.endsWith('%') ? parseFloat(b_str) / 100 : parseFloat(b_str);
+    let A = A_str.endsWith('%') ? parseFloat(A_str) / 100 : parseFloat(A_str);
+    
+    if (isNaN(L)) L = 0;
+    if (isNaN(a)) a = 0;
+    if (isNaN(b)) b = 0;
+    if (isNaN(A)) A = 1;
+    
+    return oklabToRgbString(L, a, b, A);
+}
+
+function convertOklchAndOklabToRgb(str: string): string {
+    if (!str || typeof str !== 'string') return str;
+    let result = str;
+    result = result.replace(/oklch\(([^)]+)\)/g, oklchToRgb);
+    result = result.replace(/oklab\(([^)]+)\)/g, oklabToRgb);
+    return result;
+}
+
+function cleanInlineStyles(el: HTMLElement) {
+    if (el.style) {
+        for (let i = 0; i < el.style.length; i++) {
+            const property = el.style[i];
+            const value = el.style.getPropertyValue(property);
+            if (typeof value === 'string' && (value.includes('oklch') || value.includes('oklab'))) {
+                el.style.setProperty(property, convertOklchAndOklabToRgb(value));
+            }
+        }
+    }
+    const children = el.children;
+    for (let i = 0; i < children.length; i++) {
+        cleanInlineStyles(children[i] as HTMLElement);
     }
 }
