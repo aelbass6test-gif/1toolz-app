@@ -1648,10 +1648,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     <tr><th style="text-align: right;">البند المالي</th><th>القيمة (ج.م)</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td style="text-align: right; font-weight: bold;">(+) إجمالي مبيعات المنتجات والخدمات</td><td>${(totalProductRevenue + totalExtraMarkup + totalInspectionRevenue).toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right; font-weight: bold;">(+) إجمالي مبيعات المنتجات</td><td>${(totalProductRevenue + totalExtraMarkup).toLocaleString()}</td></tr>
                     <tr><td style="text-align: right;">(-) تكلفة البضاعة المباعة (COGS)</td><td style="color: var(--danger);">-${totalCogs.toLocaleString()}</td></tr>
-                    <tr class="total-row"><td style="text-align: right;">(=) مجمل ربح المنتجات (Product Gross Profit)</td><td>${(totalProductRevenue + totalExtraMarkup + totalInspectionRevenue - totalCogs).toLocaleString()}</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">(=) مجمل ربح المنتجات (Product Gross Profit)</td><td>${(totalProductRevenue + totalExtraMarkup - totalCogs).toLocaleString()}</td></tr>
                     <tr><td style="text-align: right;">(+) أرباح زيادة الشحن (Shipping Markup)</td><td style="color: var(--success);">+${(totalShippingRevenue - totalSuccessShippingOnly).toLocaleString()}</td></tr>
+                    ${totalInspectionRevenue > 0 ? `<tr><td style="text-align: right;">(+) إيرادات رسوم المعاينة والخدمات (Inspection Revenue)</td><td style="color: var(--success);">+${totalInspectionRevenue.toLocaleString()}</td></tr>` : ''}
                     <tr><td style="text-align: right;">(-) رسوم تشغيل الطلبات الناجحة (تأمين/معاينة/تحصيل)</td><td style="color: var(--danger);">-${totalSuccessFeesOnly.toLocaleString()}</td></tr>
                     <tr><td style="text-align: right;">(-) خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">-${totalLoss.toLocaleString()}</td></tr>
                     <tr><td style="text-align: right;">(-) المصروفات الإدارية والتشغيلية</td><td style="color: var(--danger);">-${totalExpenses.toLocaleString()}</td></tr>
