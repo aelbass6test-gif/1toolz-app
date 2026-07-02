@@ -1,12 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown } from 'lucide-react';
+import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown, Eye, EyeOff } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from '../types';
 import { Link } from 'react-router-dom';
 import { motion, Variants, Reorder } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
 import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from '../utils/financials';
 import { DashboardManager, DashboardWidget, WidgetWrapper } from './dashboard/DashboardWidgets';
+import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -117,6 +118,7 @@ const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Set
 
 
 const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStore }: { orders: Order[], settings: Settings, wallet: Wallet, treasury: Treasury | undefined, currentUser: User | null, activeStore: Store | undefined }) => {
+  const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
   const [showVideoBanner, setShowVideoBanner] = useState(true);
   const [financialFilter, setFinancialFilter] = useState<'all' | 'with' | 'dep'>('all');
   const [showDetailedStats, setShowDetailedStats] = useState(false);
@@ -744,23 +746,14 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     const finalSuccessfulCount = successfulOrdersCount + extraPosSales.length;
     
     // Gross Profit (Product Margin) = Revenue - Product Cost (COGS)
-    // This represents the direct profit from products before shipping and fees, now including shipping markups and rounding markups
+    // This represents the direct profit from products before shipping and fees without extra markups
     const grossProfit = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).reduce((sum, o) => {
         const itemProfit = (o.items || []).reduce((iSum, item) => {
             const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
             return iSum + ((item.price - cost) * (item.quantity || 1));
         }, 0);
 
-        const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
-        const standardShipping = isPosOrder ? 0 : getStandardShippingFee(o, settings);
-        const shippingMarkup = isPosOrder ? 0 : Math.max(0, o.shippingFee - standardShipping);
-
-        const safeProductPrice = Number(o.productPrice) || 0;
-        const safeShippingFee = Number(o.shippingFee) || 0;
-        const safeDiscount = Number(o.discount) || 0;
-        const baseTotalExpected = safeProductPrice + safeShippingFee - safeDiscount;
-
-        return sum + itemProfit + shippingMarkup;
+        return sum + itemProfit;
     }, 0) + extraPosProfit;
     
     const supplierDebt = (settings?.suppliers || []).reduce((sum, s) => sum + (s.balance || 0), 0);
@@ -1329,13 +1322,28 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
               {/* قيمة المخزون الحالية */}
               <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
-                <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                  <Layers size={16} className="text-amber-500" />
-                  <span>قيمة المخزون (Stock Value)</span>
-                </p>
-                <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                  {stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
-                </h4>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
+                    <Layers size={16} className="text-amber-500" />
+                    <span>قيمة المخزون (Stock Value)</span>
+                  </p>
+                  <button
+                    onClick={toggleInventoryValue}
+                    className="p-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                    title={showInventoryValue ? "إخفاء قيمة البضاعة المتاحة في المخزن" : "إظهار قيمة البضاعة المتاحة في المخزن"}
+                  >
+                    {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                {showInventoryValue ? (
+                  <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
+                    {stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  </h4>
+                ) : (
+                  <h4 className="text-2xl sm:text-3xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
+                    •••••• <span className="text-xs font-bold">ج.م</span>
+                  </h4>
+                )}
                 <p className="text-[10px] text-slate-400 font-bold">إجمالي تكلفة البضاعة الموجودة بالمستودعات</p>
               </div>
 

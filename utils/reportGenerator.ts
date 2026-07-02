@@ -4,7 +4,7 @@ const getPrintControlBarCSS = () => ``;
 
 const getPrintControlBarHTML = (reportTitle: string) => ``;
 
-export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string): string => {
+export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, showInventoryValue: boolean = true): string => {
     return `
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -114,10 +114,10 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
               </p>
             </div>
             <div>
-               <div class="profit-card">
+               ${showInventoryValue ? `<div class="profit-card">
                     <p class="label">إجمالي قيمة المخزون الحالي</p>
                     <p class="amount">${stats.totalInventoryValue.toLocaleString('ar-EG')} ج.م</p>
-               </div>
+               </div>` : ''}
             </div>
           </div>
 
@@ -145,18 +145,18 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
               <tr>
                 <th>المنتج</th>
                 <th>المخزون المتوفر</th>
-                <th>قيمة المخزون</th>
+                ${showInventoryValue ? `<th>قيمة المخزون</th>` : ''}
                 <th>مرات الشراء</th>
                 <th>تاريخ آخر شراء</th>
                 <th style="max-width: 150px;">الموردين</th>
               </tr>
             </thead>
             <tbody>
-              ${stats.productHistory.length === 0 ? '<tr><td colspan="6" style="text-align: center; padding: 20px; color: #94a3b8; font-weight: 600;">لا توجد منتجات مسجلة.</td></tr>' : stats.productHistory.map((p: any) => `
+              ${stats.productHistory.length === 0 ? `<tr><td colspan="${showInventoryValue ? 6 : 5}" style="text-align: center; padding: 20px; color: #94a3b8; font-weight: 600;">لا توجد منتجات مسجلة.</td></tr>` : stats.productHistory.map((p: any) => `
                 <tr>
                   <td style="font-weight: 700; color: #1e293b;">${p.name}</td>
                   <td>${p.currentStock > 0 ? `<span class="pill positive">${p.currentStock}</span>` : `<span class="pill negative">نفذ</span>`}</td>
-                  <td class="font-mono" style="font-weight: 800;">${p.stockValue.toLocaleString('ar-EG')}</td>
+                  ${showInventoryValue ? `<td class="font-mono" style="font-weight: 800;">${p.stockValue.toLocaleString('ar-EG')}</td>` : ''}
                   <td>${p.purchaseCount}</td>
                   <td class="font-mono text-xs">${p.lastPurchaseDate ? new Date(p.lastPurchaseDate).toLocaleDateString('ar-EG') : 'بدون'}</td>
                   <td style="color: #64748b; font-size: 10px;">${Array.from(p.suppliers).join('، ') || 'غيـر مسجل'}</td>
@@ -1215,12 +1215,58 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
     `;
 };
 
-export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury): string => {
+export interface ComprehensiveReportSections {
+    showSummary?: boolean;
+    showIncomeStatement?: boolean;
+    showOperational?: boolean;
+    showProductProfitability?: boolean;
+    showPartners?: boolean;
+    showCustody?: boolean;
+    showCollectionLog?: boolean;
+    showLossLog?: boolean;
+    showExpensesLog?: boolean;
+    showInventoryLog?: boolean;
+    showRecommendations?: boolean;
+    showInventoryValue?: boolean;
+    includeMarkupsInProductRevenue?: boolean;
+    showExtraServicesRow?: boolean;
+}
+
+export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury, sections?: ComprehensiveReportSections): string => {
+    const s = {
+        showSummary: sections?.showSummary !== false,
+        showIncomeStatement: sections?.showIncomeStatement !== false,
+        showOperational: sections?.showOperational !== false,
+        showProductProfitability: sections?.showProductProfitability !== false,
+        showPartners: sections?.showPartners !== false,
+        showCustody: sections?.showCustody !== false,
+        showCollectionLog: sections?.showCollectionLog !== false,
+        showLossLog: sections?.showLossLog !== false,
+        showExpensesLog: sections?.showExpensesLog !== false,
+        showInventoryLog: sections?.showInventoryLog !== false,
+        showRecommendations: sections?.showRecommendations !== false,
+        showInventoryValue: sections?.showInventoryValue !== false,
+        includeMarkupsInProductRevenue: sections?.includeMarkupsInProductRevenue === true,
+        showExtraServicesRow: sections?.showExtraServicesRow !== false,
+    };
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
     const adminExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_'));
     const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
     const totalInventoryPurchases = inventoryPurchases.reduce((sum, t) => sum + t.amount, 0);
+
+    const totalInventoryValue = (settings?.products || []).reduce((sum, p) => {
+        if (p.hasVariants && p.variants && p.variants.length > 0) {
+            return sum + p.variants.reduce((vSum, v) => {
+                const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+                return vSum + (stock * cost);
+            }, 0);
+        }
+        const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+        const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+        return sum + (stock * cost);
+    }, 0);
 
     let totalProductRevenue = 0;
     let totalProductExtraMarkup = 0;
@@ -1240,6 +1286,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalOverrideAdjustment = 0;
     let totalInspectionRevenue = 0;
     let totalRequiredCollection = 0;
+    let totalDiscount = 0;
 
     const collectedRows = collectedOrders.map(order => {
         const { profit, netRevenue, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
@@ -1287,28 +1334,33 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         order.items.forEach(item => {
             const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+            const variant = product?.variants?.find(v => v.id === item.productId);
             const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
             const itemProfit = (item.price - actualCost) * item.quantity;
 
-            if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
-                const basePrice = product.basePrice;
-                orderBaseRevenue += basePrice * item.quantity;
-                orderProductExtraMarkup += (item.price - basePrice) * item.quantity;
-                totalCommissionProfit += itemProfit;
+            const catalogPrice = (product?.profitMode === 'commission' && product.basePrice !== undefined) ? product.basePrice :
+                                 (product?.basePrice !== undefined && product.basePrice > 0) ? product.basePrice :
+                                 ((variant && variant.price !== undefined) ? variant.price : ((product && product.price !== undefined) ? product.price : item.price));
+
+            if (item.price > catalogPrice) {
+                orderBaseRevenue += catalogPrice * item.quantity;
+                orderProductExtraMarkup += (item.price - catalogPrice) * item.quantity;
             } else {
                 orderBaseRevenue += item.price * item.quantity;
-                if (product?.profitMode === 'commission') {
-                    totalCommissionProfit += itemProfit;
-                } else {
-                    totalPercentageProfit += itemProfit;
-                }
+            }
+
+            if (product?.profitMode === 'commission') {
+                totalCommissionProfit += itemProfit;
+            } else {
+                totalPercentageProfit += itemProfit;
             }
         });
 
         const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
-        totalProductRevenue += (orderBaseRevenue - safeDiscount);
+        totalProductRevenue += orderBaseRevenue;
+        totalDiscount += safeDiscount;
         totalProductExtraMarkup += orderProductExtraMarkup;
         totalOverrideAdjustment += overrideAdjustment;
         totalInspectionRevenue += inspectionFeeCollected;
@@ -1389,14 +1441,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td>${insuranceFee.toLocaleString()}</td>
                 <td>${(inspectionCost - inspectionFeeCollected).toLocaleString()}</td>
                 <td>${returnFeeAmount.toLocaleString()}</td>
-                <td style="color: #b91c1c; font-weight: bold;">-${loss.toLocaleString()}</td>
+                <td style="color: #b91c1c; font-weight: bold;">${loss.toLocaleString()}</td>
             </tr>`;
     }).join('');
 
     let totalExpenses = 0;
     const expenseRows = adminExpenses.map(t => {
         totalExpenses += t.amount;
-        return `<tr><td>${new Date(t.date).toLocaleDateString('ar-EG')}</td><td>${t.note}</td><td style="color: #b91c1c;">-${t.amount.toLocaleString()}</td></tr>`;
+        return `<tr><td>${new Date(t.date).toLocaleDateString('ar-EG')}</td><td>${t.note}</td><td style="color: #b91c1c;">${t.amount.toLocaleString()}</td></tr>`;
     }).join('');
 
     const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
@@ -1418,7 +1470,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     totalCogs += extraPosCOGS;
     totalProfit += extraPosProfit;
 
-    const finalNet = totalProfit - totalLoss - totalExpenses;
+    let finalNet = totalProfit - totalLoss - totalExpenses;
     const successRate = orders.length > 0 ? (collectedOrders.length / orders.length) * 100 : 0;
     const avgOrderProfit = collectedOrders.length > 0 ? totalProfit / collectedOrders.length : 0;
     const breakEvenOrders = avgOrderProfit > 0 ? Math.ceil(totalExpenses / avgOrderProfit) : 0;
@@ -1493,9 +1545,156 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         .map(([name, s]) => `<tr><td>${name}</td><td>${s.count}</td><td>${((s.success/s.count)*100).toFixed(1)}%</td><td style="font-weight: bold; color: ${s.net >= 0 ? '#15803d' : '#b91c1c'};">${s.net.toLocaleString()}</td></tr>`).join('');
 
     const partners = settings.partners || [];
-    const partnerDetailsHtml = partners.length > 0 ? `
+    const custodyAccounts = (treasury?.accounts || []).filter(a => a.type === 'custody');
+    const recommendations = [];
+    if (successRate < 70) recommendations.push(`⚠️ نسبة النجاح منخفضة (${successRate.toFixed(1)}%). ننصح بمراجعة جودة تأكيد الأوردرات.`);
+    if (avgOrderProfit < 50) recommendations.push(`💡 متوسط الربح للطلب ضعيف. قد تحتاج لرفع أسعار المنتجات أو تقليل تكاليف الشحن.`);
+
+    let sectionCounter = s.showSummary ? 3 : 1;
+
+    let displayProductRevenue = s.includeMarkupsInProductRevenue ? (totalProductRevenue + totalProductExtraMarkup) : totalProductRevenue;
+    let displayExtraMarkup = s.includeMarkupsInProductRevenue ? (totalExtraMarkup - totalProductExtraMarkup + totalInspectionRevenue) : (totalExtraMarkup + totalInspectionRevenue);
+
+    if (!s.showExtraServicesRow) {
+        finalNet -= displayExtraMarkup;
+        totalProfit -= displayExtraMarkup;
+        totalRequiredCollection -= displayExtraMarkup;
+        displayExtraMarkup = 0;
+    }
+    const displayProductGrossProfit = displayProductRevenue - totalDiscount - totalCogs;
+
+    const summaryHtml = s.showSummary ? `
+            <div class="stats-grid">
+                <div class="stat-card"><span class="label">إجمالي المطلوب تحصيله</span><span class="value">${totalRequiredCollection.toLocaleString()}</span></div>
+                <div class="stat-card"><span class="label">إجمالي مبيعات المنتجات</span><span class="value">${displayProductRevenue.toLocaleString()}</span></div>
+                <div class="stat-card"><span class="label">إجمالي المشتريات</span><span class="value" style="color: var(--danger);">${totalInventoryPurchases.toLocaleString()}</span></div>
+                <div class="stat-card"><span class="label">نسبة نجاح التوصيل</span><span class="value" style="color: var(--success);">${successRate.toFixed(1)}%</span></div>
+                <div class="stat-card" style="background: var(--primary-soft); border-color: var(--primary);"><span class="label" style="color: var(--primary);">صافي الربح النهائي</span><span class="value" style="color: var(--primary);">${finalNet.toLocaleString()}</span></div>
+            </div>
+
+            <div class="stage-banner">
+                <div class="stage-number">1</div>
+                <h3 class="stage-title">المرحلة الأولى: تحليل الإيرادات (Revenues)</h3>
+            </div>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">بند الإيرادات</th><th>المبلغ المحصل</th></tr></thead>
+                <tbody>
+                    <tr><td style="text-align: right;">مبيعات المنتجات (${s.includeMarkupsInProductRevenue ? 'شاملة تعلية السعر والزيادات' : 'بالسعر الأساسي'})</td><td style="color: var(--success);">+${displayProductRevenue.toLocaleString()} ج.م</td></tr>
+                    ${totalDiscount > 0 ? `<tr><td style="text-align: right;">(-) الخصومات الممنوحة للعملاء</td><td style="color: var(--danger);">-${totalDiscount.toLocaleString()} ج.م</td></tr>` : ''}
+                    ${s.showExtraServicesRow ? `<tr><td style="text-align: right;">إيرادات الخدمات الإضافية ${s.includeMarkupsInProductRevenue ? 'والمعاينة والتسويات' : 'وتعلية السعر والمعاينة والتسويات'}</td><td style="color: var(--success);">+${displayExtraMarkup.toLocaleString()} ج.م</td></tr>` : ''}
+                    <tr><td style="text-align: right;">إجمالي تحصيل الشحن من العملاء</td><td style="color: var(--success);">+${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">إجمالي التدفقات النقدية الداخلة</td><td>${(displayProductRevenue - totalDiscount + displayExtraMarkup + totalShippingRevenue).toLocaleString()} ج.م</td></tr>
+                </tbody>
+            </table>
+
+            <div class="stage-banner" style="border-right-color: var(--danger);">
+                <div class="stage-number" style="background: var(--danger);">2</div>
+                <h3 class="stage-title">المرحلة الثانية: التكاليف والمصروفات التشغيلية (Operating Costs & Expenses)</h3>
+            </div>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">بند التكاليف</th><th>المبلغ</th></tr></thead>
+                <tbody>
+                    <tr><td style="text-align: right;">رسوم تشغيل (تأمين + معاينة + COD) للناجح</td><td style="color: var(--danger);">${totalSuccessFeesOnly.toLocaleString()} ج.م</td></tr>
+                    <tr><td style="text-align: right;">خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">${totalLoss.toLocaleString()} ج.م</td></tr>
+                    <tr><td style="text-align: right;">المصروفات الإدارية (إعلانات، رواتب، إيجار)</td><td style="color: var(--danger);">${totalExpenses.toLocaleString()} ج.م</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">إجمالي التكاليف والمصروفات التشغيلية</td><td style="color: var(--danger); font-weight: bold;">${(totalSuccessFeesOnly + totalLoss + totalExpenses).toLocaleString()} ج.م</td></tr>
+                </tbody>
+            </table>
+
+            <div class="final-banner">
+                <div style="font-size: 24px; opacity: 0.8; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">صافي الربح النهائي</div>
+                <div class="amount">${finalNet.toLocaleString()} ج.م</div>
+                <p style="opacity: 0.7; font-size: 18px;">نقطة التعادل: تحتاج إلى ${breakEvenOrders} طلب ناجح إضافي لتغطية المصروفات الثابتة.</p>
+            </div>` : '';
+
+    const incomeStatementHtml = s.showIncomeStatement ? `
+            <h2 class="section-header">${sectionCounter++}. قائمة الدخل الموحدة (Statement of Income)</h2>
+            <table class="modern-table" style="background: var(--slate-50);">
+                <thead>
+                    <tr><th style="text-align: right;">البند المالي</th><th>القيمة (ج.م)</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td style="text-align: right; font-weight: bold;">(+) إجمالي مبيعات المنتجات والخدمات</td><td>${displayProductRevenue.toLocaleString()}</td></tr>
+                    ${totalDiscount > 0 ? `<tr><td style="text-align: right;">(-) الخصومات الممنوحة للعملاء</td><td style="color: var(--danger);">-${totalDiscount.toLocaleString()}</td></tr>` : ''}
+                    <tr><td style="text-align: right;">(-) تكلفة البضاعة المباعة (COGS)</td><td style="color: var(--danger);">-${totalCogs.toLocaleString()}</td></tr>
+                    <tr class="total-row"><td style="text-align: right;">(=) مجمل ربح المنتجات (Product Gross Profit)</td><td>${displayProductGrossProfit.toLocaleString()}</td></tr>
+                    ${s.showExtraServicesRow ? `<tr><td style="text-align: right;">(+) أرباح الخدمات والإضافات (${s.includeMarkupsInProductRevenue ? 'معاينة / تعديل يدوي' : 'زيادة سعر / معاينة / تعديل يدوي'})</td><td style="color: var(--success);">+${displayExtraMarkup.toLocaleString()}</td></tr>` : ''}
+                    <tr><td style="text-align: right;">(+) أرباح زيادة الشحن (Shipping Markup)</td><td style="color: var(--success);">+${(totalShippingRevenue - totalSuccessShippingOnly).toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) رسوم تشغيل الطلبات الناجحة (تأمين/معاينة/تحصيل)</td><td style="color: var(--danger);">-${totalSuccessFeesOnly.toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">-${totalLoss.toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">(-) المصروفات الإدارية والتشغيلية</td><td style="color: var(--danger);">-${totalExpenses.toLocaleString()}</td></tr>
+                    <tr class="total-row" style="background: var(--primary) !important; color: white !important;">
+                        <td style="text-align: right;">(=) صافي الربح النهائي (Net Profit)</td>
+                        <td>${finalNet.toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>` : '';
+
+    const operationalHtml = s.showOperational ? `
+            <h2 class="section-header">${sectionCounter++}. الأداء التشغيلي (Operational Performance)</h2>
+            <div class="grid-2">
+                <div>
+                    <h4 style="margin-bottom: 15px; color: var(--slate-700);">أداء شركات الشحن</h4>
+                    <table class="modern-table">
+                        <thead><tr><th>الشركة</th><th>الطلبات</th><th>النجاح</th><th>الشحن</th><th>الصافي</th></tr></thead>
+                        <tbody>${carrierRows}</tbody>
+                    </table>
+                </div>
+                <div>
+                    <h4 style="margin-bottom: 15px; color: var(--slate-700);">التحليل الجغرافي</h4>
+                    <table class="modern-table">
+                        <thead><tr><th>المنطقة</th><th>الطلبات</th><th>النجاح</th><th>الصافي</th></tr></thead>
+                        <tbody>${geoRows}</tbody>
+                    </table>
+                </div>
+            </div>` : '';
+
+    const productProfitabilityHtml = s.showProductProfitability ? `
+            <h2 class="section-header">${sectionCounter++}. ربحية المنتجات (Product Profitability)</h2>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">اسم المنتج</th><th>المباع</th><th>المرتجع</th><th>إجمالي الربح</th></tr></thead>
+                <tbody>${productRows}</tbody>
+            </table>` : '';
+
+    const collectionLogHtml = s.showCollectionLog ? `
+            <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي (Collection Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
+                <tbody>${collectedRows}</tbody>
+            </table>` : '';
+
+    const lossLogHtml = (failedRows && s.showLossLog) ? `
+            <h2 class="section-header" style="color: var(--danger);">${sectionCounter++}. سجل المرتجعات والخسائر (Loss Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>الحالة</th><th>شحن</th><th>تأمين</th><th>معاينة</th><th>مرتجع</th><th>الخسارة</th></tr></thead>
+                <tbody>${failedRows}</tbody>
+            </table>` : '';
+
+    const expensesLogHtml = s.showExpensesLog ? `
+            <h2 class="section-header">${sectionCounter++}. المصروفات الإدارية والتشغيلية (Expenses Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>التاريخ</th><th style="text-align: right;">البيان</th><th>المبلغ</th></tr></thead>
+                <tbody>
+                    ${expenseRows || '<tr><td colspan="3">لا توجد مصروفات إدارية خلال هذه الفترة.</td></tr>'}
+                    <tr class="total-row"><td colspan="2" style="text-align: right;">إجمالي المصروفات</td><td>${totalExpenses.toLocaleString()} ج.م</td></tr>
+                </tbody>
+            </table>` : '';
+
+    const inventoryLogHtml = s.showInventoryLog ? `
+            <h2 class="section-header">${sectionCounter++}. حركة المخزون والمشتريات (Inventory & Purchases)</h2>
+            <table class="modern-table">
+                <thead><tr><th style="text-align: right;">البند</th><th>المبلغ (ج.م)</th></tr></thead>
+                <tbody>
+                    <tr><td style="text-align: right;">إجمالي قيمة مشتريات المخزون (خلال الفترة)</td><td>${totalInventoryPurchases.toLocaleString()}</td></tr>
+                    <tr><td style="text-align: right;">تكلفة البضاعة المباعة (المسحوبة من المخزون)</td><td>${totalCogs.toLocaleString()}</td></tr>
+                    ${s.showInventoryValue ? `<tr><td style="text-align: right; font-weight: bold; color: var(--primary);">قيمة البضاعة المتاحة في المخزن (رأس المال الحالي)</td><td style="font-weight: bold; color: var(--primary);">${totalInventoryValue.toLocaleString()}</td></tr>` : ''}
+                    <tr class="total-row"><td style="text-align: right;">التدفق النقدي للمخزون</td><td style="color: ${totalInventoryPurchases > totalCogs ? 'var(--danger)' : 'var(--success)'};">${(totalCogs - totalInventoryPurchases).toLocaleString()}</td></tr>
+                </tbody>
+            </table>` : '';
+
+    const partnerDetailsHtml = (partners.length > 0 && s.showPartners) ? `
         <div style="margin-top: 25px; page-break-inside: avoid;">
-            <h3 style="background: #1e3a8a; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">5. توزيع أرباح الشركاء والمراكز المالية</h3>
+            <h3 style="background: #1e3a8a; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">${sectionCounter++}. توزيع أرباح الشركاء والمراكز المالية</h3>
             <table class="modern-table">
                 <thead><tr><th>اسم الشريك</th><th>نسبة الربح (%)</th><th>نصيب الربح</th><th>المسحوبات</th><th>الرصيد المتاح</th></tr></thead>
                 <tbody>
@@ -1509,20 +1708,16 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             </table>
         </div>` : '';
 
-    const custodyAccounts = (treasury?.accounts || []).filter(a => a.type === 'custody');
-    const custodyDetailsHtml = custodyAccounts.length > 0 ? `
+    const custodyDetailsHtml = (custodyAccounts.length > 0 && s.showCustody) ? `
         <div style="margin-top: 25px; page-break-inside: avoid;">
-            <h3 style="background: #334155; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">6. ذمم العُهد والموظفين</h3>
+            <h3 style="background: #334155; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">${sectionCounter++}. ذمم العُهد والموظفين</h3>
             <table class="modern-table">
                 <thead><tr><th>اسم الموظف</th><th>مبلغ العهدة المتبقي</th></tr></thead>
                 <tbody>${custodyAccounts.map(a => `<tr><td>${a.name}</td><td style="font-weight: bold; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td></tr>`).join('')}</tbody>
             </table>
         </div>` : '';
 
-    const recommendations = [];
-    if (successRate < 70) recommendations.push(`⚠️ نسبة النجاح منخفضة (${successRate.toFixed(1)}%). ننصح بمراجعة جودة تأكيد الأوردرات.`);
-    if (avgOrderProfit < 50) recommendations.push(`💡 متوسط الربح للطلب ضعيف. قد تحتاج لرفع أسعار المنتجات أو تقليل تكاليف الشحن.`);
-    const recommendationHtml = recommendations.length > 0 ? `
+    const recommendationHtml = (recommendations.length > 0 && s.showRecommendations) ? `
         <div style="background: #fffaf0; border: 1px solid #feebc8; border-radius: 12px; padding: 20px; margin-top: 30px;">
             <h4 style="color: #c05621; margin: 0 0 10px 0;">توصيات ذكية لتحسين الأداء</h4>
             <ul style="margin: 0; padding-right: 20px; font-size: 12px; color: #9a3412;">${recommendations.map(r => `<li>${r}</li>`).join('')}</ul>
@@ -1599,126 +1794,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 </div>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-card"><span class="label">إجمالي المطلوب تحصيله</span><span class="value">${totalRequiredCollection.toLocaleString()}</span></div>
-                <div class="stat-card"><span class="label">إجمالي مبيعات المنتجات</span><span class="value">${totalProductRevenue.toLocaleString()}</span></div>
-                <div class="stat-card"><span class="label">إجمالي المشتريات</span><span class="value" style="color: var(--danger);">${totalInventoryPurchases.toLocaleString()}</span></div>
-                <div class="stat-card"><span class="label">نسبة نجاح التوصيل</span><span class="value" style="color: var(--success);">${successRate.toFixed(1)}%</span></div>
-                <div class="stat-card" style="background: var(--primary-soft); border-color: var(--primary);"><span class="label" style="color: var(--primary);">صافي الربح النهائي</span><span class="value" style="color: var(--primary);">${finalNet.toLocaleString()}</span></div>
-            </div>
-
-            <div class="stage-banner">
-                <div class="stage-number">1</div>
-                <h3 class="stage-title">المرحلة الأولى: تحليل الإيرادات (Revenues)</h3>
-            </div>
-            <table class="modern-table">
-                <thead><tr><th style="text-align: right;">بند الإيرادات</th><th>المبلغ المحصل</th></tr></thead>
-                <tbody>
-                    <tr><td style="text-align: right;">مبيعات المنتجات (السعر الأساسي)</td><td style="color: var(--success);">+${totalProductRevenue.toLocaleString()} ج.م</td></tr>
-                    <tr><td style="text-align: right;">أرباح التعلية والتسويات اليدوية</td><td style="color: var(--success);">+${totalExtraMarkup.toLocaleString()} ج.م</td></tr>
-                    <tr><td style="text-align: right;">إجمالي تحصيل الشحن من العملاء</td><td style="color: var(--success);">+${totalShippingRevenue.toLocaleString()} ج.م</td></tr>
-                    ${totalInspectionRevenue > 0 ? `<tr><td style="text-align: right;">إجمالي رسوم المعاينة</td><td style="color: var(--success);">+${totalInspectionRevenue.toLocaleString()} ج.م</td></tr>` : ''}
-                    <tr class="total-row"><td style="text-align: right;">إجمالي التدفقات النقدية الداخلة</td><td>${(totalProductRevenue + totalExtraMarkup + totalShippingRevenue + totalInspectionRevenue).toLocaleString()} ج.م</td></tr>
-                </tbody>
-            </table>
-
-            <div class="stage-banner" style="border-right-color: var(--danger);">
-                <div class="stage-number" style="background: var(--danger);">2</div>
-                <h3 class="stage-title">المرحلة الثانية: التكاليف والمصروفات التشغيلية (Operating Costs & Expenses)</h3>
-            </div>
-            <table class="modern-table">
-                <thead><tr><th style="text-align: right;">بند التكاليف</th><th>المبلغ</th></tr></thead>
-                <tbody>
-                    <tr><td style="text-align: right;">رسوم تشغيل (تأمين + معاينة + COD) للناجح</td><td style="color: var(--danger);">-${totalSuccessFeesOnly.toLocaleString()} ج.م</td></tr>
-                    <tr><td style="text-align: right;">خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">-${totalLoss.toLocaleString()} ج.م</td></tr>
-                    <tr><td style="text-align: right;">المصروفات الإدارية (إعلانات، رواتب، إيجار)</td><td style="color: var(--danger);">-${totalExpenses.toLocaleString()} ج.م</td></tr>
-                    <tr class="total-row"><td style="text-align: right;">إجمالي التكاليف والمصروفات التشغيلية</td><td>-${(totalSuccessFeesOnly + totalLoss + totalExpenses).toLocaleString()} ج.م</td></tr>
-                </tbody>
-            </table>
-
-            <div class="final-banner">
-                <div style="font-size: 24px; opacity: 0.8; font-weight: 600; text-transform: uppercase; letter-spacing: 2px;">صافي الربح النهائي</div>
-                <div class="amount">${finalNet.toLocaleString()} ج.م</div>
-                <p style="opacity: 0.7; font-size: 18px;">نقطة التعادل: تحتاج إلى ${breakEvenOrders} طلب ناجح إضافي لتغطية المصروفات الثابتة.</p>
-            </div>
-
-            <h2 class="section-header">3. قائمة الدخل الموحدة (Statement of Income)</h2>
-            <table class="modern-table" style="background: var(--slate-50);">
-                <thead>
-                    <tr><th style="text-align: right;">البند المالي</th><th>القيمة (ج.م)</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td style="text-align: right; font-weight: bold;">(+) إجمالي مبيعات المنتجات</td><td>${(totalProductRevenue + totalExtraMarkup).toLocaleString()}</td></tr>
-                    <tr><td style="text-align: right;">(-) تكلفة البضاعة المباعة (COGS)</td><td style="color: var(--danger);">-${totalCogs.toLocaleString()}</td></tr>
-                    <tr class="total-row"><td style="text-align: right;">(=) مجمل ربح المنتجات (Product Gross Profit)</td><td>${(totalProductRevenue + totalExtraMarkup - totalCogs).toLocaleString()}</td></tr>
-                    <tr><td style="text-align: right;">(+) أرباح زيادة الشحن (Shipping Markup)</td><td style="color: var(--success);">+${(totalShippingRevenue - totalSuccessShippingOnly).toLocaleString()}</td></tr>
-                    ${totalInspectionRevenue > 0 ? `<tr><td style="text-align: right;">(+) إيرادات رسوم المعاينة والخدمات (Inspection Revenue)</td><td style="color: var(--success);">+${totalInspectionRevenue.toLocaleString()}</td></tr>` : ''}
-                    <tr><td style="text-align: right;">(-) رسوم تشغيل الطلبات الناجحة (تأمين/معاينة/تحصيل)</td><td style="color: var(--danger);">-${totalSuccessFeesOnly.toLocaleString()}</td></tr>
-                    <tr><td style="text-align: right;">(-) خسائر المرتجعات وفشل التوصيل</td><td style="color: var(--danger);">-${totalLoss.toLocaleString()}</td></tr>
-                    <tr><td style="text-align: right;">(-) المصروفات الإدارية والتشغيلية</td><td style="color: var(--danger);">-${totalExpenses.toLocaleString()}</td></tr>
-                    <tr class="total-row" style="background: var(--primary) !important; color: white !important;">
-                        <td style="text-align: right;">(=) صافي الربح النهائي (Net Profit)</td>
-                        <td>${finalNet.toLocaleString()}</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h2 class="section-header">4. الأداء التشغيلي (Operational Performance)</h2>
-            <div class="grid-2">
-                <div>
-                    <h4 style="margin-bottom: 15px; color: var(--slate-700);">أداء شركات الشحن</h4>
-                    <table class="modern-table">
-                        <thead><tr><th>الشركة</th><th>الطلبات</th><th>النجاح</th><th>الشحن</th><th>الصافي</th></tr></thead>
-                        <tbody>${carrierRows}</tbody>
-                    </table>
-                </div>
-                <div>
-                    <h4 style="margin-bottom: 15px; color: var(--slate-700);">التحليل الجغرافي</h4>
-                    <table class="modern-table">
-                        <thead><tr><th>المنطقة</th><th>الطلبات</th><th>النجاح</th><th>الصافي</th></tr></thead>
-                        <tbody>${geoRows}</tbody>
-                    </table>
-                </div>
-            </div>
-
-            <h2 class="section-header">4. ربحية المنتجات (Product Profitability)</h2>
-            <table class="modern-table">
-                <thead><tr><th style="text-align: right;">اسم المنتج</th><th>المباع</th><th>المرتجع</th><th>إجمالي الربح</th></tr></thead>
-                <tbody>${productRows}</tbody>
-            </table>
-
-            <h2 class="section-header">6. سجل التحصيل المالي (Collection Log)</h2>
-            <table class="modern-table">
-                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
-                <tbody>${collectedRows}</tbody>
-            </table>
-
-            ${failedRows ? `
-            <h2 class="section-header" style="color: var(--danger);">7. سجل المرتجعات والخسائر (Loss Log)</h2>
-            <table class="modern-table">
-                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>الحالة</th><th>شحن</th><th>تأمين</th><th>معاينة</th><th>مرتجع</th><th>الخسارة</th></tr></thead>
-                <tbody>${failedRows}</tbody>
-            </table>` : ''}
-
-            <h2 class="section-header">8. المصروفات الإدارية والتشغيلية (Expenses Log)</h2>
-            <table class="modern-table">
-                <thead><tr><th>التاريخ</th><th style="text-align: right;">البيان</th><th>المبلغ</th></tr></thead>
-                <tbody>
-                    ${expenseRows || '<tr><td colspan="3">لا توجد مصروفات إدارية خلال هذه الفترة.</td></tr>'}
-                    <tr class="total-row"><td colspan="2" style="text-align: right;">إجمالي المصروفات</td><td>${totalExpenses.toLocaleString()} ج.م</td></tr>
-                </tbody>
-            </table>
-
-            <h2 class="section-header">9. حركة المخزون والمشتريات (Inventory & Purchases)</h2>
-            <table class="modern-table">
-                <thead><tr><th style="text-align: right;">البند</th><th>المبلغ (ج.م)</th></tr></thead>
-                <tbody>
-                    <tr><td style="text-align: right;">إجمالي قيمة مشتريات المخزون (خلال الفترة)</td><td>${totalInventoryPurchases.toLocaleString()}</td></tr>
-                    <tr><td style="text-align: right;">تكلفة البضاعة المباعة (المسحوبة من المخزون)</td><td>${totalCogs.toLocaleString()}</td></tr>
-                    <tr class="total-row"><td style="text-align: right;">التدفق النقدي للمخزون</td><td style="color: ${totalInventoryPurchases > totalCogs ? 'var(--danger)' : 'var(--success)'};">${(totalCogs - totalInventoryPurchases).toLocaleString()}</td></tr>
-                </tbody>
-            </table>
-
+            ${summaryHtml}
+            ${incomeStatementHtml}
+            ${operationalHtml}
+            ${productProfitabilityHtml}
+            ${collectionLogHtml}
+            ${lossLogHtml}
+            ${expensesLogHtml}
+            ${inventoryLogHtml}
             ${partnerDetailsHtml}
             ${custodyDetailsHtml}
             ${recommendationHtml}

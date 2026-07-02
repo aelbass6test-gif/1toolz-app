@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Settings, Supplier, SupplyOrder, Transaction, PurchaseReturn, PurchaseReturnItem } from '../types';
 import { 
   UserPlus, Truck, Save, Plus, Package, Calendar, DollarSign, User, Trash2, 
-  Edit2, Eye, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
+  Edit2, Eye, EyeOff, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
   ChevronDown, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
   PieChart as LucidePieChart, Download, Printer, Layers, HelpCircle, CheckCircle2,
   Search, Info, RotateCw
@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import { SupplyOrderItem } from '../types';
 import { InventoryAudit } from './InventoryAudit';
+import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { getLatestProductCost } from '../utils/financials';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
@@ -29,6 +30,7 @@ interface SuppliersPageProps {
 }
 
 const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wallet, setWallet, treasury, setTreasury, currentUser, orders }) => {
+  const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
   const [activeTab, setActiveTab] = useState<'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses'>('orders');
   
   if (!settings) return null;
@@ -2759,38 +2761,71 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block mb-1">رأس مال البضاعة</span>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block">رأس مال البضاعة</span>
+                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+                  {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg shrink-0">
                   <Coins size={16}/>
                 </span>
-                <span className="text-base font-black text-emerald-600 leading-tight">
-                  {inventoryStats.totalCapitalAtCost.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (تكلفة)</span>
-                </span>
+                {showInventoryValue ? (
+                  <span className="text-base font-black text-emerald-600 leading-tight">
+                    {inventoryStats.totalCapitalAtCost.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (تكلفة)</span>
+                  </span>
+                ) : (
+                  <span className="text-base font-black text-slate-400 leading-tight tracking-widest">
+                    •••••• <span className="text-[10px] text-slate-400 font-bold block">ج.م</span>
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block mb-1">العائد المتوقع للبيع</span>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block">العائد المتوقع للبيع</span>
+                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+                  {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="p-1.5 bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 rounded-lg shrink-0">
                   <TrendingUp size={16}/>
                 </span>
-                <span className="text-base font-black text-teal-600 leading-tight">
-                  {inventoryStats.totalRetailWorth.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (تجزئة)</span>
-                </span>
+                {showInventoryValue ? (
+                  <span className="text-base font-black text-teal-600 leading-tight">
+                    {inventoryStats.totalRetailWorth.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (تجزئة)</span>
+                  </span>
+                ) : (
+                  <span className="text-base font-black text-slate-400 leading-tight tracking-widest">
+                    •••••• <span className="text-[10px] text-slate-400 font-bold block">ج.م</span>
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
-              <span className="text-[10px] text-slate-455 dark:text-slate-500 font-bold block mb-1">صافي الجدوى الربحية</span>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-slate-455 dark:text-slate-500 font-bold block">صافي الجدوى الربحية</span>
+                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+                  {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
                   <Percent size={16}/>
                 </span>
-                <span className="text-base font-black text-indigo-600 leading-tight">
-                  {inventoryStats.potentialProfit.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (+{inventoryStats.profitMarginPercentage.toFixed(1)}%)</span>
-                </span>
+                {showInventoryValue ? (
+                  <span className="text-base font-black text-indigo-600 leading-tight">
+                    {inventoryStats.potentialProfit.toLocaleString()} <span className="text-[10px] text-slate-400 font-bold block">ج.م (+{inventoryStats.profitMarginPercentage.toFixed(1)}%)</span>
+                  </span>
+                ) : (
+                  <span className="text-base font-black text-slate-400 leading-tight tracking-widest">
+                    •••••• <span className="text-[10px] text-slate-400 font-bold block">ج.م</span>
+                  </span>
+                )}
               </div>
             </div>
 
@@ -2892,11 +2927,11 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                       </div>
                       <div class="stat-card">
                         <div>رأس مال البضاعة بالتكلفة</div>
-                        <div class="stat-val">${inventoryStats.totalCapitalAtCost.toLocaleString()} ج.م</div>
+                        <div class="stat-val">${showInventoryValue ? `${inventoryStats.totalCapitalAtCost.toLocaleString()} ج.م` : '•••••• ج.م'}</div>
                       </div>
                       <div class="stat-card">
                         <div>العائد المتوقع للبيع بالتجزئة</div>
-                        <div class="stat-val">${inventoryStats.totalRetailWorth.toLocaleString()} ج.م</div>
+                        <div class="stat-val">${showInventoryValue ? `${inventoryStats.totalRetailWorth.toLocaleString()} ج.م` : '•••••• ج.م'}</div>
                       </div>
                     </div>
                     <table>

@@ -303,7 +303,7 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
             .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
 
         const finalRevenue = totalRevenue + extraPosRevenue;
-        const grossProfit = productRevenue - cogs + totalShippingMarkup; // This perfectly represents product gross profit including shipping markups
+        const grossProfit = productRevenue - cogs; // Pure product gross profit without extra markups
         
         // Net profit matches the precise final financial logic (including extra POS sales profit!)
         const netProfit = totalOrderProfit + extraPosProfit - totalExpenses - lossFromReturnOrders;
@@ -417,10 +417,14 @@ const BalanceSheet = ({ orders, settings, wallet }: Omit<Props, 'activeStore'>) 
         products.forEach(p => {
             if (p.hasVariants && p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
-                    inventoryValue += (v.stockQuantity || 0) * Math.max(v.costPrice ?? 0, p.costPrice || 0);
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+                    inventoryValue += stock * cost;
                 });
             } else {
-                inventoryValue += (p.stockQuantity || 0) * (p.costPrice || 0);
+                const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+                const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+                inventoryValue += stock * cost;
             }
         });
 
@@ -1606,10 +1610,14 @@ const InventoryVelocity = ({ orders, settings }: { orders: Order[], settings: Se
         productsList.forEach(p => {
             if (p.hasVariants && p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
-                    currentInventoryValue += (v.stockQuantity || 0) * Math.max(v.costPrice ?? 0, p.costPrice || 0);
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+                    currentInventoryValue += stock * cost;
                 });
             } else {
-                currentInventoryValue += (p.stockQuantity || 0) * (p.costPrice || 0);
+                const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+                const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+                currentInventoryValue += stock * cost;
             }
         });
 
@@ -1624,12 +1632,14 @@ const InventoryVelocity = ({ orders, settings }: { orders: Order[], settings: Se
             if (soldCount >= 20) classification = 'fast';
             else if (soldCount === 0) classification = 'slow';
 
+            const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+            const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
             return {
                 id: p.id,
                 name: p.name,
-                stockQuantity: p.stockQuantity || 0,
-                costPrice: p.costPrice || 0,
-                vBalance: (p.stockQuantity || 0) * (p.costPrice || 0),
+                stockQuantity: stock,
+                costPrice: cost,
+                vBalance: stock * cost,
                 soldCount,
                 classification
             };

@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
-import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle } from 'lucide-react';
+import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon } from 'lucide-react';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee } from '../utils/financials';
-import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML } from '../utils/reportGenerator';
+import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
+import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, LineChart, Line, CartesianGrid, Legend } from 'recharts';
@@ -1035,10 +1036,37 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
 };
 
 const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
+    const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [reportSections, setReportSections] = useState<ComprehensiveReportSections>({
+        showSummary: true,
+        showIncomeStatement: true,
+        showOperational: true,
+        showProductProfitability: true,
+        showPartners: true,
+        showCustody: true,
+        showCollectionLog: true,
+        showLossLog: true,
+        showExpensesLog: true,
+        showInventoryLog: true,
+        showRecommendations: true,
+        showInventoryValue: showInventoryValue
+    });
+
+    useEffect(() => {
+        setReportSections(prev => ({ ...prev, showInventoryValue: showInventoryValue }));
+    }, [showInventoryValue]);
+
+    useEffect(() => {
+        if (previewHtml !== null) {
+            const storeName = activeStore?.name || 'متجري';
+            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
+            setPreviewHtml(html);
+        }
+    }, [reportSections, orientation, isContinuous]);
     
     const stats = useMemo(() => {
         const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
@@ -1106,26 +1134,31 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
             // Calculate item-level profits and separate base revenue from markup
             let orderProductExtraMarkup = 0;
+            let orderBaseRevenue = 0;
             order.items.forEach(item => {
                 const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+                const variant = product?.variants?.find(v => v.id === item.productId);
                 const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
                 const itemProfit = (item.price - actualCost) * item.quantity;
                 
-                if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
-                    const basePriceRevenue = product.basePrice * item.quantity;
-                    const extraMarkup = (item.price - product.basePrice) * item.quantity;
-                    totalProductRevenue += basePriceRevenue;
-                    orderProductExtraMarkup += extraMarkup;
+                const catalogPrice = (product?.profitMode === 'commission' && product.basePrice !== undefined) ? product.basePrice :
+                                     (product?.basePrice !== undefined && product.basePrice > 0) ? product.basePrice :
+                                     ((variant && variant.price !== undefined) ? variant.price : ((product && product.price !== undefined) ? product.price : item.price));
+
+                if (item.price > catalogPrice) {
+                    orderBaseRevenue += catalogPrice * item.quantity;
+                    orderProductExtraMarkup += (item.price - catalogPrice) * item.quantity;
+                } else {
+                    orderBaseRevenue += item.price * item.quantity;
+                }
+
+                if (product?.profitMode === 'commission') {
                     totalCommissionProfit += itemProfit;
                 } else {
-                    totalProductRevenue += item.price * item.quantity;
-                    if (product?.profitMode === 'commission') {
-                        totalCommissionProfit += itemProfit;
-                    } else {
-                        totalPercentageProfit += itemProfit;
-                    }
+                    totalPercentageProfit += itemProfit;
                 }
             });
+            totalProductRevenue += orderBaseRevenue;
             totalProductExtraMarkup += orderProductExtraMarkup;
             totalExtraMarkup += (orderProductExtraMarkup + shippingMarkup);
         });
@@ -1306,18 +1339,28 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         });
 
         // Inventory Value
-        const inventoryValue = settings.products.reduce((sum, p) => {
-            if (p.hasVariants && p.variants) {
-                return sum + p.variants.reduce((vSum, v) => vSum + (getLatestProductCost(v.id, settings) * (v.stockQuantity || 0)), 0);
+        const inventoryValue = (settings?.products || []).reduce((sum, p) => {
+            if (p.hasVariants && p.variants && p.variants.length > 0) {
+                return sum + p.variants.reduce((vSum, v) => {
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+                    return vSum + (stock * cost);
+                }, 0);
             }
-            return sum + (getLatestProductCost(p.id, settings) * (p.stockQuantity || 0));
+            const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+            const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+            return sum + (stock * cost);
         }, 0);
 
-        const inventorySalesValue = settings.products.reduce((sum, p) => {
-            if (p.hasVariants && p.variants) {
-                return sum + p.variants.reduce((vSum, v) => vSum + (v.price * (v.stockQuantity || 0)), 0);
+        const inventorySalesValue = (settings?.products || []).reduce((sum, p) => {
+            if (p.hasVariants && p.variants && p.variants.length > 0) {
+                return sum + p.variants.reduce((vSum, v) => {
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    return vSum + ((v.price || p.price || 0) * stock);
+                }, 0);
             }
-            return sum + (p.price * (p.stockQuantity || 0));
+            const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+            return sum + ((p.price || 0) * stock);
         }, 0);
 
         return { 
@@ -1333,7 +1376,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
     const handlePreview = () => {
         const storeName = activeStore?.name || 'متجري';
-        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury);
+        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
         setPreviewHtml(html);
     };
 
@@ -1359,7 +1402,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         setIsExporting(true);
         try {
             const storeName = activeStore?.name || 'متجري';
-            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury);
+            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
             await exportHTMLToPDF(html, orientation, `التقرير_الختامي_الشامل_${new Date().toISOString().split('T')[0]}.pdf`, isContinuous);
         } catch (error) {
             console.error('PDF generation failed:', error);
@@ -1371,7 +1414,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
     const handlePrint = () => {
         const storeName = activeStore?.name || 'متجري';
-        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury);
+        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
         printHTMLDirectly(html);
     };
 
@@ -1409,6 +1452,38 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                         </button>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setReportSections(prev => ({ ...prev, includeMarkupsInProductRevenue: !prev.includeMarkupsInProductRevenue }))}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm ${
+                                reportSections.includeMarkupsInProductRevenue
+                                    ? 'bg-amber-500 text-white border-amber-600 shadow-amber-100 dark:shadow-none'
+                                    : 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-100 dark:shadow-none'
+                            }`}
+                            title="تغيير طريقة حساب وعرض أرباح المنتجات في التقرير (بالسعر الأساسي أو شامل الزيادات)"
+                        >
+                            <Coins size={14} />
+                            <span>
+                                {reportSections.includeMarkupsInProductRevenue
+                                    ? 'عرض المنتجات: شامل الزيادات والتعلية'
+                                    : 'عرض المنتجات: بالسعر الأساسي (بدون زيادات)'}
+                            </span>
+                        </button>
+                        <button
+                            onClick={() => setReportSections(prev => ({ ...prev, showExtraServicesRow: prev.showExtraServicesRow === false ? true : false }))}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm ${
+                                reportSections.showExtraServicesRow !== false
+                                    ? 'bg-blue-600 text-white border-blue-700 shadow-blue-100 dark:shadow-none'
+                                    : 'bg-slate-500 text-white border-slate-600 shadow-slate-100 dark:shadow-none'
+                            }`}
+                            title="إخفاء أو إظهار بند أرباح الخدمات والإضافات (معاينة / تعديل يدوي) في التقرير (عند الإخفاء يتم استبعاده تماماً ولا يضاف لأي بند آخر)"
+                        >
+                            <Coins size={14} />
+                            <span>
+                                {reportSections.showExtraServicesRow !== false
+                                    ? 'بند الخدمات والإضافات: ظاهر'
+                                    : 'بند الخدمات والإضافات: مخفي (مستبعد)'}
+                            </span>
+                        </button>
                         <button 
                             onClick={handlePreview} 
                             disabled={isExporting}
@@ -1418,6 +1493,86 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             معاينة للطباعة / PDF
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-3">
+                    <div className="flex items-center gap-2">
+                        <span className="p-1.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                            <SettingsIcon size={18} />
+                        </span>
+                        <div>
+                            <h3 className="font-bold text-slate-800 dark:text-white text-sm sm:text-base">التحكم في الأقسام المعروضة في التقرير والطباعة</h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">اختر الأقسام التي ترغب في تضمينها عند المعاينة أو استخراج ملف PDF</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setReportSections({
+                                showSummary: true, showIncomeStatement: true, showOperational: true,
+                                showProductProfitability: true, showPartners: true, showCustody: true,
+                                showCollectionLog: true, showLossLog: true, showExpensesLog: true,
+                                showInventoryLog: true, showRecommendations: true, showInventoryValue: true, showExtraServicesRow: true
+                            })}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-all"
+                        >
+                            تحديد الكل
+                        </button>
+                        <button
+                            onClick={() => setReportSections({
+                                showSummary: true, showIncomeStatement: true, showOperational: false,
+                                showProductProfitability: false, showPartners: false, showCustody: false,
+                                showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                showInventoryLog: false, showRecommendations: true, showInventoryValue: false, showExtraServicesRow: true
+                            })}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-all"
+                        >
+                            الأساسيات فقط (الملخص وقائمة الدخل)
+                        </button>
+                    </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-1">
+                    {[
+                        { key: 'showSummary', label: 'المرحلة 1 و 2 (ملخص الإيرادات والتكاليف)' },
+                        { key: 'showIncomeStatement', label: 'قائمة الدخل الموحدة' },
+                        { key: 'showOperational', label: 'الأداء التشغيلي (الشحن والمناطق)' },
+                        { key: 'showProductProfitability', label: 'ربحية المنتجات' },
+                        { key: 'showCollectionLog', label: 'سجل التحصيل المالي' },
+                        { key: 'showLossLog', label: 'سجل المرتجعات والخسائر' },
+                        { key: 'showExpensesLog', label: 'المصروفات الإدارية والتشغيلية' },
+                        { key: 'showInventoryLog', label: 'حركة المخزون والمشتريات' },
+                        { key: 'showPartners', label: 'توزيع أرباح الشركاء' },
+                        { key: 'showCustody', label: 'ذمم العهد والموظفين' },
+                        { key: 'showRecommendations', label: 'التوصيات الذكية' },
+                        { key: 'showInventoryValue', label: 'إظهار قيمة البضاعة المتاحة في المخزن' },
+                        { key: 'showExtraServicesRow', label: 'إظهار بند أرباح الخدمات والإضافات (معاينة / تعديل يدوي)' },
+                    ].map((sec) => {
+                        const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
+                        return (
+                            <button
+                                key={sec.key}
+                                onClick={() => {
+                                    if (sec.key === 'showInventoryValue') {
+                                        toggleInventoryValue();
+                                    } else {
+                                        setReportSections(prev => ({
+                                            ...prev,
+                                            [sec.key]: !isSelected
+                                        }));
+                                    }
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                                    isSelected 
+                                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300 shadow-sm' 
+                                        : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-500 hover:border-slate-300'
+                                }`}
+                            >
+                                <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-transparent'}`}>✓</span>
+                                {sec.label}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -1431,10 +1586,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                    <ReportCard title="إجمالي مبيعات المنتجات" value={`${(stats.totalProductRevenue + stats.totalExtraMarkup).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="ثمن البيع (الأساسي + الزيادة)" tooltip="إجمالي المبالغ التي تم بيع المنتجات بها للعملاء (السعر الأساسي للمنتج + أي زيادة أضفتها على السعر)." />
+                    <ReportCard title="إجمالي مبيعات المنتجات" value={`${(stats.totalProductRevenue + stats.totalProductExtraMarkup).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="ثمن البيع (الأساسي + زيادة المنتج)" tooltip="إجمالي المبالغ التي تم بيع المنتجات بها للعملاء (السعر الأساسي للمنتج + زيادة سعر المنتج)." />
                     <ReportCard title="إجمالي المطلوب تحصيله" value={`${stats.totalRequiredCollection.toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="المبلغ المفترض تحصيله من العملاء" tooltip="إجمالي المبالغ المفترض تحصيلها من العملاء عند التوصيل (ثمن المنتج + الشحن - العربون والخصومات)." />
                     <ReportCard title="مبيعات المنتجات (بالأساسي)" value={`${stats.totalProductRevenue.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="أصل ثمن البيع قبل الزيادة" tooltip="إجمالي السعر الأساسي للمنتجات المباعة، بدون حساب أي زيادة إضافية قمت بوضعها." />
-                    <ReportCard title="الربح الإضافي (الزيادة)" value={`${stats.totalExtraMarkup.toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" subValue="الفرق بين سعر البيع والأساسي" tooltip="إجمالي الأرباح الناتجة عن بيع المنتجات بسعر أعلى من سعرها الأساسي الموصى به." />
+                    <ReportCard title="الربح الإضافي (تعلية المنتجات)" value={`${stats.totalProductExtraMarkup.toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" subValue="الفرق بين سعر البيع والأساسي" tooltip="إجمالي الأرباح الناتجة عن بيع المنتجات بسعر أعلى من سعرها الأساسي الموصى به." />
                     <ReportCard title="تحصيل الشحن" value={`${stats.totalShippingRevenue.toLocaleString('ar-EG')} ج.م`} icon={<Truck size={24}/>} color="blue" subValue="المبالغ المدفوعة للشحن" tooltip="إجمالي رسوم الشحن التي دفعها العملاء عند استلام الطلبات." />
                 </div>
             </div>
@@ -1553,9 +1708,22 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                         <p className="text-2xl font-black text-blue-600">{stats.pendingCollection.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
                         <p className="text-[10px] text-blue-400 mt-1">مبالغ تم توصيلها ولم تُحصل بعد</p>
                     </div>
-                    <div className="bg-amber-50 dark:bg-amber-900/10 p-6 rounded-2xl border border-amber-200 dark:border-amber-800">
-                        <h4 className="font-bold text-amber-800 dark:text-amber-400 mb-1 flex items-center gap-2"><Package size={18}/> قيمة المخزون</h4>
-                        <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
+                    <div className="bg-amber-50 dark:bg-amber-900/10 p-6 rounded-2xl border border-amber-200 dark:border-amber-800 relative group">
+                        <div className="flex items-center justify-between mb-1">
+                            <h4 className="font-bold text-amber-800 dark:text-amber-400 flex items-center gap-2"><Package size={18}/> قيمة المخزون</h4>
+                            <button 
+                                onClick={toggleInventoryValue}
+                                className="p-1 rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200 transition-colors"
+                                title={showInventoryValue ? "إخفاء قيمة البضاعة المتاحة في المخزن" : "إظهار قيمة البضاعة المتاحة في المخزن"}
+                            >
+                                {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </button>
+                        </div>
+                        {showInventoryValue ? (
+                            <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
+                        ) : (
+                            <p className="text-2xl font-black text-amber-600/50 tracking-widest">•••••• ج.م</p>
+                        )}
                         <p className="text-[10px] text-amber-500 mt-1">قيمة البضاعة المتاحة في المخزن</p>
                     </div>
                 </div>
@@ -1589,17 +1757,32 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                         
                         <div className="lg:col-span-3 border-t border-slate-700 pt-6 mt-2 grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
-                                <p className="text-slate-400 text-xs font-bold uppercase mb-4">قيمة البضاعة المتاحة (في المخازن)</p>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                                        <p className="text-slate-400 text-[10px]">بسعر الشراء</p>
-                                        <p className="font-black">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</p>
-                                    </div>
-                                    <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
-                                        <p className="text-slate-400 text-[10px]">بسعر البيع</p>
-                                        <p className="font-black text-emerald-300">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</p>
-                                    </div>
+                                <div className="flex items-center justify-between mb-4">
+                                    <p className="text-slate-400 text-xs font-bold uppercase">قيمة البضاعة المتاحة (في المخازن)</p>
+                                    <button 
+                                        onClick={toggleInventoryValue}
+                                        className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700"
+                                    >
+                                        {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                                        <span>{showInventoryValue ? 'إخفاء' : 'إظهار'}</span>
+                                    </button>
                                 </div>
+                                {showInventoryValue ? (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                                            <p className="text-slate-400 text-[10px]">بسعر الشراء</p>
+                                            <p className="font-black">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</p>
+                                        </div>
+                                        <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
+                                            <p className="text-slate-400 text-[10px]">بسعر البيع</p>
+                                            <p className="font-black text-emerald-300">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-slate-800/30 p-6 rounded-xl border border-slate-700/50 text-center text-slate-400 text-sm">
+                                        تم إخفاء قيمة البضاعة المتاحة في المخازن للحفاظ على السرية. <button onClick={toggleInventoryValue} className="text-blue-400 underline ml-1 font-bold">إظهار</button>
+                                    </div>
+                                )}
                              </div>
                              <div>
                                 <p className="text-slate-400 text-xs font-bold uppercase mb-4">أرصدة وعهدة الشركاء</p>
@@ -1974,7 +2157,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             <tfoot className="bg-slate-50 dark:bg-slate-800/50 font-black text-slate-900 dark:text-white">
                                 <tr>
                                     <td colSpan={3} className="p-2 border border-slate-100 dark:border-slate-800 text-left">الإجمالي:</td>
-                                    <td className="p-2 border border-slate-100 dark:border-slate-800">{(stats.totalProductRevenue + stats.totalExtraMarkup).toLocaleString()} ج.م</td>
+                                    <td className="p-2 border border-slate-100 dark:border-slate-800">{(stats.totalProductRevenue + stats.totalProductExtraMarkup).toLocaleString()} ج.م</td>
                                     <td className="p-2 border border-slate-100 dark:border-slate-800 text-emerald-600">{stats.totalProfit.toLocaleString()} ج.م</td>
                                 </tr>
                             </tfoot>
@@ -2065,6 +2248,76 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     <X size={20} />
                                 </button>
                             </div>
+                        </div>
+                        <div className="bg-slate-100 dark:bg-slate-900/80 px-4 py-2.5 border-b border-slate-300 dark:border-slate-700 overflow-x-auto flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap flex items-center gap-1">
+                                <SettingsIcon size={14} /> تخصيص سريع:
+                            </span>
+                            <button
+                                onClick={() => setReportSections(prev => ({ ...prev, includeMarkupsInProductRevenue: !prev.includeMarkupsInProductRevenue }))}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
+                                    reportSections.includeMarkupsInProductRevenue
+                                        ? 'bg-amber-500 text-white border-amber-600 shadow-amber-100 dark:shadow-none'
+                                        : 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-100 dark:shadow-none'
+                                }`}
+                                title="تغيير طريقة حساب وعرض أرباح المنتجات في التقرير"
+                            >
+                                <Coins size={14} />
+                                <span>
+                                    {reportSections.includeMarkupsInProductRevenue
+                                        ? 'المنتجات: شامل الزيادات'
+                                        : 'المنتجات: السعر الأساسي فقط'}
+                                </span>
+                            </button>
+                            <button
+                                onClick={() => setReportSections(prev => ({ ...prev, showExtraServicesRow: prev.showExtraServicesRow === false ? true : false }))}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
+                                    reportSections.showExtraServicesRow !== false
+                                        ? 'bg-blue-600 text-white border-blue-700 shadow-blue-100 dark:shadow-none'
+                                        : 'bg-slate-500 text-white border-slate-600 shadow-slate-100 dark:shadow-none'
+                                }`}
+                                title="إخفاء أو إظهار بند أرباح الخدمات والإضافات في التقرير (عند الإخفاء يتم استبعاده تماماً ولا يضاف لأي بند آخر)"
+                            >
+                                <Coins size={14} />
+                                <span>
+                                    {reportSections.showExtraServicesRow !== false
+                                        ? 'بند الإضافات: ظاهر'
+                                        : 'بند الإضافات: مخفي (مستبعد)'}
+                                </span>
+                            </button>
+                            <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1"></div>
+                            {[
+                                { key: 'showSummary', label: 'الإيرادات والتكاليف' },
+                                { key: 'showIncomeStatement', label: 'قائمة الدخل' },
+                                { key: 'showOperational', label: 'الأداء التشغيلي' },
+                                { key: 'showProductProfitability', label: 'ربحية المنتجات' },
+                                { key: 'showCollectionLog', label: 'سجل التحصيل' },
+                                { key: 'showLossLog', label: 'سجل الخسائر' },
+                                { key: 'showExpensesLog', label: 'المصروفات' },
+                                { key: 'showInventoryLog', label: 'المخزون' },
+                                { key: 'showPartners', label: 'الشركاء' },
+                                { key: 'showCustody', label: 'العهد' },
+                                { key: 'showRecommendations', label: 'التوصيات' },
+                            ].map((sec) => {
+                                const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
+                                return (
+                                    <button
+                                        key={sec.key}
+                                        onClick={() => setReportSections(prev => ({
+                                            ...prev,
+                                            [sec.key]: !isSelected
+                                        }))}
+                                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
+                                            isSelected 
+                                                ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                                                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'
+                                        }`}
+                                    >
+                                        <span>{isSelected ? '✓' : ''}</span>
+                                        {sec.label}
+                                    </button>
+                                );
+                            })}
                         </div>
                         <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-100 dark:bg-slate-800/50 flex align-top justify-center">
                             <div className="bg-white rounded-xl shadow-lg w-full overflow-hidden h-fit min-h-full" style={{ maxWidth: orientation === 'landscape' ? '1122.5px' : '793px' }}>
@@ -2372,6 +2625,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
 };
 
 const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateRangeText?: string }> = ({ activeStore, settings, dateRangeText }) => {
+    const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [isExporting, setIsExporting] = useState(false);
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
@@ -2402,15 +2656,16 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
             let stockValue = 0;
             if (p.hasVariants && p.variants && p.variants.length > 0) {
                 p.variants.forEach(v => {
-                    currentStock += (v.stockQuantity || 0);
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    currentStock += stock;
                     // Use getLatestProductCost, fallback to variant costPrice or product costPrice
                     const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
-                    const vStockValue = (v.stockQuantity || 0) * cost;
+                    const vStockValue = stock * cost;
                     stockValue += vStockValue;
                     totalInventoryValue += vStockValue;
                 });
             } else {
-                currentStock = p.stockQuantity || 0;
+                currentStock = p.stockQuantity ?? (p as any).stock ?? 0;
                 const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
                 stockValue = currentStock * cost;
                 totalInventoryValue += stockValue;
@@ -2474,7 +2729,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
     }, [products, suppliers, supplyOrders, settings]);
 
     const handlePreview = () => {
-        const html = generatePurchasesAndInventoryReportHTML(stats, activeStore?.name || 'متجري', orientation, isContinuous, dateRangeText);
+        const html = generatePurchasesAndInventoryReportHTML(stats, activeStore?.name || 'متجري', orientation, isContinuous, dateRangeText, showInventoryValue);
         setPreviewHtml(html);
     };
 
@@ -2507,6 +2762,18 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full lg:w-auto">
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={toggleInventoryValue}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm border transition-all ${
+                                showInventoryValue 
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800' 
+                                    : 'bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                            }`}
+                            title={showInventoryValue ? "إخفاء قيمة المخزون" : "إظهار قيمة المخزون"}
+                        >
+                            {showInventoryValue ? <EyeOff size={18} /> : <Eye size={18} />}
+                            {showInventoryValue ? 'إخفاء قيمة المخزون' : 'إظهار قيمة المخزون'}
+                        </button>
                         <button 
                             onClick={handlePreview} 
                             disabled={isExporting}
@@ -2520,7 +2787,11 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 mb-8">
-                <ReportCard title="إجمالي قيمة المخزون (رأس المال)" value={`${stats.totalInventoryValue.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="emerald" tooltip="إجمالي قيمة المخزون الحالي بناءً على تكلفة المنتجات." />
+                {showInventoryValue ? (
+                    <ReportCard title="إجمالي قيمة المخزون (رأس المال)" value={`${stats.totalInventoryValue.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="emerald" tooltip="إجمالي قيمة المخزون الحالي بناءً على تكلفة المنتجات." />
+                ) : (
+                    <ReportCard title="إجمالي قيمة المخزون (رأس المال)" value="•••••• ج.م" icon={<Package size={24}/>} color="emerald" tooltip="تم إخفاء القيمة. انقر على زر إظهار قيمة المخزون بالأعلى." />
+                )}
                 <ReportCard title="إجمالي المشتريات التاريخية" value={`${stats.totalPurchasesValue.toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="blue" tooltip="إجمالي قيمة فواتير الشراء التي تم تسجيلها." />
                 <ReportCard title="عدد مرات الشراء (الفواتير)" value={`${stats.totalOrdersCount} طلب`} icon={<FileText size={24}/>} color="amber" />
             </div>
@@ -2534,7 +2805,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
                                 <tr>
                                     <th className="px-4 py-3 font-semibold">المنتج</th>
                                     <th className="px-4 py-3 font-semibold">المخزون المتوفر</th>
-                                    <th className="px-4 py-3 font-semibold">قيمة المخزون</th>
+                                    {showInventoryValue && <th className="px-4 py-3 font-semibold">قيمة المخزون</th>}
                                     <th className="px-4 py-3 font-semibold">مرات الشراء</th>
                                     <th className="px-4 py-3 font-semibold">تاريخ آخر شراء</th>
                                     <th className="px-4 py-3 font-semibold">الموردين</th>
@@ -2555,7 +2826,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
                                                 </span>
                                             )}
                                         </td>
-                                        <td className="px-4 py-3 text-slate-800 dark:text-white font-mono">{p.stockValue.toLocaleString('ar-EG')} ج.م</td>
+                                        {showInventoryValue && <td className="px-4 py-3 text-slate-800 dark:text-white font-mono">{p.stockValue.toLocaleString('ar-EG')} ج.م</td>}
                                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{p.purchaseCount}</td>
                                         <td className="px-4 py-3 text-slate-600 dark:text-slate-300 hover:text-slate-800">
                                             {p.lastPurchaseDate ? new Date(p.lastPurchaseDate).toLocaleDateString('ar-EG') : 'لم يشترى'}
@@ -2567,7 +2838,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
                                 ))}
                                 {stats.productHistory.length === 0 && (
                                     <tr>
-                                        <td colSpan={6} className="px-4 py-8 text-center text-slate-500">لا توجد منتجات مسجلة</td>
+                                        <td colSpan={showInventoryValue ? 6 : 5} className="px-4 py-8 text-center text-slate-500">لا توجد منتجات مسجلة</td>
                                     </tr>
                                 )}
                             </tbody>
@@ -2680,6 +2951,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
 };
 
 const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
+    const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [subTab, setSubTab] = useState<'summary' | 'financials' | 'operations' | 'partners'>('summary');
     const stats = useMemo(() => {
         const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
@@ -2749,13 +3021,27 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
         const inventoryValue = (settings?.products || []).reduce((sum, p) => {
-            if (p.hasVariants && p.variants) return sum + p.variants.reduce((vSum, v) => vSum + (getLatestProductCost(v.id, settings) * (v.stockQuantity || 0)), 0);
-            return sum + (getLatestProductCost(p.id, settings) * (p.stockQuantity || 0));
+            if (p.hasVariants && p.variants && p.variants.length > 0) {
+                return sum + p.variants.reduce((vSum, v) => {
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
+                    return vSum + (stock * cost);
+                }, 0);
+            }
+            const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+            const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
+            return sum + (stock * cost);
         }, 0);
 
-        const inventorySalesValue = settings.products.reduce((sum, p) => {
-            if (p.hasVariants && p.variants) return sum + p.variants.reduce((vSum, v) => vSum + (v.price * (v.stockQuantity || 0)), 0);
-            return sum + (p.price * (p.stockQuantity || 0));
+        const inventorySalesValue = (settings?.products || []).reduce((sum, p) => {
+            if (p.hasVariants && p.variants && p.variants.length > 0) {
+                return sum + p.variants.reduce((vSum, v) => {
+                    const stock = v.stockQuantity ?? (v as any).stock ?? 0;
+                    return vSum + ((v.price || p.price || 0) * stock);
+                }, 0);
+            }
+            const stock = p.stockQuantity ?? (p as any).stock ?? 0;
+            return sum + ((p.price || 0) * stock);
         }, 0);
 
         const partners = settings.partners || [];
@@ -2991,27 +3277,41 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                         {/* Inventory Value quick overview */}
                         <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 flex flex-col justify-between">
                             <div>
-                                <h3 className="text-base font-bold mb-2 text-emerald-300 flex items-center gap-2">
-                                    <Package size={16} /> القيمة السوقية الكامنة للمخزون بالمستودع
-                                </h3>
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-base font-bold text-emerald-300 flex items-center gap-2">
+                                        <Package size={16} /> القيمة السوقية الكامنة للمخزون بالمستودع
+                                    </h3>
+                                    <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-white transition-colors" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+                                        {showInventoryValue ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                </div>
                                 <p className="text-slate-400 text-xs leading-relaxed mb-4">
                                     هناك أرباح معلقة كامنة في بضاعتك الحالية المتواجدة في المخزن. قيمتها بسعر الشراء الفعلي تختلف عن قيمتها المتوقعة عند البيع الكامل.
                                 </p>
                             </div>
-                            <div className="grid grid-cols-2 gap-3 mb-2">
-                                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                                    <span className="text-slate-400 text-[10px] block mb-0.5">سعر التكلفة الأساسي</span>
-                                    <span className="font-mono text-base font-black text-slate-100">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</span>
+                            {showInventoryValue ? (
+                                <>
+                                    <div className="grid grid-cols-2 gap-3 mb-2">
+                                        <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                                            <span className="text-slate-400 text-[10px] block mb-0.5">سعر التكلفة الأساسي</span>
+                                            <span className="font-mono text-base font-black text-slate-100">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</span>
+                                        </div>
+                                        <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                                            <span className="text-slate-400 text-[10px] block mb-0.5">القيمة عند البيع الكامل</span>
+                                            <span className="font-mono text-base font-black text-emerald-300">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</span>
+                                        </div>
+                                    </div>
+                                    <div className="mt-2 pt-2 border-t border-slate-700/50 flex justify-between items-center text-xs">
+                                        <span className="text-slate-400">الربح المتوقع إضافته عند نفاذ الكمية:</span>
+                                        <span className="text-emerald-400 font-bold font-mono">+{Math.max(0, stats.inventorySalesValue - stats.inventoryValue).toLocaleString('ar-EG')} ج.م</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="bg-slate-900/40 p-6 rounded-xl border border-slate-800 text-center my-auto">
+                                    <p className="text-slate-400 text-sm mb-2">تم إخفاء القيمة الكامنة للمخزون</p>
+                                    <button onClick={toggleInventoryValue} className="text-xs text-blue-400 hover:text-blue-300 underline font-bold">انقر للإظهار</button>
                                 </div>
-                                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800">
-                                    <span className="text-slate-400 text-[10px] block mb-0.5">القيمة عند البيع الكامل</span>
-                                    <span className="font-mono text-base font-black text-emerald-300">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</span>
-                                </div>
-                            </div>
-                            <div className="mt-2 pt-2 border-t border-slate-700/50 flex justify-between items-center text-xs">
-                                <span className="text-slate-400">الربح المتوقع إضافته عند نفاذ الكمية:</span>
-                                <span className="text-emerald-400 font-bold font-mono">+{Math.max(0, stats.inventorySalesValue - stats.inventoryValue).toLocaleString('ar-EG')} ج.م</span>
-                            </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -3133,23 +3433,23 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                             <div className="space-y-3 text-sm">
                                 <div className="flex justify-between p-2.5 bg-slate-900/40 rounded-lg hover:bg-slate-900/80 transition-colors">
                                     <span className="text-slate-300">تكلفة شراء البضاعة المباعة لدى الموردين (COGS)</span>
-                                    <span className="font-bold font-mono text-rose-300">-{stats.totalCogs.toLocaleString('ar-EG')} ج.م</span>
+                                    <span className="font-bold font-mono text-rose-300">{stats.totalCogs.toLocaleString('ar-EG')} ج.م</span>
                                 </div>
                                 <div className="flex justify-between p-2.5 bg-slate-900/40 rounded-lg hover:bg-slate-900/80 transition-colors">
                                     <span className="text-slate-300">رسوم بوالص شحن الأوردرات الصادرة لشركات التوصيل</span>
-                                    <span className="font-bold font-mono text-rose-300">-{stats.totalCarrierFees.toLocaleString('ar-EG')} ج.م</span>
+                                    <span className="font-bold font-mono text-rose-300">{stats.totalCarrierFees.toLocaleString('ar-EG')} ج.م</span>
                                 </div>
                                 <div className="flex justify-between p-2.5 bg-slate-900/40 rounded-lg hover:bg-slate-900/80 transition-colors">
                                     <span className="text-slate-300">إجمالي خسائر الشحن والارتجاع والطرود التالفة</span>
-                                    <span className="font-bold font-mono text-rose-300">-{stats.totalLoss.toLocaleString('ar-EG')} ج.م</span>
+                                    <span className="font-bold font-mono text-rose-300">{stats.totalLoss.toLocaleString('ar-EG')} ج.م</span>
                                 </div>
                                 <div className="flex justify-between p-2.5 bg-slate-900/40 rounded-lg hover:bg-slate-900/80 transition-colors">
                                     <span className="text-slate-300">المصروفات الإدارية والتشغيلية (إعلانات، إيجار، عمالة)</span>
-                                    <span className="font-bold font-mono text-rose-300">-{stats.totalExpenses.toLocaleString('ar-EG')} ج.م</span>
+                                    <span className="font-bold font-mono text-rose-300">{stats.totalExpenses.toLocaleString('ar-EG')} ج.م</span>
                                 </div>
                                 <div className="border-t border-slate-700/80 pt-3 mt-4 flex justify-between font-black text-base">
                                     <span className="text-slate-100">(=) إجمالي التكاليف والمصروفات بالكامل</span>
-                                    <span className="text-rose-400 font-mono">-{(stats.totalCogs + stats.totalCarrierFees + stats.totalLoss + stats.totalExpenses).toLocaleString('ar-EG')} ج.م</span>
+                                    <span className="text-rose-400 font-mono">{(stats.totalCogs + stats.totalCarrierFees + stats.totalLoss + stats.totalExpenses).toLocaleString('ar-EG')} ج.م</span>
                                 </div>
                             </div>
                         </div>
@@ -3281,25 +3581,39 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         {/* Warehouse Liquidation & Valuation */}
                         <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
-                            <h3 className="text-base font-bold mb-4 text-blue-300 flex items-center gap-2">
-                                <Package size={18} /> قيمة البضاعة المتاحة حالياً (في مخزن المتجر)
-                            </h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-                                <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-800 relative overflow-hidden">
-                                    <span className="text-slate-400 text-xs block mb-1">بقيمة التكلفة (الشراء)</span>
-                                    <p className="text-2xl font-black font-mono text-slate-100">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</p>
-                                    <p className="text-[10px] text-slate-500 mt-2">رأس المال الفعلي المجمد حالياً في بضاعة في المستودع</p>
-                                </div>
-                                <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-800 relative overflow-hidden">
-                                    <span className="text-slate-400 text-xs block mb-1">بسعر البيع المتوقع الكلي</span>
-                                    <p className="text-2xl font-black font-mono text-emerald-400">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</p>
-                                    <p className="text-[10px] text-emerald-500/80 mt-2">القيمة النقدية المقدرة عند بيع البضاعة بالكامل بالأسعار الحالية</p>
-                                </div>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-base font-bold text-blue-300 flex items-center gap-2">
+                                    <Package size={18} /> قيمة البضاعة المتاحة حالياً (في مخزن المتجر)
+                                </h3>
+                                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-white transition-colors" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+                                    {showInventoryValue ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
                             </div>
-                            <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800/60 flex justify-between items-center text-sm">
-                                <span className="text-slate-400">الربح الصافي المعلق بالكامل في المخزن:</span>
-                                <span className="text-emerald-400 font-bold font-mono">+{Math.max(0, stats.inventorySalesValue - stats.inventoryValue).toLocaleString('ar-EG')} ج.م</span>
-                            </div>
+                            {showInventoryValue ? (
+                                <>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                                        <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-800 relative overflow-hidden">
+                                            <span className="text-slate-400 text-xs block mb-1">بقيمة التكلفة (الشراء)</span>
+                                            <p className="text-2xl font-black font-mono text-slate-100">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</p>
+                                            <p className="text-[10px] text-slate-500 mt-2">رأس المال الفعلي المجمد حالياً في بضاعة في المستودع</p>
+                                        </div>
+                                        <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-800 relative overflow-hidden">
+                                            <span className="text-slate-400 text-xs block mb-1">بسعر البيع المتوقع الكلي</span>
+                                            <p className="text-2xl font-black font-mono text-emerald-400">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</p>
+                                            <p className="text-[10px] text-emerald-500/80 mt-2">القيمة النقدية المقدرة عند بيع البضاعة بالكامل بالأسعار الحالية</p>
+                                        </div>
+                                    </div>
+                                    <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800/60 flex justify-between items-center text-sm">
+                                        <span className="text-slate-400">الربح الصافي المعلق بالكامل في المخزن:</span>
+                                        <span className="text-emerald-400 font-bold font-mono">+{Math.max(0, stats.inventorySalesValue - stats.inventoryValue).toLocaleString('ar-EG')} ج.م</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="bg-slate-900/40 p-12 rounded-xl border border-slate-800 text-center my-auto">
+                                    <p className="text-slate-400 text-sm mb-2">تم إخفاء قيمة البضاعة المتاحة في مخزن المتجر</p>
+                                    <button onClick={toggleInventoryValue} className="text-xs text-blue-400 hover:text-blue-300 underline font-bold">انقر للإظهار</button>
+                                </div>
+                            )}
                         </div>
 
                         {/* Partner Equity accounts */}

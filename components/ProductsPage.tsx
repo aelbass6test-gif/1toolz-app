@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
 import { getLatestProductCost } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
+import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -33,6 +34,7 @@ interface ProductsPageProps {
 }
 
 const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSettings, orders, activeStoreId, onRefresh }) => {
+  const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
   const [searchTerm, setSearchTerm] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -935,37 +937,70 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-5 gap-4 my-6">
         {/* Total Cost Value / Assets invested */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
-          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-            <Layers size={14} className="text-indigo-500" />
-            رأس المال المستثمر (بالتكلفة)
-          </p>
-          <p className="text-base sm:text-lg font-black text-slate-800 dark:text-white tabular-nums">
-            {inventoryFinancials.totalCostValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+              <Layers size={14} className="text-indigo-500" />
+              رأس المال المستثمر (بالتكلفة)
+            </p>
+            <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+              {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          {showInventoryValue ? (
+            <p className="text-base sm:text-lg font-black text-slate-800 dark:text-white tabular-nums">
+              {inventoryFinancials.totalCostValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+            </p>
+          ) : (
+            <p className="text-base sm:text-lg font-black text-slate-400 dark:text-slate-500 tracking-widest">
+              •••••• <span className="text-[10px] font-bold">ج.م</span>
+            </p>
+          )}
           <span className="text-[9px] text-slate-400 block font-normal">إجمالي تكلفة شراء المخزون الحالي</span>
         </div>
 
         {/* Total Retail Value */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
-          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-            <DollarSign size={14} className="text-emerald-500" />
-            القيمة البيعية المتوقعة
-          </p>
-          <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-            {inventoryFinancials.totalSaleValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+              <DollarSign size={14} className="text-emerald-500" />
+              القيمة البيعية المتوقعة
+            </p>
+            <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+              {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          {showInventoryValue ? (
+            <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+              {inventoryFinancials.totalSaleValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+            </p>
+          ) : (
+            <p className="text-base sm:text-lg font-black text-slate-400 dark:text-slate-500 tracking-widest">
+              •••••• <span className="text-[10px] font-bold">ج.م</span>
+            </p>
+          )}
           <span className="text-[9px] text-slate-400 block font-normal">إجمالي سعر بيع كافة حبات المخزون</span>
         </div>
 
         {/* Projected Profit */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
-          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-            <Wand2 size={14} className="text-amber-500" />
-            الأرباح المتوقعة عند التصفية
-          </p>
-          <p className="text-base sm:text-lg font-black text-amber-550 dark:text-amber-400 tabular-nums">
-            {inventoryFinancials.potentialProfit.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
+              <Wand2 size={14} className="text-amber-500" />
+              الأرباح المتوقعة عند التصفية
+            </p>
+            <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
+              {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+          {showInventoryValue ? (
+            <p className="text-base sm:text-lg font-black text-amber-550 dark:text-amber-400 tabular-nums">
+              {inventoryFinancials.potentialProfit.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+            </p>
+          ) : (
+            <p className="text-base sm:text-lg font-black text-slate-400 dark:text-slate-500 tracking-widest">
+              •••••• <span className="text-[10px] font-bold">ج.م</span>
+            </p>
+          )}
           <span className="text-[9px] text-slate-400 block font-normal">صافي الربح الإجمالي المتوقع من المخزون</span>
         </div>
 
