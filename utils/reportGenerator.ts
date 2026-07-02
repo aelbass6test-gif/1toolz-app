@@ -1312,13 +1312,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const safeShippingFee = Number(order.shippingFee) || 0;
         const safeDiscount = Number(order.discount) || 0;
         const safeAdvance = Number(order.advancePayment) || 0;
+        const safeTax = Number((order as any).tax) || 0;
 
         const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
             ? order.totalAmountOverride + safeAdvance
-            : (safeProductPrice + safeShippingFee - safeDiscount);
+            : (safeProductPrice + safeShippingFee + safeTax - safeDiscount);
 
         const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionCost : 0;
-        const baseExpected = safeProductPrice + safeShippingFee - safeDiscount + inspectionFeeCollected;
+        const baseExpected = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionFeeCollected;
         const overrideAdjustment = totalCollected - baseExpected;
 
         totalShippingRevenue += order.shippingFee;
@@ -1395,6 +1396,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td class="col-products">${productDetails}</td>
                 <td>${order.productPrice.toLocaleString()}</td>
                 <td>${order.shippingFee.toLocaleString()}</td>
+                <td>${safeTax > 0 ? safeTax.toLocaleString() : '-'}</td>
                 <td>${productCost.toLocaleString()}</td>
                 <td>${insuranceFee.toLocaleString()}</td>
                 <td>${inspectionAdjustment.toLocaleString()}</td>
@@ -1545,7 +1547,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         .map(([name, s]) => `<tr><td>${name}</td><td>${s.count}</td><td>${((s.success/s.count)*100).toFixed(1)}%</td><td style="font-weight: bold; color: ${s.net >= 0 ? '#15803d' : '#b91c1c'};">${s.net.toLocaleString()}</td></tr>`).join('');
 
     const partners = settings.partners || [];
-    const custodyAccounts = (treasury?.accounts || []).filter(a => a.type === 'custody');
+    const treasuryCustody = (treasury?.accounts || []).filter(a => a.type === 'custody').map(a => ({ name: a.name, balance: a.balance }));
+    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ name: h.userName, balance: h.currentBalance || 0 }));
+    const custodyAccounts = [...treasuryCustody, ...holdersCustody];
     const recommendations = [];
     if (successRate < 70) recommendations.push(`⚠️ نسبة النجاح منخفضة (${successRate.toFixed(1)}%). ننصح بمراجعة جودة تأكيد الأوردرات.`);
     if (avgOrderProfit < 50) recommendations.push(`💡 متوسط الربح للطلب ضعيف. قد تحتاج لرفع أسعار المنتجات أو تقليل تكاليف الشحن.`);
@@ -1659,7 +1663,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const collectionLogHtml = s.showCollectionLog ? `
             <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي (Collection Log)</h2>
             <table class="modern-table">
-                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>ضريبة</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
                 <tbody>${collectedRows}</tbody>
             </table>` : '';
 

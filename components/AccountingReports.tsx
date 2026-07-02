@@ -57,7 +57,7 @@ const isWithinRange = (dateStr: string, filter: string, customStart?: string, cu
     return true;
 };
 
-export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, activeStore, setSettings, setWallet }) => {
+export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders, settings, wallet, activeStore, setSettings, setWallet, treasury }) => {
     const [subTab, setSubTab] = useState<'income' | 'balance_sheet' | 'cash_flow' | 'suppliers' | 'receivables' | 'wallet' | 'product_profitability' | 'partner_equity' | 'marketing_roi' | 'inventory_velocity' | 'custody'>('income');
     const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom'>('all');
     const [startDate, setStartDate] = useState('');
@@ -176,7 +176,7 @@ export const AccountingReports: React.FC<Props> = ({ orders, settings, wallet, a
                 {subTab === 'cash_flow' && <CashFlowStatement wallet={filteredWallet} />}
                 {subTab === 'suppliers' && <SupplierLedger settings={settings} />}
                 {subTab === 'receivables' && <ReceivablesAging orders={filteredOrders} />}
-                {subTab === 'custody' && <CustodyLedger settings={settings} />}
+                {subTab === 'custody' && <CustodyLedger settings={settings} treasury={treasury} />}
                 {subTab === 'wallet' && <WalletLedger wallet={filteredWallet} />}
                 {subTab === 'product_profitability' && <ProductProfitability orders={filteredOrders} settings={settings} />}
                 {subTab === 'partner_equity' && <PartnerEquity settings={settings} wallet={wallet} setSettings={setSettings} setWallet={setWallet} orders={orders} />}
@@ -828,11 +828,13 @@ const ProductProfitability = ({ orders, settings }: { orders: Order[], settings:
 };
 
 // 6. Custody Ledger Component
-export const CustodyLedger = ({ settings }: { settings: Settings }) => {
-    const holders = settings.cashHolders || [];
+export const CustodyLedger = ({ settings, treasury }: { settings: Settings, treasury?: any }) => {
+    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ name: h.userName, balance: h.currentBalance || 0, date: h.lastUpdated }));
+    const treasuryCustody = (treasury?.accounts || []).filter((a: any) => a.type === 'custody' && a.balance > 0).map((a: any) => ({ name: a.name, balance: a.balance, date: new Date().toISOString() }));
+    const holders = [...holdersCustody, ...treasuryCustody];
 
     const handleExport = (mode: 'print' | 'pdf') => {
-        const total = holders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+        const total = holders.reduce((sum, h) => sum + h.balance, 0);
         const html = `
             <div dir="rtl" style="font-family: 'Segoe UI', sans-serif; padding: 40px; background: white;">
                 <h1 style="text-align: center; color: #1e293b;">تقرير أرصدة العهد النقدية</h1>
@@ -854,9 +856,9 @@ export const CustodyLedger = ({ settings }: { settings: Settings }) => {
                     <tbody>
                         ${holders.map(h => `
                             <tr>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${h.userName}</td>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px; font-weight: bold;">${(h.currentBalance || 0).toLocaleString()} ج.م</td>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${new Date(h.lastUpdated).toLocaleDateString('ar-EG')}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${h.name}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; font-weight: bold;">${h.balance.toLocaleString()} ج.م</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${new Date(h.date).toLocaleDateString('ar-EG')}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -897,22 +899,22 @@ export const CustodyLedger = ({ settings }: { settings: Settings }) => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-               {holders.map(h => (
-                   <div key={h.userId} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/50 group">
+               {holders.map((h, i) => (
+                   <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/50 group">
                        <div className="flex items-center justify-between mb-3">
                            <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
                                <Users size={20} />
                            </div>
                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">بعهدة</span>
                        </div>
-                       <h4 className="font-black text-slate-800 dark:text-white text-lg truncate" title={h.userName}>{h.userName}</h4>
+                       <h4 className="font-black text-slate-800 dark:text-white text-lg truncate" title={h.name}>{h.name}</h4>
                        <div className="mt-3 flex items-baseline gap-1.5 overflow-hidden">
-                           <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{h.currentBalance.toLocaleString()}</span>
+                           <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{h.balance.toLocaleString()}</span>
                            <span className="text-xs font-bold text-slate-400">ج.م</span>
                        </div>
                        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
                             <span className="text-[9px] text-slate-400 uppercase font-black">آخر تحديث</span>
-                            <span className="text-[10px] font-bold text-slate-500">{new Date(h.lastUpdated).toLocaleDateString('ar-EG')}</span>
+                            <span className="text-[10px] font-bold text-slate-500">{new Date(h.date).toLocaleDateString('ar-EG')}</span>
                        </div>
                    </div>
                ))}
