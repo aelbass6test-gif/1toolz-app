@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order } from '../types';
-import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon } from 'lucide-react';
+import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon, PlusCircle, RefreshCw, CheckCircle2, Clock } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -29,7 +29,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   const [custodyNotes, setCustodyNotes] = useState('');
 
   const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
-  const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId), [settings.partnerTransactions, partnerId]);
+  const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId && t.type !== 'pos_collection'), [settings.partnerTransactions, partnerId]);
 
   const partnerCustody = useMemo(() => {
     const holderId = `part_${partner?.id}`;
@@ -937,75 +937,127 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
             </h2>
           </div>
           
-          <div className="flex-1 overflow-y-auto max-h-[600px] p-6 space-y-4 custom-scrollbar">
-            {transactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((t, idx) => (
-                <motion.div 
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  key={t.id} 
-                  className="group flex flex-col p-4 bg-slate-50/50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-800/50 rounded-2xl hover:bg-white dark:hover:bg-slate-800 hover:shadow-lg transition-all duration-300"
-                >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-xl flex items-center justify-center ${
-                          ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type) 
-                            ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600' 
-                            : 'bg-rose-100 dark:bg-rose-900/30 text-rose-600'
-                        }`}>
-                          {['loan', 'customer_advance', 'internal_transfer_out'].includes(t.type) ? <ArrowDownRight size={16}/> : 
-                           ['capital_addition', 'internal_transfer_in'].includes(t.type) ? <ArrowUpLeft size={16}/> : 
-                           t.type === 'shipping_funding' ? <Truck size={16}/> : 
-                           t.type === 'expense_repayment' ? <Check size={16}/> : 
-                           t.type === 'expense_coverage' ? <DollarSign size={16}/> :
-                           t.type === 'repayment' ? <Check size={16}/> :
-                           t.type === 'supply_funding' ? <PackageIcon size={16}/> : <DollarSign size={16}/>}
-                        </div>
-                        <div>
-                          <p className="font-black text-slate-800 dark:text-white text-sm">
-                            {t.type === 'loan' ? 'سلفة / سحب يدوي' : 
-                             t.type === 'internal_transfer_in' ? 'تحويل داخلي وارد' :
-                             t.type === 'internal_transfer_out' ? 'تحويل داخلي صادر' :
-                             t.type === 'customer_advance' ? 'عربون محصل من عميل' :
-                             t.type === 'capital_addition' ? 'إيداع رأس مال جديد' : 
-                             t.type === 'shipping_funding' ? 'إيداع مصاريف الشحن' : 
-                             t.type === 'profit_withdrawal' ? 'سحب من حصة الأرباح' : 
-                             t.type === 'profit_distribution' ? 'إضافة أرباح من المستحقات' : 
-                             t.type === 'supply_funding' ? 'تمويل شراء بضاعة' : 
-                             t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'تغطية مصاريف توريد' : 'تغطية مصروفات') :
-                             t.type === 'expense_repayment' ? 'استرداد مقابل مصروفات مدفوعة' : 'سداد سلفة مالية'}
-                          </p>
-                          <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 mt-0.5">
-                             <Calendar size={10} />
-                             {new Date(t.date).toLocaleString('ar-EG', { dateStyle: 'medium' })}
+          <div className="flex-1 overflow-y-auto max-h-[600px] p-6 space-y-8 custom-scrollbar">
+            {Object.entries(
+              transactions
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .reduce((groups: Record<string, PartnerTransaction[]>, t) => {
+                  const date = new Date(t.date).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric', day: 'numeric' });
+                  if (!groups[date]) groups[date] = [];
+                  groups[date].push(t);
+                  return groups;
+                }, {})
+            ).map(([date, group], groupIdx) => (
+              <div key={date} className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-px flex-1 bg-slate-100 dark:bg-slate-700/50"></div>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-900/50 px-3 py-1 rounded-full border border-slate-100 dark:border-slate-800">
+                    {date}
+                  </span>
+                  <div className="h-px flex-1 bg-slate-100 dark:bg-slate-700/50"></div>
+                </div>
+
+                <div className="space-y-3">
+                  {group.map((t, idx) => {
+                    const isPositive = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type);
+                    const isTransfer = t.type.includes('transfer');
+                    
+                    return (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: (groupIdx * 0.1) + (idx * 0.05) }}
+                        key={t.id} 
+                        className="group relative flex flex-col p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl hover:border-indigo-500/50 dark:hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300"
+                      >
+                        {/* Type Indicator Bar */}
+                        <div className={`absolute right-0 top-4 bottom-4 w-1 rounded-l-full ${isPositive ? 'bg-emerald-500' : 'bg-rose-500'}`}></div>
+
+                        <div className="flex justify-between items-start gap-4 pr-3">
+                          <div className="flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 duration-300 ${
+                              isPositive 
+                                ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600' 
+                                : 'bg-rose-50 dark:bg-rose-500/10 text-rose-600'
+                            }`}>
+                              {t.type === 'loan' ? <ArrowDownRight size={20}/> : 
+                               t.type === 'internal_transfer_in' ? <ArrowUpLeft size={20}/> : 
+                               t.type === 'internal_transfer_out' ? <ArrowDownRight size={20}/> : 
+                               t.type === 'customer_advance' ? <User size={20}/> : 
+                               t.type === 'capital_addition' ? <PlusCircle size={20}/> : 
+                               t.type === 'shipping_funding' ? <Truck size={20}/> : 
+                               t.type === 'profit_withdrawal' ? <ArrowDownRight size={20}/> : 
+                               t.type === 'profit_distribution' ? <TrendingUp size={20}/> : 
+                               t.type === 'supply_funding' ? <PackageIcon size={20}/> : 
+                               t.type === 'expense_coverage' ? <DollarSign size={20}/> :
+                               t.type === 'expense_repayment' ? <RefreshCw size={20}/> :
+                               t.type === 'repayment' ? <CheckCircle2 size={20}/> : <DollarSign size={20}/>}
+                            </div>
+
+                            <div className="flex flex-col">
+                              <h3 className="font-black text-slate-900 dark:text-white text-sm leading-tight">
+                                {t.type === 'loan' ? 'سلفة مالية / سحب نقدي' : 
+                                 t.type === 'internal_transfer_in' ? 'تحويل مالي وارد (داخلي)' :
+                                 t.type === 'internal_transfer_out' ? 'تحويل مالي صادر (داخلي)' :
+                                 t.type === 'customer_advance' ? 'عربون محصل من عميل' :
+                                 t.type === 'capital_addition' ? 'زيادة رأس المال المضاف' : 
+                                 t.type === 'shipping_funding' ? 'تغطية ميزانية الشحن' : 
+                                 t.type === 'profit_withdrawal' ? 'سحب من مستحقات الأرباح' : 
+                                 t.type === 'profit_distribution' ? 'توزيع أرباح دورية' : 
+                                 t.type === 'supply_funding' ? 'تمويل شراء مخزون' : 
+                                 t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'تغطية مصاريف توريد' : 'تغطية مصروفات تشغيلية') :
+                                 t.type === 'pos_collection' ? 'استلام إيراد نقطة بيع' :
+                                 t.type === 'expense_repayment' ? 'استرداد عهدة مصروفات' : 'سداد مديونية / سلفة'}
+                              </h3>
+                              <div className="flex items-center gap-3 mt-1.5">
+                                <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                                  <Clock size={10} />
+                                  {new Date(t.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                {t.treasuryAccountId && (
+                                  <span className="text-[10px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded-md">
+                                    عبر الخزينة
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end shrink-0">
+                            <div className={`text-lg font-black tabular-nums tracking-tighter ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {isPositive ? '+' : '-'}{t.amount.toLocaleString()} 
+                              <span className="text-[10px] font-bold mr-1 opacity-70">ج.م</span>
+                            </div>
+                            <button 
+                                onClick={() => deleteTransaction(t)}
+                                className="mt-2 p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                title="حذف المعاملة"
+                            >
+                                <Trash2 size={14} />
+                            </button>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <span className={`text-base font-black ${['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type) ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            {['loan', 'profit_withdrawal', 'expense_repayment', 'internal_transfer_out'].includes(t.type) ? '-' : '+'}{t.amount.toLocaleString()} 
-                            <span className="text-[10px] ml-1">ج.م</span>
-                        </span>
-                        <button 
-                            onClick={() => deleteTransaction(t)}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                            title="حذف المعاملة"
-                        >
-                            <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                    {t.note && (
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-700/50 mt-1">
-                        {t.note}
-                      </div>
-                    )}
-                </motion.div>
+
+                        {t.note && (
+                          <div className="mt-3 mr-16 ml-2 p-3 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-100 dark:border-slate-800/50 text-[11px] font-medium text-slate-600 dark:text-slate-400 leading-relaxed italic">
+                            <span className="text-slate-400 not-italic block mb-1 font-black uppercase text-[9px]">ملاحظات:</span>
+                            {t.note}
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
+
             {transactions.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-full py-12 text-slate-300 gap-3">
-                 <History size={40} className="opacity-20" />
-                 <p className="text-sm font-bold opacity-50">لا يوجد معاملات مسجلة</p>
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-24 h-24 bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center mb-6">
+                  <History size={40} className="text-slate-200 dark:text-slate-700" />
+                </div>
+                <h3 className="text-slate-400 font-black text-sm">لا توجد حركات مالية مسجلة</h3>
+                <p className="text-slate-300 dark:text-slate-600 text-xs mt-1 max-w-[200px]">سيتم عرض سجل الإيداعات والسحوبات هنا فور إضافتها</p>
               </div>
             )}
           </div>

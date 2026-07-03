@@ -24,24 +24,37 @@ import {
   ChevronLeft,
   SearchCode
 } from 'lucide-react';
-import { Settings, Product, ProductVariant, POSSale, POSSaleItem, Order, Wallet as WalletType, Transaction } from '../types';
+import { Settings, Product, ProductVariant, POSSale, POSSaleItem, Order, Wallet as WalletType, Transaction, Treasury } from '../types';
 
 import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { triggerCelebration } from '../utils/celebration';
+
+const normalizeName = (name: string): string => {
+  if (!name) return name;
+  let normalized = name.trim().replace(/\s+/g, ' ');
+  // Unify variations of "Zahra" and explicitly mark as partner if she is one
+  if (/^(زهره|زهرة)/.test(normalized)) {
+      if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
+          return 'زهره شريك';
+      }
+  }
+  return normalized;
+};
 
 interface POSPageProps {
   settings: Settings;
   updateSettings: (newSettings: Settings) => void;
   orders: Order[];
   wallet: WalletType;
+  treasury?: Treasury;
   updateStoreData: (data: any) => void;
   currentUser: any;
   activeStore?: any;
   customers?: any[];
 }
 
-const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wallet, updateStoreData, currentUser, activeStore, customers }) => {
+const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wallet, treasury, updateStoreData, currentUser, activeStore, customers }) => {
   if (settings.isPosEnabled === false) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-12 text-center space-y-6" dir="rtl">
@@ -83,9 +96,10 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
   const cashHolders = settings.cashHolders || [];
   const allPossibleHolders = useMemo(() => [
     { id: 'admin', name: 'المدير (أنت)' },
-    ...(settings.employees || []).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: e.name })),
-    ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: `${p.name} (شريك)` }))
-  ], [settings.employees, settings.partners]);
+    ...(settings.employees || []).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: normalizeName(e.name) })),
+    ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: `${normalizeName(p.name)} (شريك)` })),
+    ...(treasury?.accounts || []).filter(a => a.type === 'custody').map(a => ({ id: `treas_${a.id}`, name: normalizeName(a.name) }))
+  ], [settings.employees, settings.partners, treasury?.accounts]);
 
   const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [
     { id: 'cash', name: 'كاش', logoUrl: '' },
@@ -189,8 +203,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         customerPhone: customerInfo.phone,
         customerAddress: customerInfo.address,
         performedBy: currentUser?.fullName || currentUser?.email || 'كاشير',
-        cashHolderId: isCredit ? 'credit' : finalCashHolder,
-        cashHolderName: isCredit ? 'حساب أجل' : receiver?.name,
+        cashHolderId: isCredit ? 'credit' : (settings.disableCustodySelling ? 'wallet' : finalCashHolder),
+        cashHolderName: isCredit ? 'حساب أجل' : (settings.disableCustodySelling ? 'المحفظة العامة' : normalizeName(receiver?.name || '')),
         notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : `بيع مباشر من منفذ ${activeStore?.name || 'الرئيسي'}`}`
       };
 
@@ -224,38 +238,38 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
       let updatedHolders = [...(settings.cashHolders || [])];
       let updatedPartners = [...(settings.partners || [])];
       let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
+      let updatedHandovers = [...(settings.cashHandovers || [])];
 
-      if (!isCredit) {
+      if (!isCredit && !settings.disableCustodySelling) {
         const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(finalCashHolder));
+        const receiverName = normalizeName(receiver?.name || 'مستلم');
+        
         if (hIdx > -1) {
           updatedHolders[hIdx].currentBalance += totalAmount;
           updatedHolders[hIdx].lastUpdated = new Date().toISOString();
         } else {
           updatedHolders.push({
             userId: finalCashHolder,
-            userName: receiver?.name || 'مستلم',
+            userName: receiverName,
             currentBalance: totalAmount,
             lastUpdated: new Date().toISOString()
           });
         }
 
-        // Synchronize directly with Partners tab if selected cash holder is a partner
-        if (finalCashHolder.startsWith('part_')) {
-          const actualPartnerId = finalCashHolder.substring(5);
-          const partnerIdx = updatedPartners.findIndex(p => String(p.id) === String(actualPartnerId));
-          if (partnerIdx > -1) {
-            // Only update balance if it's not a POS collection
-            
-            updatedPartnerTransactions.push({
-              id: `pos-${Date.now()}`,
-              partnerId: actualPartnerId,
-              type: 'pos_collection',
-              amount: totalAmount,
-              date: new Date().toISOString(),
-              note: `استلام عهدة / مبيعات كاشير من نقطة البيع لطلب #${saleNumber}`
-            });
-          }
-        }
+        // Add to Cash Handovers log (سجل العهد)
+        updatedHandovers.unshift({
+          id: `pos-handover-${Date.now()}`,
+          fromUserId: 'system',
+          fromUserName: 'النظام',
+          toUserId: finalCashHolder,
+          toUserName: receiverName,
+          amount: totalAmount,
+          date: new Date().toISOString(),
+          notes: `مبيعات كاشير - طلب #${saleNumber}`,
+          type: 'handover',
+          status: 'completed',
+          orderId: saleId // Explicitly link handover to this sale order
+        });
       }
 
       const newSettings: Settings = {
@@ -264,6 +278,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         cashHolders: updatedHolders,
         partners: updatedPartners,
         partnerTransactions: updatedPartnerTransactions,
+        cashHandovers: updatedHandovers,
         posSales: [newSale, ...(settings.posSales || [])],
         activityLogs: [
           {
@@ -286,7 +301,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         customerPhone: customerInfo.phone || '0000000000',
         customerAddress: customerInfo.address || 'بيع مباشر - المنفذ',
         shippingCompany: activeStore?.name ? `كاشير - ${activeStore.name}` : 'كاشير - بيع مباشر',
-        shippingArea: 'نقطة البيع',
+        shippingArea: warehouses.find(w => w.id === selectedWarehouse)?.name || 'نقطة البيع',
         productName: cart.length > 1 ? `${cart[0].name} + ${cart.length - 1} منتجات أخرى` : cart[0]?.name || '',
         productPrice: totalAmount,
         productCost: cart.reduce((acc, i) => acc + (i.cost * i.quantity), 0),
@@ -305,19 +320,29 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         includeInspectionFee: false,
         inspectionFee: 0,
         isInsured: false,
-        insuranceFee: 0
+        insuranceFee: 0,
+        // Set custody fields for better tracking in reports
+        cashHolderId: isCredit ? 'credit' : (settings.disableCustodySelling ? 'wallet' : finalCashHolder),
+        cashHolderName: isCredit ? 'حساب أجل' : (settings.disableCustodySelling ? 'المحفظة العامة' : (normalizeName(receiver?.name || '') || 'نقطة البيع')),
+        advancePayment: isCredit ? 0 : totalAmount,
+        advancePaymentPartnerId: !isCredit && !settings.disableCustodySelling && finalCashHolder.startsWith('part_') ? finalCashHolder.substring(5) : undefined,
+        advancePaymentEmployeeId: !isCredit && !settings.disableCustodySelling && (finalCashHolder.startsWith('emp_') || finalCashHolder === 'admin') ? (finalCashHolder === 'admin' ? 'admin' : finalCashHolder.substring(4)) : undefined,
+        advancePaymentTreasuryId: !isCredit && !settings.disableCustodySelling && finalCashHolder.startsWith('treas_') ? finalCashHolder.substring(6) : undefined,
       };
 
-      // Create wallet transaction only if the payment is digital (card or wallet) and NOT cash, and NOT credit.
+      // Create wallet transaction if not credit and (not cash OR custody is disabled)
       let updatedWallet: WalletType = { ...wallet };
-      if (paymentMethod !== 'cash' && !isCredit) {
+      if (!isCredit && (paymentMethod !== 'cash' || settings.disableCustodySelling)) {
+        const isDigital = paymentMethod !== 'cash';
         const newTransaction: Transaction = {
           id: `pos-tx-${Date.now()}`,
           type: 'إيداع',
           amount: totalAmount,
           date: new Date().toISOString(),
-          note: `مبيعات كاشير (دفع إلكتروني) - طلب #${saleNumber}`,
-          category: 'pos_digital',
+          note: isDigital 
+            ? `مبيعات كاشير (دفع إلكتروني) - طلب #${saleNumber}`
+            : `مبيعات كاشير (إيداع مباشر بالمحفظة) - طلب #${saleNumber}`,
+          category: isDigital ? 'pos_digital' : 'pos_cash',
           status: 'completed',
           orderId: saleId,
           orderNumber: saleNumber
@@ -355,20 +380,38 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
 
   return (
     <div className="flex flex-col h-full space-y-4" dir="rtl">
-      {/* Tab Navigation */}
-      <div className="flex bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 self-start">
-        <button
-          onClick={() => setActiveTab('checkout')}
-          className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'checkout' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-        >
-          نقطة البيع (كاشير)
-        </button>
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-        >
-          سجل الحركات (POS Log)
-        </button>
+      {/* Header & Tab Navigation */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-2">
+        <div className="flex bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <button
+            onClick={() => setActiveTab('checkout')}
+            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'checkout' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+          >
+            {warehouses.find(w => w.id === selectedWarehouse)?.name || 'نقطة البيع (كاشير)'}
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+          >
+            سجل الحركات (POS Log)
+          </button>
+        </div>
+
+        {activeTab === 'checkout' && (
+          <button
+            onClick={() => updateSettings({ ...settings, disableCustodySelling: !settings.disableCustodySelling })}
+            className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border transition-all ${
+              settings.disableCustodySelling 
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-400' 
+                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800'
+            }`}
+          >
+            <div className={`w-10 h-5 rounded-full relative transition-colors ${settings.disableCustodySelling ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}>
+              <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${settings.disableCustodySelling ? 'left-6' : 'left-1'}`} />
+            </div>
+            <span className="text-xs font-black">إيقاف البيع بالعهدة (إيداع للمحفظة)</span>
+          </button>
+        )}
       </div>
 
       {activeTab === 'checkout' ? (
@@ -411,7 +454,13 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
                               <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-lg w-fit">{Object.values(variant.options).join(' / ')}</span>
                               <div className="flex items-end justify-between mt-auto pt-2 w-full">
                                  <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{variant.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
-                                 <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">مخزن: {variant.stockQuantity || 0}</span>
+                                 <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">
+                                    مخزن: {
+                                      selectedWarehouse && variant.warehouseStock && variant.warehouseStock[selectedWarehouse] !== undefined
+                                        ? variant.warehouseStock[selectedWarehouse]
+                                        : (variant.stockQuantity || 0)
+                                    }
+                                 </span>
                               </div>
                            </button>
                          ))
@@ -431,7 +480,13 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
                             <span className="font-bold text-xs text-slate-800 dark:text-white line-clamp-2 leading-snug">{product.name}</span>
                             <div className="mt-auto flex items-end justify-between pt-2 w-full">
                                 <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{product.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
-                                <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">مخزن: {product.stockQuantity || 0}</span>
+                                <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">
+                                   مخزن: {
+                                     selectedWarehouse && product.warehouseStock && product.warehouseStock[selectedWarehouse] !== undefined
+                                       ? product.warehouseStock[selectedWarehouse]
+                                       : (product.stockQuantity || 0)
+                                   }
+                                </span>
                             </div>
                          </button>
                        )}
@@ -537,7 +592,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
 
                {/* Cash Holder Select */}
                <AnimatePresence>
-                 {paymentStatusType === 'paid' && (
+                 {paymentStatusType === 'paid' && !settings.disableCustodySelling && (
                    <motion.div 
                      initial={{ opacity: 0, height: 0, scale: 0.98 }}
                      animate={{ opacity: 1, height: 'auto', scale: 1 }}
@@ -685,6 +740,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
           allHolders={allPossibleHolders}
           orders={orders}
           wallet={wallet}
+          selectedWarehouse={selectedWarehouse}
         />
       )}
     </div>
@@ -699,9 +755,11 @@ interface POSSalesLogProps {
   allHolders: { id: string; name: string }[];
   orders: Order[];
   wallet: WalletType;
+  selectedWarehouse: string;
 }
 
-const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet }) => {
+const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, selectedWarehouse }) => {
+  const warehouses = settings.warehouses || [];
   const [filter, setFilter] = useState({
     startDate: '',
     endDate: '',
@@ -808,6 +866,9 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
         updatedHolders[hIdx].lastUpdated = new Date().toISOString();
       }
     }
+    
+    // Remove associated cash handover
+    const updatedHandovers = (settings.cashHandovers || []).filter(h => h.orderId !== saleId);
 
     // 3. Remove from POS Sales
     const newSales = sales.filter(s => s.id !== saleId);
@@ -816,7 +877,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
     const newOrders = orders.filter(o => o.id !== saleId);
 
     updateStoreData({
-      settings: { ...settings, products: updatedProducts, posSales: newSales, cashHolders: updatedHolders },
+      settings: { ...settings, products: updatedProducts, posSales: newSales, cashHolders: updatedHolders, cashHandovers: updatedHandovers },
       orders: newOrders,
       wallet: updatedWallet
     });
@@ -837,7 +898,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
         </style>
         
         <div style="text-align: center; margin-bottom: 40px; border-bottom: 3px solid #4f46e5; padding-bottom: 20px;">
-          <h1 style="color: #1e293b; font-size: 28px; margin: 0;">تقرير مبيعات نقطة البيع (POS)</h1>
+          <h1 style="color: #1e293b; font-size: 28px; margin: 0;">تقرير مبيعات ${warehouses.find(w => w.id === selectedWarehouse)?.name || 'نقطة البيع'} (POS)</h1>
           <p style="color: #64748b; font-size: 14px; margin-top: 8px;">تاريخ استخراج التقرير: ${new Date().toLocaleString('ar-EG')}</p>
         </div>
 
@@ -905,7 +966,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
     <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-6" dir="rtl">
        <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
           <div className="space-y-1">
-             <h2 className="text-2xl font-black text-slate-800 dark:text-white">سجل حركات نقطة البيع</h2>
+             <h2 className="text-2xl font-black text-slate-800 dark:text-white">سجل حركات {warehouses.find(w => w.id === selectedWarehouse)?.name || 'نقطة البيع'}</h2>
              <p className="text-sm text-slate-500 font-bold">عرض وفلترة جميع العمليات التي تمت عبر الكاشير</p>
           </div>
           <div className="flex items-center gap-3">
@@ -1027,9 +1088,12 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                       </td>
                       <td className="p-4">
                          <div className="flex flex-col">
-                            <span className="text-[9px] font-black text-slate-400 uppercase mb-0.5">بعهدة:</span>
+                            <span className="text-[9px] font-black text-slate-400 uppercase mb-0.5">طريقة التحصيل:</span>
                             <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black inline-block w-fit ${sale.cashHolderId === 'credit' ? 'bg-amber-50 text-amber-700 border border-amber-200/50 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30' : 'bg-indigo-50 text-indigo-700 border border-indigo-200/50 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/30'}`}>
-                                {sale.cashHolderName || (sale.cashHolderId === 'credit' ? 'حساب آجل' : 'غير محدد')}
+                                  {sale.cashHolderName || 
+                                   (sale.cashHolderId === 'credit' ? 'حساب آجل' : 
+                                    sale.cashHolderId === 'wallet' ? 'المحفظة العامة' : 
+                                    allHolders.find(h => h.id === sale.cashHolderId)?.name || 'غير محدد')}
                             </span>
                          </div>
                       </td>

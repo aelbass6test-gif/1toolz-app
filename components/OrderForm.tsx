@@ -1441,7 +1441,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                 if (!matchQuery) return false;
 
-                const stockVal = p.stock !== undefined ? p.stock : (p.stockQuantity ?? 0);
+                const whId = orderData.warehouseId;
+                const stockVal = whId && p.warehouseStock && p.warehouseStock[whId] !== undefined 
+                  ? p.warehouseStock[whId] 
+                  : (p.stock !== undefined ? p.stock : (p.stockQuantity ?? 0));
                 if (productFilterTab === "in_stock") return stockVal > 0;
                 if (productFilterTab === "variants") return (p.variants && p.variants.length > 0) || p.hasVariants;
                 if (productFilterTab === "low_stock") return stockVal <= 5;
@@ -1465,7 +1468,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               }
 
               return filtered.map((p) => {
-                const stockVal = p.stock !== undefined ? p.stock : (p.stockQuantity ?? 0);
+                const whId = orderData.warehouseId;
+                const stockVal = whId && p.warehouseStock && p.warehouseStock[whId] !== undefined 
+                  ? p.warehouseStock[whId] 
+                  : (p.stock !== undefined ? p.stock : (p.stockQuantity ?? 0));
                 const isOutOfStock = stockVal <= 0;
                 const isLowStock = stockVal > 0 && stockVal <= 5;
                 const thumbImg = p.thumbnail || p.images?.[0] || "";
@@ -1534,7 +1540,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                           <span className="text-[10px] font-extrabold text-slate-500 block">اختر من المتغيرات المتاحة:</span>
                           <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
                             {p.variants.map((v) => {
-                              const varStock = v.stock !== undefined ? v.stock : (v.stockQuantity ?? 0);
+                              const whId = orderData.warehouseId;
+                              const varStock = whId && v.warehouseStock && v.warehouseStock[whId] !== undefined 
+                                ? v.warehouseStock[whId] 
+                                : (v.stock !== undefined ? v.stock : (v.stockQuantity ?? 0));
                               const varTitle = Object.values(v.options || {}).join("/") || v.sku || "متغير";
                               const badgeId = `${p.id}-${v.id}`;
                               const isAdded = recentlyAddedId === badgeId;

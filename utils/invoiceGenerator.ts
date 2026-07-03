@@ -1,5 +1,6 @@
 
 import { Order, Settings, OrderItem } from '../types';
+import { getAdvancePaymentCustodyName } from './financials';
 
 export const generateInvoiceHTML = (order: Order, settings: Settings, storeName: string) => {
   const itemDiscounts = order.items.reduce((sum, item) => {
@@ -153,7 +154,7 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
             <span>${totalAmount.toLocaleString()} ج.م</span>
           </div>
           <div class="total-row" style="color: #0d9488; font-weight: bold;">
-            <span>العربون المقدم المدفوع:</span>
+            <span>العربون المقدم المدفوع (${getAdvancePaymentCustodyName(order, settings)}):</span>
             <span>-${(Number(order.advancePayment) || 0).toLocaleString()} ج.م</span>
           </div>
           <div class="total-row grand-total">

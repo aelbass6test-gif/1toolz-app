@@ -120,7 +120,7 @@ export interface Product {
   stockThreshold?: number;
 }
 
-export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'vat';
+export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'pos_cash' | 'vat';
 
 export type WithdrawStatus = 'pending' | 'accepted' | 'rejected' | 'processing';
 
@@ -638,6 +638,7 @@ export interface Settings {
   domainDNSRecords?: any; 
   subdomain?: string; // <-- New field for subdomains
   isSubdomainFixed?: boolean; // <-- To pin/fix subdomain
+  disableCustodySelling?: boolean; // <-- New field to disable personal custody and deposit to wallet instead
   platformConfigs?: Record<string, {
     appId: string;
     apiKey?: string;
@@ -724,6 +725,8 @@ export interface CashHandover {
   date: string;
   notes?: string;
   status: 'completed' | 'cancelled';
+  type?: string;
+  orderId?: string; // Explicitly link handover to an order
 }
 
 export interface POSSaleItem {
@@ -1080,6 +1083,8 @@ export interface Order {
   flexShipTransactionAdded?: boolean;
   warehouseId?: string; // New field for sales order fulfillment
   channel?: 'website' | 'pos';
+  cashHolderId?: string;
+  cashHolderName?: string;
   createdBy?: string;
   recordedAsDebt?: boolean;
   deferPaymentToReturn?: boolean;

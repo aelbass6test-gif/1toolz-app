@@ -1,4 +1,16 @@
 import React, { useState, useMemo } from 'react';
+
+const normalizeName = (name: string): string => {
+  if (!name) return name;
+  let normalized = name.trim().replace(/\s+/g, ' ');
+  // Unify variations of "Zahra" and explicitly mark as partner if she is one
+  if (/^(زهره|زهرة)/.test(normalized)) {
+      if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
+          return 'زهره شريك';
+      }
+  }
+  return normalized;
+};
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter } from 'lucide-react';
@@ -96,7 +108,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     const otherIncome = wallet.transactions
       .filter(t => {
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
-        return t.type === 'إيداع' && t.category === 'manual_deposit' && isNotPartnerTx;
+        const isNotPosTx = !t.note?.includes('مبيعات كاشير');
+        return t.type === 'إيداع' && t.category === 'manual_deposit' && isNotPartnerTx && isNotPosTx;
       })
       .reduce((sum, t) => sum + t.amount, 0);
       
@@ -1143,8 +1156,12 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 const pRepayments = pTxs.filter(t => ['repayment', 'internal_transfer_in'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
                 const pNetWithdrawals = Math.max(0, pWithdrawals - pRepayments);
                 const holderId = `part_${partner.id}`;
-                const holder = (settings.cashHolders || []).find((h: any) => h.userId === holderId || h.userId === partner.id);
-                const custodyAmt = holder ? holder.currentBalance || 0 : 0;
+                const partnerHolders = (settings.cashHolders || []).filter((h: any) => 
+                    h.userId === holderId || 
+                    h.userId === partner.id || 
+                    normalizeName(h.userName) === normalizeName(partner.name)
+                );
+                const custodyAmt = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
 
                 return (
                   <div>
@@ -1179,7 +1196,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                            </div>
                            <div>
                              <p className="text-xs font-black text-slate-700 dark:text-slate-200">العهدة والنقدية التشغيلية طرف الشريك:</p>
-                             <p className="text-[10px] font-bold text-slate-400">أموال سائلة بعهدة الشريك لأغراض تشغيل المحل</p>
+                             <p className="text-[10px] font-bold text-slate-400">سائلة بعهدة الشريك (بانتظار التسوية كاش أو مسحوبات شخصية)</p>
                            </div>
                         </div>
                         <div className="flex items-center gap-3 justify-end">

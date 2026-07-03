@@ -2,6 +2,18 @@ import { Order, Settings, Wallet, OrderItem, Treasury } from '../types';
 
 const getPrintControlBarCSS = () => ``;
 
+const normalizeName = (name: string): string => {
+    if (!name) return name;
+    let normalized = name.trim().replace(/\s+/g, ' ');
+    // Unify variations of "Zahra" and explicitly mark as partner if she is one
+    if (/^(زهره|زهرة)/.test(normalized)) {
+        if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
+            return 'زهره شريك';
+        }
+    }
+    return normalized;
+};
+
 const getPrintControlBarHTML = (reportTitle: string) => ``;
 
 export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, showInventoryValue: boolean = true): string => {
@@ -207,7 +219,7 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
     `;
 };
 
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from './financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getAdvancePaymentCustodyName, resolveCashHolderName } from './financials';
 
 export const generateInvoiceHTML = (order: Order, settings: Settings, storeName: string) => {
   const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
@@ -354,15 +366,21 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
   let totalItems = 0;
 
   const tableRows = orders.map(order => {
-    const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+    const isPosOrder = order.channel === 'pos' || order.shippingCompany?.startsWith('كاشير -') || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
+    const posName = order.shippingArea && order.shippingArea !== 'نقطة البيع' ? order.shippingArea : (order.shippingCompany?.replace("كاشير - ", "") || "نقطة البيع");
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
     const inspectionFeeParams = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
     
-    const computedTotal = (Number(order.productPrice) || 0) + (Number(order.shippingFee) || 0) - (Number(order.discount) || 0) - (Number(order.advancePayment) || 0) + inspectionFeeParams;
-    const amountToCollect = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride) - (Number(order.advancePayment) || 0))) : computedTotal;
+    const advancePaymentAmount = Number(order.advancePayment) || 0;
+    const computedTotalBeforeAdvance = (Number(order.productPrice) || 0) + (Number(order.shippingFee) || 0) - (Number(order.discount) || 0) + inspectionFeeParams;
+    const computedTotal = computedTotalBeforeAdvance - advancePaymentAmount;
+    
+    // totalAmountOverride is the user-provided "Amount to collect", which means the advance was already subtracted manually.
+    const amountToCollect = order.totalAmountOverride != null ? Math.max(0, Math.round(Number(order.totalAmountOverride))) : computedTotal;
     
     const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) + inspectionFeeParams : amountToCollect;
+    const invoiceTotal = order.source === 'synced' && order.totalPrice != null ? displayTotal + advancePaymentAmount : (order.totalAmountOverride != null ? Number(order.totalAmountOverride) + advancePaymentAmount : computedTotalBeforeAdvance);
 
     const { net, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
     
@@ -402,10 +420,21 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
       <tr>
         <td>
           <div class="font-bold text-gray-900">${order.customerName}</div>
-          <div class="text-xs text-gray-500 mt-1">${order.id.slice(0, 8)}</div>
+          <div class="text-[9px] text-gray-500 mt-0.5 flex items-center gap-1">
+            <span>#${order.id.slice(0, 8)}</span>
+            ${isPosOrder ? `<span style="color: #6366f1; font-weight: 800;">[${posName}]</span>` : ''}
+          </div>
         </td>
         <td>
           <div class="text-gray-900 leading-tight">${order.productName}</div>
+          ${isPosOrder ? `
+          <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">
+            <span style="font-size: 8.5px; padding: 2px 8px; background: ${displayTotal === 0 ? '#f0fdf4' : '#fff7ed'}; color: ${displayTotal === 0 ? '#166534' : '#9a3412'}; border-radius: 20px; font-weight: 800; border: 1.5px solid ${displayTotal === 0 ? '#bbf7d0' : '#fde68a'}; display: inline-flex; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+              <span style="margin-left: 4px; opacity: 0.6;">👤</span>
+              ${displayTotal === 0 ? (order.cashHolderId === 'wallet' ? 'جهة الإيداع' : 'جهة التحصيل') : 'العهدة'}: ${resolveCashHolderName(order, settings)}
+            </span>
+          </div>
+          ` : ''}
         </td>
         <td class="text-center font-medium">${order.productPrice.toLocaleString()}</td>
         <td class="text-center text-gray-600">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
@@ -418,8 +447,15 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
           </div>
           ` : ''}
         </td>
-        <td class="text-center text-gray-600">${displayTotal.toLocaleString()}</td>
-        <td class="text-center font-bold text-gray-900">${displayTotal.toLocaleString()}</td>
+        <td class="text-center">
+          <div class="text-gray-900 font-bold">${(isPosOrder ? (order.totalAmountOverride || order.productPrice || displayTotal) : displayTotal).toLocaleString()}</div>
+          ${advancePaymentAmount > 0 ? `
+          <div class="mt-1 text-[10px] ${isPosOrder ? (displayTotal === 0 ? 'text-emerald-600 bg-emerald-50 border-emerald-200' : 'text-indigo-600 bg-indigo-50 border-indigo-200') : 'text-amber-600 bg-amber-50 border-amber-200'} font-bold px-1.5 py-0.5 rounded border inline-block whitespace-nowrap">
+            ${isPosOrder ? (displayTotal === 0 ? 'ثمن المنتج (تحصيل نقدي)' : 'عربون مقدم (عهدة)') : 'عربون مدفوع'}: ${advancePaymentAmount.toLocaleString()}
+          </div>
+          ` : ''}
+        </td>
+        <td class="text-center font-bold text-gray-900">${invoiceTotal.toLocaleString()}</td>
         <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
         <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.flexShipFeePaidByCustomer ? 'فليكس ✅' : order.paymentStatus}</span></td>
         <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.م</td>
@@ -679,6 +715,12 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
                 <td class="text-center font-bold text-gray-900">${order.orderNumber || order.id.slice(0, 8)}</td>
                 <td class="text-gray-900">${order.customerName}</td>
                 <td class="text-center text-gray-500 font-mono">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
+                <td class="text-center">
+                    ${isPosOrder ? `
+                        <div style="font-size: 10px; font-weight: 800; color: #4f46e5;">${resolveCashHolderName(order, settings)}</div>
+                        <div style="font-size: 8px; color: #64748b;">بعهدة شخصية</div>
+                    ` : '<span style="color: #cbd5e1;">-</span>'}
+                </td>
                 <td class="text-right">${amountDisplay}</td>
                 <td class="text-center text-gray-600">${order.productCost.toLocaleString()}</td>
                 <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.m</td>
@@ -853,7 +895,7 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
           <thead>
             <tr>
               <th class="text-center">رقم الطلب</th>
-              <th>العميل</th>
+              <th>العميل والعهدة</th>
               <th class="text-center">التاريخ</th>
               <th class="text-center">المبلغ المحصل</th>
               <th class="text-center">التكلفة</th>
@@ -1288,7 +1330,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalRequiredCollection = 0;
     let totalDiscount = 0;
 
-    const collectedRows = collectedOrders.map(order => {
+    const collectedRows = collectedOrders.map((order, idx) => {
         const { profit, netRevenue, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
         const codFee = calculateCodFee(order, settings);
         
@@ -1307,6 +1349,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const isInsured = order.isInsured ?? true;
         const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
         const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer !== false) ? 0 : inspectionCost;
+        const bostaVat = !isPosOrder ? calculateBostaVat(order, insuranceFee, settings) : 0;
 
         const safeProductPrice = Number(order.productPrice) || 0;
         const safeShippingFee = Number(order.shippingFee) || 0;
@@ -1388,15 +1431,28 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 </div>
             `;
         }).join('');
+        
+        const taxDisplay = (bostaVat + safeTax) > 0 ? (bostaVat + safeTax).toLocaleString() : '-';
 
         return `
             <tr style="${rowStyle}">
-                <td>${order.orderNumber}</td>
-                <td>${order.customerName}</td>
+                <td style="text-align: center; font-weight: bold;">${idx + 1}</td>
+                <td>
+                  <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
+                  <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
+                  ${isPosOrder ? `
+                  <div style="margin-top: 2px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block;">
+                    نقطة بيع (POS) - عهدة: ${resolveCashHolderName(order, settings)}
+                  </div>` : ''}
+                  ${safeAdvance > 0 ? `
+                  <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #d97706; background-color: #fffbeb; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px; display: inline-block;">
+                    عربون مدفوع: ${safeAdvance.toLocaleString()}
+                  </div>` : ''}
+                </td>
                 <td class="col-products">${productDetails}</td>
                 <td>${order.productPrice.toLocaleString()}</td>
                 <td>${order.shippingFee.toLocaleString()}</td>
-                <td>${safeTax > 0 ? safeTax.toLocaleString() : '-'}</td>
+                <td>${taxDisplay}</td>
                 <td>${productCost.toLocaleString()}</td>
                 <td>${insuranceFee.toLocaleString()}</td>
                 <td>${inspectionAdjustment.toLocaleString()}</td>
@@ -1411,7 +1467,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalReturnFees = 0;
     let totalLoss = 0;
 
-    const failedRows = failedOrders.map(order => {
+    const failedRows = failedOrders.map((order, idx) => {
         const { loss } = calculateOrderProfitLoss(order, settings);
         
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
@@ -1435,8 +1491,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const productDetails = order.items.map(item => `<div style="margin-bottom: 4px; line-height: 1.4;"><strong>${item.name}</strong> (${item.quantity})</div>`).join('');
         return `
             <tr>
-                <td>${order.orderNumber}</td>
-                <td>${order.customerName}</td>
+                <td>${idx + 1}</td>
+                <td>
+                  <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
+                  <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
+                </td>
                 <td class="col-products">${productDetails}</td>
                 <td>${order.status.replace(/_/g, ' ')}</td>
                 <td>${order.shippingFee.toLocaleString()}</td>
@@ -1548,8 +1607,54 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
     const partners = settings.partners || [];
     const treasuryCustody = (treasury?.accounts || []).filter(a => a.type === 'custody').map(a => ({ name: a.name, balance: a.balance }));
-    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ name: h.userName, balance: h.currentBalance || 0 }));
-    const custodyAccounts = [...treasuryCustody, ...holdersCustody];
+    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ name: normalizeName(h.userName), balance: h.currentBalance || 0 }));
+    
+    // Merge duplicates in holdersCustody after normalization
+    const mergedHolders: Record<string, number> = {};
+    holdersCustody.forEach(h => {
+        mergedHolders[h.name] = (mergedHolders[h.name] || 0) + h.balance;
+    });
+    
+    const custodyAccounts = [...treasuryCustody, ...Object.entries(mergedHolders).map(([name, balance]) => ({ name, balance }))];
+
+    // Collect advance payments AND POS collections that contribute to custody
+    const custodyDetails: Record<string, Array<{ customerName: string, orderNumber: string, amount: number, type: string }>> = {};
+    orders.forEach(o => {
+        const advance = Number(o.advancePayment) || 0;
+        const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر';
+        
+        // For POS orders, the full amount (price + shipping + tax - discount) is collected in custody
+        // unless it's a failed order, but we usually report collected POS orders here.
+        const isCollectedPos = isPosOrder && ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);
+        
+                if (advance > 0 || isCollectedPos) {
+                    const holderLabel = getAdvancePaymentCustodyName(o, settings, treasury);
+                    let matchName = "";
+                    
+                    if (holderLabel.includes(': ')) {
+                        const parts = holderLabel.split(': ')[1].split(' (');
+                        matchName = normalizeName(parts[0].trim());
+                    } else if (holderLabel.includes('👤 عهدة المدير')) {
+                        matchName = "المدير"; 
+                    }
+
+                    if (matchName) {
+                        const account = custodyAccounts.find(a => a.name.includes(matchName) || matchName.includes(a.name));
+                        const targetName = account ? account.name : matchName;
+                        
+                        const amountToReport = isCollectedPos ? ((Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) + (Number((o as any).tax) || 0) - (Number(o.discount) || 0)) : advance;
+
+                        if (!custodyDetails[targetName]) custodyDetails[targetName] = [];
+                        custodyDetails[targetName].push({
+                            customerName: o.customerName || 'عميل مجهول',
+                            orderNumber: o.orderNumber || o.id || '---',
+                            amount: amountToReport,
+                            type: isCollectedPos ? 'مبيعات POS' : 'عربون'
+                        });
+                    }
+                }
+    });
+
     const recommendations = [];
     if (successRate < 70) recommendations.push(`⚠️ نسبة النجاح منخفضة (${successRate.toFixed(1)}%). ننصح بمراجعة جودة تأكيد الأوردرات.`);
     if (avgOrderProfit < 50) recommendations.push(`💡 متوسط الربح للطلب ضعيف. قد تحتاج لرفع أسعار المنتجات أو تقليل تكاليف الشحن.`);
@@ -1716,8 +1821,40 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         <div style="margin-top: 25px; page-break-inside: avoid;">
             <h3 style="background: #334155; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">${sectionCounter++}. ذمم العُهد والموظفين</h3>
             <table class="modern-table">
-                <thead><tr><th>اسم الموظف</th><th>مبلغ العهدة المتبقي</th></tr></thead>
-                <tbody>${custodyAccounts.map(a => `<tr><td>${a.name}</td><td style="font-weight: bold; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td></tr>`).join('')}</tbody>
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">اسم الموظف / الحساب</th>
+                        <th style="width: 55%;">تفاصيل العُهد (العميل - رقم الأوردر)</th>
+                        <th style="width: 20%;">الإجمالي</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${custodyAccounts.map(a => {
+                        const details = custodyDetails[a.name] || [];
+                        const detailsHtml = details.length > 0 
+                            ? `<div style="text-align: right; font-size: 11px;">
+                                ${details.map(d => `
+                                    <div style="margin-bottom: 4px; padding: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                        <span>
+                                            <span style="font-size: 8px; background: ${d.type === 'نقطة بيع' ? '#f0fdf4' : '#fffbeb'}; color: ${d.type === 'نقطة بيع' ? '#166534' : '#d97706'}; padding: 1px 4px; border-radius: 4px; border: 1px solid ${d.type === 'نقطة بيع' ? '#bbf7d0' : '#fde68a'}; margin-left: 5px;">${d.type}</span>
+                                            <strong style="color: #0f172a;">${d.customerName}</strong>
+                                            <span style="color: #64748b; margin-right: 5px;">(#${d.orderNumber})</span>
+                                        </span>
+                                        <span style="font-weight: bold; color: #1e3a8a;">${d.amount.toLocaleString()} ج.م</span>
+                                    </div>
+                                `).join('')}
+                               </div>`
+                            : '<span style="color: #94a3b8; font-style: italic;">لا توجد تفاصيل أوردرات مرتبطة (عهد قديمة أو تسويات)</span>';
+                        
+                        return `
+                            <tr>
+                                <td style="font-weight: bold; color: #1e3a8a;">${a.name}</td>
+                                <td style="padding: 10px;">${detailsHtml}</td>
+                                <td style="font-weight: bold; font-size: 16px; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
             </table>
         </div>` : '';
 

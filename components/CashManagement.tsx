@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Wallet, 
@@ -34,6 +34,18 @@ interface CashManagementProps {
   setWallet?: (updater: any) => void;
 }
 
+const normalizeName = (name: string): string => {
+  if (!name) return name;
+  let normalized = name.trim().replace(/\s+/g, ' ');
+  // Unify variations of "Zahra" and explicitly mark as partner if she is one
+  if (/^(زهره|زهرة)/.test(normalized)) {
+      if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
+          return 'زهره شريك';
+      }
+  }
+  return normalized;
+};
+
 const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSettings, currentUser, treasury, setTreasury, wallet, setWallet }) => {
   const [activeTab, setActiveTab] = useState<'balances' | 'handovers'>('balances');
   const [showHandoverModal, setShowHandoverModal] = useState(false);
@@ -58,8 +70,33 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   const [dialog, setDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void, isWarning?: boolean} | null>(null);
 
 
-  const holders = settings.cashHolders || [];
-  const handovers = settings.cashHandovers || [];
+  const holders = useMemo(() => {
+    const rawHolders = settings.cashHolders || [];
+    const grouped: Record<string, any> = {};
+    
+    rawHolders.forEach(h => {
+        const name = normalizeName(h.userName);
+        if (!grouped[name]) {
+            grouped[name] = { 
+              ...h, 
+              userName: name,
+              originalIds: [h.userId]
+            };
+        } else {
+            grouped[name].currentBalance += (h.currentBalance || 0);
+            if (!grouped[name].originalIds.includes(h.userId)) {
+              grouped[name].originalIds.push(h.userId);
+            }
+            if (new Date(h.lastUpdated) > new Date(grouped[name].lastUpdated)) {
+                grouped[name].lastUpdated = h.lastUpdated;
+            }
+        }
+    });
+    
+    return Object.values(grouped);
+  }, [settings.cashHolders]);
+
+  const handovers = useMemo(() => settings.cashHandovers || [], [settings.cashHandovers]);
   const employees = settings.employees || [];
   
   // Combine currentUser and employees for selection
@@ -198,10 +235,11 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     };
 
     // Update balances
-    const updatedHolders = [...holders];
+    const updatedHolders = [...(settings.cashHolders || [])];
     
     // Decrease from source
-    const fromIdx = updatedHolders.findIndex(h => h.userId === fromUserId);
+    const normalizedFromName = normalizeName(fromUserName);
+    const fromIdx = updatedHolders.findIndex(h => normalizeName(h.userName) === normalizedFromName);
     if (fromIdx > -1) {
       updatedHolders[fromIdx].currentBalance -= amount;
       updatedHolders[fromIdx].lastUpdated = handoverData.date;
@@ -258,7 +296,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       }
     } else {
       // Increase to destination holder
-      const toIdx = updatedHolders.findIndex(h => h.userId === handoverData.toUserId);
+      const normalizedToName = normalizeName(handoverData.toUserName);
+      const toIdx = updatedHolders.findIndex(h => normalizeName(h.userName) === normalizedToName);
       if (toIdx > -1) {
         updatedHolders[toIdx].currentBalance += amount;
         updatedHolders[toIdx].lastUpdated = handoverData.date;
@@ -329,8 +368,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     };
 
     // Update Cash Holders balances
-    const updatedHolders = holders.map(h => {
-      if (h.userId === selectedHolderForTreasury.userId) {
+    const updatedHolders = (settings.cashHolders || []).map(h => {
+      if (normalizeName(h.userName) === normalizeName(selectedHolderForTreasury.userName)) {
         return {
           ...h,
           currentBalance: h.currentBalance - amount,

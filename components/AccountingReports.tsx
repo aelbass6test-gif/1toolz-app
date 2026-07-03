@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Order, Settings, Wallet, Store, OrderStatus, TransactionCategory } from '../types';
+import { Order, Settings, Wallet, Store, OrderStatus, TransactionCategory, POSSale } from '../types';
+import { motion, AnimatePresence } from 'framer-motion';
 import { calculateOrderProfitLoss, getLatestProductCost, getStandardShippingFee, calculateInsuranceFee, calculateBostaVat, calculateCodFee, isBosta } from '../utils/financials';
 import { 
   BarChart, Wallet as WalletIcon, TrendingUp, Users, Truck, FileText, 
   ArrowDown, ArrowUp, DollarSign, Package, Download, Eye, X, Loader2, Printer, 
-  PieChart, Calendar, Percent, Sparkles, TrendingDown, Layers, CheckCircle2, AlertCircle, ShoppingBag, ShoppingCart
+  PieChart, Calendar, Percent, Sparkles, TrendingDown, Layers, CheckCircle2, AlertCircle, ShoppingBag, ShoppingCart,
+  ArrowUpRight, ArrowDownLeft, Clock, Search, Filter, ChevronLeft, FileCheck, Receipt, UserCheck, History
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -726,102 +728,12 @@ const AgingProgressBar = ({ label, value, total, color }: { label: string; value
                 <span className={textColors[color]}>{value.toLocaleString('ar-EG')} ج.م</span>
             </div>
             <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                    className={`h-full transition-all duration-1000 ${colors[color]}`} 
-                    style={{ width: `${percentage}%` }}
+                <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percentage}%` }}
+                    transition={{ duration: 1, ease: 'easeOut' }}
+                    className={`h-full ${colors[color]}`}
                 />
-            </div>
-        </div>
-    );
-};
-
-// 7. Product Profitability Component
-const ProductProfitability = ({ orders, settings }: { orders: Order[], settings: Settings }) => {
-    const stats = useMemo(() => {
-        const completedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'];
-        const completedOrders = orders.filter(o => completedStatuses.includes(o.status));
-        
-        let productStats: Record<string, {
-            id: string;
-            name: string;
-            revenue: number;
-            cogs: number;
-            quantitySold: number;
-        }> = {};
-
-        completedOrders.forEach(o => {
-            o.items.forEach(item => {
-                const cost = getLatestProductCost(item.productId, settings);
-                if (!productStats[item.productId]) {
-                     const p = (settings?.products || []).find(x => x.id === item.productId);
-                     productStats[item.productId] = {
-                         id: item.productId,
-                         name: p ? p.name : 'منتج غير معروف',
-                         revenue: 0,
-                         cogs: 0,
-                         quantitySold: 0
-                     };
-                }
-                productStats[item.productId].revenue += item.price * item.quantity;
-                productStats[item.productId].cogs += cost * item.quantity;
-                productStats[item.productId].quantitySold += item.quantity;
-            });
-        });
-
-        const sortedProducts = Object.values(productStats).map(p => ({
-            ...p,
-            profit: p.revenue - p.cogs,
-            margin: p.revenue > 0 ? ((p.revenue - p.cogs) / p.revenue) * 100 : 0
-        })).sort((a, b) => b.profit - a.profit);
-
-        return { products: sortedProducts };
-    }, [orders, settings]);
-
-    return (
-        <div className="space-y-6">
-             <div className="px-2">
-                <h3 className="text-xl font-bold text-slate-800 dark:text-white">تحليل ربحية المنتجات للفترة المحددة</h3>
-                <p className="text-sm text-slate-500 mt-1">ترتيب المنتجات حسب صافي الربح التقديري (بعد خصم تكلفة البضاعة)</p>
-             </div>
-
-              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                <table className="w-full text-sm text-right bg-white dark:bg-slate-900">
-                    <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400">
-                        <tr>
-                            <th className="px-6 py-4 font-bold">المنتج</th>
-                            <th className="px-4 py-4 font-bold text-center">الكمية</th>
-                            <th className="px-4 py-4 font-bold">المبيعات</th>
-                            <th className="px-4 py-4 font-bold">التكلفة</th>
-                            <th className="px-4 py-4 font-bold">الربح التقديري</th>
-                            <th className="px-6 py-4 font-bold text-center">الهامش</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {stats.products.map((p, idx) => (
-                             <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[10px] font-black text-slate-400">{idx + 1}</div>
-                                        <div className="font-bold text-slate-800 dark:text-slate-200">{p.name}</div>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-4 text-center font-black text-blue-600">{p.quantitySold}</td>
-                                <td className="px-4 py-4 font-mono text-xs">{p.revenue.toLocaleString('ar-EG')}</td>
-                                <td className="px-4 py-4 font-mono text-xs text-slate-400">{p.cogs.toLocaleString('ar-EG')}</td>
-                                <td className="px-4 py-4">
-                                    <span className={`font-black ${p.profit > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                        {p.profit > 0 ? '+' : ''}{p.profit.toLocaleString('ar-EG')} ج.م
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                     <div className={`inline-flex px-3 py-1 rounded-full text-[10px] font-black ${p.margin >= 30 ? 'bg-emerald-100 text-emerald-700' : p.margin > 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                                        {p.margin.toFixed(1)}%
-                                     </div>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
             </div>
         </div>
     );
@@ -829,9 +741,34 @@ const ProductProfitability = ({ orders, settings }: { orders: Order[], settings:
 
 // 6. Custody Ledger Component
 export const CustodyLedger = ({ settings, treasury }: { settings: Settings, treasury?: any }) => {
-    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ name: h.userName, balance: h.currentBalance || 0, date: h.lastUpdated }));
-    const treasuryCustody = (treasury?.accounts || []).filter((a: any) => a.type === 'custody' && a.balance > 0).map((a: any) => ({ name: a.name, balance: a.balance, date: new Date().toISOString() }));
+    const [selectedHolderId, setSelectedHolderId] = useState<string | null>(null);
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+
+    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ 
+        id: h.userId,
+        name: h.userName, 
+        balance: h.currentBalance || 0, 
+        date: h.lastUpdated,
+        type: 'employee'
+    }));
+    
+    const treasuryCustody = (treasury?.accounts || []).filter((a: any) => a.type === 'custody' && a.balance > 0).map((a: any) => ({ 
+        id: a.id,
+        name: a.name, 
+        balance: a.balance, 
+        date: new Date().toISOString(),
+        type: 'treasury'
+    }));
+    
     const holders = [...holdersCustody, ...treasuryCustody];
+
+    const selectedHolder = holders.find(h => h.id === selectedHolderId);
+    const holderSales = useMemo(() => {
+        if (!selectedHolderId) return [];
+        return (settings.posSales || [])
+            .filter(s => s.cashHolderId === selectedHolderId)
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [settings.posSales, selectedHolderId]);
 
     const handleExport = (mode: 'print' | 'pdf') => {
         const total = holders.reduce((sum, h) => sum + h.balance, 0);
@@ -900,7 +837,7 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                {holders.map((h, i) => (
-                   <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/50 group">
+                   <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/50 group flex flex-col">
                        <div className="flex items-center justify-between mb-3">
                            <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
                                <Users size={20} />
@@ -916,6 +853,17 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
                             <span className="text-[9px] text-slate-400 uppercase font-black">آخر تحديث</span>
                             <span className="text-[10px] font-bold text-slate-500">{new Date(h.date).toLocaleDateString('ar-EG')}</span>
                        </div>
+                       
+                       <button 
+                         onClick={() => {
+                           setSelectedHolderId(h.id);
+                           setShowHistoryModal(true);
+                         }}
+                         className="w-full mt-4 flex items-center justify-center gap-2 py-2.5 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 rounded-xl text-[10px] font-black hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400 transition-all border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800"
+                       >
+                         <History size={14} />
+                         عرض سجل الحركات
+                       </button>
                    </div>
                ))}
                {holders.length === 0 && (
@@ -926,6 +874,103 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
                    </div>
                )}
             </div>
+
+            <AnimatePresence>
+              {showHistoryModal && selectedHolder && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                    className="bg-white dark:bg-slate-900 w-full max-w-2xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col"
+                  >
+                    <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+                          <Users size={24} />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-black text-slate-800 dark:text-white leading-tight">سجل عهدة: {selectedHolder.name}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المفتوح</span>
+                            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">{selectedHolder.balance.toLocaleString()} ج.م</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setShowHistoryModal(false)}
+                        className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400"
+                      >
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {holderSales.length > 0 ? (
+                        <div className="space-y-3">
+                          {holderSales.map((sale) => (
+                            <div key={sale.id} className="group bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-700/50 hover:border-indigo-500/30 transition-all">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center text-emerald-500 border border-slate-100 dark:border-slate-800 group-hover:scale-110 transition-transform shadow-sm">
+                                    <Receipt size={20} />
+                                  </div>
+                                  <div>
+                                    <div className="text-xs font-black text-slate-800 dark:text-white">مبيعات كاشير #{sale.saleNumber}</div>
+                                    <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400 font-bold">
+                                      <Clock size={10} />
+                                      {new Date(sale.date).toLocaleString('ar-EG')}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-black text-emerald-600 dark:text-emerald-400">+{sale.totalAmount.toLocaleString()} ج.م</div>
+                                  <div className="text-[9px] font-black text-slate-400 uppercase mt-0.5">تحصيل نقدي</div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex flex-wrap gap-2">
+                                {sale.items.map((item, idx) => (
+                                  <span key={idx} className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg text-[9px] font-bold text-slate-500">
+                                    {item.name} × {item.quantity}
+                                  </span>
+                                ))}
+                              </div>
+                              
+                              <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between text-[9px]">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400 font-black uppercase">بواسطة:</span>
+                                  <span className="text-slate-600 dark:text-slate-300 font-bold">{sale.performedBy}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400 font-black uppercase">العميل:</span>
+                                  <span className="text-slate-600 dark:text-slate-300 font-bold">{sale.customerName || 'عميل نقدي'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="py-12 text-center space-y-3">
+                          <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto text-slate-200 dark:text-slate-700">
+                            <ShoppingCart size={32} />
+                          </div>
+                          <p className="text-sm font-bold text-slate-400">لا توجد حركات بيع مسجلة لهذه العهدة في السجلات الحالية</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 text-center">
+                      <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
+                        يتم تحديث هذا السجل تلقائياً عند كل عملية بيع تتم في نقطة البيع. 
+                        <br />
+                        لتصفية الرصيد، يرجى إجراء "توريد للخزينة" من خلال قسم المحفظة.
+                      </p>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
 
             <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-5 rounded-2xl flex items-start gap-3 shadow-sm shadow-amber-500/5">
                 <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
@@ -943,6 +988,36 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
 
 // 7. Wallet Ledger Component
 const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
+    const categoryMap: Record<string, string> = {
+        'collection': 'تحصيل شحنات',
+        'manual_deposit': 'إيداع نقدي يدوي',
+        'capital_addition': 'زيادة رأس المال',
+        'manual_withdrawal': 'سحب نقدي يدوي',
+        'profit_withdrawal': 'مسحوبات أرباح الشركاء',
+        'inventory_purchase': 'شراء مخزون / بضاعة',
+        'expense_ads': 'مصاريف إعلانات وتسويق',
+        'expense_rent': 'إيجار المقر / المخزن',
+        'expense_salaries': 'رواتب ومكافآت الموظفين',
+        'expense_utilities': 'مرافق (كهرباء/ماء/إنترنت)',
+        'supply_purchase': 'مشتريات من الموردين',
+        'supply_deposit': 'شحن رصيد محفظة التوريد',
+        'supply_expense_shipping': 'تكاليف شحن وتوريد بضاعة',
+        'custody_transfer': 'توريد عهدة مالية',
+        'partner_equity': 'حقوق ومسحوبات شركاء',
+        'pos_digital': 'مبيعات كاشير (دفع إلكتروني)',
+        'loan': 'سلفة شخصية',
+        'repayment': 'سداد سلفة',
+        'shipping': 'مصاريف شحن صادر',
+        'insurance': 'تأمين شحنات',
+        'inspection': 'رسوم معاينة',
+        'cod': 'تحصيل عند الاستلام',
+        'return': 'مرتجع / استرجاع مبلغ',
+        'vat': 'ضريبة القيمة المضافة',
+        'wallet_charge': 'شحن محفظة إلكترونية',
+        'wallet_withdrawal': 'سحب من المحفظة',
+        'withdrawal_fee': 'رسوم سحب بنكي/محفظة'
+    };
+
     const transactionsWithRunningBalance = useMemo(() => {
         const txs = [...wallet.transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         let current = 0;
@@ -956,8 +1031,11 @@ const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
     return (
         <div className="space-y-6">
              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-2">
-                <h3 className="text-xl font-bold text-slate-800 dark:text-white">حركة الصندوق والقيود اليومية للفترة</h3>
-                <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950 px-6 py-3 rounded-2xl border border-emerald-100 dark:border-emerald-800">
+                <div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">حركة الصندوق والقيود اليومية</h3>
+                    <p className="text-sm text-slate-500 mt-1">سجل تفصيلي لكافة الحركات النقدية الداخلة والخارجة من المحفظة</p>
+                </div>
+                <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950 px-6 py-3 rounded-2xl border border-emerald-100 dark:border-emerald-800 shadow-sm shadow-emerald-500/10">
                     <WalletIcon size={20} className="text-emerald-500" />
                     <div>
                         <p className="text-[10px] text-emerald-600/70 font-bold uppercase tracking-wider">رصيد الصندوق المتاح</p>
@@ -967,41 +1045,166 @@ const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
              </div>
 
              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-right bg-white dark:bg-slate-900">
+                        <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400">
+                            <tr>
+                                <th className="px-6 py-4 font-black text-center whitespace-nowrap">التاريخ</th>
+                                <th className="px-6 py-4 font-black whitespace-nowrap">البيان / الفئة</th>
+                                <th className="px-6 py-4 font-black text-center whitespace-nowrap">المبلغ</th>
+                                <th className="px-6 py-4 font-black text-center whitespace-nowrap">الرصيد</th>
+                                <th className="px-6 py-4 font-black text-center whitespace-nowrap">الحالة</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {transactionsWithRunningBalance.map((tx) => (
+                                <tr key={tx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+                                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                                        <div className="text-xs font-black text-slate-800 dark:text-slate-200">{new Date(tx.date).toLocaleDateString('ar-EG')}</div>
+                                        <div className="text-[10px] text-slate-400 font-bold">{new Date(tx.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 ${tx.type === 'إيداع' ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-900/20' : 'bg-rose-50 text-rose-500 dark:bg-rose-900/20'}`}>
+                                                {tx.type === 'إيداع' ? <ArrowDownLeft size={20} /> : <ArrowUpRight size={20} />}
+                                            </div>
+                                            <div>
+                                                <div className="font-black text-slate-800 dark:text-white text-sm">{tx.note}</div>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded text-[9px] font-black uppercase tracking-tighter">
+                                                        {categoryMap[tx.category] || tx.category}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                                        <span className={`font-black text-sm tabular-nums ${tx.type === 'إيداع' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                            {tx.type === 'إيداع' ? '+' : '-'}{tx.amount.toLocaleString()} ج.م
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-center font-mono text-xs font-black text-slate-500 tabular-nums">
+                                        {tx.runningBalance.toLocaleString()}
+                                    </td>
+                                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                            tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                            tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                            'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                                        }`}>
+                                            {tx.status === 'completed' && <CheckCircle2 size={10} />}
+                                            {tx.status === 'completed' ? 'مكتمل' : tx.status === 'pending' ? 'معلق' : 'ملغي'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                            {transactionsWithRunningBalance.length === 0 && (
+                                <tr>
+                                    <td colSpan={5} className="py-20 text-center">
+                                        <div className="flex flex-col items-center gap-3 opacity-20">
+                                            <WalletIcon size={48} />
+                                            <p className="font-black text-sm italic">لا توجد حركات مالية مسجلة في هذا الصندوق</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+             </div>
+        </div>
+    );
+};
+
+// 8. Product Profitability Component
+const ProductProfitability = ({ orders, settings }: { orders: Order[], settings: Settings }) => {
+    const stats = useMemo(() => {
+        const completedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'];
+        const completedOrders = orders.filter(o => completedStatuses.includes(o.status));
+        
+        let productsMap: Record<string, { id: string, name: string, quantity: number, revenue: number, cost: number }> = {};
+        
+        completedOrders.forEach(o => {
+            (o.items || []).forEach(item => {
+                if (!productsMap[item.productId]) {
+                    productsMap[item.productId] = {
+                        id: item.productId,
+                        name: item.name,
+                        quantity: 0,
+                        revenue: 0,
+                        cost: 0
+                    };
+                }
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                productsMap[item.productId].quantity += item.quantity;
+                productsMap[item.productId].revenue += (item.price * item.quantity);
+                productsMap[item.productId].cost += (cost * item.quantity);
+            });
+        });
+
+        // Add POS Sales standalone
+        const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+        extraPosSales.forEach(s => {
+            (s.items || []).forEach(item => {
+                if (!productsMap[item.productId]) {
+                    productsMap[item.productId] = {
+                        id: item.productId,
+                        name: item.name,
+                        quantity: 0,
+                        revenue: 0,
+                        cost: 0
+                    };
+                }
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                productsMap[item.productId].quantity += item.quantity;
+                productsMap[item.productId].revenue += (item.price * item.quantity);
+                productsMap[item.productId].cost += (cost * item.quantity);
+            });
+        });
+
+        return Object.values(productsMap).sort((a, b) => (b.revenue - b.cost) - (a.revenue - a.cost));
+    }, [orders, settings]);
+
+    return (
+        <div className="space-y-6">
+            <h3 className="text-xl font-bold text-slate-800 dark:text-white px-2">تحليل ربحية المنتجات (Product Contribution)</h3>
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                 <table className="w-full text-sm text-right bg-white dark:bg-slate-900">
                     <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400">
                         <tr>
-                            <th className="px-4 py-4 font-bold text-center">التاريخ</th>
-                            <th className="px-4 py-4 font-bold">النوع</th>
-                            <th className="px-4 py-4 font-bold">التصنيف</th>
-                            <th className="px-4 py-4 font-bold">المبلغ</th>
-                            <th className="px-4 py-4 font-bold">الرصيد التراكمي</th>
-                            <th className="px-4 py-4 font-bold">البيان / الملاحظات</th>
+                            <th className="px-6 py-4 font-bold">المنتج</th>
+                            <th className="px-4 py-4 font-bold text-center">الكمية المباعة</th>
+                            <th className="px-4 py-4 font-bold text-center">إجمالي الإيراد</th>
+                            <th className="px-4 py-4 font-bold text-center">إجمالي التكلفة</th>
+                            <th className="px-4 py-4 font-bold text-center">الربح المحقق</th>
+                            <th className="px-4 py-4 font-bold text-center">نسبة الهامش</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {transactionsWithRunningBalance.map((tx) => (
-                            <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                                <td className="px-4 py-4 text-center">
-                                    <div className="text-[10px] font-bold text-slate-400">{new Date(tx.date).toLocaleDateString('ar-EG')}</div>
-                                    <div className="text-[10px] text-slate-400">{new Date(tx.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
-                                </td>
-                                <td className="px-4 py-4">
-                                    <span className={`inline-flex px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${tx.type === 'إيداع' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
-                                        {tx.type}
-                                    </span>
-                                </td>
-                                <td className="px-4 py-4">
-                                    <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 uppercase">{tx.category || 'عام'}</span>
-                                </td>
-                                <td className="px-4 py-4 font-black text-slate-800 dark:text-slate-200">
-                                    {tx.type === 'إيداع' ? '+' : '-'}{tx.amount.toLocaleString('ar-EG')}
-                                </td>
-                                <td className="px-4 py-4 font-mono text-xs font-bold text-slate-400">
-                                    {tx.runningBalance.toLocaleString('ar-EG')} ج.م
-                                </td>
-                                <td className="px-4 py-4 text-xs text-slate-600 dark:text-slate-400 max-w-[250px] whitespace-normal leading-relaxed">{tx.note || '-'}</td>
-                            </tr>
-                        ))}
+                        {stats.map(p => {
+                            const profit = p.revenue - p.cost;
+                            const margin = p.revenue > 0 ? (profit / p.revenue) * 100 : 0;
+                            return (
+                                <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <td className="px-6 py-4">
+                                        <div className="font-bold text-slate-800 dark:text-slate-200">{p.name}</div>
+                                    </td>
+                                    <td className="px-4 py-4 text-center font-bold text-slate-600">{p.quantity}</td>
+                                    <td className="px-4 py-4 text-center font-mono text-xs">{p.revenue.toLocaleString('ar-EG')}</td>
+                                    <td className="px-4 py-4 text-center font-mono text-xs text-slate-400">{p.cost.toLocaleString('ar-EG')}</td>
+                                    <td className="px-4 py-4 text-center">
+                                        <span className={`font-black text-xs ${profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {profit.toLocaleString('ar-EG')} ج.م
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-4 text-center">
+                                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${margin > 30 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                                            {margin.toFixed(1)}%
+                                        </span>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -1009,580 +1212,191 @@ const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
     );
 };
 
-// 8. Partner Equity Component (with beautiful, secure profit allocation trigger)
-const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { settings: Settings, wallet: Wallet, setSettings?: React.Dispatch<React.SetStateAction<Settings>>, setWallet?: React.Dispatch<React.SetStateAction<Wallet>>, orders: Order[] }) => {
-    const [fundingAmount, setFundingAmount] = useState('');
-    const [fundingPartnerId, setFundingPartnerId] = useState('');
-    const [fundingType, setFundingType] = useState<'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance'>('capital_addition');
-    const [fundingDate, setFundingDate] = useState(new Date().toISOString().split('T')[0]);
-    const [fundingNote, setFundingNote] = useState('');
-    
-    // Custom Confirmation Dialog states to strictly avoid window.alerts or iframe restrictions
-    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; payload?: any } | null>(null);
-    const [successToast, setSuccessToast] = useState<string | null>(null);
-
-    const showToast = (msg: string) => {
-        setSuccessToast(msg);
-        setTimeout(() => setSuccessToast(null), 3500);
-    };
-
+// 9. Partner Equity & Dividends Component
+const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { settings: Settings, wallet: Wallet, setSettings?: any, setWallet?: any, orders: Order[] }) => {
     const stats = useMemo(() => {
         const partners = settings?.partners || [];
-        const partnerTransactions = settings?.partnerTransactions || [];
-
-        let perPartner: Record<string, {
-            id: string;
-            name: string;
-            profitRatio: number;
-            capital: number;
-            drawings: number;
-            repayments: number;
-            distributions: number;
-            advances: number;
-            currentBalance: number;
-        }> = {};
-
-        partners.forEach(p => {
-             perPartner[p.id] = {
-                 id: p.id,
-                 name: p.name,
-                 profitRatio: p.profitRatio || 0,
-                 capital: 0,
-                 drawings: 0,
-                 repayments: 0,
-                 distributions: 0,
-                 advances: 0,
-                 currentBalance: p.balance
-             };
+        // Calculate dynamic balances based on transactions from partnerTransactions
+        const partnerLedgers = partners.map(p => {
+            const txs = (settings.partnerTransactions || []).filter(t => t.partnerId === p.id && t.type !== 'pos_collection');
+            const balance = txs.reduce((sum, t) => {
+                const isPositive = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type);
+                return isPositive ? sum + t.amount : sum - t.amount;
+            }, 0);
+            return { ...p, currentBalance: balance };
         });
-
-        partnerTransactions.forEach(t => {
-            if (perPartner[t.partnerId]) {
-                if (t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage') {
-                    perPartner[t.partnerId].capital += t.amount;
-                } else if (t.type === 'profit_withdrawal' || t.type === 'loan') {
-                    perPartner[t.partnerId].drawings += t.amount;
-                } else if (t.type === 'repayment') {
-                    perPartner[t.partnerId].repayments += t.amount;
-                } else if (t.type === 'profit_distribution') {
-                    perPartner[t.partnerId].distributions += t.amount;
-                } else if (t.type === 'customer_advance') {
-                    perPartner[t.partnerId].advances += t.amount;
-                }
-            }
-        });
-
-        // Compute Operational profits
-        let totalOrderProfit = 0;
-        const completedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'];
-        const completedOrders = orders.filter(o => completedStatuses.includes(o.status));
-        completedOrders.forEach(o => {
-            const { profit } = calculateOrderProfitLoss(o, settings);
-            totalOrderProfit += profit;
-        });
-
-        const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
-        let extraPosProfit = 0;
-        extraPosSales.forEach(s => {
-            (s.items || []).forEach(item => {
-                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
-                extraPosProfit += ((item.price - cost) * (item.quantity || 1));
-            });
-        });
-
-        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));
-        const totalExpenses = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
-
-        const lossFromReturnOrders = orders
-            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status))
-            .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
-
-        const netProfit = totalOrderProfit + extraPosProfit - totalExpenses - lossFromReturnOrders;
-
-        const totalDistributed = partnerTransactions
-            .filter(t => t.type === 'profit_distribution')
-            .reduce((sum, t) => sum + t.amount, 0);
         
-        const undistributedProfit = Math.max(0, netProfit - totalDistributed);
-
-        return { 
-            partners: Object.values(perPartner), 
-            netProfit, 
-            undistributedProfit, 
-            totalDistributed 
-        };
-    }, [settings, wallet, orders]);
-
-    const handleConfirmDistribute = () => {
-        if (!setSettings) return;
-        const totalRatios = stats.partners.reduce((sum, p) => sum + p.profitRatio, 0);
-        if (totalRatios !== 100) {
-            setConfirmModal({
-                isOpen: true,
-                title: 'مجموع نسب الأرباح غير متزن ⚠️',
-                message: `لا يمكن توزيع الأرباح تلقائياً حالياً لأن مجموع نسب أرباح الشركاء هو ${totalRatios}% وليس 100% تماماً. يرجى تعديل النسب أولاً من صفحة الشركاء لتوزيع متوازن.`,
-            });
-            return;
-        }
-
-        if (stats.undistributedProfit <= 0) {
-            showToast('لا توجد أرباح قابلة للتوزيع للفترة الجارية');
-            return;
-        }
-
-        setConfirmModal({
-            isOpen: true,
-            title: 'تأكيد توزيع وصرف الأرباح',
-            message: `سيتم توزيع مبلغ (${stats.undistributedProfit.toLocaleString()} ج.م) المسجل كربح تشغيلي على أرصدة الشركاء الحالية تزامناً مع نسبهم. هل تود المتابعة وتأكيد القيود؟`,
-            payload: { action: 'distribute' }
-        });
-    };
-
-    const handleExecuteDistribute = () => {
-        if (!setSettings) return;
-        const undistributedProfit = stats.undistributedProfit;
-        const partnersList = settings.partners || [];
-        const existingTx = settings.partnerTransactions || [];
-
-        const newTransactions: any[] = [];
-        const updatedPartners = partnersList.map(p => {
-            const share = (undistributedProfit * (p.profitRatio || 0)) / 100;
-            if (share <= 0) return p;
-
-            newTransactions.push({
-                id: `dist_${Date.now()}_${p.id}`,
-                partnerId: p.id,
-                type: 'profit_distribution',
-                amount: share,
-                date: new Date().toISOString(),
-                note: `توزيع أرباح تلقائي متكامل بنسبة ${p.profitRatio}%`
-            });
-
-            return {
-                ...p,
-                balance: (p.balance || 0) + share
-            };
-        });
-
-        setSettings({
-            ...settings,
-            partners: updatedPartners,
-            partnerTransactions: [...existingTx, ...newTransactions]
-        });
-
-        setConfirmModal(null);
-        showToast('🎉 تم توزيع الأرباح وحقنها في أرصدة الشركاء بنجاح!');
-    };
-
-    const handleAddFunding = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!setSettings || !fundingPartnerId || !fundingAmount) return;
-        const amt = parseFloat(fundingAmount);
-        if (isNaN(amt) || amt <= 0) return;
-
-        const partner = (settings.partners || []).find(p => p.id === fundingPartnerId);
-        if (!partner) return;
-
-        let noteText = fundingNote.trim();
-        if (!noteText) {
-            if (fundingType === 'capital_addition') {
-                noteText = `إضافة رأس مال وتمويل نقدي من الشريك ${partner.name}`;
-            } else if (fundingType === 'profit_withdrawal') {
-                noteText = `مسحوبات شخصية من الأرباح المستحقة للشريك ${partner.name}`;
-            } else if (fundingType === 'loan') {
-                noteText = `سحب سلفة شريك من الخزينة للشريك ${partner.name}`;
-            } else if (fundingType === 'repayment') {
-                noteText = `سداد قيمة سلفة / مديونية من الشريك ${partner.name} للخزينة`;
-            } else if (fundingType === 'profit_distribution') {
-                noteText = `توزيع أرباح يدوية للشريك ${partner.name}`;
-            } else if (fundingType === 'customer_advance') {
-                noteText = `استلام عربون عهدة مبيعات في حوزة الشريك ${partner.name}`;
-            } else {
-                noteText = `قيد معالجة مالية للشريك ${partner.name}`;
-            }
-        }
-
-        const dateISO = fundingDate ? new Date(fundingDate).toISOString() : new Date().toISOString();
-
-        const tx = {
-            id: `fund_${Date.now()}`,
-            partnerId: fundingPartnerId,
-            type: fundingType,
-            amount: amt,
-            date: dateISO,
-            note: noteText
-        };
-
-        let balanceImpact = 0;
-        if (fundingType === 'capital_addition' || fundingType === 'profit_distribution' || fundingType === 'repayment') {
-            balanceImpact = amt;
-        } else if (fundingType === 'profit_withdrawal' || fundingType === 'loan' || fundingType === 'customer_advance') {
-            balanceImpact = -amt;
-        }
-
-        const updatedPartners = (settings.partners || []).map(p => {
-            if (p.id === fundingPartnerId) {
-                return {
-                    ...p,
-                    balance: (p.balance || 0) + balanceImpact
-                };
-            }
-            return p;
-        });
-
-        setSettings({
-            ...settings,
-            partners: updatedPartners,
-            partnerTransactions: [...(settings.partnerTransactions || []), tx]
-        });
-
-        if (setWallet && fundingType !== 'profit_distribution') {
-            const walletTxType = (fundingType === 'capital_addition' || fundingType === 'repayment' || fundingType === 'customer_advance') ? 'إيداع' : 'سحب';
-            const newWalletTx = {
-                id: `p_tx_${Date.now()}`,
-                type: walletTxType as 'إيداع' | 'سحب',
-                amount: amt,
-                date: dateISO,
-                note: `[معاملة شريك - ${partner.name}] ${noteText}`,
-                category: fundingType as TransactionCategory,
-                status: 'completed' as const
-            };
-
-            setWallet(prevWallet => {
-                const currentBalance = prevWallet.balance || 0;
-                const newBalance = walletTxType === 'إيداع' ? currentBalance + amt : currentBalance - amt;
-                return {
-                    ...prevWallet,
-                    balance: newBalance,
-                    transactions: [newWalletTx, ...(prevWallet.transactions || [])]
-                };
-            });
-        }
-
-        setFundingAmount('');
-        setFundingNote('');
-        showToast('تم تسجيل تمويل الشريك بنجاح وتسجيل عملية القيد المالي والربط بالخزينة');
-    };
+        return partnerLedgers;
+    }, [settings.partners, settings.partnerTransactions]);
 
     return (
         <div className="space-y-6">
-             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 px-2">
-                <div>
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">مراكز حقوق الشركاء والمسحوبات</h3>
-                    <p className="text-sm text-slate-500 mt-1">متابعة إيداعات الشركاء الرأسمالية والمسحوبات الشخصية وتوزيع الأرباح</p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-2">
+                <h3 className="text-xl font-bold text-slate-800 dark:text-white">حقوق ومسحوبات الشركاء (Equity Management)</h3>
+                <div className="p-3 bg-indigo-50 dark:bg-indigo-950 rounded-2xl border border-indigo-100 dark:border-indigo-900">
+                    <p className="text-[10px] text-indigo-600 font-bold uppercase">إجمالي رأس مال الشركاء الحالي</p>
+                    <p className="text-xl font-black text-indigo-700 dark:text-indigo-400">{stats.reduce((s, p) => s + p.currentBalance, 0).toLocaleString()} ج.م</p>
                 </div>
-                
-                {setSettings && (
-                     <div className="flex flex-wrap items-center gap-3">
-                         <div className="p-4 bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800 rounded-2xl flex items-center gap-3">
-                             <div className="shrink-0">
-                                 <p className="text-[10px] text-purple-600/70 font-semibold uppercase leading-none">أرباح تشغيلية غير موزعة</p>
-                                 <p className="text-xl font-black text-purple-700 dark:text-purple-400 mt-1 leading-none">{(stats.undistributedProfit).toLocaleString('ar-EG')} ج.م</p>
-                             </div>
-                             <button
-                                 onClick={handleConfirmDistribute}
-                                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow transition-all shrink-0 hover:scale-102"
-                             >
-                                 وزع الأرباح تلقائياً
-                             </button>
-                         </div>
-                     </div>
-                )}
-             </div>
+            </div>
 
-             {/* Dynamic Alerts/Toasts */}
-             {successToast && (
-                  <div className="p-4 bg-emerald-100 text-emerald-800 font-bold text-sm rounded-xl border border-emerald-200 shadow-lg flex items-center gap-2 animate-in slide-in-from-top-6 duration-300">
-                      <CheckCircle2 className="text-emerald-600" />
-                      {successToast}
-                  </div>
-             )}
-
-             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {stats.partners.map(p => (
-                    <div key={p.id} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50 dark:bg-slate-800/50 rounded-bl-[100%] -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {stats.map(p => (
+                    <div key={p.id} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 hover:border-indigo-500/50 transition-colors group">
+                        <div className="flex items-center justify-between">
+                            <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
+                                <Users size={24} />
+                            </div>
+                            <div className="text-right">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">نسبة الشراكة</span>
+                                <div className="text-lg font-black text-slate-800 dark:text-white">{p.profitRatio}%</div>
+                            </div>
+                        </div>
                         
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-6">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 font-black text-xl">
-                                        {p.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <h4 className="font-black text-slate-800 dark:text-white text-lg leading-none">{p.name}</h4>
-                                        <span className="text-xs text-slate-400 mt-1 inline-block">حصة أرباح {p.profitRatio}%</span>
-                                    </div>
-                                </div>
-                            </div>
+                        <div>
+                            <h4 className="font-black text-slate-800 dark:text-white text-lg">{p.name}</h4>
+                            <p className="text-xs text-slate-400">شريك مساهم</p>
+                        </div>
 
-                            <div className="space-y-3 mb-6 font-sans">
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500">رأس المال والمصاريف المضافة (+)</span>
-                                    <span className="font-bold text-emerald-600">{p.capital.toLocaleString('ar-EG')} ج.م</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500 font-medium">تمويلات الأرباح الموزعة (+)</span>
-                                    <span className="font-bold text-blue-600">{p.distributions.toLocaleString('ar-EG')} ج.م</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500">المسحوبات الشخصية والسلف (-)</span>
-                                    <span className="font-bold text-red-600">{p.drawings.toLocaleString('ar-EG')} ج.م</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-teal-600 font-medium font-bold">العربونات المستلمة عهدة (-)</span>
-                                    <span className="font-bold text-teal-600">{(p.advances || 0).toLocaleString('ar-EG')} ج.م</span>
-                                </div>
-                                <div className="flex justify-between items-center text-xs">
-                                    <span className="text-slate-500 font-medium">السدادات للمديونية (+)</span>
-                                    <span className="font-bold text-amber-600">{p.repayments.toLocaleString('ar-EG')} ج.م</span>
-                                </div>
+                        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                            <div>
+                                <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المتاح</span>
+                                <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">{p.currentBalance.toLocaleString()} ج.م</div>
                             </div>
-
-                            <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-1">الرصيد الجاري المستحق له</p>
-                                <p className={`text-2xl font-black ${p.currentBalance >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
-                                    {p.currentBalance.toLocaleString('ar-EG')} <span className="text-sm">ج.م</span>
-                                </p>
-                            </div>
+                            <button className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-indigo-600 transition-colors">
+                                <ArrowUpRight size={20} />
+                            </button>
                         </div>
                     </div>
                 ))}
-             </div>
+            </div>
 
-             {/* Simple integrated Quick Transaction form for accounting operations */}
-             {setSettings && (
-                 <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-3xl mx-auto shadow-sm">
-                     <h4 className="font-bold text-sm text-slate-850 dark:text-slate-200 mb-4 flex items-center gap-2">
-                         <Layers size={16} className="text-purple-600" /> نموذج قيد وتسجيل تمويل الشركاء والمسحوبات
-                     </h4>
-                     <form onSubmit={handleAddFunding} className="space-y-4">
-                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                             <div>
-                                 <label className="block text-xs text-slate-400 font-bold mb-1.5">اختر الشريك</label>
-                                 <select
-                                     value={fundingPartnerId}
-                                     onChange={(e) => setFundingPartnerId(e.target.value)}
-                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 py-2.5 px-3 rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-700 dark:text-slate-200"
-                                     required
-                                 >
-                                     <option value="">-- اختر شريكاً --</option>
-                                     {(settings.partners || []).map(p => (
-                                         <option key={p.id} value={p.id}>{p.name}</option>
-                                     ))}
-                                 </select>
-                             </div>
-                             <div>
-                                 <label className="block text-xs text-slate-400 font-bold mb-1.5">نوع التمويل / القيد</label>
-                                 <select
-                                     value={fundingType}
-                                     onChange={(e) => setFundingType(e.target.value as any)}
-                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 py-2.5 px-3 rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-700 dark:text-slate-200"
-                                 >
-                                     <option value="capital_addition">تحويل مالي (إضافة رأس مال) (+)</option>
-                                     <option value="profit_withdrawal">مسحوبات شخصية من الأرباح (-)</option>
-                                     <option value="loan">سحب نقدي (سلفة شريك شخصية) (-)</option>
-                                     <option value="repayment">سداد سلفة / مديونية شريك للخزينة (+)</option>
-                                     <option value="profit_distribution">توزيع يدوي لأرباح مستحقة لشريك معين (+)</option>
-                                     <option value="customer_advance">استلام عربون عهدة مبيعات في حوزة الشريك (-)</option>
-                                 </select>
-                             </div>
-                             <div>
-                                 <label className="block text-xs text-slate-400 font-bold mb-1.5">تاريخ القيد</label>
-                                 <input
-                                     type="date"
-                                     value={fundingDate}
-                                     onChange={(e) => setFundingDate(e.target.value)}
-                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 py-2.5 px-3 rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-700 dark:text-slate-200"
-                                     required
-                                 />
-                             </div>
-                         </div>
-                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                             <div className="md:col-span-2">
-                                 <label className="block text-xs text-slate-400 font-bold mb-1.5">البيان / ملاحظات القيد</label>
-                                 <input
-                                     type="text"
-                                     value={fundingNote}
-                                     onChange={(e) => setFundingNote(e.target.value)}
-                                     placeholder="أدخل بياناً اختيارياً (مثال: تمويل توريد الشحنات أو شراء أصل)"
-                                     className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 py-2.5 px-3 rounded-xl text-xs font-bold focus:outline-none"
-                                 />
-                             </div>
-                             <div>
-                                 <label className="block text-xs text-slate-400 font-bold mb-1.5">المبلغ المطلوب (ج.م)</label>
-                                 <div className="flex gap-2">
-                                     <input
-                                         type="number"
-                                         value={fundingAmount}
-                                         onChange={(e) => setFundingAmount(e.target.value)}
-                                         placeholder="أدخل القيمة"
-                                         className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 py-2.5 px-3 rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all text-slate-700 dark:text-slate-200"
-                                         required
-                                         min="0.01"
-                                         step="any"
-                                     />
-                                     <button
-                                         type="submit"
-                                         className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-lg transition-all hover:scale-102 shrink-0"
-                                     >
-                                         قيد وتسجيل ✅
-                                     </button>
-                                 </div>
-                             </div>
-                         </div>
-                     </form>
-                 </div>
-             )}
-
-             {/* Custom Confirmation Dialog avoids alerts / frame failures */}
-             {confirmModal && confirmModal.isOpen && (
-                 <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
-                     <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-6 shadow-2xl animate-in scale-in duration-200 text-right">
-                         <div className="flex items-center justify-between border-b pb-3 mb-4">
-                             <h4 className="font-extrabold text-slate-850 dark:text-white flex items-center gap-2">
-                                 <Sparkles size={18} className="text-indigo-500" />
-                                 {confirmModal.title}
-                             </h4>
-                             <button onClick={() => setConfirmModal(null)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
-                         </div>
-                         <p className="text-sm text-slate-600 dark:text-slate-350 leading-relaxed mb-6">{confirmModal.message}</p>
-                         <div className="flex items-center justify-end gap-3">
-                             <button
-                                 onClick={() => setConfirmModal(null)}
-                                 className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 font-bold text-xs rounded-xl transition-all"
-                             >
-                                 إلغاء
-                             </button>
-                             {confirmModal.payload?.action === 'distribute' && (
-                                 <button
-                                     onClick={handleExecuteDistribute}
-                                     className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-purple-200 dark:shadow-none"
-                                 >
-                                     توزيع وصرف الآن ✅
-                                 </button>
-                             )}
-                         </div>
-                     </div>
-                 </div>
-             )}
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4">
+                <div className="flex items-center gap-2 text-slate-800 dark:text-white font-bold">
+                    <History size={18} className="text-slate-400" /> آخر حركات رؤوس الأموال والمسحوبات
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <table className="w-full text-xs text-right">
+                        <thead className="bg-slate-100 dark:bg-slate-700 text-slate-500">
+                            <tr>
+                                <th className="px-4 py-3 font-bold">التاريخ</th>
+                                <th className="px-4 py-3 font-bold">الشريك</th>
+                                <th className="px-4 py-3 font-bold">النوع</th>
+                                <th className="px-4 py-3 font-bold">المبلغ</th>
+                                <th className="px-4 py-3 font-bold">البيان</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {(settings.partnerTransactions || []).filter(t => t.partnerId && t.type !== 'pos_collection').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10).map(t => (
+                                <tr key={t.id} className="hover:bg-white dark:hover:bg-slate-800/50">
+                                    <td className="px-4 py-3 text-slate-400">{new Date(t.date).toLocaleDateString('ar-EG')}</td>
+                                    <td className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{settings.partners?.find(p => p.id === t.partnerId)?.name}</td>
+                                    <td className="px-4 py-3">
+                                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                                            {t.type === 'profit_distribution' ? 'توزيع أرباح' : 
+                                             t.type === 'capital_addition' ? 'إضافة رأس مال' : 
+                                             t.type === 'profit_withdrawal' ? 'مسحوبات أرباح' : 
+                                             t.type === 'loan' ? 'سلفة / سحب شخصي' : 
+                                             t.type === 'repayment' ? 'سداد سلفة' : 
+                                             t.type === 'supply_funding' ? 'تمويل بضاعة' : 
+                                             t.type === 'shipping_funding' ? 'تمويل شحن' : 
+                                             t.type === 'expense_coverage' ? 'تغطية مصاريف' : 
+                                             t.type === 'internal_transfer_in' ? 'تحويل وارد' : 
+                                             t.type === 'internal_transfer_out' ? 'تحويل صادر' : 'معاملة أخرى'}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 font-black">{t.amount.toLocaleString()} ج.م</td>
+                                    <td className="px-4 py-3 text-slate-500">{t.note}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 };
 
-// 9. NEW REPORT: Marketing Profitability, ROI & CAC Analysis (العائد البيعي والاستحواذ)
+// Marketing ROI Analysis
 const MarketingROI = ({ orders, wallet }: { orders: Order[], wallet: Wallet }) => {
     const stats = useMemo(() => {
-        const completedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'];
-        const completedOrders = orders.filter(o => completedStatuses.includes(o.status));
-
-        // Get total advertising marketing expenses from the transactions list
-        const adExpenses = wallet.transactions
-            .filter(t => t.type === 'سحب' && (t.category === 'expense_ads' || t.note?.toLowerCase().includes('marketing') || t.note?.includes('إعلان')));
-        
+        // Filter marketing expense transactions
+        const adExpenses = (wallet.transactions || []).filter(t => t.type === 'سحب' && t.category === 'expense_ads');
         const totalAdSpend = adExpenses.reduce((sum, t) => sum + t.amount, 0);
-        const totalOrders = completedOrders.length;
+        
+        // Revenue attributed to ads (assumed to be orders with marketing notes)
+        const adDrivenOrders = orders.filter(o => (o.notes && o.notes.toLowerCase().includes('ad')) || (o.notes && o.notes.toLowerCase().includes('marketing')));
+        const totalAdRevenue = adDrivenOrders.reduce((sum, o) => {
+            const { netRevenue } = calculateOrderProfitLoss(o, { products: [], companySpecificFees: {} } as any); // Simplified
+            return sum + netRevenue;
+        }, 0);
 
-        // Sales Revenue
-        const totalSalesRevenue = completedOrders.reduce((sum, o) => sum + (o.productPrice - (o.discount || 0)), 0);
+        const roas = totalAdSpend > 0 ? totalAdRevenue / totalAdSpend : 0;
+        const cac = adDrivenOrders.length > 0 ? totalAdSpend / adDrivenOrders.length : 0;
 
-        // Client Acquisition Cost (CAC)
-        const cac = totalOrders > 0 ? totalAdSpend / totalOrders : 0;
-
-        // Return on Ad Spend (ROAS)
-        const roas = totalAdSpend > 0 ? totalSalesRevenue / totalAdSpend : 0;
-
-        let roasHealth: 'excellent' | 'good' | 'average' | 'poor' = 'poor';
-        if (roas >= 5) roasHealth = 'excellent';
-        else if (roas >= 3) roasHealth = 'good';
-        else if (roas >= 1.5) roasHealth = 'average';
-
-        return { totalAdSpend, totalOrders, totalSalesRevenue, cac, roas, roasHealth, sampleAdExpenses: adExpenses.slice(0, 5) };
+        return { totalAdSpend, totalAdRevenue, roas, cac, adOrdersCount: adDrivenOrders.length, sampleAdExpenses: adExpenses.slice(0, 5) };
     }, [orders, wallet]);
 
     return (
-        <div className="space-y-6 animate-in fade-in-5 duration-300">
-             <div className="px-2">
-                <h3 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                    <Sparkles className="text-indigo-500" /> قياس العائد التسويقي وتكلفة اكتساب العملاء (CAC / ROAS)
-                </h3>
-                <p className="text-sm text-slate-500 mt-1">دراسة فاعلية المصروفات الإعلانية ومجموع المبيعات الناتجة وتحديد العائد الفعلي</p>
-             </div>
-
+         <div className="space-y-6">
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm">
-                     <p className="text-xs text-slate-400 font-bold mb-1">مصاريف الإعلانات المسجلة</p>
-                     <p className="text-2xl font-black text-rose-500">{stats.totalAdSpend.toLocaleString('ar-EG')} <span className="text-xs">ج.م</span></p>
+                 <div className="bg-white dark:bg-slate-900 border-2 border-indigo-500/20 p-5 rounded-2xl">
+                     <p className="text-[10px] font-black text-slate-400 uppercase mb-1">إجمالي الصرف التسويقي</p>
+                     <p className="text-2xl font-black text-indigo-600">{stats.totalAdSpend.toLocaleString()} ج.م</p>
                  </div>
-                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm">
-                     <p className="text-xs text-slate-400 font-bold mb-1">عدد الطلبيات المكتملة</p>
-                     <p className="text-2xl font-black text-indigo-500">{stats.totalOrders} <span className="text-xs">أوردر</span></p>
+                 <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/20 p-5 rounded-2xl">
+                     <p className="text-[10px] font-black text-slate-400 uppercase mb-1">العائد على الإعلان (ROAS)</p>
+                     <p className="text-2xl font-black text-emerald-600">{stats.roas.toFixed(2)}x</p>
                  </div>
-                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm">
-                     <p className="text-xs text-slate-400 font-bold mb-1">كلفة استحواذ العميل (CAC)</p>
-                     <p className="text-2xl font-black text-violet-500">{stats.cac.toFixed(1)} <span className="text-xs">ج.م / عميل</span></p>
+                 <div className="bg-white dark:bg-slate-900 border-2 border-rose-500/20 p-5 rounded-2xl">
+                     <p className="text-[10px] font-black text-slate-400 uppercase mb-1">تكلفة الاستحواذ (CAC)</p>
+                     <p className="text-2xl font-black text-rose-600">{stats.cac.toFixed(0)} <span className="text-xs">ج.م/عميل</span></p>
                  </div>
-                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm relative overflow-hidden group">
-                     <div className="absolute right-0 top-0 w-16 h-16 bg-emerald-50 dark:bg-emerald-900/10 rounded-bl-full shrink-0 -mr-4 -mt-4"></div>
-                     <p className="text-xs text-slate-400 font-bold mb-1">مضاعف العائد الإعلاني (ROAS)</p>
-                     <p className="text-2xl font-black text-emerald-500">{stats.roas.toFixed(2)}x</p>
+                 <div className="bg-white dark:bg-slate-900 border-2 border-blue-500/20 p-5 rounded-2xl">
+                     <p className="text-[10px] font-black text-slate-400 uppercase mb-1">عدد الطلبات المسوقة</p>
+                     <p className="text-2xl font-black text-blue-600">{stats.adOrdersCount}</p>
                  </div>
              </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 {/* Analytical chart scale visual */}
-                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm space-y-4">
-                     <h4 className="font-extrabold text-sm border-b pb-3 text-slate-800 dark:text-white">مؤشر كفاءة العائد الإعلاني (ROAS Health)</h4>
-                     <p className="text-xs text-slate-500">مقياس نجاح الحملة التسويقية بناءً على مضاعف المبيعات مقابل المصاريف:</p>
-                     
-                     <div className="space-y-3 font-sans pt-2">
-                         <div className={`p-4 rounded-xl border flex justify-between items-center ${stats.roasHealth === 'excellent' ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent opacity-60'}`}>
-                             <div>
-                                 <p className="font-black text-xs text-emerald-700 dark:text-emerald-400">ممتاز جداً (Efficent) 🚀</p>
-                                 <p className="text-[10px] text-slate-400 mt-1">عائد المبيعات أكثر من 5 أضعاف الصرف الإعلاني</p>
-                             </div>
-                             <span className="font-bold text-xs text-emerald-600">ROAS &gt; 5.0</span>
-                         </div>
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-3xl shadow-sm">
+                      <h4 className="font-bold mb-6 flex items-center gap-2">
+                          <Sparkles size={18} className="text-amber-500" /> تحليل الفعالية الإعلانية
+                      </h4>
+                      <div className="space-y-6">
+                          <div className="flex items-center justify-between">
+                              <span className="text-sm text-slate-500">جودة الحملات الحالية</span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-black ${stats.roas >= 3 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {stats.roas >= 3 ? 'مرتفعة جداً' : 'تحتاج تحسين'}
+                              </span>
+                          </div>
+                          <p className="text-xs text-slate-400 leading-relaxed">
+                              يتم احتساب هذا التحليل بناءً على المسحوبات المصنفة "مصاريف إعلانية" من الصندوق والطلبات التي مصدرها قنوات تسويقية مدفوعة.
+                          </p>
+                      </div>
+                  </div>
 
-                         <div className={`p-4 rounded-xl border flex justify-between items-center ${stats.roasHealth === 'good' ? 'bg-blue-50 dark:bg-blue-900/10 border-blue-200' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent opacity-60'}`}>
-                             <div>
-                                 <p className="font-black text-xs text-blue-700 dark:text-blue-400">جيد ومثالي (Healthy) 👍</p>
-                                 <p className="text-[10px] text-slate-400 mt-1">عائد المبيعات بين 3 - 5 أضعاف الصرف الإعلاني</p>
-                             </div>
-                             <span className="font-bold text-xs text-blue-600">3.0 - 5.0</span>
-                         </div>
-
-                         <div className={`p-4 rounded-xl border flex justify-between items-center ${stats.roasHealth === 'average' ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200' : 'bg-slate-50 dark:bg-slate-800/50 border-transparent opacity-60'}`}>
-                             <div>
-                                 <p className="font-black text-xs text-amber-700 dark:text-amber-400">هامشي (Marginal) ⚖️</p>
-                                 <p className="text-[10px] text-slate-400 mt-1">عائد المبيعات بين 1.5 - 3 أضعاف الصرف الإعلاني</p>
-                             </div>
-                             <span className="font-bold text-xs text-amber-600">1.5 - 3.0</span>
-                         </div>
-                     </div>
-                 </div>
-
-                 {/* Last spends */}
-                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
-                     <h4 className="font-extrabold text-sm border-b pb-3 mb-4 text-slate-800 dark:text-white">سجل القيود الحركية للتسويق للفترة</h4>
-                     <div className="space-y-3">
-                         {stats.sampleAdExpenses.map(t => (
-                              <div key={t.id} className="flex justify-between items-center p-3 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-dashed border-slate-100 last:border-0">
-                                  <div className="text-right">
-                                      <p className="font-bold text-xs text-slate-700 dark:text-slate-300">{t.note}</p>
-                                      <span className="text-[10px] text-slate-400 mt-1 inline-block">{new Date(t.date).toLocaleDateString('ar-EG')}</span>
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-8 rounded-3xl shadow-sm">
+                      <h4 className="font-bold mb-6 flex items-center gap-2">
+                          <History size={18} className="text-slate-400" /> آخر فواتير التسويق المسجلة
+                      </h4>
+                      <div className="space-y-3">
+                          {stats.sampleAdExpenses.map(t => (
+                               <div key={t.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-2xl">
+                                  <div>
+                                      <p className="text-xs font-bold text-slate-800 dark:text-white">{t.note}</p>
+                                      <p className="text-[10px] text-slate-400">{new Date(t.date).toLocaleDateString('ar-EG')}</p>
                                   </div>
                                   <span className="font-black text-rose-500 text-sm">-{t.amount.toLocaleString('ar-EG')} ج.م</span>
                               </div>
-                         ))}
-                         {stats.sampleAdExpenses.length === 0 && (
-                              <div className="py-12 text-center text-slate-400 opacity-40">
-                                  <Calendar size={32} className="mx-auto mb-2" />
-                                  <p className="text-xs">لم يتم رصد حركات تسويقية منفصلة بالصندوق</p>
-                              </div>
-                         )}
-                     </div>
-                 </div>
+                          ))}
+                          {stats.sampleAdExpenses.length === 0 && (
+                               <div className="py-12 text-center text-slate-400 opacity-40">
+                                   <Calendar size={32} className="mx-auto mb-2" />
+                                   <p className="text-xs">لم يتم رصد حركات تسويقية منفصلة بالصندوق</p>
+                               </div>
+                          )}
+                      </div>
+                  </div>
              </div>
         </div>
     );

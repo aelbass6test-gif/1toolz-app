@@ -238,7 +238,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
         const vatValue = hasVat ? (Math.round(taxableBase * vatRate * 100) / 100) : 0;
         
-        const isMaintenance = orderToAdd.orderType === 'maintenance';
+  const isMaintenance = orderToAdd.orderType === 'maintenance';
         const basePrice = isMaintenance ? (Number((orderToAdd as any).maintenanceCost) || 0) : (orderToAdd.productPrice - (orderToAdd.discount || 0));
         const baseTotal = basePrice + orderToAdd.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
         const returnCash = (orderToAdd.returnCashToCustomer && orderToAdd.cashToReturnAmount) ? Number(orderToAdd.cashToReturnAmount) : 0;
@@ -248,6 +248,18 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 
         const id = `order-${Date.now()}`;
         
+        // --- Helper for Unifying Names ---
+        const normalizeName = (name: string) => {
+          if (!name) return name;
+          let normalized = name.trim().replace(/\s+/g, ' ');
+          if (/^(زهره|زهرة)/.test(normalized)) {
+              if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
+                  return 'زهره شريك';
+              }
+          }
+          return normalized;
+        };
+
         // Add history log if advance payment exists
         const advanceHistory: AdvancePaymentHistoryLog[] = [];
         const diffValue = orderToAdd.advancePayment || 0;
@@ -294,8 +306,12 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 
         // Process Treasury / Partner / Employee updates
         const difference = orderWithId.advancePayment || 0;
+        let updatedHandovers = [...(settings.cashHandovers || [])];
+
         if (difference !== 0 && (orderWithId as any).advancePaymentPartnerId) {
             const partnerId = (orderWithId as any).advancePaymentPartnerId;
+            const partner = (settings.partners || []).find(p => p.id === partnerId);
+            const partnerName = normalizeName(partner?.name || 'شريك');
             const partnerTx = {
                 id: `adv-${Date.now()}`,
                 partnerId: partnerId,
@@ -305,14 +321,46 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 note: fullNote
             } as any;
             
+            // Record in Cash Handovers log
+            updatedHandovers.unshift({
+                id: `hd-p-${Date.now()}`,
+                fromUserId: 'customer',
+                fromUserName: orderWithId.customerName || 'العميل',
+                toUserId: `part_${partnerId}`,
+                toUserName: partnerName,
+                amount: Math.abs(difference),
+                date: new Date().toISOString(),
+                notes: fullNote,
+                status: 'completed'
+            } as any);
+
             setSettings(prev => ({
                 ...prev,
                 partnerTransactions: [...(prev.partnerTransactions || []), partnerTx],
-                partners: (prev.partners || []).map(p => p.id === partnerId ? { ...p, balance: (p.balance || 0) - difference } : p)
+                partners: (prev.partners || []).map(p => p.id === partnerId ? { ...p, balance: (p.balance || 0) - difference } : p),
+                cashHandovers: updatedHandovers
             }));
         } else if (difference !== 0 && (orderWithId as any).advancePaymentTreasuryId && setTreasury) {
             const treasuryId = (orderWithId as any).advancePaymentTreasuryId;
             const treasuryTxId = `tx-${Date.now()}`;
+            const targetAccount = (treasury?.accounts || []).find((a: any) => a.id === treasuryId);
+            const accountName = normalizeName(targetAccount?.name || 'الخزينة');
+
+            // Record in Cash Handovers log
+            updatedHandovers.unshift({
+                id: `hd-t-${Date.now()}`,
+                fromUserId: 'customer',
+                fromUserName: orderWithId.customerName || 'العميل',
+                toUserId: `treas_${treasuryId}`,
+                toUserName: accountName,
+                amount: Math.abs(difference),
+                date: new Date().toISOString(),
+                notes: fullNote,
+                status: 'completed'
+            } as any);
+
+            setSettings(prev => ({ ...prev, cashHandovers: updatedHandovers }));
+
             setTreasury((prev: any) => {
                 const currentTreasury = prev || { accounts: [], transactions: [] };
                 const accountsArray = Array.isArray(currentTreasury.accounts) ? currentTreasury.accounts : Object.values(currentTreasury.accounts || {});
@@ -335,9 +383,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             });
         } else if (difference !== 0 && (orderWithId as any).advancePaymentEmployeeId) {
             const empId = (orderWithId as any).advancePaymentEmployeeId;
-            const empName = empId === 'admin' 
+            const empName = normalizeName(empId === 'admin' 
                 ? 'المدير (أنت)' 
-                : (((settings.employees || []).find(e => e.id === empId)?.name) || ((settings.partners || []).find(p => p.id === empId)?.name) || 'المسؤول');
+                : (((settings.employees || []).find(e => e.id === empId)?.name) || ((settings.partners || []).find(p => p.id === empId)?.name) || 'المسؤول'));
             
             const curHolders = settings.cashHolders || [];
             const exists = curHolders.find(h => h.userId === empId);
@@ -356,8 +404,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             
             const handoverTx = {
                 id: `hd-${Date.now()}`,
-                fromUserId: 'system',
-                fromUserName: 'النظام',
+                fromUserId: 'customer',
+                fromUserName: orderWithId.customerName || 'العميل',
                 toUserId: empId,
                 toUserName: empName,
                 amount: Math.abs(difference),
@@ -369,7 +417,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             setSettings(prev => ({
                 ...prev,
                 cashHolders: updatedHolders,
-                cashHandovers: [...(prev.cashHandovers || []), handoverTx]
+                cashHandovers: [handoverTx, ...(prev.cashHandovers || [])]
             }));
         }
 

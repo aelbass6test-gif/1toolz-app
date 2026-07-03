@@ -288,6 +288,7 @@ export const TRANSACTION_CATEGORY_LABELS: Record<string, string> = {
     'supply_expense_shipping': 'مصاريف شحن مشتريات',
     'supply_expense_other': 'مصاريف أخرى / إضافية مشتريات',
     'pos_digital': 'مبيعات POS رقمية',
+    'pos_cash': 'مبيعات POS كاش (إيداع محفظة)',
     'vat': 'ضريبة القيمة المضافة'
 };
 

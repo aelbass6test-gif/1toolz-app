@@ -709,6 +709,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                 <th className="px-6 py-4.5">المبلغ الخاضع للتحصيل</th>
                 <th className="px-6 py-4.5">تكلفة المشتريات (COGS)</th>
                 <th className="px-6 py-4.5">رسوم الشحن والـ COD</th>
+                <th className="px-6 py-4.5">المستلم (العهدة)</th>
                 <th className="px-6 py-4.5 text-center">الإنتاجية (الصافي)</th>
                 <th className="px-6 py-4.5">الرابط المالي</th>
               </tr>
@@ -798,6 +799,18 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                           {cod > 0 && <span>COD: {cod}ج</span>}
                           {insuranceFee > 0 && <span>تأمين/ضريبة: { (insuranceFee + bostaVat).toFixed(0) }ج</span>}
                         </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {isPosOrder ? (
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-slate-400 uppercase mb-0.5">بعهدة:</span>
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black inline-block w-fit ${order.cashHolderId === 'credit' ? 'bg-amber-50 text-amber-700 border border-amber-200/50 dark:bg-amber-950/20 dark:text-amber-400' : 'bg-indigo-50 text-indigo-700 border border-indigo-200/50 dark:bg-indigo-950/20 dark:text-indigo-400'}`}>
+                                {order.cashHolderName || (order.cashHolderId === 'credit' ? 'حساب آجل' : 'غير محدد')}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-300 italic">شركة شحن</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="inline-flex flex-col items-center">

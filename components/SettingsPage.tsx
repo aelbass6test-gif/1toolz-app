@@ -1848,6 +1848,18 @@ const POSSettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatc
                     </div>
                     <ToggleButton active={isPosEnabled} onToggle={togglePos} variant="indigo" />
                 </div>
+
+                <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div>
+                        <span className="font-bold text-slate-700 dark:text-slate-300 block">إيقاف البيع بالعهدة (إيداع مباشر بالمحفظة)</span>
+                        <p className="text-[10px] text-slate-500 mt-1">عند التفعيل، سيتم تسجيل مبيعات POS مباشرة في رصيد المحفظة العامة بدلاً من عهدة الكاشير.</p>
+                    </div>
+                    <ToggleButton 
+                        active={settings.disableCustodySelling || false} 
+                        onToggle={() => setSettings(prev => ({ ...prev, disableCustodySelling: !prev.disableCustodySelling }))} 
+                        variant="emerald" 
+                    />
+                </div>
             </div>
         </div>
     );

@@ -440,3 +440,133 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   return Math.max(0, Math.round(totalFees * 1000) / 1000);
 };
 
+export const resolveCashHolderName = (order: Order, settings: Settings): string => {
+  if (order.channel === 'pos' && !order.cashHolderId) return 'نقطة البيع';
+  if (order.cashHolderId === 'credit') return 'حساب آجل';
+  if (order.cashHolderId === 'wallet') return 'المحفظة العامة';
+  if (order.cashHolderName) return order.cashHolderName;
+  
+  if (!order.cashHolderId) return 'غير محدد';
+  
+  const id = order.cashHolderId;
+  
+  // Try to find in settings.cashHolders
+  if (settings.cashHolders) {
+    const holder = settings.cashHolders.find(h => h.userId === id);
+    if (holder) return holder.userName;
+  }
+  
+  // Handle prefixed IDs or raw IDs
+  const rawId = id.replace(/^(emp_|part_|treas_)/, '');
+  
+  // Try to find in employees
+  if (settings.employees) {
+    const emp = settings.employees.find(e => e.id === id || e.id === rawId || (id === 'admin' && e.id === 'admin'));
+    if (emp) return emp.name;
+  }
+  
+  // Try to find in partners
+  if (settings.partners) {
+    const partner = settings.partners.find(p => p.id === id || p.id === rawId);
+    if (partner) return `${partner.name} (شريك)`;
+  }
+
+  // Try to find in treasury accounts
+  const s = settings as any;
+  if (s.treasury?.accounts) {
+    const acc = (s.treasury.accounts as any[]).find((a: any) => a.id === id || a.id === rawId);
+    if (acc) return `${acc.name} (${acc.type === 'custody' ? 'عهدة' : 'حساب'})`;
+  }
+  
+  return id === 'admin' ? 'المدير' : `عهدة (#${id})`;
+};
+
+export const getAdvancePaymentCustodyName = (order: any, settings?: any, treasury?: any): string => {
+  if (!order) return "---";
+
+  if (order.cashHolderId === 'wallet') return "أودعت في المحفظة العامة";
+
+  const isPos = order.channel === 'pos' || order.shippingCompany?.includes('كاشير');
+  const hasAdvance = (Number(order.advancePayment) || 0) > 0;
+
+  if (!hasAdvance && !isPos) return "---";
+
+  let tId = order.advancePaymentTreasuryId;
+  let pId = order.advancePaymentPartnerId;
+  let eId = order.advancePaymentEmployeeId;
+
+  // For POS orders, if custody fields are not set, try cashHolderId
+  if (isPos && !tId && !pId && !eId && order.cashHolderId) {
+    const cid = order.cashHolderId;
+    if (cid.startsWith('part_')) pId = cid.substring(5);
+    else if (cid.startsWith('emp_')) eId = cid.substring(4);
+    else if (cid.startsWith('treas_')) tId = cid.substring(6);
+    else if (cid === 'admin') eId = 'admin';
+  }
+
+  // Fallback to history log if root IDs are not set
+  if (!tId && !pId && !eId && Array.isArray(order.advancePaymentHistory) && order.advancePaymentHistory.length > 0) {
+    const lastLog = order.advancePaymentHistory.slice().reverse().find((l: any) => (l.amount > 0) && (l.recipientId || l.recipientName || l.recipientType));
+    if (lastLog) {
+      if (lastLog.recipientName) {
+        const prefix = lastLog.recipientType === 'partner' ? '🤝 عهدة شريك' : lastLog.recipientType === 'treasury' ? '🏦 خزينة / بنك' : '👤 عهدة';
+        return `${prefix}: ${lastLog.recipientName}`;
+      }
+      if (lastLog.recipientType === 'treasury') tId = lastLog.recipientId;
+      else if (lastLog.recipientType === 'partner') pId = lastLog.recipientId;
+      else if (lastLog.recipientType === 'employee') eId = lastLog.recipientId;
+    }
+  }
+
+  // Check Treasury
+  if (tId && treasury?.accounts) {
+    const accList = Array.isArray(treasury.accounts)
+      ? treasury.accounts
+      : Object.values(treasury.accounts || {});
+    const acc: any = accList.find((a: any) => String(a.id) === String(tId));
+    if (acc) {
+      return `🏦 خزينة / بنك: ${acc.name} (${acc.type || "خزينة"})`;
+    }
+    return `🏦 حساب بنكي/خزينة (#${tId})`;
+  }
+
+  // Check Partner
+  if (pId && settings?.partners) {
+    const partnerList = Array.isArray(settings.partners)
+      ? settings.partners
+      : Object.values(settings.partners || {});
+    const p: any = partnerList.find((pt: any) => String(pt.id) === String(pId));
+    if (p) {
+      return `🤝 عهدة شريك: ${p.name}`;
+    }
+    return `🤝 عهدة شريك (#${pId})`;
+  }
+
+  // Check Employee / Admin
+  if (eId) {
+    if (String(eId) === "admin") {
+      return "👤 عهدة المدير (أنت)";
+    }
+    // Check in partners first (sometimes partners are selected under employees optgroup)
+    if (settings?.partners) {
+      const partnerList = Array.isArray(settings.partners)
+        ? settings.partners
+        : Object.values(settings.partners || {});
+      const p: any = partnerList.find((pt: any) => String(pt.id) === String(eId));
+      if (p) return `🤝 عهدة شريك: ${p.name}`;
+    }
+    if (settings?.employees) {
+      const empList = Array.isArray(settings.employees)
+        ? settings.employees
+        : Object.values(settings.employees || {});
+      const emp: any = empList.find((e: any) => String(e.id) === String(eId));
+      if (emp) {
+        return `👤 عهدة موظف: ${emp.name}`;
+      }
+    }
+    return `👤 عهدة موظف (#${eId})`;
+  }
+
+  return "⚠️ غير محدد (لم يتم اختيار جهة استلام)";
+};
+

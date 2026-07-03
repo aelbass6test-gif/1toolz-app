@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order, Settings } from '../types';
-import { calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
+import { calculateInsuranceFee, getStandardShippingFee, getAdvancePaymentCustodyName } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { generateShippingLabelHTML } from '../utils/shippingLabelGenerator';
@@ -91,6 +91,18 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                         <div className="flex justify-between items-center text-sm text-amber-600">
                              <span className="font-bold">رصيد مستخدم:</span>
                              <span className="font-black">-{Number((order as any).creditAmount).toLocaleString()} ج.م</span>
+                        </div>
+                    )}
+                    {safeAdvance > 0 && (
+                        <div className="flex flex-col gap-1 py-1.5 px-2 bg-teal-50 dark:bg-teal-950/20 rounded-xl my-1 border border-teal-100 dark:border-teal-900/30">
+                            <div className="flex justify-between items-center text-sm text-teal-700 dark:text-teal-300">
+                                <span className="font-bold">العربون المقدم المدفوع:</span>
+                                <span className="font-black">-{safeAdvance.toLocaleString()} ج.م</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-teal-600 dark:text-teal-400 border-t border-teal-200/50 dark:border-teal-800/40 pt-1">
+                                <span>العهدة / جهة الاستلام:</span>
+                                <span className="font-black">{getAdvancePaymentCustodyName(order, settings)}</span>
+                            </div>
                         </div>
                     )}
                     {order.discount > 0 && (

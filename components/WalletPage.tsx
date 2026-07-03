@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet as WalletIcon, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
+import { Wallet as WalletIcon, Users, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConfirmationModal } from './ConfirmationModal';
-import { calculateOrderProfitLoss, calculateOrderShippingAndFees } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getAdvancePaymentCustodyName } from '../utils/financials';
+import { CustodyLedger } from './AccountingReports';
 import { triggerCelebration } from '../utils/celebration';
 
 const containerVariants = {
@@ -57,6 +58,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     (wallet.settings?.preferredWithdrawMethod as 'bank' | 'wallet' | 'instapay' | 'treasury') || 'bank'
   );
   
+  const [showCustody, setShowCustody] = useState(false);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const walletStats = useMemo(() => {
@@ -647,6 +649,13 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
           <motion.div variants={itemVariants} className="flex gap-3 w-full md:w-auto justify-end">
             <button
+              onClick={() => setShowCustody(!showCustody)}
+              className={`px-4 py-2 ${showCustody ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'} rounded-xl text-xs font-black cursor-pointer leading-tight flex items-center gap-1.5 transition-colors`}
+            >
+              <Users size={14} />
+              العهد النقدية
+            </button>
+            <button
               onClick={() => alert('مرحبا بك في مركز الدعم المالي! إذا كنت بحاجة إلى مساعدة، يمكنك الاستفسار من مدير الحساب المالي المخصص لك.')}
               className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-black cursor-pointer leading-tight flex items-center gap-1.5"
             >
@@ -668,6 +677,22 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
             </button>
           </motion.div>
         </div>
+
+        {/* Custody Ledger Section (Toggleable) */}
+        <AnimatePresence>
+          {showCustody && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="bg-amber-50 dark:bg-amber-900/10 border-2 border-amber-100 dark:border-amber-900/30 rounded-[2.5rem] p-6">
+                <CustodyLedger settings={settings} treasury={treasury} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Top Cards Section */}
         {walletViewMode === 'balance' ? (
@@ -931,8 +956,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         const tax = Number((o as any).tax) || 0;
 
                         const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) + tax + inspectionFee - (Number(o.discount) || 0));
-                        const { net } = calculateOrderProfitLoss(o, settings);
-                        const actualShippingFee = calculateOrderShippingAndFees(o, settings);
+                        const { net, carrierFees: actualShippingFee } = calculateOrderProfitLoss(o, settings);
                         
                         return (
                           <tr key={o.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all font-sans text-right">
@@ -1195,6 +1219,33 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             exit={{ height: 0, opacity: 0 }}
                             className="mr-12 overflow-hidden space-y-2"
                           >
+                            {(() => {
+                              const orderNum = item.orderNumber || item.id.replace('group-', '');
+                              const relatedOrder = orders.find(o => String(o.orderNumber) === String(orderNum) || o.id === orderNum);
+                              const advance = relatedOrder ? Number(relatedOrder.advancePayment) || 0 : 0;
+                              if (advance > 0 && relatedOrder) {
+                                return (
+                                  <div className="flex items-center justify-between p-4 bg-amber-50/30 dark:bg-amber-900/10 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                                    <div className="flex items-center gap-3 flex-row-reverse">
+                                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400">
+                                        <ArrowUpRight size={14}/>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">عربون مقدم للطلب #{relatedOrder.orderNumber}</p>
+                                        <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold mt-0.5">مسجل في عهدة: {getAdvancePaymentCustodyName(relatedOrder, settings, treasury)}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-baseline gap-1 flex-row-reverse">
+                                      <span className="text-sm font-black text-amber-600 dark:text-amber-400">
+                                        +{advance.toLocaleString()}
+                                      </span>
+                                      <span className="text-[10px] opacity-40">ج.م</span>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
                             {item.items.map((sub: any) => (
                               <div 
                                 key={sub.id} 

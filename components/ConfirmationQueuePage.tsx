@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Order, User, ConfirmationLog, AuditLog, OrderStatus, Settings, OrderItem, Product, Store } from '../types';
 import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft, Wallet, Shield, Banknote, Coins } from 'lucide-react';
 import EditableField from './EditableField';
+import { getAdvancePaymentCustodyName } from '../utils/financials';
 
 const QUICK_WA_TEMPLATES = [
     { id: 'no_answer', label: 'لم يتم الرد', text: 'حاولنا الاتصال بك لتأكيد طلبك ولم نتمكن من الوصول إليك. برجاء إبلاغنا بالوقت المناسب للاتصال.' },
@@ -1221,8 +1222,12 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
         // 1. Revert Old
         if (oldAmount > 0) {
             if (oldPartnerId) {
-                updatedPartners = updatedPartners.map(p => p.id === oldPartnerId ? { ...p, balance: (p.balance || 0) + oldAmount } : p);
-                updatedPartnerTxs.push({ id: `rv-${Date.now()}`, partnerId: oldPartnerId, type: 'repayment', amount: oldAmount, date: new Date().toISOString(), note: `تعديل/إلغاء عربون سابق للطلب #${activeOrder.orderNumber}` } as any);
+                const partnerName = settings.partners?.find(p => p.id === oldPartnerId)?.name || 'الشريك';
+                const partnerHolderId = `part_${oldPartnerId}`;
+                const exists = updatedHolders.find(h => h.userId === partnerHolderId || h.userId === oldPartnerId);
+                if (exists) {
+                    updatedHolders = updatedHolders.map(h => (h.userId === partnerHolderId || h.userId === oldPartnerId) ? { ...h, currentBalance: (h.currentBalance || 0) - oldAmount, lastUpdated: new Date().toISOString() } : h);
+                }
             } else if (oldTreasuryId && setTreasury) {
                 setTreasury((prev: any) => ({
                     ...prev,
@@ -1238,8 +1243,15 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
         if (newAmount > 0) {
             const applyNote = `عربون مسبق للطلب #${activeOrder.orderNumber}${advanceSenderDetails ? ` | المحول: ${advanceSenderDetails}` : ''}`;
             if (newPartnerId) {
-                updatedPartners = updatedPartners.map(p => p.id === newPartnerId ? { ...p, balance: (p.balance || 0) - newAmount } : p);
-                updatedPartnerTxs.push({ id: `ap-${Date.now()}`, partnerId: newPartnerId, type: 'customer_advance', amount: newAmount, date: new Date().toISOString(), note: applyNote } as any);
+                const partnerName = settings.partners?.find(p => p.id === newPartnerId)?.name || 'الشريك';
+                const partnerHolderId = `part_${newPartnerId}`;
+                const exists = updatedHolders.find(h => h.userId === partnerHolderId || h.userId === newPartnerId);
+                if (exists) {
+                    updatedHolders = updatedHolders.map(h => (h.userId === partnerHolderId || h.userId === newPartnerId) ? { ...h, currentBalance: (h.currentBalance || 0) + newAmount, lastUpdated: new Date().toISOString() } : h);
+                } else {
+                    updatedHolders.push({ userId: partnerHolderId, userName: partnerName, currentBalance: newAmount, lastUpdated: new Date().toISOString() });
+                }
+                updatedHandovers.push({ id: `hd-${Date.now()}`, fromUserId: 'customer', fromUserName: activeOrder.customerName, toUserId: partnerHolderId, toUserName: partnerName, amount: newAmount, date: new Date().toISOString(), notes: applyNote, status: 'completed' } as any);
             } else if (newTreasuryId && setTreasury) {
                 setTreasury((prev: any) => ({
                     ...prev,
@@ -2388,34 +2400,40 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                             }
                                         />
                                         
-                                        <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                                            <div className="flex items-center gap-2">
-                                                <span>عربون مدفوع (مقدم)</span>
-                                                {!isReadOnly && (
-                                                    <button 
-                                                        onClick={() => {
-                                                            setEditedAdvanceAmount(activeOrder.advancePayment || '');
-                                                            let type: 'partner' | 'treasury' | 'employee' | undefined;
-                                                            let id = '';
-                                                            if (activeOrder.advancePaymentPartnerId) { type = 'partner'; id = activeOrder.advancePaymentPartnerId; }
-                                                            else if (activeOrder.advancePaymentTreasuryId) { type = 'treasury'; id = activeOrder.advancePaymentTreasuryId; }
-                                                            else if ((activeOrder as any).advancePaymentEmployeeId) { type = 'employee'; id = (activeOrder as any).advancePaymentEmployeeId; }
-                                                            
-                                                            setAdvanceRecipientType(type);
-                                                            setAdvanceRecipientId(id);
-                                                            setAdvanceRecipientPhone(activeOrder.advancePaymentRecipientPhone || '');
-                                                            setAdvanceSenderDetails((activeOrder as any).advancePaymentSenderDetails || '');
-                                                            setAdvanceNotes('');
-                                                            setIsAdvanceModalOpen(true);
-                                                        }} 
-                                                        className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/10 rounded-md transition-colors"
-                                                        title="تعديل العربون"
-                                                    >
-                                                        <Edit3 size={12} />
-                                                    </button>
-                                                )}
+                                        <div className="flex flex-col gap-1 bg-emerald-50/60 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 mt-1">
+                                            <div className="flex justify-between items-center text-emerald-700 dark:text-emerald-300">
+                                                <div className="flex items-center gap-2 font-bold">
+                                                    <span>عربون مدفوع (مقدم)</span>
+                                                    {!isReadOnly && (
+                                                        <button 
+                                                            onClick={() => {
+                                                                setEditedAdvanceAmount(activeOrder.advancePayment || '');
+                                                                let type: 'partner' | 'treasury' | 'employee' | undefined;
+                                                                let id = '';
+                                                                if (activeOrder.advancePaymentPartnerId) { type = 'partner'; id = activeOrder.advancePaymentPartnerId; }
+                                                                else if (activeOrder.advancePaymentTreasuryId) { type = 'treasury'; id = activeOrder.advancePaymentTreasuryId; }
+                                                                else if ((activeOrder as any).advancePaymentEmployeeId) { type = 'employee'; id = (activeOrder as any).advancePaymentEmployeeId; }
+                                                                
+                                                                setAdvanceRecipientType(type);
+                                                                setAdvanceRecipientId(id);
+                                                                setAdvanceRecipientPhone(activeOrder.advancePaymentRecipientPhone || '');
+                                                                setAdvanceSenderDetails((activeOrder as any).advancePaymentSenderDetails || '');
+                                                                setAdvanceNotes('');
+                                                                setIsAdvanceModalOpen(true);
+                                                            }} 
+                                                            className="p-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/10 rounded-md transition-colors text-emerald-800 dark:text-emerald-300"
+                                                            title="تعديل العربون"
+                                                        >
+                                                            <Edit3 size={12} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <span className="font-black text-emerald-600 dark:text-emerald-400">-{safeAdvance.toLocaleString()} ج.م</span>
                                             </div>
-                                            <span className="font-bold">-{safeAdvance.toLocaleString()} ج.م</span>
+                                            <div className="flex justify-between items-center text-[11px] font-bold text-emerald-800 dark:text-emerald-300 border-t border-emerald-100 dark:border-emerald-900/30 pt-1.5 mt-0.5">
+                                                <span className="flex items-center gap-1"><Wallet size={12} /> العهدة / مكان الاحتفاظ بالعربون:</span>
+                                                <span className="font-black text-slate-900 dark:text-white">{getAdvancePaymentCustodyName(activeOrder, settings, treasury)}</span>
+                                            </div>
                                         </div>
                                         
                                         {activeOrder.advancePaymentHistory && activeOrder.advancePaymentHistory.length > 0 && (

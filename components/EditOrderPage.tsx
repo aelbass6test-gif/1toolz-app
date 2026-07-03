@@ -197,6 +197,20 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             ? Math.max(0, Math.round(Number(editingOrder.totalAmountOverride)))
             : baseTotal;
 
+        const id = editingOrder.id;
+
+        // --- Helper for Unifying Names ---
+        const normalizeName = (name: string) => {
+          if (!name) return name;
+          let normalized = name.trim().replace(/\s+/g, ' ');
+          if (/^(زهره|زهرة)/.test(normalized)) {
+              if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
+                  return 'زهره شريك';
+              }
+          }
+          return normalized;
+        };
+
         const updatedOrder: Order = {
             ...editingOrder,
             items,
@@ -300,6 +314,9 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         // 2. Apply New Custodian Balances
         if (newAdvance > 0) {
             if (newPartnerId) {
+                const partner = (settings.partners || []).find(p => p.id === newPartnerId);
+                const partnerName = normalizeName(partner?.name || 'شريك');
+                
                 updatedPartners = updatedPartners.map(p => 
                     p.id === newPartnerId ? { ...p, balance: (p.balance || 0) - newAdvance } : p
                 );
@@ -311,7 +328,36 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                     date: new Date().toISOString(),
                     note: applyNote
                 } as any);
+
+                // Record in Cash Handovers log
+                updatedHandovers.unshift({
+                    id: `hd-p-${Date.now()}`,
+                    fromUserId: 'customer',
+                    fromUserName: updatedOrder.customerName || 'العميل',
+                    toUserId: `part_${newPartnerId}`,
+                    toUserName: partnerName,
+                    amount: newAdvance,
+                    date: new Date().toISOString(),
+                    notes: applyNote,
+                    status: 'completed'
+                } as any);
             } else if (newTreasuryId && setTreasury) {
+                const targetAccount = (treasury?.accounts || []).find((a: any) => a.id === newTreasuryId);
+                const accountName = normalizeName(targetAccount?.name || 'الخزينة');
+
+                // Record in Cash Handovers log
+                updatedHandovers.unshift({
+                    id: `hd-t-${Date.now()}`,
+                    fromUserId: 'customer',
+                    fromUserName: updatedOrder.customerName || 'العميل',
+                    toUserId: `treas_${newTreasuryId}`,
+                    toUserName: accountName,
+                    amount: newAdvance,
+                    date: new Date().toISOString(),
+                    notes: applyNote,
+                    status: 'completed'
+                } as any);
+
                 setTreasury((prev: any) => {
                     const currentTreasury = prev || { accounts: [], transactions: [] };
                     const accountsArr = Array.isArray(currentTreasury.accounts) ? currentTreasury.accounts : Object.values(currentTreasury.accounts || {});
@@ -332,9 +378,9 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                     };
                 });
             } else if (newEmployeeId) {
-                const empName = newEmployeeId === 'admin' 
+                const empName = normalizeName(newEmployeeId === 'admin' 
                     ? 'المدير (أنت)' 
-                    : (((settings.employees || []).find(e => e.id === newEmployeeId)?.name) || ((settings.partners || []).find(p => p.id === newEmployeeId)?.name) || 'المسؤول');
+                    : (((settings.employees || []).find(e => e.id === newEmployeeId)?.name) || ((settings.partners || []).find(p => p.id === newEmployeeId)?.name) || 'المسؤول'));
                 const exists = updatedHolders.find(h => h.userId === newEmployeeId);
                 if (exists) {
                     updatedHolders = updatedHolders.map(h => 
@@ -348,7 +394,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                         lastUpdated: new Date().toISOString()
                     });
                 }
-                updatedHandovers.push({
+                updatedHandovers.unshift({
                     id: `hd-edit-${Date.now()}`,
                     fromUserId: 'customer',
                     fromUserName: updatedOrder.customerName || 'عميل',

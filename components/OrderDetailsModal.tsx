@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   X, Copy, MapPin, Phone, User as UserIcon, Package, AlertCircle, 
-  Wallet, Plus, CheckCircle2, Clock, Truck, ShieldAlert, ArrowRightLeft, 
+  Wallet as WalletIcon, Plus, CheckCircle2, Clock, Truck, ShieldAlert, ArrowRightLeft, 
   FileText, DollarSign, Calculator, ChevronRight, Share2, Printer, 
   ExternalLink, Sparkles, History, Check, AlertTriangle, HelpCircle,
   TrendingUp, TrendingDown, Layers, FileSearch, ArrowDownRight, ArrowUpRight
@@ -10,13 +10,15 @@ import { Order, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
 import { 
   calculateCodFee, calculateInsuranceFee, calculateBostaVat, 
-  isBosta, calculateOrderProfitLoss 
+  isBosta, calculateOrderProfitLoss, getAdvancePaymentCustodyName,
+  resolveCashHolderName
 } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 
 interface OrderDetailsModalProps {
   order: Order;
   settings: Settings;
+  treasury?: any;
   allOrders?: Order[];
   onClose: () => void;
   onAddTransaction?: (type: 'إيداع' | 'سحب', amount: number, note: string, category: any) => void;
@@ -25,6 +27,7 @@ interface OrderDetailsModalProps {
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ 
   order, 
   settings, 
+  treasury,
   allOrders = [], 
   onClose,
   onAddTransaction
@@ -56,7 +59,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   
   const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
   const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-  const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+  const isPosOrder = order.channel === 'pos' || order.shippingCompany?.startsWith('كاشير -') || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
   const inspectionAdjustment = !isPosOrder && (order.includeInspectionFee ?? true) ? (order.inspectionFeePaidByCustomer ? 0 : (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0))) : 0;
   const bostaVatFee = calculateBostaVat(order, insuranceFee, settings);
   const codFee = calculateCodFee(order, settings);
@@ -204,6 +207,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 </span>
                 <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                   طلب #{order.orderNumber || order.id.slice(0, 8)}
+                  {isPosOrder && <span className="text-xs font-bold text-indigo-500 mr-2 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-lg border border-indigo-100 dark:border-indigo-900/30">[{orderWarehouseName}]</span>}
                 </h2>
               </div>
               <p className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center justify-end gap-2">
@@ -498,7 +502,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <span className={`text-xs font-black uppercase tracking-widest ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                       {profit >= 0 ? '💎 الصافي الربحي المتوقع' : '⚠️ صافي الخسارة المتوقعة'}
                     </span>
-                    <Wallet size={16} className={profit >= 0 ? 'text-emerald-500' : 'text-rose-500'} />
+                    <WalletIcon size={16} className={profit >= 0 ? 'text-emerald-500' : 'text-rose-500'} />
                   </div>
                   <div className="flex items-baseline justify-end gap-1.5 mb-2">
                     <span className={`text-3xl font-black tabular-nums ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
@@ -550,7 +554,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 }`}>
                   <div className="flex items-center justify-end gap-2 mb-2 font-black text-xs">
                     <span>حالة المحفظة والدورة المالية</span>
-                    <Wallet size={16} className="text-indigo-500" />
+                    <WalletIcon size={16} className="text-indigo-500" />
                   </div>
                   <p className="text-[11px] font-bold leading-relaxed text-slate-600 dark:text-slate-400">
                     {walletMessage}
@@ -664,17 +668,30 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     )}
 
                     {safeAdvance > 0 && (
-                      <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-indigo-50/80 dark:bg-indigo-950/20 text-indigo-800 dark:text-indigo-300 rounded-2xl border border-indigo-200/50 dark:border-indigo-900/30">
-                        <span>عربون دفعة مقدمة (مستلم مسبقاً) (-)</span>
-                        <span className="font-black tabular-nums">
-                          -{safeAdvance.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
-                        </span>
+                      <div className="flex flex-col gap-1 p-3 bg-indigo-50/80 dark:bg-indigo-950/20 text-indigo-800 dark:text-indigo-300 rounded-2xl border border-indigo-200/50 dark:border-indigo-900/30">
+                        <div className="flex justify-between items-center flex-row-reverse text-sm font-bold">
+                          <span>{isPosOrder && totalAmountToCollect === 0 ? "مدفوع كاش (مستلم مسبقاً) (-)" : "عربون دفعة مقدمة (مستلم مسبقاً) (-)"}</span>
+                          <span className="font-black tabular-nums">
+                            -{safeAdvance.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center flex-row-reverse text-xs font-medium pt-1.5 border-t border-indigo-200/60 dark:border-indigo-900/40 text-indigo-950 dark:text-indigo-200">
+                          <span className="flex items-center gap-1">
+                            <WalletIcon size={13} /> 
+                            {isPosOrder && totalAmountToCollect === 0 
+                              ? "طريقة التحصيل:" 
+                              : "العهدة / مكان حفظ المبلغ:"}
+                          </span>
+                          <span className="font-black text-slate-900 dark:text-white">{resolveCashHolderName(order, settings)}</span>
+                        </div>
                       </div>
                     )}
                   </div>
 
                   <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex justify-between items-center flex-row-reverse bg-emerald-500/10 dark:bg-emerald-500/15 p-4 rounded-2xl">
-                    <span className="font-black text-slate-900 dark:text-white text-sm">إجمالي المطلوب تحصيله عند الاستلام:</span>
+                    <span className="font-black text-slate-900 dark:text-white text-sm">
+                      {totalAmountToCollect === 0 ? "الأوردر مدفوع بالكامل" : "إجمالي المطلوب تحصيله عند الاستلام:"}
+                    </span>
                     <span className="font-black text-emerald-600 dark:text-emerald-400 text-lg tabular-nums">
                       {totalAmountToCollect.toLocaleString()} <span className="text-xs font-bold">ج.م</span>
                     </span>

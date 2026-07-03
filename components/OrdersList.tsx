@@ -68,6 +68,7 @@ import {
   Hash,
   ShoppingCart,
   BookOpen,
+  Wallet as WalletIcon,
 } from "lucide-react";
 import { db } from "../services/firebaseClient";
 import {
@@ -110,9 +111,11 @@ import {
   calculateInsuranceFee,
   calculateBostaVat,
   calculateOrderShippingAndFees,
+  resolveCashHolderName,
   getStandardShippingFee,
   getOrderProductCost,
   calculateOrderProfitLoss,
+  getAdvancePaymentCustodyName,
 } from "../utils/financials";
 import { generateOrdersReportHTML } from "../utils/reportGenerator";
 import { triggerWebhooks } from "../utils/webhook";
@@ -1221,7 +1224,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             ? notes.includes(`#${orderNumberToDelete}`) || notes.includes(orderNumberToDelete)
             : false;
           const matchOrderId = orderIdToDelete
-            ? notes.includes(orderIdToDelete)
+            ? notes.includes(orderIdToDelete) || tx.orderId === orderIdToDelete || tx.orderId === orderNumberToDelete
             : false;
           
           const isMatch = matchOrderNumber || matchOrderId;
@@ -1429,6 +1432,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         transactions: updatedTransactions,
       };
     });
+
+    // 2.5 Remove associated cash handovers
+    setSettings((prev) => ({
+      ...prev,
+      cashHandovers: (prev.cashHandovers || []).filter(h => h.orderId !== orderIdToDelete)
+    }));
 
     // 3. Close the confirmation modal
     setOrderToDelete(null);
@@ -4387,6 +4396,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     order={order}
                     isSelected={selectedOrders.includes(order.id)}
                     anyFlexShipEnabled={anyFlexShipEnabled}
+                    treasury={treasury}
                     onSelect={() => handleSelectRow(order.id)}
                     onStatusChange={(status) =>
                       updateOrderStatus(order.id, status)
@@ -4478,6 +4488,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           onStatusChange={updateOrderStatus}
           onEdit={handleEditOrder}
           settings={settings}
+          treasury={treasury}
         />
       )}
 
@@ -5051,10 +5062,11 @@ const PosSourceBadge: React.FC<{ order: Order }> = ({ order }) => {
     return null;
   const storeName =
     order.shippingCompany?.replace("كاشير - ", "") || "بيع مباشر";
+  const posName = order.shippingArea && order.shippingArea !== 'نقطة البيع' ? order.shippingArea : storeName;
   return (
     <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 whitespace-nowrap">
       <Building size={12} />
-      <span>{storeName}</span>
+      <span>{posName}</span>
     </span>
   );
 };
@@ -5153,14 +5165,11 @@ const OrderCard = ({
     order.returnCashToCustomer && order.cashToReturnAmount
       ? Number(order.cashToReturnAmount)
       : 0;
+  const orderTotalValue = Math.max(0, Math.round(safeProductPrice + safeShippingFee + safeTax + inspectionFee - safeDiscount));
   const computedTotal = Math.max(
     0,
     Math.round(
-      safeProductPrice +
-        safeShippingFee +
-        safeTax +
-        inspectionFee -
-        safeDiscount -
+      orderTotalValue -
         safeAdvance -
         safeCredit -
         safeReturnCash,
@@ -5446,18 +5455,51 @@ const OrderCard = ({
             )}
           </div>
           {(order.advancePayment || 0) > 0 && (
-            <div className="text-[10px] text-teal-600 font-bold mt-1 text-right space-y-0.5">
-              <p>عربون: {order.advancePayment}</p>
+            <div className="text-[10px] font-bold mt-1 text-right space-y-1">
+              <div className="flex items-center gap-1 justify-end">
+                {isPosOrder && displayTotal === 0 ? (
+                  <span className="text-indigo-600 bg-indigo-50 dark:bg-indigo-950/30 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-1.5">
+                    <Coins size={12} />
+                    مدفوع بالكامل (كاشير): {order.advancePayment} ج.م
+                  </span>
+                ) : (
+                  <span className="text-teal-600 bg-teal-50 dark:bg-teal-950/30 px-2 py-1 rounded-lg border border-teal-100 dark:border-teal-900/30 flex items-center gap-1.5">
+                    <WalletIcon size={12} />
+                    عربون مقدم: {order.advancePayment} ج.م
+                  </span>
+                )}
+                <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                <span className="text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1">
+                  👤 {isPosOrder && displayTotal === 0 ? (order.cashHolderId === 'wallet' ? "جهة الإيداع:" : "المحصل:") : "العهدة:"} {resolveCashHolderName(order, settings)}
+                </span>
+              </div>
               {order.advancePaymentRecipientPhone && (
-                <p className="text-[9px] text-slate-500">
+                <p className="text-[9px] text-slate-500 pr-2">
                   المستلم: {order.advancePaymentRecipientPhone}
                 </p>
               )}
               {order.advancePaymentSenderDetails && (
-                <p className="text-[9px] text-slate-400">
+                <p className="text-[9px] text-slate-400 font-medium bg-slate-50 dark:bg-slate-800/50 px-2 py-0.5 rounded-lg border border-slate-100 dark:border-slate-800 inline-block">
                   المحول: {order.advancePaymentSenderDetails}
                 </p>
               )}
+            </div>
+          )}
+          {isPosOrder && (order.advancePayment || 0) === 0 && (
+            <div className="flex items-center gap-1 justify-end mt-1">
+              <span className="text-[10px] font-bold text-slate-500 italic">
+                {order.paymentStatus === 'بانتظار الدفع' ? 'بانتظار التحصيل' : 'مدفوع'}
+              </span>
+              <div className="w-1 h-1 bg-slate-300 rounded-full" />
+              <span className="text-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 px-1.5 py-0.5 rounded-md text-[9px] font-black">
+                👤 {resolveCashHolderName(order, settings)}
+              </span>
+            </div>
+          )}
+          {!isPosOrder && displayTotal > 0 && (
+            <div className="text-[9px] font-black text-amber-600 mt-1 text-right flex items-center justify-end gap-1">
+              <span>المتبقي عند الاستلام: {displayTotal.toLocaleString()} ج.م</span>
+              <Truck size={10} />
             </div>
           )}
         </div>
@@ -5574,14 +5616,17 @@ const ShippingDetailsCard: React.FC<{ order: Order }> = ({ order }) => {
 const ProfitBreakdown: React.FC<{
   order: Order;
   settings: Settings;
+  treasury?: any;
   onToggleFlexShipPaid?: () => void;
-}> = ({ order, settings, onToggleFlexShipPaid }) => {
+}> = ({ order, settings, treasury, onToggleFlexShipPaid }) => {
   const safeProductPrice = Number(order.productPrice) || 0;
   const safeShippingFee = Number(order.shippingFee) || 0;
   const safeAdminFee = Number(order.adminFee) || 0;
   const safeDiscount = Number(order.discount) || 0;
   const safeProductCost = Number(order.productCost) || 0;
   const safeAdvance = Number(order.advancePayment) || 0;
+  const safeCredit = Number((order as any).creditAmount) || 0;
+  const safeReturnCash = order.returnCashToCustomer && (order as any).cashToReturnAmount ? Number((order as any).cashToReturnAmount) : 0;
 
   // Calculate Standard Shipping Fee for expense side
   const standardShippingFee = getStandardShippingFee(order, settings);
@@ -5623,18 +5668,20 @@ const ProfitBreakdown: React.FC<{
     (order.includeInspectionFee !== false && !isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
 
   const baseRevenue =
-    safeProductPrice + safeShippingFee + safeTax + inspectionRevenue;
+    safeProductPrice + safeShippingFee + safeTax + inspectionRevenue + safeAdminFee;
+
+  const expectedCollectionAmount = baseRevenue - safeDiscount - safeAdvance - safeCredit - safeReturnCash;
 
   const amountCollectedFromCustomer =
     order.totalAmountOverride !== undefined &&
     order.totalAmountOverride !== null &&
     String(order.totalAmountOverride).trim() !== ""
       ? Number(order.totalAmountOverride)
-      : baseRevenue - safeDiscount - safeAdvance;
+      : expectedCollectionAmount;
 
-  const manualDifference = amountCollectedFromCustomer - (baseRevenue - safeDiscount);
+  const manualDifference = amountCollectedFromCustomer - expectedCollectionAmount;
 
-  const extraAdjustment = 0;
+  const extraAdjustment = manualDifference;
 
   const totalExpenses =
     safeProductCost +
@@ -5689,7 +5736,7 @@ const ProfitBreakdown: React.FC<{
 
   const netProfit = isReturnedOrFailed
     ? flexPaidAmount - carrierCost - flexCompanyFeePaid
-    : baseRevenue - safeDiscount - extraAdjustment - totalExpenses;
+    : baseRevenue - safeDiscount + extraAdjustment - totalExpenses;
 
   const profitLabel = isReturnedOrFailed
     ? netProfit >= 0
@@ -5815,16 +5862,22 @@ const ProfitBreakdown: React.FC<{
                   </div>
                 )}
                 {safeAdvance > 0 && (
-                  <div className="flex justify-between items-center flex-row-reverse text-sm mb-2">
-                    <span className="text-slate-500 font-bold">عربون / دفعة مقدمة</span>
-                    <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                      +
-                      {safeAdvance.toLocaleString(undefined, {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
-                      })}{" "}
-                      ج.م
-                    </span>
+                  <div className="flex flex-col gap-1 p-2 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-xl mb-2 border border-emerald-100 dark:border-emerald-900/30">
+                    <div className="flex justify-between items-center flex-row-reverse text-sm">
+                      <span className="text-slate-500 font-bold">عربون / دفعة مقدمة</span>
+                      <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        +
+                        {safeAdvance.toLocaleString(undefined, {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 3,
+                        })}{" "}
+                        ج.م
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center flex-row-reverse text-xs pt-1 border-t border-emerald-100 dark:border-emerald-900/30 text-emerald-800 dark:text-emerald-300">
+                      <span className="font-bold">العهدة / جهة الاستلام:</span>
+                      <span className="font-black">{getAdvancePaymentCustodyName(order, settings, treasury)}</span>
+                    </div>
                   </div>
                 )}
                 <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-100 dark:border-slate-700/50">
@@ -5834,7 +5887,7 @@ const ProfitBreakdown: React.FC<{
                   <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
                     +
                     {(
-                      baseRevenue - safeDiscount - extraAdjustment
+                      baseRevenue - safeDiscount + extraAdjustment
                     ).toLocaleString(undefined, {
                       minimumFractionDigits: 0,
                       maximumFractionDigits: 3,
@@ -6150,7 +6203,7 @@ const ProfitBreakdown: React.FC<{
             <div className="flex justify-between items-center flex-row-reverse">
               <span className="text-slate-500">إجمالي فاتورة العميل:</span>
               <span className="text-slate-700 dark:text-slate-300">
-                {(amountCollectedFromCustomer).toLocaleString(undefined, {
+                {(amountCollectedFromCustomer + safeAdvance + safeCredit + safeReturnCash).toLocaleString(undefined, {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 3,
                 })}{" "}
@@ -6158,8 +6211,8 @@ const ProfitBreakdown: React.FC<{
               </span>
             </div>
             {safeAdvance > 0 && (
-              <div className="space-y-1 py-1 border-y border-slate-100/50 dark:border-slate-800/50 my-1">
-                <div className="flex justify-between items-center flex-row-reverse text-teal-600 dark:text-teal-400">
+              <div className="space-y-1.5 py-1.5 border-y border-slate-100/50 dark:border-slate-800/50 my-1">
+                <div className="flex justify-between items-center flex-row-reverse text-teal-600 dark:text-teal-400 font-bold">
                   <span>العربون المستلم مقدماً:</span>
                   <span>
                     -
@@ -6169,6 +6222,10 @@ const ProfitBreakdown: React.FC<{
                     })}{" "}
                     ج.م
                   </span>
+                </div>
+                <div className="flex justify-between items-center flex-row-reverse text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                  <span className="flex items-center gap-1.5"><WalletIcon size={14} /> في عهدة (مكان حفظ العربون):</span>
+                  <span className="font-black text-slate-900 dark:text-white">{getAdvancePaymentCustodyName(order, settings, treasury)}</span>
                 </div>
                 {(order.advancePaymentRecipientPhone ||
                   order.advancePaymentSenderDetails) && (
@@ -6233,7 +6290,7 @@ const ProfitBreakdown: React.FC<{
               <span>
                 {Math.max(
                   0,
-                  amountCollectedFromCustomer - safeAdvance,
+                  amountCollectedFromCustomer,
                 ).toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
                 ج.م
               </span>
@@ -6378,6 +6435,7 @@ const OrderRow = ({
   whatsappLink,
   settings,
   anyFlexShipEnabled,
+  treasury,
 }: {
   order: Order;
   isSelected: boolean;
@@ -6399,6 +6457,7 @@ const OrderRow = ({
   whatsappLink: string;
   settings: Settings;
   anyFlexShipEnabled?: boolean;
+  treasury?: any;
   key?: any;
 }) => {
   const navigate = useNavigate();
@@ -6458,14 +6517,11 @@ const OrderRow = ({
     order.returnCashToCustomer && order.cashToReturnAmount
       ? Number(order.cashToReturnAmount)
       : 0;
+  const orderTotalValue = Math.max(0, Math.round(safeProductPrice + safeShippingFee + safeTax + inspectionFee - safeDiscount));
   const computedTotal = Math.max(
     0,
     Math.round(
-      safeProductPrice +
-        safeShippingFee +
-        safeTax +
-        inspectionFee -
-        safeDiscount -
+      orderTotalValue -
         safeAdvance -
         safeCredit -
         safeReturnCash,
@@ -6685,8 +6741,8 @@ const OrderRow = ({
           <div className="text-right space-y-1 relative">
             <div className="flex flex-col items-end gap-1 justify-end group/collection">
               <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
-                <span className="text-lg font-black text-slate-900 dark:text-white tabular-nums drop-shadow-sm">
-                  {displayTotal.toLocaleString(undefined, {
+                <span className={`text-lg font-black tabular-nums drop-shadow-sm ${isPosOrder && displayTotal === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
+                  {(isPosOrder && displayTotal === 0 ? orderTotalValue : displayTotal).toLocaleString(undefined, {
                     minimumFractionDigits: 0,
                     maximumFractionDigits: 3,
                   })}
@@ -6695,6 +6751,39 @@ const OrderRow = ({
                   ج.م
                 </span>
               </div>
+              {isPosOrder && displayTotal === 0 && (
+                <div className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30">
+                  مدفوع بالكامل (كاشير)
+                </div>
+              )}
+              {safeTax > 0 && (
+                <div className="flex items-center gap-1 px-2 py-0.5 mt-1 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-md">
+                  <Receipt size={10} />
+                  <span className="text-[9px] font-black">ضريبة: {safeTax.toLocaleString()} ج.م</span>
+                </div>
+              )}
+              {safeAdvance > 0 && !(isPosOrder && displayTotal === 0) && (
+                <div className="flex flex-col items-end gap-0.5 px-2 py-1 mt-1 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 rounded-lg border border-teal-200/50 dark:border-teal-800/40 w-max ml-auto text-[9px]">
+                  <div className="flex items-center gap-1 font-black">
+                    <Coins size={10} />
+                    <span>عربون مقدم: -{safeAdvance.toLocaleString()} ج.م</span>
+                  </div>
+                  <div className="font-bold text-[8px] opacity-90">
+                    في عهدة: {getAdvancePaymentCustodyName(order, settings, treasury)}
+                  </div>
+                </div>
+              )}
+              {isPosOrder && displayTotal === 0 && (
+                <div className="flex flex-col items-end gap-0.5 px-2 py-1 mt-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg border border-indigo-200/50 dark:border-indigo-800/40 w-max ml-auto text-[9px]">
+                   <div className="flex items-center gap-1 font-black">
+                    <Coins size={10} />
+                    <span>تم التحصيل نقداً: {orderTotalValue.toLocaleString()} ج.م</span>
+                  </div>
+                  <div className="font-bold text-[8px] opacity-90">
+                    {isPosOrder && displayTotal === 0 ? (order.cashHolderId === 'wallet' ? "جهة الإيداع:" : "جهة التحصيل:") : "في عهدة:"} {resolveCashHolderName(order, settings)}
+                  </div>
+                </div>
+              )}
               {displayTotal !== standardRequiredTotal && (
                 <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-100/50 dark:border-slate-800/50">
                   <div className="flex items-center gap-1">
@@ -7088,7 +7177,8 @@ const KanbanView: React.FC<{
   onStatusChange: (id: string, newStatus: OrderStatus) => void;
   onEdit: (order: Order) => void;
   settings: Settings;
-}> = ({ orders, onStatusChange, onEdit, settings }) => {
+  treasury?: any;
+}> = ({ orders, onStatusChange, onEdit, settings, treasury }) => {
   const [activeStatusDropdown, setActiveStatusDropdown] = useState<string | null>(null);
 
   const columns: OrderStatus[] = [
@@ -7161,16 +7251,19 @@ const KanbanView: React.FC<{
 
             {/* Column Cards Container */}
             <div className="flex-1 space-y-3.5">
-              {columnOrders.map((order, oIdx) => (
-                <motion.div
-                  key={order.id}
-                  layoutId={order.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 + oIdx * 0.03 }}
-                  className="bg-white/90 dark:bg-[#0f1523]/90 backdrop-blur-md p-5 rounded-[1.75rem] border border-slate-200/70 dark:border-white/10 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all cursor-pointer group relative overflow-visible"
-                  onClick={() => onEdit(order)}
-                >
+              {columnOrders.map((order, oIdx) => {
+                const safeTax = Number(order.tax) || 0;
+                const safeAdvance = Number(order.advancePayment) || 0;
+                return (
+                  <motion.div
+                    key={order.id}
+                    layoutId={order.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.05 + oIdx * 0.03 }}
+                    className="bg-white/90 dark:bg-[#0f1523]/90 backdrop-blur-md p-5 rounded-[1.75rem] border border-slate-200/70 dark:border-white/10 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all cursor-pointer group relative overflow-visible"
+                    onClick={() => onEdit(order)}
+                  >
                   {/* Left status color accent line */}
                   <div
                     className={`absolute top-0 right-0 w-1.5 h-full rounded-r-[1.75rem] opacity-70 ${statusColors[status].split(" ")[0].replace("border-", "bg-")}`}
@@ -7243,6 +7336,22 @@ const KanbanView: React.FC<{
                     </div>
                   </div>
 
+                  {safeTax > 0 && (
+                    <div className="mt-2 flex items-center justify-end gap-1 px-2 py-1 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-lg text-[10px] font-black w-max ml-auto">
+                      <Receipt size={11} />
+                      <span>ضريبة: {safeTax.toLocaleString()} ج.م</span>
+                    </div>
+                  )}
+                  {safeAdvance > 0 && (
+                    <div className="mt-2 flex flex-col items-end gap-0.5 px-2 py-1 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300 rounded-lg text-[10px] font-black w-max ml-auto border border-teal-200/50 dark:border-teal-800/40">
+                      <div className="flex items-center gap-1">
+                        <Coins size={11} />
+                        <span>عربون مقدم: -{safeAdvance.toLocaleString()} ج.م</span>
+                      </div>
+                      <span className="text-[9px] font-bold opacity-90">في عهدة: {getAdvancePaymentCustodyName(order, settings, treasury)}</span>
+                    </div>
+                  )}
+
                   {/* Assigned Employee Tag if available */}
                   {order.assignedToName && (
                     <div className="mt-2 pt-2 border-t border-slate-100/60 dark:border-white/5 flex items-center justify-end gap-1.5 text-[10px] font-bold text-slate-400">
@@ -7250,7 +7359,8 @@ const KanbanView: React.FC<{
                     </div>
                   )}
                 </motion.div>
-              ))}
+              );
+            })}
 
               {/* Clean Executive Empty State */}
               {columnOrders.length === 0 && (
