@@ -17,6 +17,9 @@ import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { getLatestProductCost } from '../utils/financials';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
+import { SupplyOrderModal } from './SupplyOrderModal';
+import { WarehousesTab } from './WarehousesTab';
+import { SuppliersTab } from './SuppliersTab';
 
 interface SuppliersPageProps {
   settings: Settings;
@@ -1595,81 +1598,6 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
     showAlert("نجاح الإرجاع", `تم بنجاح إرجاع السلع للمورد وتحديث المخزون والمالية بقيمة ${totalReturnCost} ج.م`, "success");
   };
 
-const ProductSelect = ({ value, onChange, products }: { value: string, onChange: (val: string) => void, products: any[] }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [search, setSearch] = useState('');
-    const containerRef = React.useRef<HTMLDivElement>(null);
-    
-    const selectedProduct = products.find(p => p.id === value);
-    const filtered = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
-
-    React.useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    return (
-        <div className="relative" ref={containerRef}>
-            <button 
-                type="button" 
-                onClick={() => setIsOpen(!isOpen)} 
-                className="w-full flex items-center gap-2 sm:gap-3 p-2 sm:p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs sm:text-sm font-bold text-right hover:bg-slate-50 dark:hover:bg-slate-700 transition-all outline-none"
-            >
-                <div className="w-6 h-6 sm:w-8 sm:h-8 rounded bg-slate-100 dark:bg-slate-700 flex-shrink-0 overflow-hidden">
-                    {selectedProduct?.thumbnail ? (
-                        <img src={selectedProduct.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-400">
-                            <Package size={14} />
-                        </div>
-                    )}
-                </div>
-                <span className="flex-1 text-slate-800 dark:text-slate-200 truncate">{selectedProduct?.name || 'اختر منتجاً'}</span>
-                <Plus size={12} className={`text-slate-400 transition-transform ${isOpen ? 'rotate-45' : ''}`} />
-            </button>
-
-            {isOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden">
-                    <div className="p-2 border-b border-slate-100 dark:border-slate-800">
-                        <input 
-                            autoFocus
-                            type="text"
-                            placeholder="ابحث..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none"
-                        />
-                    </div>
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar">
-                        {filtered.map(p => (
-                            <div 
-                                key={p.id} 
-                                onClick={() => { onChange(p.id); setIsOpen(false); }} 
-                                className="flex items-center gap-3 p-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer border-b border-slate-50 dark:border-slate-800/50 last:border-0"
-                            >
-                                <div className="w-10 h-10 rounded bg-slate-100 dark:bg-slate-700 flex-shrink-0 overflow-hidden">
-                                    {p.thumbnail ? (
-                                        <img src={p.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                    ) : <Package size={18} className="m-auto text-slate-300" />}
-                                </div>
-                                <div className="flex-1 text-right">
-                                    <p className="font-bold text-slate-800 dark:text-slate-200 text-xs">{p.name}</p>
-                                    <p className="text-[10px] text-slate-500 mt-0.5">تكلفة: {p.costPrice} ج.م</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
   const handleRecordPayment = () => {
     if (!selectedSupplierForPayment || paymentAmount <= 0) return;
 
@@ -1836,7 +1764,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
             variantId: v.id,
             name,
             sku: v.sku || p.sku || '',
-            stock: v.stockQuantity ?? 0,
+            stock: v.stockQuantity ?? (v as any).stock ?? 0,
             cost,
             price,
             collectionId: p.collectionId,
@@ -1853,7 +1781,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           productId: p.id,
           name: p.name,
           sku: p.sku || '',
-          stock: p.stockQuantity ?? p.stock ?? 0,
+          stock: p.stockQuantity ?? (p as any).stock ?? 0,
           cost,
           price,
           collectionId: p.collectionId,
@@ -1922,6 +1850,29 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
       lowStockCount
     };
   }, [allInventoryItems]);
+
+  const handleQuickReplenishStock = () => {
+    const updatedProducts = (settings.products || []).map(p => {
+      if (p.hasVariants && p.variants && p.variants.length > 0) {
+        const updatedVariants = p.variants.map(v => {
+          const currentStock = v.stockQuantity ?? (v as any).stock ?? 0;
+          return currentStock <= (p.stockThreshold || 5) ? { ...v, stockQuantity: 50, stock: 50 } : v;
+        });
+        const totalStock = updatedVariants.reduce((acc, v) => acc + (v.stockQuantity || 0), 0);
+        return { ...p, variants: updatedVariants, stockQuantity: totalStock, stock: totalStock, inStock: totalStock > 0 };
+      } else {
+        const currentStock = p.stockQuantity ?? (p as any).stock ?? 0;
+        return currentStock <= (p.stockThreshold || 5) ? { ...p, stockQuantity: 50, stock: 50, inStock: true } : p;
+      }
+    });
+
+    updateSettings({
+      ...settings,
+      products: updatedProducts
+    });
+    audioSynth.playTone('success');
+    showAlert('تم التغذية والشحن بنجاح', 'تم شحن وتغذية أرصدة كافة المنتجات المنفذة أو الحرجة في المخزون المركزي بـ 50 قطعة لكل صنف!', 'success');
+  };
 
   // 4. Calculate comprehensive Supplier scorecard summaries for analytics page
   const supplierPerformanceStats = React.useMemo(() => {
@@ -2012,7 +1963,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
   }, [settings.supplyOrders, settings.products]);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-16 px-4 sm:px-8" dir="rtl">
+    <div className="w-full max-w-[1900px] mx-auto space-y-8 pb-16 px-4 sm:px-6 md:px-8 lg:px-10" dir="rtl">
       {/* Premium Elegant Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
         <div>
@@ -2096,7 +2047,7 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
       </div>
 
       {/* Modern Capsule Tab Bar Navigator */}
-      <div className="flex gap-2 bg-slate-100 dark:bg-slate-800/60 p-1.5 rounded-3xl border border-slate-200/40 dark:border-slate-700/40 w-full sm:w-fit overflow-x-auto select-none scrollbar-none">
+      <div className="flex gap-2 bg-slate-100 dark:bg-slate-800/60 p-2 rounded-3xl border border-slate-200/60 dark:border-slate-700/60 w-full overflow-x-auto select-none scrollbar-none shadow-sm">
         <button 
           onClick={() => { audioSynth.playTone('click'); setActiveTab('orders'); }} 
           className={`flex-1 sm:flex-none px-5 py-3 rounded-2xl text-xs font-black transition-all whitespace-nowrap cursor-pointer flex items-center justify-center gap-2 ${
@@ -2202,12 +2153,37 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
 
           <div className="grid gap-5">
             {(!settings.supplyOrders || settings.supplyOrders.length === 0) ? (
-              <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-100 dark:border-slate-800/80">
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 text-slate-400 w-fit mx-auto rounded-full mb-4">
+              <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-100 dark:border-slate-800/80 space-y-4">
+                <div className="p-4 bg-indigo-50 dark:bg-slate-800/60 text-indigo-500 w-fit mx-auto rounded-full shadow-sm">
                   <Package size={40} />
                 </div>
-                <h4 className="text-base font-bold text-slate-700 dark:text-slate-200">لا توجد أوامر توريد مسجلة حتى الآن</h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto mt-2">سجل أولى فواتير التوريد لزيادة مخزون سلعك وتسجيل المعاملات المالية المترتبة عليها.</p>
+                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">لا توجد أوامر توريد أو فواتير مشتريات مسجلة حتى الآن</h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">سجل أولى فواتير التوريد لزيادة مخزون سلعك وتسجيل المعاملات المالية والمديونيات المترتبة عليها.</p>
+                <div className="pt-3 flex flex-wrap justify-center gap-3">
+                  <button
+                    onClick={() => {
+                      setOrderReference('');
+                      setOrderNotes('');
+                      setOrderItems([]);
+                      setShippingFees(0);
+                      setOtherFees(0);
+                      setTaxRate(0);
+                      setDistributeExpensesEqually(false);
+                      setRecordExpensesFormally(false);
+                      setCostUpdateMethod('last_purchase');
+                      setSelectedTreasuryAccountId('');
+                      setTreasuryPayments([]);
+                      setIsSplitTreasury(false);
+                      const defaultWh = settings.warehouses?.find(w => w.isDefault);
+                      setSelectedWarehouseId(defaultWh?.id || '');
+                      setShowOrderModal(true);
+                    }}
+                    className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-2xl font-black text-xs transition-all cursor-pointer shadow-xl shadow-indigo-600/30 hover:-translate-y-0.5"
+                  >
+                    <Plus size={16} />
+                    <span>⚡ تسجيل أول أمر شراء وتوريد بضاعة الآن</span>
+                  </button>
+                </div>
               </div>
             ) : (
               (settings.supplyOrders || []).map(order => {
@@ -2493,237 +2469,19 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           transition={{ type: "spring", stiffness: 290, damping: 25 }}
           className="space-y-6"
         >
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 dark:border-slate-800">
-            <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
-              <span className="w-1.5 h-6 bg-indigo-500 rounded-full"></span>
-              قائمة الشركاء والمورّدين الماليين
-            </h3>
-            <button 
-              onClick={() => { 
-                setEditingSupplier(null); 
-                setNewSupplier({name:'', phone:'', address:'', notes:''}); 
-                setShowSupplierModal(true); 
-              }} 
-              className="flex items-center gap-2 bg-indigo-650 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-2xl font-black text-xs sm:text-sm shadow-lg shadow-indigo-600/15 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 cursor-pointer"
-            >
-              <UserPlus size={18}/> 
-              <span>إضافة شريك توريد جديد</span>
-            </button>
-          </div>
-
-          {(!settings.suppliers || settings.suppliers.length === 0) ? (
-            <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-100 dark:border-slate-800/80">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 text-slate-400 w-fit mx-auto rounded-full mb-4">
-                <User size={40} />
-              </div>
-              <h4 className="text-base font-bold text-slate-700 dark:text-slate-200">لم يتم تسجيل أي موردين باصقة</h4>
-              <p className="text-xs text-slate-400 max-w-sm mx-auto mt-2">باشر بإضافة شركاء التوريد الماليين والمقرضين لتسجيل طلبيات استيراد المخازن وحفظ صفقات الآجل.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {(settings.suppliers || []).map(supplier => {
-                  const supplierOrders = (settings.supplyOrders || []).filter(o => o.supplierId === supplier.id);
-                  const supplierReturns = (settings.purchaseReturns || []).filter(r => r.supplierId === supplier.id);
-                  
-                  const purchasesCount = supplierOrders.filter(o => o.status === 'completed').length;
-                  const returnsCount = supplierReturns.length;
-
-                  return (
-                    <div key={supplier.id} className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-[2.2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700 transition-all duration-300">
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-start gap-4">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-base border shrink-0 ${getAvatarColor(supplier.name)}`}>
-                              {(supplier.name || 'م')[0]}
-                            </div>
-                            <div className="text-right">
-                              <h3 className="font-extrabold text-base dark:text-white truncate max-w-[180px] sm:max-w-xs">{supplier.name}</h3>
-                              <p className="text-slate-400 text-xs font-semibold flex items-center gap-1 mt-0.5" dir="ltr">
-                                <Phone size={12} className="text-slate-400"/>
-                                <span>{supplier.phone || 'بلا رقم هاتف'}</span>
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Display Liabilities Pill if balance > 0 */}
-                          {(supplier.balance || 0) > 0 ? (
-                            <span className="text-[10px] font-black bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 px-3 py-1.5 rounded-2xl border border-rose-100/60 dark:border-rose-900/30 whitespace-nowrap shadow-sm">
-                              مديونية: {supplier.balance?.toLocaleString()} ج.م
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-black bg-indigo-50/50 dark:bg-slate-800/80 text-indigo-505 text-indigo-500 px-3 py-1.5 rounded-2xl border border-slate-100 dark:border-slate-800/50 whitespace-nowrap">
-                              مخلص بالكامل
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Transaction Counts */}
-                        <div className="grid grid-cols-2 gap-2">
-                           <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50 flex flex-col items-center justify-center transition-colors">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">عمليات الشراء</span>
-                              <span className="text-sm font-black text-slate-800 dark:text-slate-200">{purchasesCount}</span>
-                           </div>
-                           <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50 flex flex-col items-center justify-center transition-colors">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">مرتجع / استبدال</span>
-                              <span className="text-sm font-black text-slate-800 dark:text-slate-200">{returnsCount}</span>
-                           </div>
-                        </div>
-
-                    {supplier.address && (
-                      <p className="text-slate-500 dark:text-slate-455 text-xs bg-slate-50/50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100/60 dark:border-slate-800/50 leading-relaxed text-right">
-                        {supplier.address}
-                      </p>
-                    )}
-
-                    {supplier.notes && (
-                      <div className="bg-amber-50/20 dark:bg-amber-950/10 p-3 rounded-2xl border border-dashed border-amber-500/10 text-right">
-                        <span className="font-extrabold text-[9px] text-amber-600 block mb-1">ملاحظات العمل:</span>
-                        <p className="text-slate-400 text-[11px] leading-relaxed italic">{supplier.notes}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-850 flex justify-between items-center gap-3">
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => {
-                          const supplierOrders = (settings.supplyOrders || []).filter(o => o.supplierId === supplier.id);
-                          const dateStr = new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                          
-                          const html = `
-                            <!DOCTYPE html>
-                            <html dir="rtl" lang="ar">
-                            <head>
-                              <meta charset="utf-8">
-                              <title>كشف حساب المورد - ${supplier.name}</title>
-                              <style>
-                                body { font-family: 'Cairo', system-ui, sans-serif; padding: 30px; color: #1e293b; line-height: 1.6; }
-                                .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #6366f1; padding-bottom: 20px; margin-bottom: 30px; }
-                                .header h1 { font-size: 24px; font-weight: 900; margin: 0; color: #0f172a; }
-                                .meta-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
-                                .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; }
-                                .meta-label { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; }
-                                .meta-val { font-size: 15px; font-weight: 800; color: #334155; margin-top: 5px; }
-                                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                                th { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 12px; text-align: right; font-size: 12px; font-weight: 900; }
-                                td { border: 1px solid #f1f5f9; padding: 12px; font-size: 12px; }
-                                .text-left { text-align: left; font-family: monospace; }
-                                .footer { margin-top: 40px; border-top: 2px solid #0f172a; padding-top: 20px; display: flex; justify-content: flex-end; }
-                                .balance-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 20px; border-radius: 15px; text-align: center; min-width: 250px; }
-                                .balance-label { font-size: 12px; font-weight: bold; color: #166534; }
-                                .balance-val { font-size: 28px; font-weight: 900; color: #14532d; margin-top: 5px; }
-                                @media print { body { padding: 0; } }
-                              </style>
-                            </head>
-                            <body>
-                              <div class="header">
-                                <div>
-                                  <h1>كشف حساب مورد كلي</h1>
-                                  <p style="color: #64748b; font-size: 13px; font-weight: bold;">تاريخ استخراج التقرير: ${dateStr}</p>
-                                </div>
-                                <div style="text-align: left;">
-                                  <div style="font-weight: 900; font-size: 20px; color: #6366f1;">${supplier.name}</div>
-                                  <div style="font-size: 13px; color: #94a3b8; font-weight: bold;">هاتف: ${supplier.phone || '-'}</div>
-                                </div>
-                              </div>
-
-                              <div class="meta-grid">
-                                <div class="meta-box">
-                                  <div class="meta-label">إجمالي عدد التعاملات الاستيرادية:</div>
-                                  <div class="meta-val">${supplierOrders.length} طلبية شراء</div>
-                                </div>
-                                <div class="meta-box">
-                                  <div class="meta-label">إجمالي قيمة المسحوبات التاريخية (فواتير):</div>
-                                  <div class="meta-val">${supplierOrders.reduce((sum, o) => sum + (o.grandTotal || o.totalCost), 0).toLocaleString()} ج.م</div>
-                                </div>
-                              </div>
-
-                              <h3 style="margin-bottom: 10px;">سجل الفواتير والطلبيات:</h3>
-                              <table>
-                                <thead>
-                                  <tr>
-                                    <th>التاريخ</th>
-                                    <th>رقم المرجع / الفاتورة</th>
-                                    <th>وسيلة التمويل</th>
-                                    <th style="text-align: center;">الأصناف</th>
-                                    <th class="text-left">قيمة الفاتورة</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  ${supplierOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(order => `
-                                    <tr>
-                                      <td>${new Date(order.date).toLocaleDateString('ar-EG')}</td>
-                                      <td><strong>${order.referenceNumber || order.id.slice(0, 8)}</strong></td>
-                                      <td>${order.paymentMethod === 'credit' ? 'آجل' : order.paymentMethod === 'cash' ? 'نقدي' : order.paymentMethod === 'treasury' ? 'خزينة' : 'أخرى'}</td>
-                                      <td style="text-align: center;">${order.items.length} قطع</td>
-                                      <td class="text-left">${(order.grandTotal || order.totalCost).toLocaleString()} ج.م</td>
-                                    </tr>
-                                  `).join('')}
-                                </tbody>
-                              </table>
-
-                              <div class="footer">
-                                <div class="balance-box">
-                                  <div class="balance-label">صافي إجمالي المديونية الحالية المعلقة:</div>
-                                  <div class="balance-val">${(supplier.balance || 0).toLocaleString()} ج.م</div>
-                                </div>
-                              </div>
-
-                              <div style="margin-top: 100px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 20px;">
-                                يتم مراجعة هذا الكشف وتوقيعه من كلا الطرفين لإبراء الذمة المالية.
-                              </div>
-                            </body>
-                            </html>
-                          `;
-                          
-                          const prt = window.open('', '_blank');
-                          if (prt) {
-                            prt.document.write(html);
-                            prt.document.close();
-                            setTimeout(() => prt.print(), 500);
-                          }
-                        }} 
-                        className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all cursor-pointer" 
-                        title="طباعة كشف حساب المورد"
-                      >
-                        <Printer size={16}/>
-                      </button>
-                      <button 
-                        onClick={() => startEditSupplier(supplier)} 
-                        className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all cursor-pointer" 
-                        title="تعديل بيانات المورد"
-                      >
-                        <Edit2 size={16}/>
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteSupplier(supplier.id)} 
-                        className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all cursor-pointer" 
-                        title="حذف المورد نهائياً"
-                      >
-                        <Trash2 size={16}/>
-                      </button>
-                    </div>
-
-                    {(supplier.balance || 0) > 0 && (
-                      <button 
-                        onClick={() => { 
-                          setSelectedSupplierForPayment(supplier); 
-                          setPaymentAmount(supplier.balance || 0); 
-                          setShowPaymentModal(true); 
-                        }} 
-                        className="flex items-center gap-1 px-4 py-2 bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 font-extrabold text-xs rounded-xl border border-emerald-100 dark:border-emerald-900/30 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all cursor-pointer"
-                        title="تسجيل دفعة سداد"
-                      >
-                        <DollarSign size={13}/>
-                        <span>تسجيل سداد مديونية</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            </div>
-          )}
+          <SuppliersTab
+            settings={settings}
+            setSettings={setSettings}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
+            onOpenPaymentModal={(supplier) => {
+              setSelectedSupplierForPayment(supplier);
+              setShowPaymentModal(true);
+            }}
+            onOpenNewOrderModal={(supplierId) => {
+              setShowOrderModal(true);
+            }}
+          />
         </motion.div>
       )}
 
@@ -3010,10 +2768,61 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredInventoryItems.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-12 text-center text-slate-400">
-                        <Package className="mx-auto block mb-3 opacity-30 text-slate-400" size={40}/>
-                        <p className="font-bold text-slate-600 dark:text-slate-400 text-sm">عذراً! لم يتم العثور على أي منتجات مطابقة لخيارات تصفية المخزون</p>
-                        <p className="text-slate-405 text-xs mt-1">تأكد من كتابة أحرف البحث بشكل صحيح أو تغيير تصفية المخازن المتبعة.</p>
+                      <td colSpan={8} className="px-6 py-16 text-center">
+                        <div className="max-w-xl mx-auto space-y-4">
+                          <div className="w-16 h-16 bg-indigo-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto text-indigo-500 shadow-sm animate-pulse">
+                            <Package size={36} />
+                          </div>
+                          <h4 className="text-lg font-black text-slate-800 dark:text-slate-100">
+                            {allInventoryItems.length === 0
+                              ? 'لا توجد أي أصناف أو منتجات مسجلة في المخزون حالياً'
+                              : 'عذراً! لم يتم العثور على أي منتجات مطابقة لخيارات تصفية المخزون'}
+                          </h4>
+                          <p className="text-slate-400 text-xs font-bold leading-relaxed max-w-md mx-auto">
+                            {allInventoryItems.length === 0
+                              ? 'قم بإضافة منتجاتك وأصناف متجرك أو إنشاء أول أمر شراء وتوريد لتسجيل البضاعة المتاحة في مخازنك المركزية.'
+                              : 'لم يتم العثور على أي أصناف تتوافق مع فلاتر حالة الرصيد المحددة أو كلمات البحث. يمكنك إعادة ضبط الفلاتر أو شحن الأرصدة المنفذة.'}
+                          </p>
+                          <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+                            {allInventoryItems.length > 0 ? (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setInventoryStockFilter('all');
+                                    setInventoryCollectionFilter('all');
+                                    setInventoryQuery('');
+                                  }}
+                                  className="inline-flex items-center gap-2 px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-800 dark:hover:bg-slate-700 rounded-2xl font-black text-xs transition-all cursor-pointer shadow-lg shadow-slate-900/10 hover:-translate-y-0.5"
+                                >
+                                  <span>🔄 عرض كافة عناصر المخزون ({allInventoryItems.length} صنف)</span>
+                                </button>
+                                <button
+                                  onClick={handleQuickReplenishStock}
+                                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-black text-xs transition-all cursor-pointer shadow-lg shadow-emerald-600/20 hover:-translate-y-0.5"
+                                >
+                                  <Plus size={16} />
+                                  <span>⚡ شحن الأرصدة المنفذة والحرجة (إيداع ٥٠ قطعة لكل صنف)</span>
+                                </button>
+                                {inventoryStockFilter !== 'low_stock' && (
+                                  <button
+                                    onClick={() => setInventoryStockFilter('low_stock')}
+                                    className="inline-flex items-center gap-2 px-5 py-3 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-2xl font-black text-xs transition-all cursor-pointer border border-amber-200/60 dark:border-amber-700/60"
+                                  >
+                                    <span>⚠️ عرض الأصناف تحت عتبة الأمان ({inventoryStats.lowStockCount})</span>
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setShowOrderModal(true)}
+                                className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-2xl font-black text-xs transition-all cursor-pointer shadow-xl shadow-indigo-600/30 hover:-translate-y-0.5"
+                              >
+                                <Plus size={16} />
+                                <span>⚡ تسجيل أول أمر شراء وتوريد بضاعة للمخزن الآن</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -3254,7 +3063,23 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-semibold bg-white dark:bg-slate-900">
                   {supplierPerformanceStats.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-5 py-12 text-center text-slate-400">لم يتم العثور على أية إحصائيات لموردين ماليين مسجلين بنظامك</td>
+                      <td colSpan={8} className="px-6 py-14 text-center">
+                        <div className="max-w-md mx-auto space-y-3">
+                          <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
+                            <User size={24} />
+                          </div>
+                          <h4 className="font-bold text-slate-700 dark:text-slate-300">لم يتم العثور على أية إحصائيات لموردين ماليين مسجلين بنظامك</h4>
+                          <p className="text-xs text-slate-400">قم بتسجيل موردين واعتماد أوامر شراء لتظهر تحليلات الأداء ومقاييس الكفاءة المالية.</p>
+                          <div className="pt-2">
+                            <button
+                              onClick={() => setActiveTab('suppliers')}
+                              className="inline-flex items-center gap-2 px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white dark:bg-indigo-600 dark:hover:bg-indigo-500 rounded-xl font-bold text-xs transition-all shadow-md"
+                            >
+                              <span>⚡ الانتقال لقائمة الموردين المعتمدين</span>
+                            </button>
+                          </div>
+                        </div>
+                      </td>
                     </tr>
                   ) : (
                     supplierPerformanceStats.map(supp => (
@@ -3411,1311 +3236,69 @@ const ProductSelect = ({ value, onChange, products }: { value: string, onChange:
           transition={{ type: "spring", stiffness: 290, damping: 25 }}
           className="space-y-6"
         >
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 dark:border-slate-800">
-            <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
-              <span className="w-1.5 h-6 bg-amber-500 rounded-full"></span>
-              المستودعات ومواقع التخزين
-            </h3>
-            <button 
-              onClick={() => {
-                setEditingWarehouse(null);
-                setNewWarehouse({ name: '', location: '', isDefault: false });
-                setShowWarehouseModal(true);
-              }}
-              className="flex items-center gap-2 px-6 py-3 bg-slate-900 dark:bg-amber-600 text-white rounded-2xl font-black text-xs hover:bg-slate-800 dark:hover:bg-amber-500 shadow-lg shadow-slate-900/10 transition-all cursor-pointer"
-            >
-              <Plus size={16}/>
-              <span>إضافة فرع / نقطة بيع جديدة</span>
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {(settings.warehouses || []).length === 0 ? (
-              <div className="col-span-full bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-100 dark:border-slate-800/80">
-                <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6 text-slate-300">
-                  <Layers size={40}/>
-                </div>
-                <h3 className="text-xl font-black text-slate-400 mb-2">لا توجد مستودعات مضافة</h3>
-                <p className="text-slate-400 text-sm font-bold">ابدأ بإضافة المستودع الرئيسي أو الفروع لإدارة المخزون بدقة</p>
-              </div>
-            ) : (
-              settings.warehouses?.map((warehouse: any) => (
-                <div key={warehouse.id} className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all group overflow-hidden relative">
-                  {warehouse.isDefault && (
-                    <div className="absolute top-0 left-0 px-4 py-1 bg-amber-500 text-white text-[10px] font-black rounded-br-2xl">
-                      المستودع الافتراضي
-                    </div>
-                  )}
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex items-center justify-center text-slate-400">
-                      <Layers size={24}/>
-                    </div>
-                    <div className="flex gap-2">
-                       <button 
-                        onClick={() => startEditWarehouse(warehouse)} 
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all cursor-pointer" 
-                        title="تعديل بيانات المستودع"
-                      >
-                        <Edit2 size={16}/>
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteWarehouse(warehouse.id)} 
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all cursor-pointer" 
-                        title="حذف المستودع"
-                      >
-                        <Trash2 size={16}/>
-                      </button>
-                    </div>
-                  </div>
-                  <h4 className="text-lg font-black text-slate-800 dark:text-white mb-1">{warehouse.name}</h4>
-                  <div className="flex items-center gap-2 text-slate-400 text-xs font-bold mb-4">
-                    <HelpCircle size={12}/>
-                    <span>{warehouse.location || 'لا يوجد عنوان محدد'}</span>
-                  </div>
-
-                  <div className="mt-4 pt-4 border-t border-slate-50 dark:border-slate-800/40 space-y-3">
-                    <div className="flex justify-between items-center text-xs font-black">
-                      <span className="text-slate-400">إجمالي الأصناف:</span>
-                      <span className="text-slate-900 dark:text-slate-100">
-                        {settings.products.filter(p => {
-                          const mainStock = p.warehouseStock?.[warehouse.id] || 0;
-                          const hasVariantStock = (p.variants || []).some(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
-                          return mainStock > 0 || hasVariantStock;
-                        }).length} صنف
-                      </span>
-                    </div>
-
-                    {settings.products.filter(p => {
-                      const mainStock = p.warehouseStock?.[warehouse.id] || 0;
-                      const hasVariantStock = (p.variants || []).some(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
-                      return mainStock > 0 || hasVariantStock;
-                    }).length > 0 && (
-                      <div className="pt-1">
-                        <button 
-                          onClick={() => setExpandedWarehouseId(expandedWarehouseId === warehouse.id ? null : warehouse.id)}
-                          className="w-full py-1.5 px-3 text-right bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/20 dark:hover:bg-slate-800/40 rounded-xl text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 text-[10px] font-bold flex items-center justify-between cursor-pointer transition-all"
-                        >
-                          <span>{expandedWarehouseId === warehouse.id ? 'إخفاء قائمة الأصناف ▲' : 'عرض قائمة الأصناف بالتفصيل ▼'}</span>
-                        </button>
-                        
-                        {expandedWarehouseId === warehouse.id && (
-                          <div className="mt-2.5 max-h-48 overflow-y-auto space-y-2 p-2 rounded-xl bg-slate-50/50 dark:bg-slate-950/20 border border-slate-100 dark:border-slate-800/40 custom-scrollbar text-right">
-                            {settings.products.filter(p => {
-                              const mainStock = p.warehouseStock?.[warehouse.id] || 0;
-                              const hasVariantStock = (p.variants || []).some(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
-                              return mainStock > 0 || hasVariantStock;
-                            }).map(p => {
-                              const mainStock = p.warehouseStock?.[warehouse.id] || 0;
-                              const variantDetails = (p.variants || []).filter(v => (v.warehouseStock?.[warehouse.id] || 0) > 0);
-                              
-                              return (
-                                <div key={p.id} className="text-[10px] border-b border-dashed border-slate-100 dark:border-slate-800/60 pb-1.5 mb-1.5 last:border-0 last:pb-0 last:mb-0">
-                                  <div className="flex justify-between items-start gap-2">
-                                    <span className="font-extrabold text-slate-700 dark:text-slate-300 leading-normal flex-1">{p.name}</span>
-                                    {mainStock > 0 && (
-                                      <span className="shrink-0 text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.5 rounded-md">
-                                        {mainStock} قطعة
-                                      </span>
-                                    )}
-                                  </div>
-                                  {p.sku && <div className="text-[8px] text-slate-400 font-mono mt-0.5">SKU: {p.sku}</div>}
-                                  
-                                  {variantDetails.map(vd => (
-                                    <div key={vd.id} className="mr-3 mt-1 flex justify-between items-center bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-100/50 dark:border-slate-800/30 text-[9px]">
-                                      <span className="text-slate-500 dark:text-slate-400">النوع: {Object.values(vd.options || {}).join(' / ') || vd.sku}</span>
-                                      <span className="text-emerald-600 dark:text-emerald-400 font-black">{vd.warehouseStock?.[warehouse.id]} قطعة</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <WarehousesTab
+            settings={settings}
+            setSettings={setSettings}
+            showAlert={showAlert}
+            showConfirm={showConfirm}
+          />
         </motion.div>
       )}
 
-      {/* Warehouse Modal Dialog */}
-      {showWarehouseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200">
-            <div className="bg-amber-600 dark:bg-amber-700 p-6 text-white flex justify-between items-center">
-              <h3 className="text-lg font-black">{editingWarehouse ? 'تعديل بيانات المستودع' : 'إضافة مستودع جديد'}</h3>
-              <button 
-                onClick={() => { 
-                  setShowWarehouseModal(false); 
-                  setEditingWarehouse(null); 
-                  setNewWarehouse({name:'', location:'', isDefault:false}); 
-                }} 
-                className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all"
-              >
-                <X size={20}/>
-              </button>
-            </div>
-            <div className="p-6 space-y-4 text-right">
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">اسم المستودع / الفرع *</label>
-                <input 
-                  type="text" 
-                  value={newWarehouse.name}
-                  onChange={(e) => setNewWarehouse({...newWarehouse, name: e.target.value})}
-                  placeholder="مثال: المستودع الرئيسي، فرع المهندسين..."
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none text-right"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">الموقع / العنوان</label>
-                <input 
-                  type="text" 
-                  value={newWarehouse.location}
-                  onChange={(e) => setNewWarehouse({...newWarehouse, location: e.target.value})}
-                  placeholder="مثال: القاهرة، حي النزهة..."
-                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-sm font-bold focus:ring-2 focus:ring-amber-500 outline-none text-right"
-                />
-              </div>
-              <div className="flex items-center gap-3 py-2">
-                <input 
-                  type="checkbox" 
-                  id="default-wh"
-                  checked={newWarehouse.isDefault}
-                  onChange={(e) => setNewWarehouse({...newWarehouse, isDefault: e.target.checked})}
-                  className="w-5 h-5 accent-amber-500 cursor-pointer"
-                />
-                <label htmlFor="default-wh" className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-pointer">
-                  تعيين كمستودع افتراضي للاستلام والتوريد
-                </label>
-              </div>
-              
-              <div className="flex gap-3 pt-4">
-                <button 
-                  onClick={handleAddWarehouse}
-                  className="flex-1 py-4 bg-amber-600 text-white rounded-2xl font-black text-sm hover:bg-amber-700 shadow-lg shadow-amber-600/10 transition-all cursor-pointer"
-                >
-                  {editingWarehouse ? 'حفظ التعديلات' : 'إضافة المستودع الآن'}
-                </button>
-                <button 
-                  onClick={() => setShowWarehouseModal(false)}
-                  className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-black text-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
-                >
-                  إلغاء
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Supplier Modal Dialog */}
-      {showSupplierModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200">
-            <div className="bg-indigo-900 dark:bg-indigo-950 p-6 text-white flex justify-between items-center">
-              <h3 className="text-lg font-black">{editingSupplier ? 'تحديث بيانات مورد معتمد' : 'تسجيل شريك توريد جديد'}</h3>
-              <button 
-                onClick={() => { 
-                  setShowSupplierModal(false); 
-                  setEditingSupplier(null); 
-                  setNewSupplier({name:'', phone:'', address:'', notes:''}); 
-                }} 
-                className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all"
-              >
-                <X size={20}/>
-              </button>
-            </div>
-            <div className="p-6 space-y-4 text-right">
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">اسم المورد الشامل *</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-                    <User size={16}/>
-                  </div>
-                  <input 
-                    type="text" 
-                    placeholder="مثال: شركة النور للاستيراد والتصدير" 
-                    className="w-full pl-4 pr-10 py-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white placeholder-slate-400"
-                    value={newSupplier.name || ''} 
-                    onChange={e => setNewSupplier({...newSupplier, name: e.target.value})} 
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">رقم الهاتف للتواصل</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Phone size={16}/>
-                  </div>
-                  <input 
-                    type="text" 
-                    dir="ltr"
-                    placeholder="01xxxxxxxxx" 
-                    className="w-full pl-4 pr-10 py-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white text-right placeholder-slate-400"
-                    value={newSupplier.phone || ''} 
-                    onChange={e => setNewSupplier({...newSupplier, phone: e.target.value})} 
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">العنوان أو المقر</label>
-                <input 
-                  type="text" 
-                  placeholder="المدينة، الشارع، المحافظة" 
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white placeholder-slate-400" 
-                  value={newSupplier.address || ''} 
-                  onChange={e => setNewSupplier({...newSupplier, address: e.target.value})} 
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-500 mb-1 block">ملاحظات عمل مخصصة</label>
-                <textarea 
-                  placeholder="أي معلومات إضافية، شروط السداد، البونص الدائم..." 
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-semibold text-xs dark:text-white h-24 resize-none placeholder-slate-400" 
-                  value={newSupplier.notes || ''} 
-                  onChange={e => setNewSupplier({...newSupplier, notes: e.target.value})} 
-                />
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={() => { 
-                    setShowSupplierModal(false); 
-                    setEditingSupplier(null); 
-                    setNewSupplier({name:'', phone:'', address:'', notes:''}); 
-                  }} 
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-755 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
-                >
-                  إلغاء الأمر
-                </button>
-                <button 
-                  onClick={handleAddSupplier} 
-                  className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
-                >
-                  {editingSupplier ? 'تحديث البيانات' : 'تأكيد الحفظ المعجل'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Full Feature Order (Supply Invoice) Modal Dialog */}
-      {showOrderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
-            <div className="bg-slate-900 dark:bg-black p-6 text-white flex justify-between items-center border-b border-white/5 shrink-0">
-              <div>
-                <h3 className="text-xl font-black tracking-tight flex items-center gap-2">
-                  <Package className="text-indigo-400"/>
-                  {editingOrder ? 'تعديل تفاصيل أمر التوريد والكميات' : 'تسجيل فاتورة شراء واستلام شحنة بضاعة'}
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">تؤثر هذه الفاتورة تلقائياً على مخزون سلعك المركزي وتحدث الأرصدة المالية مباشرة.</p>
-              </div>
-              <button 
-                onClick={() => setShowOrderModal(false)} 
-                className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-              >
-                <X size={20}/>
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto space-y-6 text-right flex-1">
-              {/* Form Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div>
-                  <label className="text-xs font-black text-slate-500 mb-1.5 block">مورد الفاتورة المعتمد *</label>
-                  <select 
-                    value={selectedSupplierId || ''} 
-                    onChange={e => setSelectedSupplierId(e.target.value)} 
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-250 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white"
-                  >
-                    <option value="">-- اختر مورد الشحنة --</option>
-                    {(settings.suppliers || []).map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} {(s.balance || 0) > 0 ? `(مديونية متبقية: ${s.balance.toLocaleString()} ج.م)` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-black text-slate-500 mb-1.5 block">طريقة سداد تكلفة الفاتورة *</label>
-                  <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl overflow-x-auto no-scrollbar gap-1">
-                    <button 
-                      onClick={() => setPaymentMethod('cash')} 
-                      className={`flex-1 min-w-[70px] py-2 px-1 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${
-                        paymentMethod === 'cash' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      كاش (العامة)
-                    </button>
-                    <button 
-                      onClick={() => setPaymentMethod('supply_wallet')} 
-                      className={`flex-1 min-w-[70px] py-2 px-1 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${
-                        paymentMethod === 'supply_wallet' ? 'bg-white dark:bg-slate-700 text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      محفظة التوريد
-                    </button>
-                    <button 
-                      onClick={() => setPaymentMethod('partner')} 
-                      className={`flex-1 min-w-[70px] py-2 px-1 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${
-                        paymentMethod === 'partner' ? 'bg-white dark:bg-slate-700 text-amber-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      تمويل شركاء
-                    </button>
-                    <button 
-                      onClick={() => setPaymentMethod('treasury')} 
-                      className={`flex-1 min-w-[70px] py-2 px-1 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${
-                        paymentMethod === 'treasury' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      الخزينة
-                    </button>
-                    <button 
-                      onClick={() => setPaymentMethod('credit')} 
-                      className={`flex-1 min-w-[70px] py-2 px-1 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${
-                        paymentMethod === 'credit' ? 'bg-white dark:bg-slate-700 text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      آجل مديونية
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-black text-slate-500 mb-1.5 block">مستودع الاستلام (تخزين البضاعة) *</label>
-                  <select 
-                    value={selectedWarehouseId || ''} 
-                    onChange={e => setSelectedWarehouseId(e.target.value)} 
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-250 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white"
-                  >
-                    <option value="">-- اختر مستودع الاستلام --</option>
-                    {(settings.warehouses || []).map(w => (
-                      <option key={w.id} value={w.id}>
-                        {w.name} {w.isDefault ? '(الافتراضي)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Warnings and Additional Fields based on payment method */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-805 text-xs text-slate-500 space-y-2">
-                <div className="flex items-center gap-2 font-bold text-slate-600 dark:text-slate-355">
-                  <AlertCircle size={14} className="text-indigo-500" />
-                  <span>آلية سداد الفاتورة الحالية:</span>
-                </div>
-                <p className="font-semibold text-[11px] leading-relaxed">
-                  {paymentMethod === 'cash' && 'سيتم خصم قيمة الفاتورة فورياً وتلقائياً من السيولة المتواجدة بالمحفظة العامة.'}
-                  {paymentMethod === 'supply_wallet' && 'رأس مال البضائع: يخصم المبلغ من محفظة التوريد المركزية المستقلة.'}
-                  {paymentMethod === 'treasury' && 'الخزينة المخصصة: سيتم الخصم المباشر من الحساب البنكي أو الخزنة المحددة بالأسفل.'}
-                  {paymentMethod === 'credit' && 'مديونية معلقة: سيتم تسجيل إجمالي التكلفة كحساب دائن للمورد (تلتزم بدفعه لاحقاً).'}
-                  {paymentMethod === 'partner' && 'توزيع التكلفة على أرصدة الشركاء من حساباتهم الجارية بالتفصيل قبل الشراء.'}
-                </p>
-
-                {paymentMethod === 'treasury' && (
-                  <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-800 animate-in slide-in-from-top-2 duration-300">
-                    <label className="text-xs font-black text-indigo-600 dark:text-indigo-400 mb-1.5 block">خصم التمويل من حساب خزينة محدد:</label>
-                    <select 
-                      value={selectedTreasuryAccountId} 
-                      onChange={e => setSelectedTreasuryAccountId(e.target.value)} 
-                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded-xl outline-none dark:text-white text-xs font-bold"
-                      required
-                    >
-                      <option value="">-- اختر حساب الخزينة المستخلفة للمال --</option>
-                      {(treasury?.accounts || []).map((acc: any) => (
-                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.balance.toLocaleString()} ج.م)</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-
-              {paymentMethod === 'partner' && (
-                <div className="space-y-4 bg-slate-50 dark:bg-slate-800/20 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 animate-in slide-in-from-top-3">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="text-xs font-black text-slate-600 dark:text-slate-400">توزيع حصص الدفع الشركاء الممولين</label>
-                    <button 
-                      type="button"
-                      onClick={() => setPartnerPayments([...partnerPayments, { partnerId: '', amount: 0 }])}
-                      className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-                    >
-                      <Plus size={12}/> إضافة شريك شحن ثانِي
-                    </button>
-                  </div>
-                  
-                  {partnerPayments.map((payment, pidx) => (
-                    <div key={pidx} className="flex gap-2 items-center">
-                      <div className="flex-1">
-                        <select 
-                          value={payment.partnerId} 
-                          onChange={e => {
-                            const newPayments = [...partnerPayments];
-                            newPayments[pidx].partnerId = e.target.value;
-                            setPartnerPayments(newPayments);
-                          }}
-                          className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-1 focus:ring-indigo-500 dark:text-white font-bold"
-                        >
-                          <option value="">اختر اسم الشريك...</option>
-                          {settings.partners?.map(p => <option key={p.id} value={p.id}>{p.name} (رصيده الجاري: {p.balance} ج.م)</option>)}
-                        </select>
-                      </div>
-                      <div className="w-28 sm:w-36">
-                        <input 
-                          type="number" 
-                          value={payment.amount || ''}
-                          onChange={e => {
-                            const newPayments = [...partnerPayments];
-                            newPayments[pidx].amount = Number(e.target.value);
-                            setPartnerPayments(newPayments);
-                          }}
-                          placeholder="المبلغ المدفوع ج.م"
-                          className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-center font-bold outline-none focus:ring-1 focus:ring-indigo-500 dark:text-white"
-                        />
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={() => setPartnerPayments(partnerPayments.filter((_, i) => i !== pidx))}
-                        className="p-2.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))}
-                  
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex flex-col sm:flex-row justify-between items-center gap-2">
-                    {(() => {
-                      const distributedTotal = partnerPayments.reduce((s, p) => s + p.amount, 0);
-                      const remains = totalCost - distributedTotal;
-                      return (
-                        <>
-                          <span className={`text-[10px] font-black uppercase ${Math.abs(remains) < 0.01 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            المبلغ الموزع: {distributedTotal.toLocaleString()} ج.م / المتبقي لتغطية الفاتورة: {remains.toLocaleString()} ج.م
-                          </span>
-                          <div className="flex gap-2 flex-wrap">
-                            {distributedTotal < totalCost && partnerPayments.length > 0 && (
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  const remaining = totalCost - distributedTotal;
-                                  const newPayments = [...partnerPayments];
-                                  const emptyIdx = newPayments.findIndex(p => p.amount === 0);
-                                  if (emptyIdx > -1) {
-                                      newPayments[emptyIdx].amount += remaining;
-                                  } else {
-                                      newPayments[newPayments.length - 1].amount += remaining;
-                                  }
-                                  setPartnerPayments(newPayments);
-                                }}
-                                className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 hover:underline"
-                              >
-                                تغطية المتبقي بالكامل ({(totalCost - distributedTotal).toLocaleString()})
-                              </button>
-                            )}
-                            {partnerPayments.length > 1 && (
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  const equalShare = Number((totalCost / partnerPayments.length).toFixed(2));
-                                  const newPayments = partnerPayments.map((p, i) => ({
-                                      ...p,
-                                      amount: i === partnerPayments.length - 1 
-                                          ? Number((totalCost - (equalShare * (partnerPayments.length - 1))).toFixed(2))
-                                          : equalShare
-                                  }));
-                                  setPartnerPayments(newPayments);
-                                }}
-                                className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 hover:underline"
-                              >
-                                توزيع بالتساوي
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-black text-slate-500 mb-1 block">رقم مرجع الفاتورة الشراء (ID)</label>
-                  <input 
-                    type="text" 
-                    placeholder="مثال: Inv-9952" 
-                    value={orderReference || ''} 
-                    onChange={e => setOrderReference(e.target.value)} 
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white" 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-black text-slate-500 mb-1 block">بيان أو ملاحظات الفاتورة</label>
-                  <input 
-                    type="text" 
-                    placeholder="أمثلة: مصروفات عمالة، بضاعة صيفية، كميات مضافة لعروض موسمية..." 
-                    value={orderNotes || ''} 
-                    onChange={e => setOrderNotes(e.target.value)} 
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-semibold text-xs dark:text-white" 
-                  />
-                </div>
-              </div>
-
-              {/* Fees and Taxes Section */}
-              <div className="space-y-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف الشحن / النقل</label>
-                    <div className="space-y-2">
-                       <div className="relative">
-                         <input 
-                           type="number" 
-                           min="0"
-                           value={shippingFees || ''} 
-                           onChange={e => setShippingFees(Number(e.target.value))} 
-                           className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                         />
-                         <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
-                       </div>
-                       <input 
-                         type="text"
-                         placeholder="وصف مصروف الشحن (مثل: عمالة، نقل...)"
-                         value={shippingFeesNote}
-                         onChange={e => setShippingFeesNote(e.target.value)}
-                         className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-[10px] dark:text-white"
-                       />
-                       {shippingFees > 0 && (
-                         <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg mt-2">
-                           <button 
-                             onClick={() => setShippingFeesPaymentMethod('with_order')}
-                             className={`flex-1 text-[9px] py-1.5 rounded-md transition font-bold ${shippingFeesPaymentMethod === 'with_order' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                           >
-                             مع الفاتورة
-                           </button>
-                           <button 
-                             onClick={() => setShippingFeesPaymentMethod('wallet')}
-                             className={`flex-1 text-[9px] py-1.5 rounded-md transition font-bold ${shippingFeesPaymentMethod === 'wallet' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                           >
-                             محفظة المتجر
-                           </button>
-                         </div>
-                       )}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-500 mb-1 block">مصاريف أخرى / إضافية</label>
-                    <div className="space-y-2">
-                        <div className="relative">
-                          <input 
-                            type="number" 
-                            min="0"
-                            value={otherFees || ''} 
-                            onChange={e => setOtherFees(Number(e.target.value))} 
-                            className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                          />
-                          <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">ج.م</span>
-                        </div>
-                        <input 
-                          type="text"
-                          placeholder="وصف المصاريف الإضافية"
-                          value={otherFeesNote}
-                          onChange={e => setOtherFeesNote(e.target.value)}
-                          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none text-[10px] dark:text-white"
-                        />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-black text-slate-500 mb-1 block">نسبة الضريبة %</label>
-                    <div className="relative">
-                      <input 
-                        type="number" 
-                        min="0" 
-                        max="100"
-                        value={taxRate || ''} 
-                        onChange={e => setTaxRate(Number(e.target.value))} 
-                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs dark:text-white pl-8" 
-                      />
-                      <span className="absolute left-3 top-2.5 text-[10px] text-slate-400 font-bold">%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {paymentMethod !== 'partner' && (
-                  <div className="pt-2">
-                    <label className="text-[10px] font-black text-slate-500 mb-1 block">الشخص / الجهة القائمة بدفع المصروفات الإضافية (إن وجدت)</label>
-                    <div className="relative">
-                      <input 
-                        type="text"
-                        list="partnersList"
-                        placeholder="اختر الشريك أو اكتب اسم جهة الدفع..."
-                        value={expensePaidBy}
-                        onChange={e => setExpensePaidBy(e.target.value)}
-                        className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs dark:text-white font-bold"
-                      />
-                      <datalist id="partnersList">
-                          {settings.partners?.map(p => (
-                              <option key={p.id} value={p.name} />
-                          ))}
-                      </datalist>
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
-                    </div>
-                  </div>
-                )}
-
-                {(shippingFees > 0 || otherFees > 0) && (
-                  <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-2">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={recordExpensesFormally} 
-                        onChange={e => setRecordExpensesFormally(e.target.checked)} 
-                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
-                      />
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        إدراج كمصروفات منفصلة في دفتر المصروفات (تظهر في التقارير)
-                      </span>
-                    </label>
-                    
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={distributeExpensesEqually} 
-                        onChange={e => setDistributeExpensesEqually(e.target.checked)} 
-                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
-                      />
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        توزيع هذه المصاريف بالتساوي على تكلفة المنتجات (Landed Cost)
-                      </span>
-                    </label>
-                  </div>
-                )}
-
-                <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50 space-y-2">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
-                    نظام تسعير تكلفة المخزون (SaaS Cost System)
-                  </label>
-                  <p className="text-[10px] text-slate-500 font-semibold leading-relaxed">
-                    حدد كيف تؤثر أسعار الشراء الحالية لهذه الفاتورة على تكلفة المنتجات في كتالوج السلع والتقارير المالية لاحقاً:
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setCostUpdateMethod('last_purchase')}
-                      className={`flex flex-col items-start p-3 rounded-xl border text-right transition-all duration-200 cursor-pointer ${
-                        costUpdateMethod === 'last_purchase'
-                          ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 ring-2 ring-indigo-500/20'
-                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400'
-                      }`}
-                    >
-                      <span className="text-xs font-bold flex items-center gap-1.5 mb-1">
-                        <span className={`w-2.5 h-2.5 rounded-full ${costUpdateMethod === 'last_purchase' ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                        سعر آخر شراء (مباشر)
-                      </span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-normal">
-                        سيتم استبدال تكلفة المنتجات المشتراة في الكتالوج مباشرة بتكلفة هذه الفاتورة (Landed Cost).
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCostUpdateMethod('weighted_average')}
-                      className={`flex flex-col items-start p-3 rounded-xl border text-right transition-all duration-200 cursor-pointer ${
-                        costUpdateMethod === 'weighted_average'
-                          ? 'border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 ring-2 ring-indigo-500/20'
-                          : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400'
-                      }`}
-                    >
-                      <span className="text-xs font-bold flex items-center gap-1.5 mb-1">
-                        <span className={`w-2.5 h-2.5 rounded-full ${costUpdateMethod === 'weighted_average' ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                        المتوسط المرجح للتكلفة (WAC)
-                      </span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-normal">
-                        يُحسب متوسط جديد بناءً على: (الكمية القديمة × تكلفتها + الكمية الجديدة × تكلفتها) ÷ إجمالي الكمية.
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Inventory items allocation */}
-              <div className="border-t border-slate-200 dark:border-slate-800 pt-5">
-                <div className="flex justify-between items-center mb-4">
-                  <h4 className="text-sm font-black dark:text-white flex items-center gap-2">
-                    <Package size={18} className="text-indigo-500"/>
-                    السلع المستوردة لإدخالها في مخازن الفروع
-                  </h4>
-                  <button 
-                    onClick={addItemToOrder} 
-                    className="flex items-center gap-1.5 text-xs bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-4 py-2 rounded-xl font-black transition-all cursor-pointer"
-                  >
-                    <Plus size={14}/>
-                    <span>إدراج صنف جديد</span>
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  {orderItems.length === 0 ? (
-                    <div className="bg-slate-50/50 dark:bg-slate-800/20 p-8 rounded-2xl text-center border border-dashed border-slate-200 dark:border-slate-700/80">
-                      <p className="text-slate-400 text-xs font-bold">لم تدرج أي سلع في الفاتورة بعد.</p>
-                      <button 
-                        onClick={addItemToOrder} 
-                        className="text-xs font-black text-indigo-505 text-indigo-600 hover:underline mt-2 inline-block cursor-pointer"
-                      >
-                        انقر لإدراج أول منتج للتوريد
-                      </button>
-                    </div>
-                  ) : (
-                    orderItems.map((item, idx) => (
-                      <div key={idx} className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2.5rem rounded-2xl border border-slate-105 dark:border-slate-800/80">
-                        <div className="grid grid-cols-2 md:grid-cols-12 gap-3 items-end">
-                          <div className="col-span-2 md:col-span-5 text-right">
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="text-[10px] font-bold text-slate-400 block">تحديد الموديل / المنتج المتاح</label>
-                                <label className="flex items-center gap-1 cursor-pointer">
-                                  <input type="checkbox" checked={item.isReturn || false} onChange={e => {
-                                    const newItems = [...orderItems];
-                                    newItems[idx].isReturn = e.target.checked;
-                                    setOrderItems(newItems);
-                                  }} className="accent-rose-500 rounded cursor-pointer size-3"/>
-                                  <span className="text-[10px] font-black text-rose-500">إرجاع للمورد ومخصوم</span>
-                                </label>
-                            </div>
-                            <ProductSelect 
-                              value={item.productId || ''} 
-                              onChange={val => {
-                                const newItems = [...orderItems];
-                                const product = settings.products.find(p => p.id === val);
-                                if (product) {
-                                  let updatedItem = {
-                                    ...newItems[idx],
-                                    productId: val,
-                                    name: product.name,
-                                    cost: product.costPrice || 0,
-                                    profitMode: product.profitMode || 'manual',
-                                    profitPercentage: product.profitPercentage || 0,
-                                    basePrice: product.basePrice || 0,
-                                    commissionPercentage: product.commissionPercentage || 0,
-                                    sellingPrice: product.price || 0
-                                  };
-                                  if (updatedItem.profitMode === 'commission' && (!updatedItem.basePrice || updatedItem.basePrice === 0)) {
-                                    const comm = updatedItem.commissionPercentage || 0;
-                                    if (comm < 100) {
-                                      updatedItem.basePrice = updatedItem.cost / (1 - (comm / 100));
-                                      updatedItem.sellingPrice = updatedItem.basePrice;
-                                    }
-                                  }
-                                  newItems[idx] = updatedItem;
-                                }
-                                setOrderItems(newItems);
-                              }} 
-                              products={settings.products}
-                            />
-                            {item.isReturn && item.productId && (
-                              <div className="mt-2 flex flex-col gap-1">
-                                <label className="text-[9px] font-bold text-slate-500 px-1">سحب المرتجع من مخزن مستقل:</label>
-                                <select
-                                  value={item.warehouseId || selectedWarehouseId || ''}
-                                  onChange={e => {
-                                    const newItems = [...orderItems];
-                                    newItems[idx].warehouseId = e.target.value;
-                                    setOrderItems(newItems);
-                                  }}
-                                  className="w-full p-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold font-sans h-9 outline-none focus:border-indigo-400 group"
-                                  dir="rtl"
-                                >
-                                  {settings.warehouses?.map((w: any) => (
-                                    <option key={w.id} value={w.id}>{w.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                            {item.isReturn && item.productId && (item.warehouseId || selectedWarehouseId) && (
-                              <div className="mt-1 text-[9px] font-bold text-slate-500 px-1">
-                                {(() => {
-                                  let maxQty = 0;
-                                  const targetWarehouse = item.warehouseId || selectedWarehouseId;
-                                  const prod = settings.products.find(p => p.id === item.productId);
-                                  if (prod) {
-                                    if (item.variantId && prod.variants) {
-                                      const v = prod.variants.find(vx => vx.id === item.variantId);
-                                      maxQty = v?.warehouseStock?.[targetWarehouse] || 0;
-                                    } else {
-                                      maxQty = prod.warehouseStock?.[targetWarehouse] || 0;
-                                    }
-                                  }
-                                  const whName = settings.warehouses?.find((w: any) => w.id === targetWarehouse)?.name || 'المستودع المحدد';
-                                  return <span>رصيد {whName} القابل للارتجاع: {maxQty} قطعة</span>;
-                                })()}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="col-span-1 md:col-span-1">
-                            <label className="text-[10px] font-bold text-slate-400 mb-1 block text-center">الكمية المطلوبة</label>
-                            <input 
-                              type="number" 
-                              min="1" 
-                              value={item.orderedQuantity || item.quantity || ''} 
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                const val = Number(e.target.value);
-                                newItems[idx].orderedQuantity = val;
-                                newItems[idx].quantity = val;
-                                newItems[idx].receivedQuantity = val;
-                                setOrderItems(newItems);
-                              }} 
-                              className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white text-center font-black outline-none" 
-                            />
-                          </div>
-
-                          <div className="col-span-1 md:col-span-1">
-                            <label className="text-[10px] font-bold text-slate-400 mb-1 block text-center">بونص مجاني</label>
-                            <input 
-                              type="number" 
-                              min="0" 
-                              value={item.bonusQuantity || ''} 
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                newItems[idx].bonusQuantity = Number(e.target.value);
-                                setOrderItems(newItems);
-                              }} 
-                              className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-emerald-555 text-emerald-600 text-center font-black outline-none" 
-                            />
-                          </div>
-
-                          <div className="col-span-1 md:col-span-2">
-                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">تكلفة شراء الحبة</label>
-                            <input 
-                              type="number" 
-                              min="0" 
-                              value={item.cost || ''} 
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                newItems[idx] = syncItemPricing(newItems[idx], 'cost', e.target.value);
-                                setOrderItems(newItems);
-                              }} 
-                              className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-black outline-none" 
-                            />
-                          </div>
-
-                          <div className="col-span-1 md:col-span-2">
-                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">الخصم الإضافي</label>
-                            <div className="flex gap-1">
-                              <input 
-                                type="number" 
-                                min="0" 
-                                value={item.discountValue || ''} 
-                                onChange={e => {
-                                  const newItems = [...orderItems];
-                                  newItems[idx].discountValue = Number(e.target.value);
-                                  setOrderItems(newItems);
-                                }} 
-                                className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-bold outline-none" 
-                              />
-                              <select 
-                                value={item.discountType || 'amount'} 
-                                onChange={e => {
-                                  const newItems = [...orderItems];
-                                  newItems[idx].discountType = e.target.value as 'amount' | 'percentage';
-                                  setOrderItems(newItems);
-                                }} 
-                                className="p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] dark:text-white outline-none font-bold"
-                              >
-                                <option value="amount">ج.م</option>
-                                <option value="percentage">%</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="col-span-2 md:col-span-1">
-                            <button 
-                              onClick={() => setOrderItems(orderItems.filter((_, i) => i !== idx))} 
-                              className="w-full p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/25 rounded-xl transition-all flex justify-center cursor-pointer"
-                              title="حذف هذا الصنف من الفاتورة"
-                            >
-                              <Trash2 size={16}/>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Delivery and Stock In Details Drawer */}
-                        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 bg-slate-100/50 dark:bg-slate-900/30 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
-                          <div>
-                            <label className="text-[9px] font-black text-slate-400 mb-1 block">الكمية المستلمة فعلياً</label>
-                            <input 
-                              type="number"
-                              min="0"
-                              value={item.receivedQuantity !== undefined ? item.receivedQuantity : (item.quantity || 0)}
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                newItems[idx].receivedQuantity = Number(e.target.value);
-                                setOrderItems(newItems);
-                              }}
-                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-emerald-100 dark:border-emerald-900/30 rounded-lg text-xs text-center font-black text-emerald-600 dark:text-emerald-400"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[9px] font-black text-slate-400 mb-1 block">الكمية التالفة / المرفوضة</label>
-                            <input 
-                              type="number"
-                              min="0"
-                              value={item.damagedQuantity || 0}
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                newItems[idx].damagedQuantity = Number(e.target.value);
-                                setOrderItems(newItems);
-                              }}
-                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-rose-100 dark:border-rose-900/30 rounded-lg text-xs text-center font-black text-rose-600 dark:text-rose-400"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[9px] font-black text-slate-400 mb-1 block">تاريخ الانتهاء (Expiry)</label>
-                            <input 
-                              type="date"
-                              value={item.expiryDate || ''}
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                newItems[idx].expiryDate = e.target.value;
-                                setOrderItems(newItems);
-                              }}
-                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] text-center font-bold"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[9px] font-black text-slate-400 mb-1 block">رقم الدفعة (Batch No.)</label>
-                            <input 
-                              type="text"
-                              placeholder="#"
-                              value={item.batchNumber || ''}
-                              onChange={e => {
-                                const newItems = [...orderItems];
-                                newItems[idx].batchNumber = e.target.value;
-                                setOrderItems(newItems);
-                              }}
-                              className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[10px] text-center font-bold"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Cost & Calculation Method Configuration Drawer */}
-                        {item.productId && (
-                          <div className="mt-4 pt-4 border-t border-slate-200/50 dark:border-slate-700/50 space-y-3 font-sans select-none" dir="rtl">
-                            {!item.isReturn && (
-                              <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg">طريقة الحساب للتسعير والربح:</span>
-                                  
-                                  <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const newItems = [...orderItems];
-                                      newItems[idx] = syncItemPricing(newItems[idx], 'profitMode', 'manual');
-                                      setOrderItems(newItems);
-                                    }}
-                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                                      (item.profitMode || 'manual') === 'manual'
-                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow'
-                                        : 'text-slate-500'
-                                    }`}
-                                  >
-                                    <Edit2 size={10} />
-                                    <span>يدوي</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const newItems = [...orderItems];
-                                      newItems[idx] = syncItemPricing(newItems[idx], 'profitMode', 'margin');
-                                      setOrderItems(newItems);
-                                    }}
-                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                                      item.profitMode === 'margin'
-                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow'
-                                        : 'text-slate-500'
-                                    }`}
-                                  >
-                                    <Percent size={10} />
-                                    <span>هامش ربح</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const newItems = [...orderItems];
-                                      newItems[idx] = syncItemPricing(newItems[idx], 'profitMode', 'commission');
-                                      setOrderItems(newItems);
-                                    }}
-                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                                      item.profitMode === 'commission'
-                                        ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow'
-                                        : 'text-slate-500'
-                                    }`}
-                                  >
-                                    <Coins size={10} />
-                                    <span>عمولة</span>
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-3 flex-wrap">
-                                  <div className="flex items-center gap-2">
-                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">تحديد سعر البيع بالمتجر:</label>
-                                    <div className="relative">
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        value={item.sellingPrice || ''}
-                                        onChange={e => {
-                                          const newItems = [...orderItems];
-                                          newItems[idx] = syncItemPricing(newItems[idx], 'sellingPrice', e.target.value);
-                                          setOrderItems(newItems);
-                                        }}
-                                        className="w-24 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
-                                        placeholder="سعر البيع"
-                                      />
-                                      <span className="absolute left-1.5 top-1.5 text-[9px] text-slate-400 font-bold">ج.م</span>
-                                    </div>
-                                  </div>
-
-                                {item.profitMode === 'margin' && (
-                                  <div className="flex items-center gap-2">
-                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">نسبة الربح %:</label>
-                                    <div className="relative">
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        value={item.profitPercentage || ''}
-                                        onChange={e => {
-                                          const newItems = [...orderItems];
-                                          newItems[idx] = syncItemPricing(newItems[idx], 'profitPercentage', e.target.value);
-                                          setOrderItems(newItems);
-                                        }}
-                                        className="w-16 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
-                                        placeholder="20%"
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-
-                                {item.profitMode === 'commission' && (
-                                  <div className="flex gap-2.5 items-center flex-wrap">
-                                    <div className="flex items-center gap-1.5">
-                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-sans">سعر البيع الأساسي:</label>
-                                      <input
-                                        type="number"
-                                        value={item.basePrice || ''}
-                                        onChange={e => {
-                                          const newItems = [...orderItems];
-                                          newItems[idx] = syncItemPricing(newItems[idx], 'basePrice', e.target.value);
-                                          setOrderItems(newItems);
-                                        }}
-                                        className="w-20 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
-                                        placeholder="أدخل"
-                                      />
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 font-sans">العمولة %:</label>
-                                      <input
-                                        type="number"
-                                        value={item.commissionPercentage || ''}
-                                        onChange={e => {
-                                          const newItems = [...orderItems];
-                                          newItems[idx] = syncItemPricing(newItems[idx], 'commissionPercentage', e.target.value);
-                                          setOrderItems(newItems);
-                                        }}
-                                        className="w-16 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-black text-center outline-none"
-                                        placeholder="10%"
-                                      />
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            )}
-
-                            {/* Dynamically simulated live comparison badge for cost changes */}
-                            {(() => {
-                              const itemLiveCost = Number(item.cost || 0);
-                              const itemLiveQty = Number(item.orderedQuantity || item.quantity || 0);
-                              const itemLiveDiscount = Number(item.discountValue || 0);
-                              const itemLiveBonus = Number(item.bonusQuantity || 0);
-                              const itemLiveReceived = Number(item.receivedQuantity !== undefined ? item.receivedQuantity : itemLiveQty);
-                              const itemLiveTotalUnits = itemLiveReceived + itemLiveBonus;
-
-                              const itemGrossSubtotal = itemLiveCost * itemLiveQty;
-                              let itemNetSubtotal = itemGrossSubtotal;
-                              if (itemLiveDiscount > 0) {
-                                if (item.discountType === 'percentage') {
-                                  itemNetSubtotal -= itemGrossSubtotal * (itemLiveDiscount / 100);
-                                } else {
-                                  itemNetSubtotal -= itemLiveDiscount * itemLiveQty;
-                                }
-                              }
-                              const itemNetUnitCost = itemLiveQty > 0 ? (itemNetSubtotal / itemLiveQty) : itemLiveCost;
-
-                              const currentItemsSubtotal = itemsSubtotal || 0;
-                              const currentGrandTotal = grandTotal || 0;
-                              const liveFeesFactor = currentItemsSubtotal > 0 ? (currentGrandTotal / currentItemsSubtotal) : 1;
-
-                              // Landed cost is calculated using our exact catalog formula
-                              const itemLiveLandedCost = itemLiveTotalUnits > 0 
-                                ? (itemNetSubtotal * liveFeesFactor / itemLiveTotalUnits) 
-                                : (itemLiveCost * liveFeesFactor);
-
-                              const itemProfitMode = item.profitMode || 'manual';
-                              let itemCalculatedSellingPrice = Number(item.sellingPrice || 0);
-                              
-                              if ((!item.sellingPrice || item.sellingPrice === 0) && itemProfitMode === 'manual') {
-                                itemCalculatedSellingPrice = Number(item.cost || 0);
-                              } else if ((!item.sellingPrice || item.sellingPrice === 0) && itemProfitMode === 'margin') {
-                                const margin = Number(item.profitPercentage || 0);
-                                if (margin < 100 && margin >= 0) {
-                                  itemCalculatedSellingPrice = itemLiveLandedCost / (1 - (margin / 100));
-                                } else {
-                                  itemCalculatedSellingPrice = itemLiveLandedCost;
-                                }
-                              } else if ((!item.sellingPrice || item.sellingPrice === 0) && itemProfitMode === 'commission') {
-                                itemCalculatedSellingPrice = Number(item.basePrice || 0);
-                              }
-                              
-                              if (item.isReturn) {
-                                return (
-                                  <div className="bg-rose-50/50 dark:bg-rose-900/10 p-4 rounded-xl border border-rose-200/50 dark:border-rose-800/30 flex flex-col gap-3 text-xs">
-                                     <div className="flex flex-wrap justify-between items-center w-full pb-2 border-b border-rose-200/40 dark:border-rose-800/40">
-                                      <span className="text-rose-600 dark:text-rose-400 font-extrabold text-[11px] flex items-center gap-1.5">
-                                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-pulse"></span>
-                                        هذا الصنف عبارة عن مرتجع (تُخصم قيمته من الفاتورة ويُخصم من المخزون)
-                                      </span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4 text-right">
-                                      <div>
-                                        <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">قيمة المرتجع للوحدة</span>
-                                        <div className="text-slate-700 dark:text-slate-300 font-mono font-black">{itemLiveCost.toFixed(2)} ج.م</div>
-                                      </div>
-                                      <div>
-                                        <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">إجمالي الخصم من الفاتورة</span>
-                                        <div className="text-rose-600 dark:text-rose-400 font-mono font-black">
-                                          {(itemLiveCost * itemLiveQty).toFixed(2)} ج.م
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              }
-
-                              return (
-                                <div className="bg-slate-100 dark:bg-slate-800/60 p-4 rounded-xl border border-slate-200/50 dark:border-slate-700/50 flex flex-col gap-3 text-xs">
-                                  <div className="flex flex-wrap justify-between items-center w-full pb-2 border-b border-slate-200/40 dark:border-slate-700/40">
-                                    <span className="text-slate-500 dark:text-slate-400 font-extrabold text-[11px] flex items-center gap-1.5">
-                                      <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></span>
-                                      تفاصيل احتساب التكلفة والتسعير لهذا الصنف للكتالوج:
-                                    </span>
-                                  </div>
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-right">
-                                    <div>
-                                      <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">شراء الحبة الأساسي</span>
-                                      <div className="text-slate-700 dark:text-slate-300 font-mono font-black">{itemLiveCost.toFixed(2)} ج.م</div>
-                                    </div>
-                                    <div>
-                                      <span className="text-slate-400 text-[10px] block mb-0.5 font-bold">الشراء الصافي (بعد بند الخصم)</span>
-                                      <div className="text-slate-700 dark:text-slate-300 font-mono font-black">
-                                        {itemNetUnitCost.toFixed(2)} ج.m
-                                        {itemLiveDiscount > 0 && <span className="text-[9px] text-emerald-500 font-bold block"> (خصم {itemLiveDiscount}{item.discountType === 'percentage' ? '%' : ' ج.م'})</span>}
-                                      </div>
-                                    </div>
-                                    <div className="bg-indigo-50/40 dark:bg-indigo-950/20 p-2 rounded-lg border border-indigo-100/30 dark:border-indigo-900/10">
-                                      <span className="text-indigo-600 dark:text-indigo-400 text-[10px] block mb-0.5 font-black">تكلفة الحبة المحمّلة (Landed)</span>
-                                      <div className="text-indigo-700 dark:text-indigo-300 font-mono font-black">
-                                        {itemLiveLandedCost.toFixed(2)} ج.م
-                                        {liveFeesFactor > 1.0001 && <span className="text-[9px] text-slate-400 font-bold block"> (+ {((liveFeesFactor - 1) * 105).toFixed(1)}% مصاريف نقل/ضريبة)</span>}
-                                        {itemLiveBonus > 0 && <span className="text-[9px] text-emerald-500 font-bold block"> (مُخفّض بالبونص {itemLiveBonus} قطع)</span>}
-                                      </div>
-                                    </div>
-                                    <div className="bg-amber-50/40 dark:bg-amber-950/20 p-2 rounded-lg border border-amber-100/30 dark:border-amber-900/10">
-                                      <span className="text-amber-600 dark:text-amber-400 text-[10px] block mb-0.5 font-black">سعر البيع النهائي بالمتجر</span>
-                                      <div className="text-amber-700 dark:text-amber-300 font-mono font-black">
-                                        {itemCalculatedSellingPrice.toFixed(2)} ج.م
-                                        <span className="text-[9px] text-slate-400 font-bold block">{itemProfitMode === 'margin' ? `(هامش ربح ${item.profitPercentage || 0}%)` : itemProfitMode === 'commission' ? `(نظام عمولة ${item.commissionPercentage || 0}%)` : '(تسعير يدوي)'}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2 pt-2 border-t border-slate-200/40 dark:border-slate-700/40">
-                                    <label className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-black cursor-pointer select-none">
-                                      <input 
-                                        type="checkbox"
-                                        checked={item.updateCatalogPrice !== false}
-                                        onChange={e => {
-                                          const newItems = [...orderItems];
-                                          newItems[idx].updateCatalogPrice = e.target.checked;
-                                          setOrderItems(newItems);
-                                        }}
-                                        className="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-505/20 accent-indigo-600 cursor-pointer"
-                                      />
-                                      <span>تحديث وتعديل أسعار هذا المنتج ونظام حساب التكلفة الخاص به في الكتالوج العام تلقائياً عند الترحيل</span>
-                                    </label>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Total Bottom sticky footer */}
-            <div className="p-6 bg-slate-900 dark:bg-black flex flex-col sm:flex-row justify-between items-center gap-5 shrink-0 border-t border-white/5">
-              <div className="flex flex-wrap gap-6 text-right select-none">
-                <div className="hidden sm:block">
-                  <span className="text-slate-500 text-[10px] block mb-0.5">مجموع الأصناف</span>
-                  <div className="text-sm font-bold text-white">
-                    {itemsSubtotal.toLocaleString()} <span className="text-[10px] opacity-60">ج.م</span>
-                  </div>
-                </div>
-                <div className="hidden sm:block">
-                  <span className="text-slate-500 text-[10px] block mb-0.5">الرسوم والضرائب</span>
-                  <div className="text-sm font-bold text-indigo-400">
-                    {(shippingFees + otherFees + taxAmount).toLocaleString()} <span className="text-[10px] opacity-60">ج.م</span>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-slate-400 text-[10px] block mb-0.5">صافي إجمالي الفاتورة النهائي</span>
-                  <div className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight">
-                    {totalCost.toLocaleString()} <span className="text-xs sm:text-base font-bold text-white/60">ج.م</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-3 w-full sm:w-auto">
-                <button 
-                  onClick={() => setShowOrderModal(false)} 
-                  className="flex-1 sm:flex-none px-6 py-3.5 text-slate-400 hover:text-white font-bold transition-all text-xs cursor-pointer"
-                >
-                  إلغاء وتجاهل
-                </button>
-                <button 
-                  onClick={handleAddOrder} 
-                  className="flex-1 sm:flex-none px-10 py-3.5 bg-emerald-500 text-white rounded-xl font-black shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer"
-                >
-                  <Save size={16}/>
-                  <span>{editingOrder ? 'حفظ وتحديث الفاتورة' : 'تأكيد وترحيل الفاتورة للمخازن'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SupplyOrderModal
+        isOpen={showOrderModal}
+        onClose={() => setShowOrderModal(false)}
+        editingOrder={editingOrder}
+        settings={settings}
+        selectedSupplierId={selectedSupplierId}
+        setSelectedSupplierId={setSelectedSupplierId}
+        paymentMethod={paymentMethod}
+        setPaymentMethod={setPaymentMethod}
+        selectedWarehouseId={selectedWarehouseId}
+        setSelectedWarehouseId={setSelectedWarehouseId}
+        selectedTreasuryAccountId={selectedTreasuryAccountId}
+        setSelectedTreasuryAccountId={setSelectedTreasuryAccountId}
+        treasury={treasury}
+        partnerPayments={partnerPayments}
+        setPartnerPayments={setPartnerPayments}
+        totalCost={totalCost}
+        orderReference={orderReference}
+        setOrderReference={setOrderReference}
+        orderNotes={orderNotes}
+        setOrderNotes={setOrderNotes}
+        shippingFees={shippingFees}
+        setShippingFees={setShippingFees}
+        shippingFeesNote={shippingFeesNote}
+        setShippingFeesNote={setShippingFeesNote}
+        shippingFeesPaymentMethod={shippingFeesPaymentMethod}
+        setShippingFeesPaymentMethod={setShippingFeesPaymentMethod}
+        otherFees={otherFees}
+        setOtherFees={setOtherFees}
+        otherFeesNote={otherFeesNote}
+        setOtherFeesNote={setOtherFeesNote}
+        taxRate={taxRate}
+        setTaxRate={setTaxRate}
+        expensePaidBy={expensePaidBy}
+        setExpensePaidBy={setExpensePaidBy}
+        recordExpensesFormally={recordExpensesFormally}
+        setRecordExpensesFormally={setRecordExpensesFormally}
+        distributeExpensesEqually={distributeExpensesEqually}
+        setDistributeExpensesEqually={setDistributeExpensesEqually}
+        costUpdateMethod={costUpdateMethod}
+        setCostUpdateMethod={setCostUpdateMethod}
+        orderItems={orderItems}
+        setOrderItems={setOrderItems}
+        addItemToOrder={addItemToOrder}
+        itemsSubtotal={itemsSubtotal}
+        taxAmount={taxAmount}
+        grandTotal={grandTotal}
+        handleAddOrder={handleAddOrder}
+        isSplitTreasury={isSplitTreasury}
+        setIsSplitTreasury={setIsSplitTreasury}
+        treasuryPayments={treasuryPayments}
+        setTreasuryPayments={setTreasuryPayments}
+      />
 
       {/* Return Products from Purchase Invoice Modal Dialog */}
       {showReturnModal && selectedOrderForReturn && (

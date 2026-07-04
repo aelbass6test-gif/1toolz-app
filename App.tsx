@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
-import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile } from './types';
+import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb, auth } from './services/firebaseClient';
@@ -361,11 +361,97 @@ const EmployeeLayoutWrapper = ({ children, isEmployeeSession, ...props }: any) =
     return <EmployeeLayout currentUser={props.currentUser} {...props}>{children}</EmployeeLayout>;
 };
 
+function autoHealProducts(products: Product[] = [], warehouses: Warehouse[] = []): Product[] {
+    const warehouseIds = warehouses.map(w => w.id);
+    const defaultWhId = warehouseIds[0];
+    if (!defaultWhId || !products || products.length === 0) return products;
+
+    let arrayChanged = false;
+    const updated = products.map(p => {
+        if (p.hasVariants && p.variants) {
+            let varArrayChanged = false;
+            const updatedVariants = p.variants.map(v => {
+                let whStock = { ...(v.warehouseStock || {}) };
+                let whChanged = false;
+                Object.keys(whStock).forEach(whId => {
+                    if (!warehouseIds.includes(whId)) {
+                        delete whStock[whId];
+                        whChanged = true;
+                    }
+                });
+                const dist = Object.values(whStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                const target = Number(v.stockQuantity !== undefined ? v.stockQuantity : (v.stock || 0));
+                if (dist !== target || !v.warehouseStock || Object.keys(v.warehouseStock).length === 0 || whChanged) {
+                    const gap = target - dist;
+                    whStock[defaultWhId] = Math.max(0, (Number(whStock[defaultWhId]) || 0) + gap);
+                    const newDist = Object.values(whStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                    return {
+                        ...v,
+                        warehouseStock: whStock,
+                        stockQuantity: newDist,
+                        stock: newDist
+                    };
+                }
+                return v;
+            });
+            varArrayChanged = updatedVariants.some((v, i) => v !== p.variants![i]);
+            if (varArrayChanged) {
+                arrayChanged = true;
+                const totalFromVariants = updatedVariants.reduce((t, v) => t + (v.stockQuantity || 0), 0);
+                return {
+                    ...p,
+                    variants: updatedVariants,
+                    stockQuantity: totalFromVariants,
+                    stock: totalFromVariants,
+                    inStock: totalFromVariants > 0
+                };
+            }
+            return p;
+        } else {
+            let whStock = { ...(p.warehouseStock || {}) };
+            let whChanged = false;
+            Object.keys(whStock).forEach(whId => {
+                if (!warehouseIds.includes(whId)) {
+                    delete whStock[whId];
+                    whChanged = true;
+                }
+            });
+            const dist = Object.values(whStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+            const target = Number(p.stockQuantity !== undefined ? p.stockQuantity : (p.stock || 0));
+            if (dist !== target || !p.warehouseStock || Object.keys(p.warehouseStock).length === 0 || whChanged) {
+                const gap = target - dist;
+                whStock[defaultWhId] = Math.max(0, (Number(whStock[defaultWhId]) || 0) + gap);
+                const newDist = Object.values(whStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                arrayChanged = true;
+                return {
+                    ...p,
+                    warehouseStock: whStock,
+                    stockQuantity: newDist,
+                    stock: newDist,
+                    inStock: newDist > 0
+                };
+            }
+            return p;
+        }
+    });
+
+    return arrayChanged ? updated : products;
+}
+
 function sanitizeData(storeData: StoreData): StoreData {
     if (!storeData) return storeData;
 
     const isoDateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/; 
     let hasChanges = false;
+
+    let sanitizedSettings = storeData.settings;
+    if (sanitizedSettings?.products) {
+        const healedProducts = autoHealProducts(sanitizedSettings.products, sanitizedSettings.warehouses || []);
+        if (healedProducts !== sanitizedSettings.products) {
+            hasChanges = true;
+            sanitizedSettings = { ...sanitizedSettings, products: healedProducts };
+        }
+    }
 
     const fixDate = (dateString: string): string | null => {
         if (!dateString || typeof dateString !== 'string') return null;
@@ -394,6 +480,7 @@ function sanitizeData(storeData: StoreData): StoreData {
     if (hasChanges) {
         return {
             ...storeData,
+            settings: sanitizedSettings || storeData.settings || INITIAL_SETTINGS,
             wallet: {
                 ...(storeData.wallet || {balance: 0, transactions: []}),
                 transactions: sanitizedTransactions || storeData.wallet?.transactions || []
@@ -2229,9 +2316,16 @@ export const AppComponent = () => {
             if(activeStoreId) {
                 setAllStoresData(p => {
                     const currentSettings = p[activeStoreId]?.settings || INITIAL_SETTINGS;
-                    const newSettings = typeof updater === 'function' ? updater(currentSettings) : updater;
+                    let newSettings = typeof updater === 'function' ? updater(currentSettings) : updater;
                     
                     if (currentSettings === newSettings) return p;
+
+                    if (newSettings.products && newSettings.products !== currentSettings.products) {
+                        const healed = autoHealProducts(newSettings.products, newSettings.warehouses || []);
+                        if (healed !== newSettings.products) {
+                            newSettings = { ...newSettings, products: healed };
+                        }
+                    }
 
                     return {
                         ...p, 

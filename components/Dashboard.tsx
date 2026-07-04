@@ -280,25 +280,54 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         </div>
       );
       case 'inventory_alerts': return (
-        <div className="glass-card p-8 rounded-3xl h-full">
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6">تنبيهات المخزون</h3>
-          {lowStockProducts.length > 0 ? lowStockProducts.slice(0,4).map(p => (
-            <div key={p.id} className="flex justify-between p-3 border-b border-slate-100">
-               <span className="text-sm font-bold">{p.name}</span>
-               <span className="text-rose-500 font-black">{p.stockQuantity}</span>
+        <div className="glass-card p-6 rounded-3xl h-full flex flex-col justify-between border border-slate-200/60 dark:border-slate-800">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <AlertTriangle className="text-amber-500 animate-pulse" size={20} />
+                تنبيهات المخزون الذكية
+              </h3>
+              <Link to="/products" className="text-xs font-bold text-indigo-600 hover:underline">إدارة</Link>
             </div>
-          )) : <p>المخزون سليم</p>}
+            {lowStockProducts.length > 0 ? (
+              <div className="space-y-2">
+                {lowStockProducts.slice(0,3).map(p => (
+                  <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700">
+                     <span className="text-xs font-bold truncate max-w-[150px]">{p.name}</span>
+                     <span className="px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 font-black text-xs tabular-nums">{p.stockQuantity} قطعة</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6 text-emerald-600 font-bold text-sm bg-emerald-50/50 dark:bg-emerald-950/20 rounded-2xl">المخزون في حالة ممتازة ✨</div>
+            )}
+          </div>
+          <Link to="/products" className="mt-4 block text-center py-2 bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 font-bold text-xs rounded-xl hover:bg-indigo-600/20 transition-all">🚀 فتح مركز الذكاء الاصطناعي للمخزون</Link>
         </div>
       );
       case 'top_products': return (
-        <div className="glass-card p-8 rounded-3xl h-full">
-           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6">الأكثر مبيعاً</h3>
-           {stats.topProducts.map((p: any) => (
-             <div key={p.id} className="flex justify-between p-2">
-               <span className="text-sm">{p.name}</span>
-               <span className="font-bold">{p.salesCount}</span>
+        <div className="glass-card p-6 rounded-3xl h-full flex flex-col justify-between border border-slate-200/60 dark:border-slate-800">
+           <div>
+             <div className="flex items-center justify-between mb-4">
+               <h3 className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                 <Sparkles className="text-indigo-500" size={20} />
+                 الأكثر مبيعاً هدا الشهر
+               </h3>
+               <Link to="/products" className="text-xs font-bold text-indigo-600 hover:underline">الكل</Link>
              </div>
-           ))}
+             <div className="space-y-2">
+               {stats.topProducts.slice(0,3).map((p: any, idx: number) => (
+                 <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700">
+                   <div className="flex items-center gap-2">
+                     <span className="w-5 h-5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-black text-[10px] flex items-center justify-center">#{idx+1}</span>
+                     <span className="text-xs font-bold truncate max-w-[140px]">{p.name}</span>
+                   </div>
+                   <span className="font-black text-indigo-600 dark:text-indigo-400 text-xs tabular-nums">{p.salesCount} بيعة</span>
+                 </div>
+               ))}
+             </div>
+           </div>
+           <Link to="/products" className="mt-4 block text-center py-2 bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 font-bold text-xs rounded-xl hover:bg-emerald-600/20 transition-all">📊 عرض مصفوفة الربحية والتحليل</Link>
         </div>
       );
       case 'supplier_debt': return (
@@ -1928,65 +1957,120 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         </motion.div>
 
         {/* Inventory & Alerts - Bento Card */}
-        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">تنبيهات المخزون</h3>
-            <AlertTriangle size={20} className="text-amber-500" />
-          </div>
-          
-          {lowStockProducts.length > 0 ? (
-            <div className="space-y-4">
-              {lowStockProducts.slice(0, 4).map(p => (
-                <div key={p.id} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center border border-slate-200 dark:border-slate-600">
-                      <Package size={20} className="text-slate-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{p.name}</p>
-                      <p className="text-xs text-slate-500">SKU: {p.id.slice(0, 8)}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-black text-rose-500">{p.stockQuantity} قطع</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">مخزون منخفض</p>
-                  </div>
+        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl relative overflow-hidden flex flex-col justify-between border border-slate-200/60 dark:border-slate-800 shadow-xl">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none" />
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-black shadow-inner">
+                  <AlertTriangle size={24} className="animate-pulse" />
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 py-12">
-              <CheckCircle2 size={48} className="text-emerald-500/20 mb-4" />
-              <p className="font-bold">المخزون سليم تماماً</p>
-            </div>
-          )}
-        </motion.div>
-
-        {/* Top Products - filling gap */}
-        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">الأكثر مبيعاً هدا الشهر</h3>
-              <Sparkles size={20} className="text-indigo-500" />
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white">تنبيهات المخزون الذكية</h3>
+                  <p className="text-xs text-slate-400 font-medium">متابعة الأصناف القريبة من النفاد</p>
+                </div>
+              </div>
+              <Link to="/products" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-all">
+                <span>إدارة المخزون</span>
+                <ArrowLeft size={14} />
+              </Link>
             </div>
             
-            <div className="space-y-4">
-              {stats.topProducts.map((p: any, idx: number) => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50/30 dark:bg-slate-800/30 border border-indigo-100/50 dark:border-slate-700/50">
-                   <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center font-black text-xs text-indigo-600 shadow-sm">
-                        {idx + 1}
+            {lowStockProducts.length > 0 ? (
+              <div className="space-y-3 my-4">
+                {lowStockProducts.slice(0, 4).map(p => (
+                  <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700 shadow-xs hover:border-amber-300 transition-all">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                        <Package size={18} />
                       </div>
-                      <p className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate max-w-[150px]">{p.name}</p>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px]">{p.name}</p>
+                        <p className="text-[11px] font-mono text-slate-400">SKU: {p.sku || p.id.slice(0, 8)}</p>
+                      </div>
+                    </div>
+                    <div className="text-left shrink-0">
+                      <span className="inline-block px-2.5 py-1 rounded-lg bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 font-black text-xs tabular-nums">
+                        {p.stockQuantity} قطعة متبقية
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-12 flex flex-col items-center justify-center text-center text-slate-400 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl my-4 border border-dashed border-slate-200 dark:border-slate-700">
+                <CheckCircle2 size={44} className="text-emerald-500 mb-3 animate-bounce" />
+                <p className="font-extrabold text-slate-700 dark:text-slate-200 text-base">المخزون في حالة ممتازة!</p>
+                <p className="text-xs text-slate-400 mt-0.5">لا توجد أي أصناف تواجه خطر النفاد حالياً.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">تم تفعيل المستشار الذكي للتنبؤ بالطلب</span>
+            <Link to="/products" className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
+              <span>عرض مصفوفة التحليل</span>
+              <Sparkles size={12} />
+            </Link>
+          </div>
+        </motion.div>
+
+        {/* Top Products - Bento Card */}
+        <motion.div variants={itemVariants} className="md:col-span-6 glass-card p-8 rounded-3xl relative overflow-hidden flex flex-col justify-between border border-slate-200/60 dark:border-slate-800 shadow-xl">
+          <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none" />
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black shadow-inner">
+                  <Sparkles size={24} className="animate-spin" style={{ animationDuration: '10s' }} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800 dark:text-white">الأكثر مبيعاً وطلباً</h3>
+                  <p className="text-xs text-slate-400 font-medium">المنتجات الرائدة في حركة المبيعات</p>
+                </div>
+              </div>
+              <Link to="/products" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-200 transition-all">
+                <span>تصفح الكل</span>
+                <ArrowLeft size={14} />
+              </Link>
+            </div>
+            
+            <div className="space-y-3 my-4">
+              {stats.topProducts.slice(0, 4).map((p: any, idx: number) => (
+                <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700 shadow-xs hover:border-indigo-300 transition-all">
+                   <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${
+                        idx === 0 ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20' :
+                        idx === 1 ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100' :
+                        idx === 2 ? 'bg-amber-700/20 text-amber-700 dark:text-amber-400' :
+                        'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                      }`}>
+                        #{idx + 1}
+                      </div>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px]">{p.name}</p>
                    </div>
-                   <div className="text-right">
-                      <p className="text-sm font-black text-indigo-600">{p.salesCount} بيعة</p>
+                   <div className="text-left shrink-0">
+                      <span className="inline-block px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-black text-xs tabular-nums">
+                        {p.salesCount} بيعة
+                      </span>
                    </div>
                 </div>
               ))}
               {stats.topProducts.length === 0 && (
-                <div className="text-center py-10 text-slate-400 italic">لا توجد بيانات مبيعات كافية</div>
+                <div className="py-12 text-center text-slate-400 font-bold bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl my-4 border border-dashed border-slate-200 dark:border-slate-700">
+                  لا توجد مبيعات مسجلة في هذه الفترة
+                </div>
               )}
             </div>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">تم تفعيل تحليل هوامش الربحية</span>
+            <Link to="/products" className="text-xs font-black text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
+              <span>مصفوفة الأرباح</span>
+              <TrendingUp size={12} />
+            </Link>
+          </div>
         </motion.div>
 
         {/* Supplier Debt (Accounts Payable) - Bento Card */}

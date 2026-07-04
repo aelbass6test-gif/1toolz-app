@@ -2014,15 +2014,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       ))}
                     </optgroup>
                   )}
-                  {getArray(settings.partners).length > 0 && (
-                    <optgroup label="🤝 محافظ وعهد الشركاء">
-                      {getArray(settings.partners).map((p: any) => (
-                        <option key={`partner_${p.id}`} value={`partner_${p.id}`}>
-                          🤝 عهدة الشريك: {p.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
                   {(getArray(settings.employees).length > 0 || getArray(settings.partners).length > 0) && (
                     <optgroup label="👤 العهدة النقدية (المدير والموظفين)">
                       <option value="employee_admin">👤 عهدة المدير (أنت)</option>

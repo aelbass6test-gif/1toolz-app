@@ -5,11 +5,11 @@ const getPrintControlBarCSS = () => ``;
 const normalizeName = (name: string): string => {
     if (!name) return name;
     let normalized = name.trim().replace(/\s+/g, ' ');
-    // Unify variations of "Zahra" and explicitly mark as partner if she is one
+    normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+    normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+    normalized = normalized.trim();
     if (/^(زهره|زهرة)/.test(normalized)) {
-        if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
-            return 'زهره شريك';
-        }
+        return 'زهره';
     }
     return normalized;
 };
@@ -26,7 +26,7 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
         @page { 
-          size: ${orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait'}; 
+          size: ${isContinuous ? 'auto' : (orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait')}; 
           margin: ${isContinuous ? '0' : '1.5cm'}; 
         }
         * { box-sizing: border-box; }
@@ -927,7 +927,7 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
         @page { 
-          size: ${orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait'}; 
+          size: ${isContinuous ? 'auto' : (orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait')}; 
           margin: ${isContinuous ? '0' : '1.5cm'}; 
         }
         * { box-sizing: border-box; }
@@ -1155,7 +1155,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
       <title>تقرير الخسائر - ${storeName}</title>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
-        @page { size: A4 ${orientation}; margin: ${isContinuous ? '0' : '1cm'}; }
+        @page { size: ${isContinuous ? 'auto' : `A4 ${orientation}`}; margin: ${isContinuous ? '0' : '1cm'}; }
         body { font-family: 'Cairo', sans-serif; font-size: 9px; color: #333; margin: 0; padding: 0; background: white; }
         
         /* Fix for Arabic text in html2canvas */
@@ -1606,16 +1606,23 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         .map(([name, s]) => `<tr><td>${name}</td><td>${s.count}</td><td>${((s.success/s.count)*100).toFixed(1)}%</td><td style="font-weight: bold; color: ${s.net >= 0 ? '#15803d' : '#b91c1c'};">${s.net.toLocaleString()}</td></tr>`).join('');
 
     const partners = settings.partners || [];
+    const employees = settings.employees || [];
     const treasuryCustody = (treasury?.accounts || []).filter(a => a.type === 'custody').map(a => ({ name: a.name, balance: a.balance }));
-    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ name: normalizeName(h.userName), balance: h.currentBalance || 0 }));
     
-    // Merge duplicates in holdersCustody after normalization
-    const mergedHolders: Record<string, number> = {};
-    holdersCustody.forEach(h => {
-        mergedHolders[h.name] = (mergedHolders[h.name] || 0) + h.balance;
+    const mergedHolders: Record<string, { displayName: string, balance: number }> = {};
+    (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).forEach(h => {
+        const nName = normalizeName(h.userName);
+        const isPartner = partners.some(p => normalizeName(p.name) === nName || h.userId === p.id || h.userId === `part_${p.id}` || h.userId === `partner_${p.id}`);
+        const isEmp = employees.some(e => normalizeName(e.name) === nName || h.userId === e.id || h.userId === `emp_${e.id}` || h.userId === `employee_${e.id}`);
+        const dispName = (h.userId === 'admin' || nName === 'المدير' || nName === 'المدير (أنت)') ? 'المدير (أنت)' : isPartner ? `${nName} (شريك)` : isEmp ? `${nName} (موظف)` : nName;
+        
+        if (!mergedHolders[nName]) {
+            mergedHolders[nName] = { displayName: dispName, balance: 0 };
+        }
+        mergedHolders[nName].balance += (h.currentBalance || 0);
     });
     
-    const custodyAccounts = [...treasuryCustody, ...Object.entries(mergedHolders).map(([name, balance]) => ({ name, balance }))];
+    const custodyAccounts = [...treasuryCustody, ...Object.values(mergedHolders).map(val => ({ name: val.displayName, balance: val.balance }))];
 
     // Collect advance payments AND POS collections that contribute to custody
     const custodyDetails: Record<string, Array<{ customerName: string, orderNumber: string, amount: number, type: string }>> = {};
@@ -1639,7 +1646,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     }
 
                     if (matchName) {
-                        const account = custodyAccounts.find(a => a.name.includes(matchName) || matchName.includes(a.name));
+                        const account = custodyAccounts.find(a => normalizeName(a.name) === matchName || a.name.includes(matchName) || matchName.includes(a.name) || normalizeName(a.name).includes(matchName));
                         const targetName = account ? account.name : matchName;
                         
                         const amountToReport = isCollectedPos ? ((Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) + (Number((o as any).tax) || 0) - (Number(o.discount) || 0)) : advance;
@@ -1875,10 +1882,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 --primary: #1e3a8a; --primary-soft: #dbeafe; --success: #059669; --danger: #dc2626;
                 --slate-50: #f8fafc; --slate-100: #f1f5f9; --slate-200: #e2e8f0; --slate-700: #334155; --slate-900: #0f172a;
             }
-            @page { size: ${orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait'}; margin: 10mm; }
-            body { font-family: 'Cairo', sans-serif; background: #fdfdfd; color: var(--slate-900); margin: 0; padding: 0; line-height: 1.6; }
-            .report-container { width: 100%; max-width: 210mm; margin: 0 auto; background: white; padding: 40px; box-sizing: border-box; }
-            ${orientation === 'landscape' ? '.report-container { max-width: 297mm; }' : ''}
+            @page { size: ${isContinuous ? 'auto' : (orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait')}; margin: ${isContinuous ? '0' : '10mm'}; }
+            body { font-family: 'Cairo', sans-serif; background: #fdfdfd; color: var(--slate-900); margin: 0; padding: ${isContinuous ? '20px' : '0'}; line-height: 1.6; }
+            .report-container { width: 100%; max-width: ${orientation === 'landscape' ? '297mm' : '210mm'}; margin: 0 auto; background: white; padding: ${isContinuous ? '20px' : '40px'}; box-sizing: border-box; border-radius: ${isContinuous ? '16px' : '0'}; box-shadow: ${isContinuous ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : 'none'}; }
             
             .header-banner { background: var(--slate-900); color: white; padding: 40px; border-radius: 24px; margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
             .header-banner h1 { margin: 0; font-size: 36px; font-weight: 900; letter-spacing: -1px; }

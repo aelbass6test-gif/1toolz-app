@@ -33,11 +33,11 @@ import { triggerCelebration } from '../utils/celebration';
 const normalizeName = (name: string): string => {
   if (!name) return name;
   let normalized = name.trim().replace(/\s+/g, ' ');
-  // Unify variations of "Zahra" and explicitly mark as partner if she is one
+  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+  normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+  normalized = normalized.trim();
   if (/^(زهره|زهرة)/.test(normalized)) {
-      if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
-          return 'زهره شريك';
-      }
+      return 'زهره';
   }
   return normalized;
 };
@@ -94,12 +94,28 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
   const products = settings.products || [];
   const warehouses = settings.warehouses || [];
   const cashHolders = settings.cashHolders || [];
+  
+  const treasuryAccountsList = useMemo(() => {
+    if (treasury) {
+      if (Array.isArray(treasury)) return treasury;
+      if (Array.isArray(treasury.accounts)) return treasury.accounts;
+      if (typeof treasury === "object" && treasury !== null) return Object.values(treasury);
+    }
+    const settingsAccounts = (settings as any).treasuryAccounts || (settings as any).treasury?.accounts || [];
+    if (Array.isArray(settingsAccounts)) return settingsAccounts;
+    if (typeof settingsAccounts === "object" && settingsAccounts !== null) return Object.values(settingsAccounts);
+    return [];
+  }, [treasury, settings]);
+
+  const partnersList = settings.partners || [];
+  const employeesList = settings.employees || [];
+
   const allPossibleHolders = useMemo(() => [
     { id: 'admin', name: 'المدير (أنت)' },
-    ...(settings.employees || []).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: normalizeName(e.name) })),
-    ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: `${normalizeName(p.name)} (شريك)` })),
-    ...(treasury?.accounts || []).filter(a => a.type === 'custody').map(a => ({ id: `treas_${a.id}`, name: normalizeName(a.name) }))
-  ], [settings.employees, settings.partners, treasury?.accounts]);
+    ...(employeesList).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: normalizeName(e.name) })),
+    ...(partnersList).map((p, index) => ({ id: `part_${p.id || index}`, name: `${normalizeName(p.name)} (شريك)` })),
+    ...(treasuryAccountsList).filter(a => a.type === 'custody').map(a => ({ id: `treas_${a.id}`, name: normalizeName(a.name) }))
+  ], [employeesList, partnersList, treasuryAccountsList]);
 
   const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [
     { id: 'cash', name: 'كاش', logoUrl: '' },
@@ -608,11 +624,31 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
                         onChange={(e) => setSelectedCashHolder(e.target.value)}
                         className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-12 px-4 rounded-xl text-sm font-black outline-none focus:border-indigo-500 cursor-pointer"
                       >
-                        {allPossibleHolders.length > 0 ? (
-                          allPossibleHolders.map(h => <option key={h.id} value={h.id}>{h.name}</option>)
-                        ) : (
-                          <option value="">لا يوجد موظفين متاحين</option>
-                        )}
+                         <option value="">-- اختر جهة الاستلام --</option>
+                         {treasuryAccountsList.length > 0 && (
+                            <optgroup label="🏦 الحسابات البنكية والخزائن">
+                              {treasuryAccountsList.map((acc: any) => (
+                                <option key={`treas_${acc.id}`} value={`treas_${acc.id}`}>
+                                  🏦 {acc.name} ({acc.type || "خزينة"})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {(employeesList.length > 0 || partnersList.length > 0) && (
+                            <optgroup label="👤 العهدة النقدية (المدير والموظفين)">
+                              <option value="admin">👤 عهدة المدير (أنت)</option>
+                              {partnersList.map((p: any, index: number) => (
+                                <option key={`part_${p.id || index}`} value={`part_${p.id || index}`}>
+                                  🤝 {p.name} (عهدة شريك)
+                                </option>
+                              ))}
+                              {employeesList.map((emp: any, index: number) => (
+                                <option key={`emp_${emp.id || emp.phone || index}`} value={`emp_${emp.id || emp.phone || index}`}>
+                                  👤 {emp.name} (عهدة موظف)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                       </select>
                    </motion.div>
                  )}
@@ -857,18 +893,30 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
       updatedWallet.transactions = (updatedWallet.transactions || []).filter(t => t.orderId !== sale.id);
     }
 
-    // Revert the cash holder balance if it's not credit and the payment was cash
+    // Revert the cash holder balance if it's not credit and not wallet
     let updatedHolders = [...(settings.cashHolders || [])];
-    if (sale.cashHolderId !== 'credit' && sale.paymentMethod === 'cash') {
-      const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(sale.cashHolderId));
+    if (sale.cashHolderId && sale.cashHolderId !== 'credit' && sale.cashHolderId !== 'wallet') {
+      const cleanTargetId = String(sale.cashHolderId).replace(/^(emp_|part_|treas_)/, '');
+      const hIdx = updatedHolders.findIndex(h => {
+        const cleanHolderId = String(h.userId).replace(/^(emp_|part_|treas_)/, '');
+        return String(h.userId) === String(sale.cashHolderId) || (cleanHolderId === cleanTargetId && cleanHolderId !== '');
+      });
       if (hIdx > -1) {
-        updatedHolders[hIdx].currentBalance = Math.max(0, updatedHolders[hIdx].currentBalance - sale.totalAmount);
-        updatedHolders[hIdx].lastUpdated = new Date().toISOString();
+        updatedHolders[hIdx] = {
+          ...updatedHolders[hIdx],
+          currentBalance: Math.max(0, (updatedHolders[hIdx].currentBalance || 0) - sale.totalAmount),
+          lastUpdated: new Date().toISOString()
+        };
       }
     }
     
     // Remove associated cash handover
-    const updatedHandovers = (settings.cashHandovers || []).filter(h => h.orderId !== saleId);
+    const updatedHandovers = (settings.cashHandovers || []).filter(h => {
+      const notes = h.notes || "";
+      const matchOrderId = h.orderId === saleId || notes.includes(saleId);
+      const matchOrderNum = sale.saleNumber ? notes.includes(`#${sale.saleNumber}`) || notes.includes(sale.saleNumber) : false;
+      return !(matchOrderId || matchOrderNum);
+    });
 
     // 3. Remove from POS Sales
     const newSales = sales.filter(s => s.id !== saleId);

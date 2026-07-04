@@ -739,25 +739,62 @@ const AgingProgressBar = ({ label, value, total, color }: { label: string; value
     );
 };
 
+// Helper for normalizing names in custody ledger
+const normalizeName = (name: string): string => {
+  if (!name) return name;
+  let normalized = name.trim().replace(/\s+/g, ' ');
+  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+  normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+  normalized = normalized.trim();
+  if (/^(زهره|زهرة)/.test(normalized)) {
+      return 'زهره';
+  }
+  return normalized;
+};
+
 // 6. Custody Ledger Component
 export const CustodyLedger = ({ settings, treasury }: { settings: Settings, treasury?: any }) => {
     const [selectedHolderId, setSelectedHolderId] = useState<string | null>(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-    const holdersCustody = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0).map(h => ({ 
-        id: h.userId,
-        name: h.userName, 
-        balance: h.currentBalance || 0, 
-        date: h.lastUpdated,
-        type: 'employee'
-    }));
+    const holdersCustody = useMemo(() => {
+        const raw = (settings.cashHolders || []).filter(h => h.currentBalance && h.currentBalance > 0);
+        const grouped: Record<string, any> = {};
+        raw.forEach(h => {
+            const nName = normalizeName(h.userName);
+            const isPartner = (settings.partners || []).some(p => normalizeName(p.name) === nName || h.userId === p.id || h.userId === `part_${p.id}` || h.userId === `partner_${p.id}`);
+            const isEmp = (settings.employees || []).some(e => normalizeName(e.name) === nName || h.userId === e.id || h.userId === `emp_${e.id}` || h.userId === `employee_${e.id}`);
+            const displayName = (h.userId === 'admin' || nName === 'المدير' || nName === 'المدير (أنت)') ? 'المدير (أنت)' : isPartner ? `${nName} (شريك)` : isEmp ? `${nName} (موظف)` : nName;
+            
+            if (!grouped[nName]) {
+                grouped[nName] = {
+                    id: h.userId,
+                    name: displayName,
+                    balance: h.currentBalance || 0,
+                    date: h.lastUpdated,
+                    type: isPartner ? 'partner' : 'employee',
+                    originalIds: [h.userId]
+                };
+            } else {
+                grouped[nName].balance += (h.currentBalance || 0);
+                if (!grouped[nName].originalIds.includes(h.userId)) {
+                    grouped[nName].originalIds.push(h.userId);
+                }
+                if (new Date(h.lastUpdated) > new Date(grouped[nName].date)) {
+                    grouped[nName].date = h.lastUpdated;
+                }
+            }
+        });
+        return Object.values(grouped);
+    }, [settings.cashHolders, settings.partners, settings.employees]);
     
     const treasuryCustody = (treasury?.accounts || []).filter((a: any) => a.type === 'custody' && a.balance > 0).map((a: any) => ({ 
         id: a.id,
         name: a.name, 
         balance: a.balance, 
         date: new Date().toISOString(),
-        type: 'treasury'
+        type: 'treasury',
+        originalIds: [a.id]
     }));
     
     const holders = [...holdersCustody, ...treasuryCustody];
@@ -766,9 +803,9 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
     const holderSales = useMemo(() => {
         if (!selectedHolderId) return [];
         return (settings.posSales || [])
-            .filter(s => s.cashHolderId === selectedHolderId)
+            .filter(s => s.cashHolderId === selectedHolderId || (selectedHolder?.originalIds && selectedHolder.originalIds.includes(s.cashHolderId)))
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [settings.posSales, selectedHolderId]);
+    }, [settings.posSales, selectedHolderId, selectedHolder]);
 
     const handleExport = (mode: 'print' | 'pdf') => {
         const total = holders.reduce((sum, h) => sum + h.balance, 0);

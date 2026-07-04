@@ -1711,6 +1711,14 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                     });
                                                                 }
 
+                                                                const matchHolderId = (id1?: string, id2?: string) => {
+                                                                    if (!id1 || !id2) return false;
+                                                                    if (String(id1) === String(id2)) return true;
+                                                                    const c1 = String(id1).replace(/^(emp_|part_|treas_)/, '');
+                                                                    const c2 = String(id2).replace(/^(emp_|part_|treas_)/, '');
+                                                                    return c1 === c2 && c1 !== '';
+                                                                };
+
                                                                 let handoversToRemove: any[] = [];
                                                                 updatedSettings.cashHandovers = (updatedSettings.cashHandovers || []).filter(
                                                                     (tx: any) => {
@@ -1726,18 +1734,27 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                     updatedSettings.cashHolders = [...(updatedSettings.cashHolders || [])];
                                                                     handoversToRemove.forEach((tx: any) => {
                                                                         if (tx.toUserId) {
-                                                                            const toIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.toUserId);
+                                                                            const toIdx = updatedSettings.cashHolders.findIndex((h: any) => matchHolderId(h.userId, tx.toUserId));
                                                                             if (toIdx > -1) {
-                                                                                updatedSettings.cashHolders[toIdx] = { ...updatedSettings.cashHolders[toIdx], currentBalance: (updatedSettings.cashHolders[toIdx].currentBalance || 0) - tx.amount };
+                                                                                updatedSettings.cashHolders[toIdx] = { ...updatedSettings.cashHolders[toIdx], currentBalance: Math.max(0, (updatedSettings.cashHolders[toIdx].currentBalance || 0) - tx.amount), lastUpdated: new Date().toISOString() };
                                                                             }
                                                                         }
                                                                         if (tx.fromUserId && tx.fromUserId !== 'system' && tx.fromUserId !== 'customer') {
-                                                                            const fromIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.fromUserId);
+                                                                            const fromIdx = updatedSettings.cashHolders.findIndex((h: any) => matchHolderId(h.userId, tx.fromUserId));
                                                                             if (fromIdx > -1) {
-                                                                                updatedSettings.cashHolders[fromIdx] = { ...updatedSettings.cashHolders[fromIdx], currentBalance: (updatedSettings.cashHolders[fromIdx].currentBalance || 0) + tx.amount };
+                                                                                updatedSettings.cashHolders[fromIdx] = { ...updatedSettings.cashHolders[fromIdx], currentBalance: (updatedSettings.cashHolders[fromIdx].currentBalance || 0) + tx.amount, lastUpdated: new Date().toISOString() };
                                                                             }
                                                                         }
                                                                     });
+                                                                } else if (o.cashHolderId && o.cashHolderId !== 'credit' && o.cashHolderId !== 'wallet') {
+                                                                    const deductAmount = Number(o.totalPrice || (o as any).totalAmount || o.advancePayment || 0);
+                                                                    if (deductAmount > 0) {
+                                                                        updatedSettings.cashHolders = [...(updatedSettings.cashHolders || [])];
+                                                                        const hIdx = updatedSettings.cashHolders.findIndex((h: any) => matchHolderId(h.userId, o.cashHolderId));
+                                                                        if (hIdx > -1) {
+                                                                            updatedSettings.cashHolders[hIdx] = { ...updatedSettings.cashHolders[hIdx], currentBalance: Math.max(0, (updatedSettings.cashHolders[hIdx].currentBalance || 0) - deductAmount), lastUpdated: new Date().toISOString() };
+                                                                        }
+                                                                    }
                                                                 }
                                                             });
                                                             return updatedSettings;

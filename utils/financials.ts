@@ -567,6 +567,14 @@ export const getAdvancePaymentCustodyName = (order: any, settings?: any, treasur
     return `👤 عهدة موظف (#${eId})`;
   }
 
+  if (order.cashHolderName) {
+    let cleanName = order.cashHolderName.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '').replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '').trim();
+    if (order.cashHolderName.includes('شريك') || order.cashHolderName.includes('partner')) {
+      return `🤝 عهدة شريك: ${cleanName}`;
+    }
+    return `👤 عهدة: ${cleanName}`;
+  }
+
   return "⚠️ غير محدد (لم يتم اختيار جهة استلام)";
 };
 

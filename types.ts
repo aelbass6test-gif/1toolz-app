@@ -71,6 +71,11 @@ export interface Warehouse {
   name: string;
   location?: string;
   isDefault?: boolean;
+  type?: 'central' | 'pos' | 'backup' | 'logistics'; // نوع الفرع/المستودع
+  managerName?: string; // مسؤول أو مدير الفرع
+  phone?: string; // رقم هاتف الفرع
+  capacity?: number; // السعة التخزينية القصوى
+  notes?: string;
 }
 
 export interface ProductVariant {
@@ -432,6 +437,12 @@ export interface Supplier {
   address?: string;
   notes?: string;
   balance?: number; // Zero or Positive means debt to them
+  category?: 'raw_materials' | 'ready_products' | 'logistics' | 'general'; // تصنيف المورد
+  creditLimit?: number; // الحد الائتماني
+  taxNumber?: string; // الرقم الضريبي
+  bankAccount?: string; // الآيبان أو الحساب البنكي
+  rating?: 1 | 2 | 3 | 4 | 5; // تقييم المورد
+  tier?: 'vip' | 'gold' | 'standard'; // مستوى الشراكة
 }
 
 export interface SupplyOrderItem {

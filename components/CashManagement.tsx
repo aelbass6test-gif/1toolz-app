@@ -37,11 +37,11 @@ interface CashManagementProps {
 const normalizeName = (name: string): string => {
   if (!name) return name;
   let normalized = name.trim().replace(/\s+/g, ' ');
-  // Unify variations of "Zahra" and explicitly mark as partner if she is one
+  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+  normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+  normalized = normalized.trim();
   if (/^(زهره|زهرة)/.test(normalized)) {
-      if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
-          return 'زهره شريك';
-      }
+      return 'زهره';
   }
   return normalized;
 };
@@ -516,7 +516,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                            <div className="text-right">
                               <h4 className="font-black text-slate-800 dark:text-white">
                                 {holder.userName}
-                                {holder.userId === 'admin' ? ' (المدير)' : settings?.partners?.find(p => p.id === holder.userId) ? ' (شريك)' : settings?.employees?.find(e => e.id === holder.userId) ? ' (موظف)' : ''}
+                                {holder.userId === 'admin' || holder.originalIds?.includes('admin') || holder.userName === 'المدير' || holder.userName === 'المدير (أنت)' ? ' (المدير)' : settings?.partners?.find(p => p.id === holder.userId || holder.originalIds?.includes(p.id) || holder.originalIds?.includes(`part_${p.id}`) || holder.originalIds?.includes(`partner_${p.id}`) || normalizeName(p.name) === holder.userName) ? ' (شريك)' : settings?.employees?.find(e => e.id === holder.userId || holder.originalIds?.includes(e.id) || holder.originalIds?.includes(`emp_${e.id}`) || holder.originalIds?.includes(`employee_${e.id}`) || normalizeName(e.name) === holder.userName) ? ' (موظف)' : ''}
                               </h4>
                               <span className="text-[10px] font-bold text-slate-400">آخر تحديث: {new Date(holder.lastUpdated).toLocaleDateString('ar-EG')}</span>
                            </div>

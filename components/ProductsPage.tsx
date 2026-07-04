@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft } from 'lucide-react';
 import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
@@ -7,6 +7,7 @@ import { generateProductDescription, generateSocialMediaPost } from '../services
 import { getLatestProductCost } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
+import { SmartInventoryHubNav, SmartInventoryHubContent, InventoryHubTab } from './inventory/SmartInventoryHub';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -35,6 +36,7 @@ interface ProductsPageProps {
 
 const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSettings, orders, activeStoreId, onRefresh }) => {
   const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
+  const [activeTab, setActiveTab] = useState<InventoryHubTab>('catalog');
   const [searchTerm, setSearchTerm] = useState('');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -933,6 +935,22 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         </motion.div>
       )}
 
+      <SmartInventoryHubNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        productsCount={(settings.products || []).length}
+        criticalCount={(settings.products || []).filter(p => (p.stockQuantity ?? p.stock ?? 0) === 0 || (p.minStockLevel && (p.stockQuantity ?? 0) <= p.minStockLevel)).length}
+      />
+
+      {activeTab !== 'catalog' ? (
+        <SmartInventoryHubContent
+          activeTab={activeTab}
+          settings={settings}
+          setSettings={setSettings}
+          orders={orders || []}
+        />
+      ) : (
+        <>
       {/* Inventory Financial Health Indicators Bento Bar */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-5 gap-4 my-6">
         {/* Total Cost Value / Assets invested */}
@@ -1189,70 +1207,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                   <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{product.stockQuantity}</span>
                                   {product.stockQuantity < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
                                </div>
-                               {hasStockInconsistency && (
-                                 <button 
-                                   onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
-                                   className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm animate-pulse"
-                                   title={`فجوة في البيانات! إجمالي المخازن: ${distributedStock} بينما الإجمالي المسجل: ${product.stockQuantity}. اضغط للمزامنة.`}
-                                 >
-                                   <AlertCircle size={10} />
-                                   {distributedStock === 0 ? "توزيع على المخازن" : "تصحيح الفجوة (" + distributedStock + ")"}
-                                 </button>
-                               )}
-                               {((product.stockQuantity || 0) !== invoicesStockMap.products[product.id] || product.variants?.some(v => (v.stockQuantity || 0) !== invoicesStockMap.variants[v.id])) && (
-                                 <button 
-                                   onClick={(e) => { 
-                                     e.stopPropagation(); 
-                                     showConfirm("استعادة من الفواتير", "سيتم سحب الرصيد من فواتير الشراء لهذا المنتج فقط. استمرار؟", () => {
-                                        const warehouseIds = (settings.warehouses || []).map(w => w.id);
-                                        const defaultWhId = warehouseIds[0];
-                                        const updatedProducts = settings.products.map(p => {
-                                          if (p.id !== product.id) return p;
-                                          let updated = { ...p };
-                                          if (updated.hasVariants && updated.variants) {
-                                            updated.variants = updated.variants.map(v => {
-                                              const invStock = invoicesStockMap.variants[v.id] ?? 0;
-                                              let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
-                                              if (defaultWhId && (vCopy.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
-                                                vCopy.warehouseStock = { ...(vCopy.warehouseStock || {}), [defaultWhId]: invStock };
-                                              }
-                                              return vCopy;
-                                            });
-                                            updated.stockQuantity = updated.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
-                                          } else {
-                                            const invStock = invoicesStockMap.products[p.id] ?? 0;
-                                            updated.stockQuantity = invStock;
-                                            if (defaultWhId && (updated.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
-                                                updated.warehouseStock = { ...(updated.warehouseStock || {}), [defaultWhId]: invStock };
-                                            }
-                                          }
-                                          updated.stock = updated.stockQuantity;
-                                          updated.inStock = (updated.stockQuantity || 0) > 0;
-                                          return updated;
-                                        });
-                                        setSettings(prev => ({ ...prev, products: updatedProducts }));
-                                        audioSynth.playTone('success');
-                                     });
-                                   }}
-                                   className="text-[9px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-indigo-100 dark:border-indigo-800 transition-all cursor-pointer shadow-sm"
-                                 >
-                                   <FileText size={10} />
-                                   استعادة حبات
-                                 </button>
-                               )}
                            </div>
                         ) : (
                            <div className="flex flex-col gap-1">
                               <span className="px-2 py-1 text-xs font-bold text-red-700 bg-red-100 dark:text-red-300 dark:bg-red-900/50 rounded-full border border-red-200 dark:border-red-800 w-fit">نفذ</span>
-                              {hasStockInconsistency && distributedStock > 0 && (
-                                 <button 
-                                   onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
-                                   className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm"
-                                 >
-                                   <AlertCircle size={10} />
-                                   استعادة ({distributedStock}) حبة
-                                 </button>
-                              )}
                            </div>
                         )}
                       </td>
@@ -1473,56 +1431,6 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                <p className={`text-sm font-black ${product.stockQuantity > 0 ? 'text-slate-900 dark:text-slate-100' : 'text-red-600 dark:text-red-400'}`}>{product.stockQuantity}</p>
                                {product.stockQuantity < 5 && product.stockQuantity > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
                             </div>
-                            {hasStockInconsistencyForMobile && (
-                               <button 
-                                 onClick={(e) => { e.stopPropagation(); fixProductStock(product.id); }}
-                                 className="text-[9px] font-black text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:text-rose-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-rose-100 dark:border-rose-800 transition-all cursor-pointer shadow-sm"
-                               >
-                                 <AlertCircle size={10} />
-                                 {distributedStockForMobile === 0 ? "توزيع" : "تصحيح (" + distributedStockForMobile + ")"}
-                               </button>
-                            )}
-                            {((product.stockQuantity || 0) !== invoicesStockMap.products[product.id] || (product.variants && product.variants.some(v => (v.stockQuantity || 0) !== invoicesStockMap.variants[v.id]))) && (
-                               <button 
-                                 onClick={(e) => { 
-                                   e.stopPropagation(); 
-                                   showConfirm("استعادة من الفواتير", "سيتم سحب الرصيد من فواتير الشراء لهذا المنتج فقط. استمرار؟", () => {
-                                      const warehouseIds = (settings.warehouses || []).map(w => w.id);
-                                      const defaultWhId = warehouseIds[0];
-                                      const updatedProducts = settings.products.map(p => {
-                                        if (p.id !== product.id) return p;
-                                        let updated = { ...p };
-                                        if (updated.hasVariants && updated.variants) {
-                                          updated.variants = updated.variants.map(v => {
-                                            const invStock = invoicesStockMap.variants[v.id] ?? 0;
-                                            let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
-                                            if (defaultWhId && (vCopy.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
-                                              vCopy.warehouseStock = { ...(vCopy.warehouseStock || {}), [defaultWhId]: invStock };
-                                            }
-                                            return vCopy;
-                                          });
-                                          updated.stockQuantity = updated.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
-                                        } else {
-                                          const invStock = invoicesStockMap.products[p.id] ?? 0;
-                                          updated.stockQuantity = invStock;
-                                          if (defaultWhId && (updated.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
-                                              updated.warehouseStock = { ...(updated.warehouseStock || {}), [defaultWhId]: invStock };
-                                          }
-                                        }
-                                        updated.stock = updated.stockQuantity;
-                                        updated.inStock = (updated.stockQuantity || 0) > 0;
-                                        return updated;
-                                      });
-                                      setSettings(prev => ({ ...prev, products: updatedProducts }));
-                                      audioSynth.playTone('success');
-                                   });
-                                 }}
-                                 className="text-[9px] font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-400 px-1.5 py-0.5 rounded-md flex items-center gap-1 border border-indigo-100 dark:border-indigo-800 transition-all cursor-pointer shadow-sm"
-                               >
-                                 <FileText size={10} />
-                                 استعادة حبات
-                               </button>
-                            )}
                          </div>
                       )}
                     </div>
@@ -1656,6 +1564,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         )}
 
       </motion.div>
+        </>
+      )}
 
       {(isAdding || editingProduct) && (
         <ProductFormModal 
@@ -1934,7 +1844,7 @@ const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, onClose
 
 export default ProductsPage;
 
-// --- New/Updated Component: ProductFormModal ---
+// --- Upgraded Ultra-Modern Component: ProductFormModal ---
 
 interface ProductFormModalProps {
     isOpen: boolean;
@@ -1951,11 +1861,22 @@ interface ProductFormModalProps {
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, onSave, productData, setProductData, settings, isEditing, onGenerateDescription, isGenerating }) => {
     const [isSaving, setIsSaving] = useState(false);
     
+    // Track modes: 'simple' (منتج مباشر), 'variant' (متغيرات ومقاسات), 'digital' (خدمة / منتج رقمي بدون مخزون)
+    const [activeTrack, setActiveTrack] = useState<'simple' | 'variant' | 'digital'>(() => {
+        if (productData.hasVariants) return 'variant';
+        if (productData.stockQuantity === null && isEditing) return 'digital';
+        return 'simple';
+    });
+
+    // Step wizard state: 0: البيانات والمسار, 1: التسعير ومحاكي الربحية, 2: المخزون والخيارات, 3: المعرض والذكاء الاصطناعي
+    const [activeStep, setActiveStep] = useState<number>(0);
+    const [showUrlInput, setShowUrlInput] = useState(false);
+    const [newImageUrl, setNewImageUrl] = useState('');
+
     const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
-        // Simulate a small delay for better UX and to allow state updates to propagate
-        await new Promise(resolve => setTimeout(resolve, 600));
+        await new Promise(resolve => setTimeout(resolve, 500));
         onSave(e);
         setIsSaving(false);
     };
@@ -1963,6 +1884,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const thumbnailInputRef = useRef<HTMLInputElement>(null);
     const galleryInputRef = useRef<HTMLInputElement>(null);
 
+    // Auto-calculate cost based on profit mode
     useEffect(() => {
         const { profitMode, price, profitPercentage, basePrice, commissionPercentage, costPrice } = productData;
         let newCost = costPrice || 0;
@@ -1986,19 +1908,30 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         setProductData((prev: Product) => ({ ...prev, [field]: value }));
     };
 
-    const handleImagesChange = (val: string) => {
-      const urls = val.split(/[\n,]/).map(url => url.trim()).filter(url => url !== '');
-      updateField('images', urls);
-    };
-
-    const handleVariantToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const hasVariants = e.target.checked;
-        setProductData((prev: Product) => ({ 
-            ...prev, 
-            hasVariants,
-            options: hasVariants ? prev.options : [],
-            variants: hasVariants ? prev.variants : [],
-        }));
+    const handleTrackChange = (track: 'simple' | 'variant' | 'digital') => {
+        setActiveTrack(track);
+        if (track === 'variant') {
+            setProductData((prev: Product) => ({
+                ...prev,
+                hasVariants: true,
+                options: prev.options || [],
+                variants: prev.variants || [],
+                stockQuantity: prev.variants?.reduce((s, v) => s + (v.stockQuantity || 0), 0) || 0
+            }));
+        } else if (track === 'digital') {
+            setProductData((prev: Product) => ({
+                ...prev,
+                hasVariants: false,
+                stockQuantity: null, // Mapped to unlimited / service
+                weight: 0
+            }));
+        } else {
+            setProductData((prev: Product) => ({
+                ...prev,
+                hasVariants: false,
+                stockQuantity: prev.stockQuantity === null ? 10 : (prev.stockQuantity || 10)
+            }));
+        }
     };
 
     const convertToBase64 = (file: File): Promise<string> => {
@@ -2032,238 +1965,713 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
             console.error("File upload error:", error);
             alert("حدث خطأ أثناء رفع الصورة.");
         } finally {
-            e.target.value = ''; // Reset input
+            e.target.value = '';
         }
     };
 
-    const profitMode = productData.profitMode || 'manual';
+    const removeImage = (index: number) => {
+        const currentImages = [...(productData.images || [])];
+        currentImages.splice(index, 1);
+        updateField('images', currentImages);
+    };
+
+    const addImageUrl = () => {
+        if (!newImageUrl || !newImageUrl.trim().startsWith('http')) return alert('يرجى إدخال رابط صورة صحيح يبدأ بـ http');
+        updateField('images', [...(productData.images || []), newImageUrl.trim()]);
+        setNewImageUrl('');
+        setShowUrlInput(false);
+    };
+
+    // Smart Profit Simulator calculations
+    const currentPrice = Number(productData.price) || 0;
+    const currentCost = Number(productData.costPrice) || 0;
+    const netProfit = currentPrice - currentCost;
+    const profitMarginPercent = currentPrice > 0 ? ((netProfit / currentPrice) * 100).toFixed(1) : '0.0';
+    const roiPercent = currentCost > 0 ? ((netProfit / currentCost) * 100).toFixed(1) : '0.0';
+    const isProfitHealthy = netProfit > 0 && Number(profitMarginPercent) >= 20;
+
+    // Smart warehouse distribution
+    const distributeStockEqually = () => {
+        const warehouses = settings.warehouses || [];
+        if (warehouses.length === 0) return;
+        const total = Number(productData.stockQuantity) || 0;
+        const each = Math.floor(total / warehouses.length);
+        const remainder = total % warehouses.length;
+        const newWhStock: { [key: string]: number } = {};
+        warehouses.forEach((w, i) => {
+            newWhStock[w.id] = each + (i === 0 ? remainder : 0);
+        });
+        updateField('warehouseStock', newWhStock);
+    };
+
+    const focusStockInDefault = () => {
+        const warehouses = settings.warehouses || [];
+        if (warehouses.length === 0) return;
+        const total = Number(productData.stockQuantity) || 0;
+        const defaultWhId = warehouses[0].id;
+        const newWhStock: { [key: string]: number } = { [defaultWhId]: total };
+        warehouses.slice(1).forEach(w => newWhStock[w.id] = 0);
+        updateField('warehouseStock', newWhStock);
+    };
+
+    const steps = [
+        { id: 0, title: 'المسار والبيانات', icon: <Box size={18} /> },
+        { id: 1, title: 'التسعير والربحية', icon: <Calculator size={18} /> },
+        { id: 2, title: activeTrack === 'variant' ? 'المتغيرات والمقاسات' : 'المخزون والمستودعات', icon: <Layers size={18} /> },
+        { id: 3, title: 'المعرض ووصف AI', icon: <Sparkles size={18} /> },
+    ];
 
     return (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800 max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
-              <h3 className="text-xl font-bold dark:text-white">{isEditing ? 'تعديل المنتج' : 'إضافة منتج جديد'}</h3>
-              <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-                <XCircle size={24} className="text-slate-400 dark:text-slate-600" />
-              </button>
-            </div>
-            <form onSubmit={handleFormSubmit} id="product-form" className="flex-1 overflow-y-auto">
-              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6">
-                  {/* Left Column: Basic Info */}
-                  <div className="space-y-4">
-                      <FormInput label="اسم المنتج" icon={<Package size={16}/>} value={productData.name || ''} onChange={e => updateField('name', e.target.value)} required />
-                      <div className="grid grid-cols-2 gap-4">
-                          <FormInput label="SKU" icon={<Barcode size={16}/>} value={productData.sku || ''} onChange={e => updateField('sku', e.target.value)} required />
-                          <FormInput label="القسم" icon={<Grid3x3 size={16}/>} value={productData.collectionId || ''} onChange={e => updateField('collectionId', e.target.value)} as="select">
-                              <option value="">بدون قسم</option>
-                              {settings.collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </FormInput>
-                      </div>
-                      <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-                        <label className="flex items-center justify-between cursor-pointer">
-                            <span className="font-bold text-slate-700 dark:text-slate-300">هذا المنتج له متغيرات (مقاس، لون...)</span>
-                            <input type="checkbox" checked={productData.hasVariants} onChange={handleVariantToggle} className="h-5 w-5 rounded text-indigo-600 focus:ring-indigo-500" />
-                        </label>
-                      </div>
-                  </div>
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-200 dark:border-slate-800 max-h-[92vh] flex flex-col">
+                
+                {/* Sleek Header */}
+                <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between flex-shrink-0 border-b border-indigo-500/20">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-400 shadow-inner">
+                            {isEditing ? <Edit3 size={22} /> : <Plus size={22} />}
+                        </div>
+                        <div>
+                            <h3 className="text-lg sm:text-xl font-black tracking-tight flex items-center gap-2">
+                                {isEditing ? 'تعديل بيانات المنتج' : 'إضافة منتج جديد'}
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/30 border border-indigo-400/30 text-indigo-200">
+                                    {activeTrack === 'simple' ? 'مسار قياسي مباشر' : activeTrack === 'variant' ? 'مسار متعدد المتغيرات' : 'مسار باقات وخدمات رقمية'}
+                                </span>
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-0.5">قم بتكوين المنتج واختيار المسار الأمثل وإدارة الجدوى الاقتصادية</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors text-slate-400 hover:text-white">
+                        <XCircle size={26} />
+                    </button>
+                </div>
 
-                  {/* Right Column: Images & Description */}
-                  <div className="space-y-4">
-                      <input 
-                          type="file" 
-                          ref={thumbnailInputRef} 
-                          className="hidden" 
-                          accept="image/*" 
-                          onChange={(e) => handleFileUpload(e, 'thumbnail')} 
-                      />
-                      <FormInput 
-                          label="رابط الصورة الرئيسية" 
-                          icon={<ImageIcon size={16}/>} 
-                          value={productData.thumbnail || ''} 
-                          onChange={e => updateField('thumbnail', e.target.value)} 
-                          placeholder="https://..." 
-                          actionButton={
-                              <button type="button" onClick={() => thumbnailInputRef.current?.click()} className="text-xs flex items-center gap-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-2 py-1 rounded-lg font-bold hover:bg-indigo-200 transition-colors">
-                                  <Upload size={12}/> رفع صورة
-                              </button>
-                          }
-                      />
+                {/* Step Wizard Bar */}
+                <div className="bg-slate-50 dark:bg-slate-950/80 px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 overflow-x-auto">
+                    {steps.map((step, idx) => (
+                        <button
+                            key={step.id}
+                            type="button"
+                            onClick={() => setActiveStep(step.id)}
+                            className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex-1 justify-center whitespace-nowrap ${
+                                activeStep === step.id
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-[1.02]'
+                                    : activeStep > step.id
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                                    : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                            }`}
+                        >
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${activeStep === step.id ? 'bg-white/20' : activeStep > step.id ? 'bg-emerald-500/20' : 'bg-slate-200 dark:bg-slate-800'}`}>
+                                {activeStep > step.id ? <Check size={12} /> : step.id + 1}
+                            </span>
+                            {step.title}
+                        </button>
+                    ))}
+                </div>
 
-                      <input 
-                          type="file" 
-                          ref={galleryInputRef} 
-                          className="hidden" 
-                          accept="image/*" 
-                          multiple
-                          onChange={(e) => handleFileUpload(e, 'images')} 
-                      />
-                      <FormInput 
-                          as="textarea" 
-                          label="صور المعرض (رابط في كل سطر)" 
-                          icon={<Layers size={16}/>} 
-                          value={(productData.images || []).join('\n')} 
-                          onChange={e => handleImagesChange(e.target.value)} 
-                          placeholder="https://image1.com&#10;https://image2.com" 
-                          className="h-24"
-                          actionButton={
-                              <button type="button" onClick={() => galleryInputRef.current?.click()} className="text-xs flex items-center gap-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-2 py-1 rounded-lg font-bold hover:bg-indigo-200 transition-colors">
-                                  <Upload size={12}/> رفع صور متعددة
-                              </button>
-                          }
-                      />
-                  </div>
-                  
-                  {/* Full Width Section: Pricing & Description */}
-                   <div className="lg:col-span-2 space-y-4">
-                        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-                            <h2 className="text-lg font-bold text-slate-800 dark:text-white mb-4">التسعير والربح</h2>
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <FormInput label="سعر البيع (ج.م)" icon={<DollarSign size={16}/>} type="number" value={productData.price || ''} onChange={e => updateField('price', Number(e.target.value))} disabled={productData.hasVariants} />
-                                    <FormInput label="الوزن (كجم)" icon={<Scale size={16}/>} type="number" value={productData.weight || ''} onChange={e => updateField('weight', Number(e.target.value))} />
-                                </div>
+                {/* Modal Form Content */}
+                <form onSubmit={handleFormSubmit} id="product-form" className="flex-1 overflow-y-auto p-5 sm:p-8 space-y-6">
+                    
+                    {/* STEP 0: Track Selection & Basic Information */}
+                    {activeStep === 0 && (
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                            {/* Track Selector Cards */}
+                            <div>
+                                <label className="text-sm font-black text-slate-700 dark:text-slate-300 mb-3 block flex items-center gap-2">
+                                    <Sliders size={16} className="text-indigo-500" />
+                                    1. اختر مسار تكوين المنتج (Product Track Workflow)
+                                </label>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                                    <div 
+                                        onClick={() => handleTrackChange('simple')}
+                                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                                            activeTrack === 'simple'
+                                                ? 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-600 shadow-md shadow-indigo-500/10'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-slate-700'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="p-2.5 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                                                <Box size={20} />
+                                            </div>
+                                            <span className={`w-5 h-5 rounded-full border flex items-center justify-center ${activeTrack === 'simple' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-700'}`}>
+                                                {activeTrack === 'simple' && <Check size={12} />}
+                                            </span>
+                                        </div>
+                                        <div className="mt-3">
+                                            <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">منتج قياسي مباشر</h4>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">سلعة مادية بمخزون وسعر موحد وسريع الإدخال بدون متغيرات معقدة.</p>
+                                        </div>
+                                    </div>
 
-                                <div>
-                                    <label className="text-sm font-bold text-slate-700 dark:text-slate-400 mb-2 block">طريقة حساب التكلفة</label>
-                                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl">
-                                        <button type="button" onClick={() => updateField('profitMode', 'manual')} className={`flex-1 flex justify-center items-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${profitMode === 'manual' ? 'bg-white dark:bg-slate-700 shadow text-indigo-600' : 'text-slate-500'}`}><Wallet size={16}/> يدوي</button>
-                                        <button type="button" onClick={() => updateField('profitMode', 'margin')} className={`flex-1 flex justify-center items-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${profitMode === 'margin' ? 'bg-white dark:bg-slate-700 shadow text-indigo-600' : 'text-slate-500'}`}><Percent size={16}/> هامش ربح</button>
-                                        <button type="button" onClick={() => updateField('profitMode', 'commission')} className={`flex-1 flex justify-center items-center gap-2 py-2 rounded-lg text-sm font-bold transition-all ${profitMode === 'commission' ? 'bg-white dark:bg-slate-700 shadow text-indigo-600' : 'text-slate-500'}`}><HandCoins size={16}/> عمولة</button>
+                                    <div 
+                                        onClick={() => handleTrackChange('variant')}
+                                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                                            activeTrack === 'variant'
+                                                ? 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-600 shadow-md shadow-indigo-500/10'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-slate-700'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="p-2.5 rounded-xl bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                                                <LayoutGrid size={20} />
+                                            </div>
+                                            <span className={`w-5 h-5 rounded-full border flex items-center justify-center ${activeTrack === 'variant' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-700'}`}>
+                                                {activeTrack === 'variant' && <Check size={12} />}
+                                            </span>
+                                        </div>
+                                        <div className="mt-3">
+                                            <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">منتج بمتغيرات ومقاسات</h4>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">ألوان، مقاسات، وخامات مختلفة لكل منها كود SKU ورصيد مخزن منفصل.</p>
+                                        </div>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => handleTrackChange('digital')}
+                                        className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex flex-col justify-between ${
+                                            activeTrack === 'digital'
+                                                ? 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-600 shadow-md shadow-indigo-500/10'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-slate-700'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div className="p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">
+                                                <Zap size={20} />
+                                            </div>
+                                            <span className={`w-5 h-5 rounded-full border flex items-center justify-center ${activeTrack === 'digital' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 dark:border-slate-700'}`}>
+                                                {activeTrack === 'digital' && <Check size={12} />}
+                                            </span>
+                                        </div>
+                                        <div className="mt-3">
+                                            <h4 className="font-extrabold text-sm text-slate-900 dark:text-white">خدمة أو منتج رقمي / باقة</h4>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">خدمات، استشارات، اشتراكات، أو منتجات رقمية (مخزون لا نهائي وبدون شحن).</p>
+                                        </div>
                                     </div>
                                 </div>
-                                
-                                {profitMode === 'margin' && (
-                                    <div className="animate-in fade-in duration-300">
-                                        <FormInput label="نسبة هامش الربح %" icon={<Percent size={16}/>} type="number" value={productData.profitPercentage || ''} onChange={e => updateField('profitPercentage', Number(e.target.value))} />
-                                    </div>
-                                )}
-                                {profitMode === 'commission' && (
-                                    <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-300">
-                                        <FormInput label="سعر البيع الأساسي" icon={<DollarSign size={16}/>} type="number" value={productData.basePrice || ''} onChange={e => updateField('basePrice', Number(e.target.value))} />
-                                        <FormInput label="نسبة العمولة %" icon={<Percent size={16}/>} type="number" value={productData.commissionPercentage || ''} onChange={e => updateField('commissionPercentage', Number(e.target.value))} />
-                                    </div>
-                                )}
+                            </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="border-t border-slate-200 dark:border-slate-800 pt-5">
+                                <h4 className="text-sm font-black text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                                    <Tag size={16} className="text-indigo-500" />
+                                    2. البيانات التعريفية الأساسية
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                     <FormInput 
-                                        label="التكلفة (ج.م)" 
-                                        icon={<Wallet size={16}/>} 
-                                        type="number" 
-                                        value={productData.costPrice?.toFixed(2) || '0.00'} 
-                                        onChange={e => updateField('costPrice', Number(e.target.value))} 
-                                        disabled={profitMode !== 'manual'} 
-                                        readOnly={profitMode !== 'manual'} 
-                                    />
-                                    <FormInput 
-                                        label="الكمية" 
+                                        label="اسم المنتج / الخدمة" 
                                         icon={<Package size={16}/>} 
-                                        tooltip="ترك خانة الكمية فارغة يعني أن المنتج متاح دائماً بدون تحديد كمية. بينما كتابة 0 تعني أن الكمية قد نفدت."
-                                        type="number" 
-                                        value={productData.hasVariants ? (productData.variants?.reduce((s,v)=>s+(v.stockQuantity || 0),0)) : (productData.stockQuantity === null || productData.stockQuantity === undefined ? '' : productData.stockQuantity)} 
-                                        onChange={e => updateField('stockQuantity', e.target.value === '' ? null : Number(e.target.value))} 
-                                        disabled={productData.hasVariants} 
-                                        placeholder="اتركه فارغاً للمتاح دائماً"
+                                        value={productData.name || ''} 
+                                        onChange={e => updateField('name', e.target.value)} 
+                                        placeholder="مثال: قميص قطني فاخر / باقة تسويق شاملة"
+                                        required 
                                     />
-                                </div>
-
-                                {!productData.hasVariants && (
-                                    <div className="animate-in slide-in-from-top-2 duration-300">
+                                    <FormInput 
+                                        label="كود المنتج (SKU / Barcode)" 
+                                        icon={<Barcode size={16}/>} 
+                                        value={productData.sku || ''} 
+                                        onChange={e => updateField('sku', e.target.value)} 
+                                        placeholder="مثال: PRD-2026-X01"
+                                        required 
+                                    />
+                                    <FormInput 
+                                        label="تصنيف المنتج (القسم)" 
+                                        icon={<Grid3x3 size={16}/>} 
+                                        value={productData.collectionId || ''} 
+                                        onChange={e => updateField('collectionId', e.target.value)} 
+                                        as="select"
+                                    >
+                                        <option value="">بدون قسم (عام)</option>
+                                        {settings.collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </FormInput>
+                                    {activeTrack !== 'digital' && (
                                         <FormInput 
-                                            label="حد تنبيه المخزون (Minimum Stock)" 
-                                            icon={<AlertCircle size={16} className="text-amber-500"/>} 
+                                            label="الوزن التقريبي للشحن (كجم)" 
+                                            icon={<Scale size={16}/>} 
                                             type="number" 
-                                            value={productData.minStockLevel || ''} 
-                                            onChange={e => updateField('minStockLevel', Number(e.target.value))}
-                                            placeholder="أدخل الحد الأدنى للتنبيه عند النقص"
-                                            tooltip="سيظهر تنبيه عندما يصل المخزون إلى هذا الرقم أو أقل."
+                                            step="0.01"
+                                            value={productData.weight || ''} 
+                                            onChange={e => updateField('weight', Number(e.target.value))} 
+                                            placeholder="0.5"
                                         />
-                                    </div>
-                                )}
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                   <FormInput 
-                                       label="تاريخ الانتهاء" 
-                                       icon={<Calendar size={16} className="text-rose-500"/>} 
-                                       type="date" 
-                                       value={productData.expiryDate || ''} 
-                                       onChange={e => updateField('expiryDate', e.target.value)} 
-                                       tooltip="سيظهر تنبيه عندما يقترب تاريخ انتهاء المنتج (قبل 30 يوم)."
-                                   />
-                                   {!productData.hasVariants && (
-                                       <div className="bg-blue-50 dark:bg-blue-950/10 p-3 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-center gap-3">
-                                           <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600 dark:text-blue-400">
-                                               <Info size={20}/>
-                                           </div>
-                                           <div className="text-[10px] text-blue-800 dark:text-blue-300 font-bold leading-relaxed">
-                                               يمكنك ضبط تنبيهات المخزون وتواريخ الانتهاء لضمان جودة الخدمة.
-                                           </div>
-                                       </div>
-                                   )}
+                    {/* STEP 1: Pricing & Smart Profitability Simulator */}
+                    {activeStep === 1 && (
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                            {/* Smart Profitability Simulator Card */}
+                            <div className="p-5 rounded-3xl bg-gradient-to-br from-indigo-900 via-slate-900 to-indigo-950 text-white border border-indigo-500/30 shadow-xl relative overflow-hidden">
+                                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-5 relative z-10">
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-400/30">
+                                            محاكي الجدوى الاقتصادية والربحية المباشر
+                                        </span>
+                                        <h4 className="text-lg font-black mt-2">تحليل الربح الصافي للعنصر الواحد</h4>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <div className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1.5 border ${
+                                            isProfitHealthy 
+                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                                                : netProfit > 0 
+                                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                                                : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                                        }`}>
+                                            <TrendingUp size={14} />
+                                            {isProfitHealthy ? 'هامش ربح ممتاز (صحي)' : netProfit > 0 ? 'هامش ربح متوسط' : 'تحذير: لا يوجد ربح أو خسارة'}
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {/* Warehouse Stock Breakdown */}
-                                {!productData.hasVariants && (settings.warehouses || []).length > 0 && (
-                                    <div className="p-4 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-xl space-y-3">
-                                        <h5 className="text-[11px] font-black text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
-                                            <Layers size={14}/>
-                                            توزيع المخزون على المستودعات (يدوي)
-                                        </h5>
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                            {(settings.warehouses || []).map(wh => (
-                                                <div key={wh.id} className="space-y-1">
-                                                    <label className="text-[10px] font-bold text-slate-500 block truncate">{wh.name}</label>
-                                                    <input 
-                                                        type="number" 
-                                                        value={productData.warehouseStock?.[wh.id] ?? ''} 
-                                                        onChange={(e) => {
-                                                            const val = e.target.value === '' ? 0 : Number(e.target.value);
-                                                            const currentStock = productData.warehouseStock || {};
-                                                            updateField('warehouseStock', { ...currentStock, [wh.id]: val });
-                                                        }}
-                                                        className="w-full p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500/20"
-                                                        placeholder="0"
-                                                    />
-                                                </div>
-                                            ))}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 relative z-10">
+                                    <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                                        <span className="text-xs text-slate-300 block">سعر البيع للجمهور</span>
+                                        <span className="text-xl font-black text-white mt-1 block">{currentPrice.toLocaleString()} <span className="text-xs font-normal">ج.م</span></span>
+                                    </div>
+                                    <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                                        <span className="text-xs text-slate-300 block">تكلفة العنصر (الشراء)</span>
+                                        <span className="text-xl font-black text-rose-300 mt-1 block">{currentCost.toLocaleString()} <span className="text-xs font-normal">ج.م</span></span>
+                                    </div>
+                                    <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                                        <span className="text-xs text-slate-300 block">الربح الصافي للقطعة</span>
+                                        <span className={`text-xl font-black mt-1 block ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {netProfit >= 0 ? '+' : ''}{netProfit.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                                        </span>
+                                    </div>
+                                    <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
+                                        <span className="text-xs text-slate-300 block">نسبة هامش الربح %</span>
+                                        <span className="text-xl font-black text-amber-300 mt-1 block">{profitMarginPercent}% <span className="text-[10px] text-slate-400 block sm:inline font-normal">(ROI: {roiPercent}%)</span></span>
+                                    </div>
+                                </div>
+
+                                {/* Visual Ratio Bar */}
+                                {currentPrice > 0 && (
+                                    <div className="mt-4 pt-4 border-t border-white/10 relative z-10">
+                                        <div className="flex justify-between text-[11px] text-slate-300 mb-1 font-bold">
+                                            <span>نسبة التكلفة: {((currentCost / currentPrice) * 100).toFixed(0)}%</span>
+                                            <span>نسبة الربح الصافي: {profitMarginPercent}%</span>
+                                        </div>
+                                        <div className="h-2.5 w-full bg-rose-500/30 rounded-full overflow-hidden flex">
+                                            <div 
+                                                style={{ width: `${Math.min(100, Math.max(0, (currentCost / currentPrice) * 100))}%` }} 
+                                                className="bg-rose-500 h-full transition-all duration-300"
+                                                title="التكلفة"
+                                            ></div>
+                                            <div 
+                                                style={{ width: `${Math.min(100, Math.max(0, (netProfit / currentPrice) * 100))}%` }} 
+                                                className="bg-emerald-500 h-full transition-all duration-300"
+                                                title="الربح"
+                                            ></div>
                                         </div>
                                     </div>
                                 )}
                             </div>
+
+                            {/* Pricing Strategy Selector */}
+                            <div className="bg-slate-50 dark:bg-slate-900/60 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4">
+                                <div>
+                                    <label className="text-sm font-black text-slate-700 dark:text-slate-300 mb-2 block flex items-center gap-1.5">
+                                        <Sliders size={16} className="text-indigo-500" />
+                                        استراتيجية احتساب التكلفة والربح
+                                    </label>
+                                    <div className="grid grid-cols-3 gap-2 bg-slate-200/60 dark:bg-slate-800 p-1.5 rounded-2xl">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => updateField('profitMode', 'manual')} 
+                                            className={`flex justify-center items-center gap-2 py-2.5 rounded-xl text-xs font-black transition-all ${productData.profitMode === 'manual' || !productData.profitMode ? 'bg-white dark:bg-slate-700 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                                        >
+                                            <Wallet size={14}/> يدوي (مباشر)
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => updateField('profitMode', 'margin')} 
+                                            className={`flex justify-center items-center gap-2 py-2.5 rounded-xl text-xs font-black transition-all ${productData.profitMode === 'margin' ? 'bg-white dark:bg-slate-700 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                                        >
+                                            <Percent size={14}/> هامش ربح %
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => updateField('profitMode', 'commission')} 
+                                            className={`flex justify-center items-center gap-2 py-2.5 rounded-xl text-xs font-black transition-all ${productData.profitMode === 'commission' ? 'bg-white dark:bg-slate-700 shadow text-indigo-600 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                                        >
+                                            <HandCoins size={14}/> عمولة مسوقين
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+                                    <FormInput 
+                                        label="سعر البيع الأساسي (ج.م)" 
+                                        icon={<DollarSign size={16} className="text-emerald-500"/>} 
+                                        type="number" 
+                                        value={productData.price || ''} 
+                                        onChange={e => updateField('price', Number(e.target.value))} 
+                                        disabled={activeTrack === 'variant'}
+                                        tooltip={activeTrack === 'variant' ? "يتم احتساب السعر من خلال جدول المتغيرات والمقاسات بالخطوة التالية" : undefined}
+                                        placeholder="0.00" 
+                                    />
+
+                                    <FormInput 
+                                        label="تكلفة العنصر (ج.م)" 
+                                        icon={<Wallet size={16} className="text-rose-500"/>} 
+                                        type="number" 
+                                        value={productData.costPrice?.toFixed(2) || '0.00'} 
+                                        onChange={e => updateField('costPrice', Number(e.target.value))} 
+                                        disabled={productData.profitMode !== 'manual' && !!productData.profitMode} 
+                                        readOnly={productData.profitMode !== 'manual' && !!productData.profitMode}
+                                        placeholder="0.00" 
+                                    />
+                                </div>
+
+                                {productData.profitMode === 'margin' && (
+                                    <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 rounded-2xl animate-in fade-in duration-200">
+                                        <FormInput 
+                                            label="نسبة هامش الربح المستهدفة (%)" 
+                                            icon={<Percent size={16} className="text-indigo-600"/>} 
+                                            type="number" 
+                                            value={productData.profitPercentage || ''} 
+                                            onChange={e => updateField('profitPercentage', Number(e.target.value))} 
+                                            placeholder="25" 
+                                        />
+                                        <p className="text-[11px] text-indigo-700 dark:text-indigo-400 mt-1.5 font-medium">سيقوم النظام باحتساب التكلفة تلقائياً بخصم هذه النسبة من سعر البيع.</p>
+                                    </div>
+                                )}
+
+                                {productData.profitMode === 'commission' && (
+                                    <div className="grid grid-cols-2 gap-4 p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-2xl animate-in fade-in duration-200">
+                                        <FormInput label="سعر البيع الأساسي (بدون عمولة)" icon={<DollarSign size={16}/>} type="number" value={productData.basePrice || ''} onChange={e => updateField('basePrice', Number(e.target.value))} />
+                                        <FormInput label="نسبة عمولة المسوق / الشريك (%)" icon={<Percent size={16}/>} type="number" value={productData.commissionPercentage || ''} onChange={e => updateField('commissionPercentage', Number(e.target.value))} />
+                                    </div>
+                                )}
+                            </div>
                         </div>
+                    )}
+
+                    {/* STEP 2: Stock & Warehouse Distribution OR Variant Matrix */}
+                    {activeStep === 2 && (
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                            {activeTrack === 'variant' ? (
+                                <VariantManager productData={productData} setProductData={setProductData} settings={settings} />
+                            ) : activeTrack === 'digital' ? (
+                                <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800">
+                                    <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-3">
+                                        <Zap size={28} />
+                                    </div>
+                                    <h4 className="font-extrabold text-base text-slate-800 dark:text-white">مسار الباقات والخدمات الرقمية</h4>
+                                    <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 leading-relaxed">هذا المنتج لا يتطلب تتبع مخزون مادي أو شحن عبر شركات التوصيل. سيكون متاحاً دائماً للبيع (مخزون لا نهائي).</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {/* General Stock Info */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                        <FormInput 
+                                            label="إجمالي المخزون المتاح (جميع المستودعات)" 
+                                            icon={<Package size={16} className="text-indigo-500"/>} 
+                                            type="number" 
+                                            value={productData.stockQuantity === null || productData.stockQuantity === undefined ? '' : productData.stockQuantity} 
+                                            onChange={e => updateField('stockQuantity', e.target.value === '' ? null : Number(e.target.value))} 
+                                            placeholder="100" 
+                                            tooltip="اترك الخانة فارغة في حال كان المخزون غير محدود"
+                                        />
+                                        <FormInput 
+                                            label="حد التنبيه عند النقص (Minimum Stock Level)" 
+                                            icon={<AlertCircle size={16} className="text-amber-500"/>} 
+                                            type="number" 
+                                            value={productData.minStockLevel || ''} 
+                                            onChange={e => updateField('minStockLevel', Number(e.target.value))}
+                                            placeholder="5" 
+                                            tooltip="سيتم إرسال تنبيه آلي عندما يصل رصيد هذا المنتج إلى هذا الرقم أو أقل"
+                                        />
+                                    </div>
+
+                                    {/* Smart Warehouse Distribution Box */}
+                                    {(settings.warehouses || []).length > 0 && productData.stockQuantity !== null && (
+                                        <div className="p-5 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 dark:from-amber-950/20 dark:via-slate-900 dark:to-slate-900 border border-amber-200/70 dark:border-amber-900/40 rounded-3xl space-y-4">
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                <div>
+                                                    <h5 className="text-sm font-black text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                                                        <Layers size={16} className="text-amber-600"/>
+                                                        توزيع المخزون على المستودعات والفروع
+                                                    </h5>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">حدد رصيد كل مستودع بدقة أو استخدم التوزيع الآلي السريع</p>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={distributeStockEqually}
+                                                        className="text-[11px] font-black px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 border border-amber-300/40 transition-colors"
+                                                    >
+                                                        ⚡ توزيع بالتساوي
+                                                    </button>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={focusStockInDefault}
+                                                        className="text-[11px] font-black px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 border border-slate-300/40 transition-colors"
+                                                    >
+                                                        🏢 تركيز بالمخزن الرئيسي
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                                {(settings.warehouses || []).map((wh, idx) => {
+                                                    const currentWhStock = productData.warehouseStock?.[wh.id] ?? 0;
+                                                    return (
+                                                        <div key={wh.id} className="p-3 bg-white dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm flex items-center justify-between gap-3">
+                                                            <div className="min-w-0">
+                                                                <span className="text-xs font-bold text-slate-800 dark:text-white block truncate flex items-center gap-1.5">
+                                                                    <span className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-indigo-500' : 'bg-slate-400'}`}></span>
+                                                                    {wh.name}
+                                                                </span>
+                                                                <span className="text-[10px] text-slate-400 block truncate">{wh.isDefault ? 'المستودع الرئيسي' : 'فرع إضافي'}</span>
+                                                            </div>
+                                                            <input 
+                                                                type="number" 
+                                                                value={currentWhStock || ''} 
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                                                    const currentStock = productData.warehouseStock || {};
+                                                                    const newWhStock = { ...currentStock, [wh.id]: val };
+                                                                    const newTotal = Object.values(newWhStock).reduce((sum, v) => sum + (Number(v) || 0), 0);
+                                                                    updateField('warehouseStock', newWhStock);
+                                                                    updateField('stockQuantity', newTotal);
+                                                                }}
+                                                                className="w-20 p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-center outline-none focus:ring-2 focus:ring-amber-500/30"
+                                                                placeholder="0"
+                                                            />
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <FormInput 
+                                        label="تاريخ انتهاء الصلاحية (إن وجد)" 
+                                        icon={<Calendar size={16} className="text-rose-500"/>} 
+                                        type="date" 
+                                        value={productData.expiryDate || ''} 
+                                        onChange={e => updateField('expiryDate', e.target.value)} 
+                                        tooltip="يساعد النظام في إصدار تنبيهات قبل موعد انتهاء الصلاحية بـ 30 يوماً"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* STEP 3: Gallery & AI Content Assistant */}
+                    {activeStep === 3 && (
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                            
+                            {/* AI Content Assistant Banner */}
+                            <div className="p-5 rounded-3xl bg-gradient-to-r from-purple-900 via-indigo-950 to-slate-900 text-white border border-purple-500/30 shadow-lg relative overflow-hidden">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-12 h-12 rounded-2xl bg-purple-500/20 border border-purple-400/30 flex items-center justify-center text-purple-300 shrink-0">
+                                            <Wand2 size={24} className={isGenerating ? "animate-spin" : ""} />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-extrabold text-base sm:text-lg flex items-center gap-2">
+                                                المساعد الذكي لصياغة الوصف والـ SEO (Gemini AI)
+                                                <span className="text-[9px] bg-purple-500/30 text-purple-200 px-2 py-0.5 rounded-full border border-purple-400/30">AI Powered</span>
+                                            </h4>
+                                            <p className="text-xs text-purple-200/80 mt-0.5">اصنع وصفاً تسويقياً جذاباً ومحسناً لمحركات البحث بضغطة زر واحدة</p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => onGenerateDescription(isEditing)} 
+                                        disabled={isGenerating} 
+                                        className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-2xl font-black text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-purple-900/50 transition-all active:scale-95 disabled:opacity-50 shrink-0 cursor-pointer"
+                                    >
+                                        {isGenerating ? <RefreshCw size={16} className="animate-spin"/> : <Sparkles size={16}/>}
+                                        {isGenerating ? 'جاري الصياغة الذكية...' : 'توليد وصف تسويقي الآن'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Description textarea */}
+                            <div>
+                                <FormInput 
+                                    as="textarea" 
+                                    label="الوصف التفصيلي والمميزات التسويقية" 
+                                    icon={<FileText size={16} className="text-indigo-500"/>} 
+                                    value={productData.description || ''} 
+                                    onChange={e => updateField('description', e.target.value)} 
+                                    placeholder="اكتب وصفاً جذاباً لمنتجك يوضح مميزاته، خاماته، وفوائده للعميل..." 
+                                    className="h-36 leading-relaxed" 
+                                />
+                            </div>
+
+                            {/* Modern Photo Gallery Uploader */}
+                            <div className="space-y-4 border-t border-slate-200 dark:border-slate-800 pt-6">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                        <ImageIcon size={18} className="text-indigo-500" />
+                                        معرض صور المنتج (الرئيسية والإضافية)
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowUrlInput(!showUrlInput)}
+                                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 rounded-xl hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                                        >
+                                            <Globe size={14} /> إضافة برابط URL
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => galleryInputRef.current?.click()}
+                                            className="text-xs font-bold text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm"
+                                        >
+                                            <Upload size={14} /> رفع من الجهاز
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {showUrlInput && (
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 flex gap-2 animate-in slide-in-from-top-2 duration-200">
+                                        <input 
+                                            type="url" 
+                                            value={newImageUrl} 
+                                            onChange={e => setNewImageUrl(e.target.value)} 
+                                            placeholder="https://example.com/image.jpg" 
+                                            className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 text-xs font-bold outline-none"
+                                        />
+                                        <button type="button" onClick={addImageUrl} className="px-4 py-2 bg-emerald-600 text-white text-xs font-black rounded-xl hover:bg-emerald-700 transition-colors">إضافة الصورة</button>
+                                    </div>
+                                )}
+
+                                <input 
+                                    type="file" 
+                                    ref={galleryInputRef} 
+                                    className="hidden" 
+                                    accept="image/*" 
+                                    multiple
+                                    onChange={(e) => handleFileUpload(e, 'images')} 
+                                />
+                                <input 
+                                    type="file" 
+                                    ref={thumbnailInputRef} 
+                                    className="hidden" 
+                                    accept="image/*" 
+                                    onChange={(e) => handleFileUpload(e, 'thumbnail')} 
+                                />
+
+                                {/* Visual Image Grid */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                                    {/* Thumbnail Cover Card */}
+                                    <div 
+                                        onClick={() => thumbnailInputRef.current?.click()}
+                                        className="aspect-square rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/10 hover:bg-indigo-50/80 transition-all cursor-pointer relative overflow-hidden flex flex-col items-center justify-center p-3 group"
+                                    >
+                                        {productData.thumbnail ? (
+                                            <>
+                                                <img src={productData.thumbnail} className="w-full h-full object-cover rounded-xl" referrerPolicy="no-referrer" />
+                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-black">
+                                                    تغيير الصورة الرئيسية
+                                                </div>
+                                                <span className="absolute bottom-1.5 right-1.5 bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-md shadow">الرئيسية</span>
+                                            </>
+                                        ) : (
+                                            <div className="text-center text-indigo-500">
+                                                <FileUp size={24} className="mx-auto mb-1 group-hover:scale-110 transition-transform" />
+                                                <span className="text-[11px] font-extrabold block">الصورة الرئيسية</span>
+                                                <span className="text-[9px] text-slate-400 block mt-0.5">اضغط للرفع</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Gallery Images */}
+                                    {(productData.images || []).map((imgUrl, index) => (
+                                        <div key={index} className="aspect-square rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 relative overflow-hidden group shadow-sm">
+                                            <img src={imgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                            <button 
+                                                type="button" 
+                                                onClick={() => removeImage(index)}
+                                                className="absolute top-1.5 left-1.5 w-7 h-7 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 shadow-lg"
+                                                title="حذف الصورة"
+                                            >
+                                                <Trash2 size={13} />
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => updateField('thumbnail', imgUrl)}
+                                                className="absolute bottom-1.5 inset-x-1.5 py-1 bg-black/70 text-white text-[9px] font-extrabold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-center hover:bg-indigo-600"
+                                            >
+                                                تعيين كرئيسية
+                                            </button>
+                                        </div>
+                                    ))}
+
+                                    {/* Add More Photo Box */}
+                                    <div 
+                                        onClick={() => galleryInputRef.current?.click()}
+                                        className="aspect-square rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 hover:border-slate-400 transition-all cursor-pointer flex flex-col items-center justify-center p-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 group"
+                                    >
+                                        <Plus size={24} className="group-hover:scale-110 transition-transform mb-1" />
+                                        <span className="text-[11px] font-bold">إضافة المزيد</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                </form>
+
+                {/* Footer Navigation & Save */}
+                <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-950/90 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                        {activeStep > 0 && (
+                            <button 
+                                type="button" 
+                                onClick={() => setActiveStep(prev => prev - 1)} 
+                                className="px-4 py-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-bold text-xs sm:text-sm border border-slate-200 dark:border-slate-700 hover:bg-slate-100 transition-all flex items-center gap-1.5"
+                            >
+                                <ArrowRight size={16} /> السابق
+                            </button>
+                        )}
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            disabled={isSaving} 
+                            className="px-4 py-2.5 bg-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 rounded-2xl font-bold text-xs sm:text-sm transition-all"
+                        >
+                            إلغاء
+                        </button>
                     </div>
 
-                  <div className="lg:col-span-2">
-                       <FormInput as="textarea" label="وصف المنتج" icon={<FileText size={16}/>} value={productData.description || ''} onChange={e => updateField('description', e.target.value)} className="h-32" actionButton={
-                           <button type="button" onClick={() => onGenerateDescription(isEditing)} disabled={isGenerating} className="text-xs flex items-center gap-1 bg-purple-100 text-purple-700 px-2 py-1 rounded-lg font-bold">
-                               {isGenerating ? <RefreshCw size={12} className="animate-spin"/> : <Wand2 size={12}/>}
-                               توليد وصف
-                           </button>
-                       } />
-                  </div>
-
-                  {productData.hasVariants && (
-                      <div className="lg:col-span-2">
-                          <VariantManager productData={productData} setProductData={setProductData} settings={settings} />
-                      </div>
-                  )}
-
-              </div>
-            </form>
-            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t dark:border-slate-800 flex justify-end gap-3 flex-shrink-0">
-                <button type="button" onClick={onClose} disabled={isSaving} className="px-6 py-2.5 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-300 rounded-xl font-bold border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600 transition-all disabled:opacity-50">إلغاء</button>
-                <button type="submit" form="product-form" disabled={isSaving} className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 dark:shadow-none disabled:bg-indigo-400 disabled:cursor-wait">
-                    {isSaving ? <RefreshCw size={18} className="animate-spin" /> : <Save size={18} />} 
-                    {isSaving ? 'جاري الحفظ...' : (isEditing ? 'تحديث المنتج' : 'حفظ المنتج')}
-                </button>
+                    <div className="flex items-center gap-2.5">
+                        {activeStep < 3 ? (
+                            <button 
+                                type="button" 
+                                onClick={() => setActiveStep(prev => prev + 1)} 
+                                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center gap-2 shadow-lg shadow-indigo-600/25 active:scale-95"
+                            >
+                                التالي <ArrowLeft size={16} />
+                            </button>
+                        ) : (
+                            <button 
+                                type="submit" 
+                                form="product-form" 
+                                disabled={isSaving} 
+                                className="px-8 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2.5 shadow-xl shadow-emerald-600/30 active:scale-95 disabled:opacity-50 cursor-pointer"
+                            >
+                                {isSaving ? <RefreshCw size={18} className="animate-spin" /> : <Save size={18} />} 
+                                {isSaving ? 'جاري الحفظ...' : (isEditing ? 'حفظ التعديلات' : 'اعتماد وحفظ المنتج')}
+                            </button>
+                        )}
+                    </div>
+                </div>
             </div>
-          </div>
         </div>
     );
 };
 
 
+// --- Upgraded Component: VariantManager ---
 const VariantManager = ({ productData, setProductData, settings }: any) => {
-    
     const handleOptionToggle = (optionName: string, isChecked: boolean) => {
         const currentOptions = productData.options || [];
         const newOptions = isChecked ? [...currentOptions, optionName] : currentOptions.filter((o: string) => o !== optionName);
@@ -2275,9 +2683,7 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
         if (selectedGlobalOptions.length === 0) return;
 
         const valueArrays = selectedGlobalOptions.map((go: any) => go.values);
-        
         const cartesian = (...a: any[]) => a.reduce((a, b) => a.flatMap((d: any) => b.map((e: any) => [d, e].flat())));
-        
         const combinations = cartesian(...valueArrays);
         
         const newVariants: ProductVariant[] = combinations.map((combo: string | string[], index: number) => {
@@ -2287,7 +2693,6 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
                 options[opt.name] = comboArray[i];
             });
 
-            // Try to find an existing variant to preserve data
             const existingVariant = (productData.variants || []).find((v: any) => {
                 return JSON.stringify(v.options) === JSON.stringify(options);
             });
@@ -2298,10 +2703,12 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
                 sku: existingVariant?.sku || `${productData.sku || 'SKU'}-${comboArray.join('-')}`,
                 price: existingVariant?.price || productData.price || 0,
                 stockQuantity: existingVariant?.stockQuantity || 0,
+                warehouseStock: existingVariant?.warehouseStock || {}
             };
         });
 
-        setProductData((prev: Product) => ({ ...prev, variants: newVariants }));
+        const totalStock = newVariants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+        setProductData((prev: Product) => ({ ...prev, variants: newVariants, stockQuantity: totalStock }));
     };
 
     const updateVariant = (variantId: string, field: keyof ProductVariant | 'warehouseStock', value: any) => {
@@ -2314,62 +2721,130 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
             }
             return v;
         });
-        setProductData((prev: Product) => ({ ...prev, variants: updatedVariants }));
+        const totalStock = updatedVariants.reduce((sum: number, v: ProductVariant) => sum + (v.stockQuantity || 0), 0);
+        setProductData((prev: Product) => ({ ...prev, variants: updatedVariants, stockQuantity: totalStock }));
+    };
+
+    const applyBulkPrice = (val: number) => {
+        const updated = (productData.variants || []).map((v: ProductVariant) => ({ ...v, price: val }));
+        setProductData((prev: Product) => ({ ...prev, variants: updated }));
+    };
+
+    const applyBulkStock = (val: number) => {
+        const updated = (productData.variants || []).map((v: ProductVariant) => ({ ...v, stockQuantity: val }));
+        const totalStock = updated.reduce((sum: number, v: ProductVariant) => sum + (v.stockQuantity || 0), 0);
+        setProductData((prev: Product) => ({ ...prev, variants: updated, stockQuantity: totalStock }));
     };
 
     return (
-        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-            <h4 className="font-bold text-lg mb-4">إدارة المتغيرات</h4>
+        <div className="p-5 bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-5">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h4 className="font-extrabold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                        <LayoutGrid size={18} className="text-purple-600" />
+                        منشئ مصفوفة المتغيرات والمقاسات
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">قم باختيار الخصائص المتوفرة وتوليد الأصناف تلقائياً مع تخصيص الأرصدة</p>
+                </div>
+            </div>
+
             <div className="space-y-4">
                 <div>
-                    <label className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-2 block">1. اختر الخيارات</label>
-                    <div className="flex flex-wrap gap-3">
-                        {(settings.globalOptions || []).map((opt: any) => (
-                            <label key={opt.id} className="flex items-center gap-2 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer">
-                                <input type="checkbox" checked={(productData.options || []).includes(opt.name)} onChange={e => handleOptionToggle(opt.name, e.target.checked)} className="rounded text-indigo-500"/>
-                                <span className="text-sm font-bold">{opt.name}</span>
-                            </label>
-                        ))}
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300 mb-2.5 block">1. اختر الخصائص المتوفرة لهذا المنتج:</label>
+                    <div className="flex flex-wrap gap-2.5">
+                        {(settings.globalOptions || []).map((opt: any) => {
+                            const isSelected = (productData.options || []).includes(opt.name);
+                            return (
+                                <label key={opt.id} className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl border-2 transition-all cursor-pointer select-none ${isSelected ? 'bg-purple-50 dark:bg-purple-950/40 border-purple-600 text-purple-700 dark:text-purple-300 font-extrabold shadow-sm' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold hover:border-purple-300'}`}>
+                                    <input type="checkbox" checked={isSelected} onChange={e => handleOptionToggle(opt.name, e.target.checked)} className="rounded text-purple-600 h-4 w-4 focus:ring-purple-500" />
+                                    <span>{opt.name}</span>
+                                    <span className="text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded-md font-normal">{(opt.values || []).length} قيم</span>
+                                </label>
+                            );
+                        })}
                     </div>
                 </div>
-                <button type="button" onClick={generateVariants} disabled={(productData.options || []).length === 0} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 disabled:bg-slate-400">
-                    <ChevronsUpDown size={16}/> 2. توليد المتغيرات
+
+                <button 
+                    type="button" 
+                    onClick={generateVariants} 
+                    disabled={(productData.options || []).length === 0} 
+                    className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-purple-600/25 transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                >
+                    <ChevronsUpDown size={18} /> 2. توليد وتحديث مصفوفة المتغيرات
                 </button>
+
                 {(productData.variants || []).length > 0 && (
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                         <label className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-2 block">3. أدخل بيانات المتغيرات</label>
-                        {productData.variants.map((variant: ProductVariant) => (
-                            <div key={variant.id} className="space-y-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                                <div className="grid grid-cols-4 gap-2 items-center">
-                                    <div className="text-sm font-bold truncate">{Object.values(variant.options).join(' / ')}</div>
-                                    <input type="text" value={variant.sku} onChange={e => updateVariant(variant.id, 'sku', e.target.value)} placeholder="SKU" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
-                                    <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, 'price', Number(e.target.value))} placeholder="السعر" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
-                                    <input type="number" value={variant.stockQuantity === null || variant.stockQuantity === undefined ? '' : variant.stockQuantity} onChange={e => updateVariant(variant.id, 'stockQuantity', e.target.value === '' ? null : Number(e.target.value))} placeholder="الكمية" className="w-full text-xs p-2 bg-slate-50 dark:bg-slate-700 rounded border-none outline-none"/>
-                                    <input type="number" value={variant.minStockLevel || ''} onChange={e => updateVariant(variant.id, 'minStockLevel', Number(e.target.value))} placeholder="حد التنبيه" className="w-full text-xs p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-100 dark:border-amber-800 outline-none" title="الحد الأدنى للمخزون قبل التنبيه"/>
-                                </div>
-                                
-                                {(settings.warehouses || []).length > 0 && (
-                                    <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-50 dark:border-slate-700">
-                                        {(settings.warehouses || []).map(wh => (
-                                            <div key={wh.id} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-md">
-                                                <span className="text-[9px] font-bold text-slate-500 truncate max-w-[60px]">{wh.name}:</span>
-                                                <input 
-                                                    type="number" 
-                                                    value={variant.warehouseStock?.[wh.id] ?? ''} 
-                                                    onChange={(e) => {
-                                                        const val = e.target.value === '' ? 0 : Number(e.target.value);
-                                                        const currentStock = variant.warehouseStock || {};
-                                                        updateVariant(variant.id, 'warehouseStock', { ...currentStock, [wh.id]: val });
-                                                    }}
-                                                    className="w-10 bg-transparent text-[10px] font-black border-none outline-none p-0 h-auto text-center"
-                                                    placeholder="0"
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                    <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <label className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-1.5">
+                                <CheckCircle size={14} className="text-emerald-500" /> 3. قائمة المتغيرات المولدة ({(productData.variants || []).length} صنف)
+                            </label>
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className="text-slate-400">تطبيق سريع للكل:</span>
+                                <input 
+                                    type="number" 
+                                    placeholder="سعر موحد" 
+                                    onBlur={(e) => { if(e.target.value) applyBulkPrice(Number(e.target.value)); e.target.value = ''; }} 
+                                    className="w-24 p-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-center" 
+                                />
+                                <input 
+                                    type="number" 
+                                    placeholder="رصيد موحد" 
+                                    onBlur={(e) => { if(e.target.value) applyBulkStock(Number(e.target.value)); e.target.value = ''; }} 
+                                    className="w-24 p-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-bold text-center" 
+                                />
                             </div>
-                        ))}
+                        </div>
+
+                        <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                            {productData.variants.map((variant: ProductVariant) => (
+                                <div key={variant.id} className="p-3.5 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm space-y-2.5 hover:border-purple-300 transition-all">
+                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-center">
+                                        <div className="font-extrabold text-sm text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800/60 text-center truncate">
+                                            {Object.values(variant.options).join(' - ')}
+                                        </div>
+                                        <div className="relative">
+                                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">SKU</span>
+                                            <input type="text" value={variant.sku} onChange={e => updateVariant(variant.id, 'sku', e.target.value)} placeholder="SKU" className="w-full text-xs font-bold pr-10 pl-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-purple-500" />
+                                        </div>
+                                        <div className="relative">
+                                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">السعر</span>
+                                            <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, 'price', Number(e.target.value))} placeholder="السعر" className="w-full text-xs font-black pr-11 pl-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-purple-500" />
+                                        </div>
+                                        <div className="relative">
+                                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">الكمية</span>
+                                            <input type="number" value={variant.stockQuantity === null || variant.stockQuantity === undefined ? '' : variant.stockQuantity} onChange={e => updateVariant(variant.id, 'stockQuantity', e.target.value === '' ? null : Number(e.target.value))} placeholder="الكمية" className="w-full text-xs font-black pr-11 pl-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-purple-500" />
+                                        </div>
+                                    </div>
+
+                                    {(settings.warehouses || []).length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                                            <span className="text-[10px] font-extrabold text-slate-400">توزيع المستودعات:</span>
+                                            {(settings.warehouses || []).map(wh => (
+                                                <div key={wh.id} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate max-w-[80px]">{wh.name}:</span>
+                                                    <input 
+                                                        type="number" 
+                                                        value={variant.warehouseStock?.[wh.id] ?? ''} 
+                                                        onChange={(e) => {
+                                                            const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                                            const currentStock = variant.warehouseStock || {};
+                                                            const newWhStock = { ...currentStock, [wh.id]: val };
+                                                            updateVariant(variant.id, 'warehouseStock', newWhStock);
+                                                            const totalVarStock = Object.values(newWhStock).reduce((sum: number, v: any) => sum + (Number(v) || 0), 0);
+                                                            updateVariant(variant.id, 'stockQuantity', totalVarStock);
+                                                        }}
+                                                        className="w-12 bg-transparent text-xs font-black border-none outline-none p-0 text-center text-indigo-600 dark:text-indigo-400"
+                                                        placeholder="0"
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
@@ -2381,22 +2856,22 @@ const FormInput = ({ label, icon, as = 'input', actionButton, tooltip, ...props 
     const Component = as;
     return (
         <div>
-            <div className="flex justify-between items-center mb-1">
-                <label className="block text-sm font-bold text-slate-700 dark:text-slate-400 flex items-center gap-2">
+            <div className="flex justify-between items-center mb-1.5">
+                <label className="text-xs sm:text-sm font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                     {icon} {label}
                     {tooltip && (
-                        <div className="relative group">
-                            <Info size={14} className="text-slate-400 cursor-help" />
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-xl z-50 text-center font-normal">
+                        <div className="relative group inline-flex">
+                            <Info size={14} className="text-slate-400 hover:text-indigo-500 cursor-help transition-colors" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-56 p-2.5 bg-slate-900 text-white text-[11px] rounded-xl shadow-2xl z-50 text-center font-normal leading-relaxed border border-slate-700">
                                 {tooltip}
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                                <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-900"></div>
                             </div>
                         </div>
                     )}
                 </label>
                 {actionButton}
             </div>
-            <Component {...props} className={`block w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 dark:text-white transition-all disabled:bg-slate-200 dark:disabled:bg-slate-700/50 ${props.className || ''}`} />
+            <Component {...props} className={`block w-full px-4 py-3 bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 dark:text-white transition-all font-bold text-xs sm:text-sm disabled:bg-slate-100 dark:disabled:bg-slate-800/50 disabled:text-slate-400 ${props.className || ''}`} />
         </div>
     );
 };

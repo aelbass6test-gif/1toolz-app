@@ -91,30 +91,42 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
     };
 
     try {
+        // Extra wait for any internal browser rendering/fonts/styles before measuring and exporting
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        const widthMm = orientation === 'landscape' ? 297 : 210;
+        let formatOption: any = 'a4';
+        
+        if (isContinuous) {
+            // Measure exact container height after browser rendering
+            const containerHeightPx = Math.max(container.scrollHeight, container.offsetHeight, container.getBoundingClientRect().height, 500);
+            // Convert px to mm (1 inch = 96 px = 25.4 mm) and add safety margin so it never splits into multiple pages
+            const calculatedHeightMm = Math.max(widthMm, Math.ceil((containerHeightPx * 25.4) / 96) + 20);
+            formatOption = [widthMm, calculatedHeightMm];
+        }
+
         const opt = {
-            margin:       [10, 10, 10, 10] as [number, number, number, number],
+            margin:       isContinuous ? [0, 0, 0, 0] as [number, number, number, number] : [10, 10, 10, 10] as [number, number, number, number],
             filename:     filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
             image:        { type: 'jpeg' as const, quality: 0.98 },
-            pagebreak:    isContinuous ? { mode: 'avoid-all' } : { mode: 'css' },
+            pagebreak:    isContinuous ? { mode: [] } : { mode: 'css' },
             html2canvas:  { 
                 scale: 3, 
                 useCORS: true, 
                 letterRendering: true, 
                 backgroundColor: '#ffffff',
                 logging: false,
-                removeContainer: true
+                removeContainer: true,
+                windowWidth: orientation === 'landscape' ? 1122 : 794
             },
             jsPDF:        { 
                 unit: 'mm' as const, 
-                format: isContinuous ? [orientation === 'landscape' ? 297 : 210, 3000] as [number, number] : 'a4', 
+                format: formatOption, 
                 orientation: orientation as 'portrait' | 'landscape',
                 compress: true,
                 precision: 16
             }
         };
-
-        // Extra wait for any internal browser rendering/fonts/styles
-        await new Promise(resolve => setTimeout(resolve, 1500));
 
         await html2pdf().set(opt).from(container).save();
     } finally {

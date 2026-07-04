@@ -203,10 +203,11 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const normalizeName = (name: string) => {
           if (!name) return name;
           let normalized = name.trim().replace(/\s+/g, ' ');
+          normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+          normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+          normalized = normalized.trim();
           if (/^(زهره|زهرة)/.test(normalized)) {
-              if (normalized.includes('شريك') || normalized.includes('شريكه') || normalized.includes('partner')) {
-                  return 'زهره شريك';
-              }
+              return 'زهره';
           }
           return normalized;
         };

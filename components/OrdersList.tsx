@@ -1216,6 +1216,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       }
 
       // 4. Remove from Cash Handovers and adjust Cash Holders Balances
+      const matchHolderId = (id1?: string, id2?: string) => {
+        if (!id1 || !id2) return false;
+        if (String(id1) === String(id2)) return true;
+        const c1 = String(id1).replace(/^(emp_|part_|treas_)/, '');
+        const c2 = String(id2).replace(/^(emp_|part_|treas_)/, '');
+        return c1 === c2 && c1 !== '';
+      };
+
       let handoversToRemove: any[] = [];
       updatedSettings.cashHandovers = (updatedSettings.cashHandovers || []).filter(
         (tx: any) => {
@@ -1233,24 +1241,30 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         }
       );
       
+      updatedSettings.cashHolders = [...(updatedSettings.cashHolders || [])];
       if (handoversToRemove.length > 0) {
-          updatedSettings.cashHolders = [...(updatedSettings.cashHolders || [])];
           handoversToRemove.forEach((tx: any) => {
-              // Usually the fromSystem -> holder or fromCustomer -> holder means the holder's balance increased
-              // To reverse, we subtract the amount from the holder's balance
               if (tx.toUserId) {
-                  const toIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.toUserId);
+                  const toIdx = updatedSettings.cashHolders.findIndex((h: any) => matchHolderId(h.userId, tx.toUserId));
                   if (toIdx > -1) {
-                      updatedSettings.cashHolders[toIdx] = { ...updatedSettings.cashHolders[toIdx], currentBalance: (updatedSettings.cashHolders[toIdx].currentBalance || 0) - tx.amount };
+                      updatedSettings.cashHolders[toIdx] = { ...updatedSettings.cashHolders[toIdx], currentBalance: Math.max(0, (updatedSettings.cashHolders[toIdx].currentBalance || 0) - tx.amount), lastUpdated: new Date().toISOString() };
                   }
               }
               if (tx.fromUserId && tx.fromUserId !== 'system' && tx.fromUserId !== 'customer') {
-                  const fromIdx = updatedSettings.cashHolders.findIndex((h: any) => h.userId === tx.fromUserId);
+                  const fromIdx = updatedSettings.cashHolders.findIndex((h: any) => matchHolderId(h.userId, tx.fromUserId));
                   if (fromIdx > -1) {
-                      updatedSettings.cashHolders[fromIdx] = { ...updatedSettings.cashHolders[fromIdx], currentBalance: (updatedSettings.cashHolders[fromIdx].currentBalance || 0) + tx.amount };
+                      updatedSettings.cashHolders[fromIdx] = { ...updatedSettings.cashHolders[fromIdx], currentBalance: (updatedSettings.cashHolders[fromIdx].currentBalance || 0) + tx.amount, lastUpdated: new Date().toISOString() };
                   }
               }
           });
+      } else if (orderToDelete.cashHolderId && orderToDelete.cashHolderId !== 'credit' && orderToDelete.cashHolderId !== 'wallet') {
+          const deductAmount = Number(orderToDelete.totalPrice || (orderToDelete as any).totalAmount || orderToDelete.advancePayment || 0);
+          if (deductAmount > 0) {
+              const hIdx = updatedSettings.cashHolders.findIndex((h: any) => matchHolderId(h.userId, orderToDelete.cashHolderId));
+              if (hIdx > -1) {
+                  updatedSettings.cashHolders[hIdx] = { ...updatedSettings.cashHolders[hIdx], currentBalance: Math.max(0, (updatedSettings.cashHolders[hIdx].currentBalance || 0) - deductAmount), lastUpdated: new Date().toISOString() };
+              }
+          }
       }
 
       return updatedSettings;
@@ -1432,12 +1446,6 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         transactions: updatedTransactions,
       };
     });
-
-    // 2.5 Remove associated cash handovers
-    setSettings((prev) => ({
-      ...prev,
-      cashHandovers: (prev.cashHandovers || []).filter(h => h.orderId !== orderIdToDelete)
-    }));
 
     // 3. Close the confirmation modal
     setOrderToDelete(null);
@@ -2670,11 +2678,63 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           ...(settings.partnerTransactions || []),
         ];
 
+        const matchHolderId = (id1?: string, id2?: string) => {
+          if (!id1 || !id2) return false;
+          if (String(id1) === String(id2)) return true;
+          const c1 = String(id1).replace(/^(emp_|part_|treas_)/, '');
+          const c2 = String(id2).replace(/^(emp_|part_|treas_)/, '');
+          return c1 === c2 && c1 !== '';
+        };
+
+        let updatedCashHolders = [...(settings.cashHolders || [])];
+        let updatedCashHandovers = [...(settings.cashHandovers || [])];
+
+        ordersBeingDeleted.forEach((orderToDelete) => {
+          const orderIdToDelete = orderToDelete.id;
+          const orderNumberToDelete = orderToDelete.orderNumber;
+          let handoversToRemove: any[] = [];
+          updatedCashHandovers = updatedCashHandovers.filter((tx: any) => {
+            const notes = tx.notes || "";
+            const matchOrderNumber = orderNumberToDelete ? notes.includes(`#${orderNumberToDelete}`) || notes.includes(orderNumberToDelete) : false;
+            const matchOrderId = orderIdToDelete ? notes.includes(orderIdToDelete) || tx.orderId === orderIdToDelete || tx.orderId === orderNumberToDelete : false;
+            const isMatch = matchOrderNumber || matchOrderId;
+            if (isMatch) handoversToRemove.push(tx);
+            return !isMatch;
+          });
+
+          if (handoversToRemove.length > 0) {
+            handoversToRemove.forEach((tx: any) => {
+              if (tx.toUserId) {
+                const toIdx = updatedCashHolders.findIndex((h: any) => matchHolderId(h.userId, tx.toUserId));
+                if (toIdx > -1) {
+                  updatedCashHolders[toIdx] = { ...updatedCashHolders[toIdx], currentBalance: Math.max(0, (updatedCashHolders[toIdx].currentBalance || 0) - tx.amount), lastUpdated: new Date().toISOString() };
+                }
+              }
+              if (tx.fromUserId && tx.fromUserId !== 'system' && tx.fromUserId !== 'customer') {
+                const fromIdx = updatedCashHolders.findIndex((h: any) => matchHolderId(h.userId, tx.fromUserId));
+                if (fromIdx > -1) {
+                  updatedCashHolders[fromIdx] = { ...updatedCashHolders[fromIdx], currentBalance: (updatedCashHolders[fromIdx].currentBalance || 0) + tx.amount, lastUpdated: new Date().toISOString() };
+                }
+              }
+            });
+          } else if (orderToDelete.cashHolderId && orderToDelete.cashHolderId !== 'credit' && orderToDelete.cashHolderId !== 'wallet') {
+            const deductAmount = Number(orderToDelete.totalPrice || (orderToDelete as any).totalAmount || orderToDelete.advancePayment || 0);
+            if (deductAmount > 0) {
+              const hIdx = updatedCashHolders.findIndex((h: any) => matchHolderId(h.userId, orderToDelete.cashHolderId));
+              if (hIdx > -1) {
+                updatedCashHolders[hIdx] = { ...updatedCashHolders[hIdx], currentBalance: Math.max(0, (updatedCashHolders[hIdx].currentBalance || 0) - deductAmount), lastUpdated: new Date().toISOString() };
+              }
+            }
+          }
+        });
+
         setSettings((prev) => ({
           ...prev,
           products: updatedProducts,
           posSales: updatedPosSales,
           partnerTransactions: updatedPartnerTransactions,
+          cashHolders: updatedCashHolders,
+          cashHandovers: updatedCashHandovers,
         }));
 
         // Cascade delete from Wallet
@@ -9768,18 +9828,6 @@ const OrderModal: React.FC<OrderModalProps> = ({
                                 value={`treasury_${acc.id}`}
                               >
                                 {acc.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {settings.partners && (
-                          <optgroup label="محافظ الشركاء">
-                            {(Array.isArray(settings.partners) ? settings.partners : Object.values(settings.partners || {})).map((p: any) => (
-                              <option
-                                key={`partner_${p.id}`}
-                                value={`partner_${p.id}`}
-                              >
-                                {p.name}
                               </option>
                             ))}
                           </optgroup>
