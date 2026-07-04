@@ -230,8 +230,14 @@ export const calculateCodFee = (order: Order, settings: Settings): number => {
     
     if (totalAmount <= threshold && threshold > 0) return 0;
     const taxableAmount = threshold > 0 ? Math.max(0, totalAmount - threshold) : Math.max(0, totalAmount);
-    const fee = taxableAmount * rate;
-    const result = fee * (1 + tax);
+    
+    // rate and tax are percentages (e.g. 1 for 1%, 14 for 14%)
+    const actualRate = rate / 100;
+    const actualTax = tax / 100;
+    
+    const fee = taxableAmount * actualRate;
+    const result = fee * (1 + actualTax);
+    
     return Math.round(result * 100) / 100;
 };
 
