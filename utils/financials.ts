@@ -324,7 +324,7 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     const inspectionExpense = (!isPos && (order.includeInspectionFee !== false)) ? effectiveInspectionCost : 0;
     const inspectionRevenue = (!isPos && (order.includeInspectionFee !== false) && (order.inspectionFeePaidByCustomer !== false)) ? effectiveInspectionCost : 0;
 
-    const codFee = (order.status === 'مدفوعة' || isPos || order.paymentStatus === 'مدفوع') ? 0 : calculateCodFee(order, settings);
+    const codFee = (order.status === 'مدفوعة' || isPos) ? 0 : calculateCodFee(order, settings);
 
     const safeProductPrice = Number(order.productPrice) || 0;
     const safeShippingFee = Number(order.shippingFee) || 0;
@@ -415,7 +415,7 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   let totalFees = baseShippingFee + insuranceFee + bostaVat + inspectionExpense;
 
   if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') {
-    const codFee = (o.status === 'مدفوعة' || isPos || o.paymentStatus === 'مدفوع') ? 0 : calculateCodFee(o, settings);
+    const codFee = (o.status === 'مدفوعة' || isPos) ? 0 : calculateCodFee(o, settings);
     const isFlexShipEnabled = o.enableFlexShip !== undefined ? o.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
     const flexShipCompanyDeduction = (isFlexShipEnabled && o.flexShipFeePaidByCustomer) ? (o.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
     const flexShipCollected = (isFlexShipEnabled && o.flexShipFeePaidByCustomer) ? (o.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;

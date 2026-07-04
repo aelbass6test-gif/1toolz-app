@@ -390,7 +390,7 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
     const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
     const inspectionExpense = (!isPosOrder && (order.includeInspectionFee !== false)) ? inspectionFeeParams : 0;
     const inspectionRevenue = (!isPosOrder && (order.includeInspectionFee !== false) && (order.inspectionFeePaidByCustomer !== false)) ? inspectionExpense : 0;
-    const codFee = (order.status === 'مدفوعة' || isPosOrder || order.paymentStatus === 'مدفوع') ? 0 : calculateCodFee(order, settings);
+    const codFee = (order.status === 'مدفوعة' || isPosOrder) ? 0 : calculateCodFee(order, settings);
     const bostaVat = calculateBostaVat(order, insuranceFee, settings);
 
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
