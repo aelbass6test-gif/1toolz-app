@@ -399,6 +399,9 @@ export interface CustomerProfile {
     date: string;
     orderId?: string;
   }>;
+  tags?: string[];
+  email?: string;
+  customerSegment?: string;
 }
 
 export interface Review {
