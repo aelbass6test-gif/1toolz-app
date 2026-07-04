@@ -1866,10 +1866,10 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       }
     });
 
-    updateSettings({
-      ...settings,
+    setSettings((prev: any) => ({
+      ...prev,
       products: updatedProducts
-    });
+    }));
     audioSynth.playTone('success');
     showAlert('تم التغذية والشحن بنجاح', 'تم شحن وتغذية أرصدة كافة المنتجات المنفذة أو الحرجة في المخزون المركزي بـ 50 قطعة لكل صنف!', 'success');
   };
