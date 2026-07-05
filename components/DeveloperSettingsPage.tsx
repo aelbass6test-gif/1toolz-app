@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download } from 'lucide-react';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive } from '../services/databaseService';
 
 const SupabaseIcon = () => (
@@ -1042,6 +1042,7 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 -- 6. جدول العملاء (customers)
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "balance" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyalty_points" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyaltyPoints" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "total_spent" NUMERIC DEFAULT 0;
@@ -1052,7 +1053,23 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS "last_order_date" TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "lastOrderDate" TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "notes" TEXT;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "email" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "tags" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+
+-- 6.1 جدول الموردين (suppliers)
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "name" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "phone" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "balance" NUMERIC DEFAULT 0;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "category" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "creditLimit" NUMERIC DEFAULT 0;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "taxNumber" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "bankAccount" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "rating" NUMERIC;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "tier" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 
 -- 7. جدول مبيعات الكاشير (pos_sales)
 ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
@@ -1105,6 +1122,10 @@ ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "action" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "details" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "date" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "timestamp" NUMERIC;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
@@ -1893,6 +1914,58 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                 </div>
              ))
           )}
+        </div>
+      </div>
+
+      <div id="activity-movements" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden mt-8">
+        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+              <History size={20} />
+            </div>
+            <div className="text-right">
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white">سجل التحركات والنشاط</h2>
+              <p className="text-sm text-slate-500">مراقبة كافة العمليات والتحركات التي تتم في النظام.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => window.location.href = `/store/${activeStoreId}/activity-logs`}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2"
+          >
+            <Eye size={16} />
+            فتح السجل الكامل
+          </button>
+        </div>
+        <div className="p-6">
+          <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-xl">
+            <table className="w-full text-right text-[11px]">
+              <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-black">
+                <tr>
+                  <th className="px-4 py-3">الموظف</th>
+                  <th className="px-4 py-3">الإجراء</th>
+                  <th className="px-4 py-3">التفاصيل</th>
+                  <th className="px-4 py-3">التوقيت</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                {(settings.activityLogs || []).slice(0, 5).map((log: any) => (
+                  <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                    <td className="px-4 py-3 font-bold text-slate-700 dark:text-slate-300">{log.user}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded text-[10px] font-black">{log.action}</span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{log.details}</td>
+                    <td className="px-4 py-3 text-slate-400 font-mono text-[10px]">{log.date}</td>
+                  </tr>
+                ))}
+                {(settings.activityLogs || []).length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center text-slate-400 italic">لا توجد تحركات مسجلة حالياً.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
