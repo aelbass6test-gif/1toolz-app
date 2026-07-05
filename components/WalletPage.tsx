@@ -1190,14 +1190,18 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                       <span className={`inline-flex flex-row-reverse items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-black border tracking-wide ${
                                           item.status === 'pending'
                                           ? 'bg-amber-50 text-amber-600 border-amber-200/50 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20'
-                                          : item.status === 'completed'
+                                          : (item.status === 'completed' || item.status === 'accepted')
                                           ? 'bg-emerald-50 text-emerald-600 border-emerald-200/50 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
                                           : 'bg-rose-50 text-rose-600 border-rose-200/50 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20'
                                       }`}>
-                                          {item.status === 'pending' ? 'قيد التنفيذ' : item.status === 'completed' ? 'تم التنفيذ' : 'تم إلغاؤها'}
+                                          {item.isWithdraw ? (
+                                              item.status === 'pending' ? 'قيد المراجعة' : (item.status === 'completed' || item.status === 'accepted') ? 'تم القبول' : 'عملية مرفوضة'
+                                          ) : (
+                                              item.status === 'pending' ? 'قيد التنفيذ' : (item.status === 'completed' || item.status === 'accepted') ? 'تم التنفيذ' : 'تم إلغاؤها'
+                                          )}
                                           <span className={`w-1.5 h-1.5 rounded-full ${
                                               item.status === 'pending' ? 'bg-amber-500' :
-                                              item.status === 'completed' ? 'bg-emerald-500' : 'bg-rose-500'
+                                              (item.status === 'completed' || item.status === 'accepted') ? 'bg-emerald-500' : 'bg-rose-500'
                                           }`} />
                                       </span>
                                       <motion.div 

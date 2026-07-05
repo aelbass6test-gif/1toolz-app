@@ -255,6 +255,8 @@ export const INITIAL_SETTINGS: Settings = {
   sameDayWithdrawalFlatFee: 50,
   minWithdrawalFee: 25,
   feeApplicableMethods: ['card', 'instapay', 'wallet'],
+  enableWithdrawalFees: true,
+  enableInternalWithdrawalFees: false,
 };
 
 export const TRANSACTION_CATEGORY_LABELS: Record<string, string> = {

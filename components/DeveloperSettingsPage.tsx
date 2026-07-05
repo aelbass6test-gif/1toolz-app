@@ -265,7 +265,9 @@ CREATE TABLE IF NOT EXISTS customers (
     firstOrderDate TEXT,
     last_order_date TEXT,
     lastOrderDate TEXT,
-    notes TEXT
+    notes TEXT,
+    debtBalance NUMERIC DEFAULT 0,
+    debtHistory JSONB DEFAULT '[]'::jsonb
 );
 
 -- 17. GLOBAL_OPTIONS (خيارات الضبط العام للمتجر)
@@ -573,6 +575,44 @@ CREATE TABLE IF NOT EXISTS call_scripts (
     storeId TEXT,
     title TEXT NOT NULL,
     text TEXT NOT NULL
+);
+
+-- 35. CUSTOMER_TRANSACTIONS (سجل حركات مديونيات العملاء)
+CREATE TABLE IF NOT EXISTS customer_transactions (
+    id TEXT PRIMARY KEY,
+    customerId TEXT,
+    date TEXT,
+    amount NUMERIC,
+    type TEXT, -- debt, payment, refund
+    note TEXT,
+    orderId TEXT,
+    storeId TEXT
+);
+
+-- 36. SUPPLIER_TRANSACTIONS (سجل حركات مديونيات الموردين)
+CREATE TABLE IF NOT EXISTS supplier_transactions (
+    id TEXT PRIMARY KEY,
+    supplierId TEXT,
+    date TEXT,
+    amount NUMERIC,
+    type TEXT, -- credit, payment, refund
+    note TEXT,
+    orderId TEXT,
+    storeId TEXT
+);
+
+-- 37. WITHDRAWAL_REQUESTS (سجل طلبات سحب الرصيد)
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+    id TEXT PRIMARY KEY,
+    storeId TEXT,
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    status TEXT DEFAULT 'pending', -- pending, completed, cancelled
+    method TEXT, -- bank, wallet, instapay, treasury
+    details TEXT,
+    fee NUMERIC DEFAULT 0,
+    netAmount NUMERIC,
+    isSameDay BOOLEAN DEFAULT false
 );
 
 -- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
@@ -1109,6 +1149,53 @@ ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "date" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "notes" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "status" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+
+-- 9. جداول الحركات والمديونيات الجديدة
+CREATE TABLE IF NOT EXISTS customer_transactions (
+    id TEXT PRIMARY KEY,
+    customerId TEXT,
+    customer_id TEXT,
+    date TEXT,
+    amount NUMERIC,
+    type TEXT,
+    note TEXT,
+    orderId TEXT,
+    order_id TEXT,
+    storeId TEXT,
+    store_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS supplier_transactions (
+    id TEXT PRIMARY KEY,
+    supplierId TEXT,
+    supplier_id TEXT,
+    date TEXT,
+    amount NUMERIC,
+    type TEXT,
+    note TEXT,
+    orderId TEXT,
+    order_id TEXT,
+    storeId TEXT,
+    store_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+    id TEXT PRIMARY KEY,
+    storeId TEXT,
+    store_id TEXT,
+    amount NUMERIC NOT NULL,
+    date TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    method TEXT,
+    details TEXT,
+    fee NUMERIC DEFAULT 0,
+    netAmount NUMERIC,
+    isSameDay BOOLEAN DEFAULT false
+);
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "balance" NUMERIC DEFAULT 0;
 
 -- 9. حركات الشركاء والخزائن والشركاء وسجل النشاط
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
