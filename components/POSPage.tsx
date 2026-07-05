@@ -114,7 +114,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
     { id: 'admin', name: 'المدير (أنت)' },
     ...(employeesList).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: normalizeName(e.name) })),
     ...(partnersList).map((p, index) => ({ id: `part_${p.id || index}`, name: `${normalizeName(p.name)} (شريك)` })),
-    ...(treasuryAccountsList).filter(a => a.type === 'custody').map(a => ({ id: `treas_${a.id}`, name: normalizeName(a.name) }))
+    ...(treasuryAccountsList).map((a: any) => ({ id: `treas_${a.id}`, name: normalizeName(a.name) }))
   ], [employeesList, partnersList, treasuryAccountsList]);
 
   const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [
@@ -255,37 +255,58 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
       let updatedPartners = [...(settings.partners || [])];
       let updatedPartnerTransactions = [...(settings.partnerTransactions || [])];
       let updatedHandovers = [...(settings.cashHandovers || [])];
+      let updatedTreasury = treasury ? { ...treasury, accounts: [...treasury.accounts], transactions: [...(treasury.transactions || [])] } : null;
 
       if (!isCredit && !settings.disableCustodySelling) {
-        const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(finalCashHolder));
-        const receiverName = normalizeName(receiver?.name || 'مستلم');
-        
-        if (hIdx > -1) {
-          updatedHolders[hIdx].currentBalance += totalAmount;
-          updatedHolders[hIdx].lastUpdated = new Date().toISOString();
+        if (finalCashHolder.startsWith('treas_') && updatedTreasury) {
+          const treasuryId = finalCashHolder.substring(6);
+          const accIdx = updatedTreasury.accounts.findIndex(a => a.id === treasuryId);
+          if (accIdx > -1) {
+            updatedTreasury.accounts[accIdx] = {
+              ...updatedTreasury.accounts[accIdx],
+              balance: updatedTreasury.accounts[accIdx].balance + totalAmount
+            };
+            updatedTreasury.transactions.unshift({
+              id: `POS-TR-${Date.now()}`,
+              date: new Date().toISOString(),
+              type: 'deposit',
+              amount: totalAmount,
+              description: `مبيعات كاشير - طلب #${saleNumber}`,
+              toAccountId: treasuryId,
+              reference: saleId
+            });
+          }
         } else {
-          updatedHolders.push({
-            userId: finalCashHolder,
-            userName: receiverName,
-            currentBalance: totalAmount,
-            lastUpdated: new Date().toISOString()
+          const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(finalCashHolder));
+          const receiverName = normalizeName(receiver?.name || 'مستلم');
+          
+          if (hIdx > -1) {
+            updatedHolders[hIdx].currentBalance += totalAmount;
+            updatedHolders[hIdx].lastUpdated = new Date().toISOString();
+          } else {
+            updatedHolders.push({
+              userId: finalCashHolder,
+              userName: receiverName,
+              currentBalance: totalAmount,
+              lastUpdated: new Date().toISOString()
+            });
+          }
+
+          // Add to Cash Handovers log (سجل العهد)
+          updatedHandovers.unshift({
+            id: `pos-handover-${Date.now()}`,
+            fromUserId: 'system',
+            fromUserName: 'النظام',
+            toUserId: finalCashHolder,
+            toUserName: receiverName,
+            amount: totalAmount,
+            date: new Date().toISOString(),
+            notes: `مبيعات كاشير - طلب #${saleNumber}`,
+            type: 'handover',
+            status: 'completed',
+            orderId: saleId // Explicitly link handover to this sale order
           });
         }
-
-        // Add to Cash Handovers log (سجل العهد)
-        updatedHandovers.unshift({
-          id: `pos-handover-${Date.now()}`,
-          fromUserId: 'system',
-          fromUserName: 'النظام',
-          toUserId: finalCashHolder,
-          toUserName: receiverName,
-          amount: totalAmount,
-          date: new Date().toISOString(),
-          notes: `مبيعات كاشير - طلب #${saleNumber}`,
-          type: 'handover',
-          status: 'completed',
-          orderId: saleId // Explicitly link handover to this sale order
-        });
       }
 
       const newSettings: Settings = {
@@ -375,7 +396,8 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
       updateStoreData({ 
         settings: newSettings, 
         orders: [newOrder, ...orders],
-        wallet: updatedWallet
+        wallet: updatedWallet,
+        treasury: updatedTreasury
       });
 
       // تشغيل الاحتفالات والسمعيات السحابية لبيع الكاشير
@@ -776,6 +798,7 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
           allHolders={allPossibleHolders}
           orders={orders}
           wallet={wallet}
+          treasury={treasury}
           selectedWarehouse={selectedWarehouse}
         />
       )}
@@ -791,10 +814,11 @@ interface POSSalesLogProps {
   allHolders: { id: string; name: string }[];
   orders: Order[];
   wallet: WalletType;
+  treasury?: Treasury;
   selectedWarehouse: string;
 }
 
-const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, selectedWarehouse }) => {
+const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, treasury, selectedWarehouse }) => {
   const warehouses = settings.warehouses || [];
   const [filter, setFilter] = useState({
     startDate: '',
@@ -895,18 +919,32 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
 
     // Revert the cash holder balance if it's not credit and not wallet
     let updatedHolders = [...(settings.cashHolders || [])];
+    let updatedTreasury = treasury ? { ...treasury, accounts: [...treasury.accounts], transactions: [...(treasury.transactions || [])] } : null;
+
     if (sale.cashHolderId && sale.cashHolderId !== 'credit' && sale.cashHolderId !== 'wallet') {
-      const cleanTargetId = String(sale.cashHolderId).replace(/^(emp_|part_|treas_)/, '');
-      const hIdx = updatedHolders.findIndex(h => {
-        const cleanHolderId = String(h.userId).replace(/^(emp_|part_|treas_)/, '');
-        return String(h.userId) === String(sale.cashHolderId) || (cleanHolderId === cleanTargetId && cleanHolderId !== '');
-      });
-      if (hIdx > -1) {
-        updatedHolders[hIdx] = {
-          ...updatedHolders[hIdx],
-          currentBalance: Math.max(0, (updatedHolders[hIdx].currentBalance || 0) - sale.totalAmount),
-          lastUpdated: new Date().toISOString()
-        };
+      if (String(sale.cashHolderId).startsWith('treas_') && updatedTreasury) {
+        const treasuryId = String(sale.cashHolderId).substring(6);
+        const accIdx = updatedTreasury.accounts.findIndex(a => a.id === treasuryId);
+        if (accIdx > -1) {
+          updatedTreasury.accounts[accIdx] = {
+            ...updatedTreasury.accounts[accIdx],
+            balance: Math.max(0, updatedTreasury.accounts[accIdx].balance - sale.totalAmount)
+          };
+          updatedTreasury.transactions = updatedTreasury.transactions.filter(t => t.reference !== saleId);
+        }
+      } else {
+        const cleanTargetId = String(sale.cashHolderId).replace(/^(emp_|part_|treas_)/, '');
+        const hIdx = updatedHolders.findIndex(h => {
+          const cleanHolderId = String(h.userId).replace(/^(emp_|part_|treas_)/, '');
+          return String(h.userId) === String(sale.cashHolderId) || (cleanHolderId === cleanTargetId && cleanHolderId !== '');
+        });
+        if (hIdx > -1) {
+          updatedHolders[hIdx] = {
+            ...updatedHolders[hIdx],
+            currentBalance: Math.max(0, (updatedHolders[hIdx].currentBalance || 0) - sale.totalAmount),
+            lastUpdated: new Date().toISOString()
+          };
+        }
       }
     }
     
@@ -927,7 +965,8 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
     updateStoreData({
       settings: { ...settings, products: updatedProducts, posSales: newSales, cashHolders: updatedHolders, cashHandovers: updatedHandovers },
       orders: newOrders,
-      wallet: updatedWallet
+      wallet: updatedWallet,
+      treasury: updatedTreasury
     });
   };
 

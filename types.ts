@@ -497,8 +497,9 @@ export interface SupplyOrder {
   partnerId?: string;
   partnerPayments?: PartnerPayment[]; // New field for multiple partners
   treasuryPayments?: TreasuryPayment[]; // New field for multiple treasury/custody accounts
+  custodyPayments?: { cashHolderId: string, amount: number }[]; // New field for custody payments
   notes?: string;
-  paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury';
+  paymentMethod?: 'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury' | 'custody';
   shippingFees?: number;
   shippingFeesNote?: string;
   shippingFeesPaymentMethod?: 'with_order' | 'wallet';
@@ -698,6 +699,7 @@ export interface Settings {
   sameDayWithdrawalFeePercent?: number;
   sameDayWithdrawalFlatFee?: number;
   minWithdrawalFee?: number;
+  enableWithdrawalFees?: boolean;
   feeApplicableMethods?: string[]; // e.g. ['card', 'instapay', 'wallet']
   inventoryAudits?: InventoryAuditSession[];
   stockTransfers?: StockTransfer[];

@@ -278,6 +278,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   };
 
   const currentWithdrawFee = useMemo(() => {
+    if (!settings.enableWithdrawalFees) return 0;
     if (preferredMethod === 'treasury') return 0;
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) return 0;
@@ -443,7 +444,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
             type: 'سحب' as const,
             amount: r.amount,
             date: r.date,
-            note: `طلب سحب - ${r.status === 'accepted' ? 'تم قبولها' : r.status === 'pending' ? 'قيد المراجعة' : 'مرفوضة'}`,
+            note: `طلب سحب (${r.method === 'bank' ? 'بنكي' : r.method === 'instapay' ? 'إنستاباي' : r.method === 'wallet' ? 'محفظة' : 'خزينة'}) - الرسوم: ${r.fee || 0} ج.م`,
             isWithdraw: true,
             status: r.status,
             category: 'wallet_withdrawal' as TransactionCategory
@@ -2065,7 +2066,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                             <td className="p-8">
                                                 <div className="flex flex-col text-right">
                                                     <span className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider mb-1">
-                                                        {r.method === 'bank' ? 'تحويل بنكي' : 'محفظة إلكترونية'}
+                                                        {r.method === 'bank' ? 'تحويل بنكي' : 
+                                                         r.method === 'instapay' ? 'إنستاباي' : 
+                                                         r.method === 'wallet' ? 'محفظة إلكترونية' : 
+                                                         'خزينة داخلية'}
                                                     </span>
                                                     <span className="text-[10px] font-bold text-slate-400">
                                                         {new Date(r.date).toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}

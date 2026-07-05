@@ -72,8 +72,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [recordExpensesFormally, setRecordExpensesFormally] = useState(true);
   const [costUpdateMethod, setCostUpdateMethod] = useState<'last_purchase' | 'weighted_average'>('last_purchase');
   const [taxRate, setTaxRate] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury'>('cash');
-  const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'partner' | 'supply_wallet' | 'treasury' | 'custody'>('cash');
+const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amount: number }[]>([]);
+  const [custodyPayments, setCustodyPayments] = useState<{ cashHolderId: string, amount: number }[]>([]);
   const [treasuryPayments, setTreasuryPayments] = useState<{ treasuryAccountId: string, amount: number }[]>([]);
   const [isSplitTreasury, setIsSplitTreasury] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState(''); 
@@ -509,6 +510,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           let updatedSuppliers = [...(prev.suppliers || [])];
           let updatedPartners = [...(prev.partners || [])];
           let updatedPartnerTransactions = [...(prev.partnerTransactions || [])];
+          let updatedCashHolders = [...(prev.cashHolders || [])];
           
           // 1. Revert Old Order Impact (if editing)
           if (editingOrder) {
@@ -538,6 +540,20 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                         !t.id.startsWith(`expense_tx_${currentOldOrder.id}`)
                     )
                 }));
+              }
+
+              // Revert Custody if was custody funded
+              if (currentOldOrder.paymentMethod === 'custody') {
+                  const oldCustodyPayments = currentOldOrder.custodyPayments || [];
+                  oldCustodyPayments.forEach(cp => {
+                      const cIdx = updatedCashHolders.findIndex(h => h.userId === cp.cashHolderId);
+                      if (cIdx > -1) {
+                          updatedCashHolders[cIdx] = {
+                              ...updatedCashHolders[cIdx],
+                              currentBalance: (updatedCashHolders[cIdx].currentBalance || 0) + cp.amount
+                          };
+                      }
+                  });
               }
 
               // Revert Partner Balance if was partner funded
@@ -915,6 +931,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
                   treasuryPayments: paymentMethod === 'treasury' && isSplitTreasury ? treasuryPayments : undefined,
+                  custodyPayments: paymentMethod === 'custody' ? custodyPayments : undefined,
                   warehouseId: selectedWarehouseId,
                   recordExpensesFormally,
                   distributeExpensesEqually,
@@ -944,6 +961,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                   paymentMethod,
                   treasuryAccountId: paymentMethod === 'treasury' ? selectedTreasuryAccountId : undefined,
                   treasuryPayments: paymentMethod === 'treasury' && isSplitTreasury ? treasuryPayments : undefined,
+                  custodyPayments: paymentMethod === 'custody' ? custodyPayments : undefined,
                   warehouseId: selectedWarehouseId,
                   recordExpensesFormally,
                   distributeExpensesEqually,
@@ -958,7 +976,8 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
               supplyOrders: updatedOrders,
               suppliers: updatedSuppliers,
               partners: updatedPartners,
-              partnerTransactions: updatedPartnerTransactions
+              partnerTransactions: updatedPartnerTransactions,
+              cashHolders: updatedCashHolders
           };
       });
 
@@ -1151,6 +1170,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setOrderItems([]);
       setSelectedSupplierId('');
       setPartnerPayments([]);
+      setCustodyPayments([]);
       setSelectedPartnerId('');
       setOrderReference('');
       setOrderNotes('');
@@ -1173,6 +1193,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setSelectedSupplierId(order.supplierId);
       const initialPartnerPayments = order.partnerPayments || (order.partnerId ? [{ partnerId: order.partnerId, amount: order.totalCost || order.grandTotal || 0 }] : []);
       setPartnerPayments(initialPartnerPayments);
+      setCustodyPayments(order.custodyPayments || []);
       setSelectedPartnerId(order.partnerId || '');
       setOrderReference(order.referenceNumber || '');
       setOrderNotes(order.notes || '');
@@ -1231,6 +1252,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
           let updatedSuppliers = [...prev.suppliers];
           let updatedPartners = [...(prev.partners || [])];
           let updatedPartnerTransactions = [...(prev.partnerTransactions || [])];
+          let updatedCashHolders = [...(prev.cashHolders || [])];
 
           if (order.paymentMethod === 'credit') {
               const suppIdx = updatedSuppliers.findIndex(s => s.id === order.supplierId);
@@ -1240,6 +1262,19 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                       balance: (updatedSuppliers[suppIdx].balance || 0) - (order.grandTotal || order.totalCost)
                   };
               }
+          }
+
+          if (order.paymentMethod === 'custody') {
+              const oldCustodyPayments = order.custodyPayments || [];
+              oldCustodyPayments.forEach(cp => {
+                  const cIdx = updatedCashHolders.findIndex(h => h.userId === cp.cashHolderId);
+                  if (cIdx > -1) {
+                      updatedCashHolders[cIdx] = {
+                          ...updatedCashHolders[cIdx],
+                          currentBalance: (updatedCashHolders[cIdx].currentBalance || 0) + cp.amount
+                      };
+                  }
+              });
           }
 
           if (order.paymentMethod === 'partner') {
@@ -1262,6 +1297,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
             suppliers: updatedSuppliers,
             partners: updatedPartners,
             partnerTransactions: updatedPartnerTransactions,
+            cashHolders: updatedCashHolders,
             products: prev.products.map(p => {
                 const item = order.items.find(i => i.productId === p.id);
                 if (item) {
@@ -2221,9 +2257,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                             : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-455 border-emerald-100 dark:border-emerald-900/30'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${
-                            order.paymentMethod === 'credit' ? 'bg-rose-500' : order.paymentMethod === 'partner' ? 'bg-amber-500' : 'bg-emerald-500'
+                            order.paymentMethod === 'credit' ? 'bg-rose-500' : order.paymentMethod === 'partner' ? 'bg-amber-500' : order.paymentMethod === 'custody' ? 'bg-teal-500' : 'bg-emerald-500'
                           }`}></span>
-                          {order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : 'مدفوعة كاش'}
+                          {order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' : 'مدفوعة كاش'}
                         </span>
 
                         <span className="text-slate-300">|</span>
@@ -2349,7 +2385,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                                   <div class="meta-box">
                                     <div class="meta-label">بروتوكول السداد ومصدر التمويل:</div>
                                     <div class="meta-val">
-                                      ${order.paymentMethod === 'credit' ? 'آجل مديونية معلقة' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'supply_wallet' ? 'تمويل محفظة التوريد' : order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
+                                      ${order.paymentMethod === 'credit' ? 'آجل مديونية معلقة' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'سداد عهدة شخصية' : order.paymentMethod === 'supply_wallet' ? 'تمويل محفظة التوريد' : order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
                                     </div>
                                     <div class="meta-val" style="font-size: 11px; margin-top: 5px; color: #64748b;">الحالة: مُعتمدة ومُرحلة للمخازن</div>
                                   </div>
@@ -3176,7 +3212,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                                     <tbody>
                                       ${suppOrders.map((order, idx) => {
                                         const itemsList = order.items.map(it => `${it.name || 'مادة'} (${it.quantity} قطع بسعر تكلفة ${it.cost} ج.م)`).join(' ، ');
-                                        const payMethodText = order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'supply_wallet' ? 'محفظة توريد كاش' : 'نقدي (كاش)';
+                                        const payMethodText = order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' : order.paymentMethod === 'supply_wallet' ? 'محفظة توريد كاش' : 'نقدي (كاش)';
                                         return `
                                           <tr>
                                             <td>${idx + 1}</td>
@@ -3264,6 +3300,9 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
         treasury={treasury}
         partnerPayments={partnerPayments}
         setPartnerPayments={setPartnerPayments}
+        custodyPayments={custodyPayments}
+        setCustodyPayments={setCustodyPayments}
+        cashHolders={settings.cashHolders || []}
         totalCost={totalCost}
         orderReference={orderReference}
         setOrderReference={setOrderReference}

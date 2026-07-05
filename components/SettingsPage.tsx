@@ -2813,6 +2813,19 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                 {/* 💸 رسوم السحب */}
                 <div className="space-y-8 border-r border-slate-100 dark:border-slate-800 pr-0 lg:pr-8">
                     <div className="space-y-6">
+                        <div className="flex items-center justify-between flex-row-reverse bg-rose-50 dark:bg-rose-900/10 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
+                            <div className="text-right">
+                                <h3 className="font-black text-rose-800 dark:text-rose-400 text-sm">تفعيل رسوم السحب</h3>
+                                <p className="text-[10px] text-rose-600 dark:text-rose-500">عند التعطيل، لن يتم خصم أي رسوم عند طلب سحب رصيد.</p>
+                            </div>
+                            <button
+                                onClick={() => setSettings(prev => ({ ...prev, enableWithdrawalFees: !prev.enableWithdrawalFees }))}
+                                className={`w-12 h-6 rounded-full relative transition-colors ${settings.enableWithdrawalFees ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                            >
+                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.enableWithdrawalFees ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+
                         <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
                             <ArrowDownLeft size={18} className="text-rose-500" />
                             رسوم السحب العادي
