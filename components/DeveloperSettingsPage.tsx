@@ -1780,6 +1780,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                           name: c.name,
                           oldBalance: c.debtBalance || 0,
                           newBalance: totalCredit,
+                          description: "مديونية العميل الحالية لا تطابق مجموع فواتير الآجل المسجلة له. سيتم تصحيح المديونية بناءً على السجلات.",
                           selected: true
                         });
                       }
@@ -1801,6 +1802,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                           name: acc.name,
                           oldBalance: acc.balance,
                           newBalance: calculatedBalance,
+                          description: "رصيد الحساب المسجل يختلف عن ناتج العمليات. سيتم إعادة حساب الرصيد بدقة من واقع حركة الخزينة.",
                           selected: true
                         });
                       }
@@ -1818,6 +1820,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                         oldBalance: wallet.balance,
                         newBalance: calculatedWalletBalance,
                         type: 'balance_fix',
+                        description: "الرصيد الظاهر لا يطابق مجموع عمليات الإيداع والسحب. سيتم تصحيح الرصيد ليعبر عن حقيقة السجلات.",
                         selected: true
                       });
                     }
@@ -1831,6 +1834,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                           oldBalance: 600,
                           newBalance: 0,
                           type: 'tx_remove',
+                          description: "عملية قد تكون ناتجة عن خطأ تقني سابق. حذفها قد يساعد في استعادة توازن الحسابات.",
                           txIndex: idx,
                           selected: false // Don't select by default to be safe
                         });
@@ -1936,7 +1940,10 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                             </button>
                             <div>
                               <p className="text-sm font-bold text-slate-900 dark:text-white">{c.name}</p>
-                              <p className="text-[10px] text-slate-500">{c.phone}</p>
+                              <p className="text-[10px] text-slate-500 mb-1">{c.phone}</p>
+                              <p className="text-[10px] text-indigo-500 font-bold leading-tight max-w-[200px]">
+                                {c.description}
+                              </p>
                             </div>
                           </div>
                           <div className="text-left font-mono">
@@ -1970,7 +1977,12 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                             >
                               {acc.selected ? <CheckSquare size={20} /> : <Square size={20} />}
                             </button>
-                            <p className="text-sm font-bold text-slate-900 dark:text-white">{acc.name}</p>
+                            <div>
+                              <p className="text-sm font-bold text-slate-900 dark:text-white">{acc.name}</p>
+                              <p className="text-[10px] text-indigo-500 font-bold leading-tight max-w-[200px] mt-1">
+                                {acc.description}
+                              </p>
+                            </div>
                           </div>
                           <div className="text-left font-mono">
                             <span className="text-xs text-rose-500 line-through decoration-rose-500/30">{acc.oldBalance.toLocaleString()}</span>
@@ -2005,8 +2017,8 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                             </button>
                             <div>
                               <p className="text-sm font-bold text-slate-900 dark:text-white">{w.name}</p>
-                              <p className="text-[10px] text-indigo-500 font-bold">
-                                {w.type === 'tx_remove' ? 'سيتم حذف العملية لتصحيح الفرق' : 'سيتم تصحيح الرصيد الإجمالي'}
+                              <p className="text-[10px] text-indigo-500 font-bold leading-tight max-w-[200px] mt-1">
+                                {w.description}
                               </p>
                             </div>
                           </div>
