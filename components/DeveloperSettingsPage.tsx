@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench } from 'lucide-react';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive } from '../services/databaseService';
 
 const SupabaseIcon = () => (
@@ -959,9 +959,60 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const [integrations, setIntegrations] = useState<WebhookIntegration[]>(settings.webhookIntegrations || []);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [log, setLog] = useState<string>('');
+  const [syncPreview, setSyncPreview] = useState<{
+    customers: any[];
+    treasury: any[];
+    storeId: string;
+  } | null>(null);
 
   const handleFixFlexShipSchema = () => {
     handleFixDBSchema();
+  };
+
+  const handleApplySync = () => {
+    if (!syncPreview) return;
+    const { storeId, customers, treasury } = syncPreview;
+    const storeData = allStoresData[storeId];
+    if (!storeData) return;
+
+    const selectedCustomersCount = customers.filter(c => c.selected).length;
+    const selectedTreasuryCount = treasury.filter(t => t.selected).length;
+
+    if (selectedCustomersCount === 0 && selectedTreasuryCount === 0) {
+      alert('يرجى اختيار تغيير واحد على الأقل لتطبيقه.');
+      return;
+    }
+
+    // Apply customer changes
+    const updatedCustomers = (storeData.customers || []).map((c: any) => {
+      const change = customers.find(ch => ch.id === c.id && ch.selected);
+      if (change) {
+        return { ...c, debtBalance: change.newBalance };
+      }
+      return c;
+    });
+
+    // Apply treasury changes
+    const originalTreasury = storeData.treasury || { accounts: [], transactions: [] };
+    const updatedAccounts = originalTreasury.accounts.map((acc: any) => {
+      const change = treasury.find(ch => ch.id === acc.id && ch.selected);
+      if (change) {
+        return { ...acc, balance: change.newBalance };
+      }
+      return acc;
+    });
+
+    setAllStoresData((prev: any) => ({
+      ...prev,
+      [storeId]: {
+        ...prev[storeId],
+        customers: updatedCustomers,
+        treasury: { ...originalTreasury, accounts: updatedAccounts }
+      }
+    }));
+
+    setLog(prev => prev + `✅ تمت معالجة ${selectedCustomersCount + selectedTreasuryCount} تغيير مختار بنجاح.\n`);
+    setSyncPreview(null);
   };
 
   const handleFixDBSchema = () => {
@@ -1681,9 +1732,8 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 
               <button
                 onClick={async () => {
-                  if (!confirm('هل أنت متأكد من إعادة حساب كافة الأرصدة والمديونيات؟ سيتم اعتماد سجلات العمليات كمصدر وحيد للحقيقة.')) return;
                   try {
-                    setLog(`جاري البدء في المزامنة الشاملة...\n`);
+                    setLog(`جاري تحليل السجلات لحساب الفروقات...\n`);
                     const storeId = activeStoreId;
                     if (!storeId) {
                       setLog(prev => prev + `⚠️ تنبيه: لم يتم اكتشاف متجر نشط حالياً للمزامنة. يرجى اختيار متجر أولاً.\n`);
@@ -1695,17 +1745,26 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 
                     const posSales = storeData.settings?.posSales || [];
                     const creditSales = posSales.filter((s: any) => s.cashHolderId === 'credit');
-                    const updatedCustomers = (storeData.customers || []).map((c: any) => {
+                    
+                    const customerChanges: any[] = [];
+                    (storeData.customers || []).forEach((c: any) => {
                       const customerCreditSales = creditSales.filter((s: any) => s.customerPhone === c.phone);
                       const totalCredit = customerCreditSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
                       if (totalCredit !== (c.debtBalance || 0)) {
-                        setLog(prev => prev + `🔄 مزامنة العميل ${c.name}: ${c.debtBalance} -> ${totalCredit}\n`);
+                        customerChanges.push({
+                          id: c.id,
+                          phone: c.phone,
+                          name: c.name,
+                          oldBalance: c.debtBalance || 0,
+                          newBalance: totalCredit,
+                          selected: true
+                        });
                       }
-                      return { ...c, debtBalance: totalCredit };
                     });
 
                     const treasury = storeData.treasury || { accounts: [], transactions: [] };
-                    const updatedAccounts = treasury.accounts.map((acc: any) => {
+                    const treasuryChanges: any[] = [];
+                    treasury.accounts.forEach((acc: any) => {
                       const accTxs = (treasury.transactions || []).filter((t: any) => t.fromAccountId === acc.id || t.toAccountId === acc.id);
                       const calculatedBalance = accTxs.reduce((sum: number, t: any) => {
                         if (t.toAccountId === acc.id) return sum + t.amount;
@@ -1714,23 +1773,29 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       }, acc.initialBalance || 0);
                       
                       if (calculatedBalance !== acc.balance) {
-                        setLog(prev => prev + `🔄 مزامنة الخزينة ${acc.name}: ${acc.balance} -> ${calculatedBalance}\n`);
+                        treasuryChanges.push({
+                          id: acc.id,
+                          name: acc.name,
+                          oldBalance: acc.balance,
+                          newBalance: calculatedBalance,
+                          selected: true
+                        });
                       }
-                      return { ...acc, balance: calculatedBalance };
                     });
 
-                    setAllStoresData((prev: any) => ({
-                      ...prev,
-                      [storeId]: {
-                        ...prev[storeId],
-                        customers: updatedCustomers,
-                        treasury: { ...treasury, accounts: updatedAccounts }
-                      }
-                    }));
+                    if (customerChanges.length === 0 && treasuryChanges.length === 0) {
+                      setLog(prev => prev + `✅ البيانات مطابقة تماماً للسجلات، لا توجد فروقات للمزامنة.\n`);
+                      return;
+                    }
 
-                    setLog(prev => prev + `✅ تمت المزامنة بنجاح.\n`);
+                    setSyncPreview({
+                      customers: customerChanges,
+                      treasury: treasuryChanges,
+                      storeId
+                    });
+                    setLog(prev => prev + `🔍 تم العثور على ${customerChanges.length + treasuryChanges.length} فرق مالي. يرجى مراجعتها أدناه.\n`);
                   } catch (err: any) {
-                    setLog(prev => prev + `❌ خطأ في المزامنة: ${err.message}\n`);
+                    setLog(prev => prev + `❌ خطأ في التحليل: ${err.message}\n`);
                   }
                 }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition flex items-center gap-2"
@@ -1768,6 +1833,120 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
               </button>
             )}
           </div>
+
+          {syncPreview && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-6 p-6 bg-white dark:bg-slate-900 rounded-3xl border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 overflow-hidden mb-6"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400">
+                    <Wrench size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 dark:text-white">مراجعة التغييرات المقترحة</h3>
+                    <p className="text-xs text-slate-500 mt-1">راجع الفروقات المكتشفة واشِر إلى ما تريد تحديثه</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSyncPreview(null)}
+                  className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-400"
+                >
+                  <Trash size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-6 max-h-[500px] overflow-auto px-1">
+                {syncPreview.customers.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                      <ShoppingCart size={16} className="text-indigo-500" />
+                      مديونيات العملاء ({syncPreview.customers.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {syncPreview.customers.map((c) => (
+                        <div key={c.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center gap-3">
+                            <button 
+                              onClick={() => setSyncPreview({
+                                ...syncPreview,
+                                customers: syncPreview.customers.map(item => item.id === c.id ? { ...item, selected: !item.selected } : item)
+                              })}
+                              className={`transition-colors ${c.selected ? 'text-indigo-600' : 'text-slate-300'}`}
+                            >
+                              {c.selected ? <CheckSquare size={20} /> : <Square size={20} />}
+                            </button>
+                            <div>
+                              <p className="text-sm font-bold text-slate-900 dark:text-white">{c.name}</p>
+                              <p className="text-[10px] text-slate-500">{c.phone}</p>
+                            </div>
+                          </div>
+                          <div className="text-left font-mono">
+                            <span className="text-xs text-rose-500 line-through decoration-rose-500/30">{c.oldBalance.toLocaleString()}</span>
+                            <span className="mx-2 text-slate-400">→</span>
+                            <span className="text-sm font-bold text-emerald-500">{c.newBalance.toLocaleString()}</span>
+                            <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {syncPreview.treasury.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                      <Database size={16} className="text-indigo-500" />
+                      أرصدة الخزينة ({syncPreview.treasury.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {syncPreview.treasury.map((acc) => (
+                        <div key={acc.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center gap-3">
+                            <button 
+                              onClick={() => setSyncPreview({
+                                ...syncPreview,
+                                treasury: syncPreview.treasury.map(item => item.id === acc.id ? { ...item, selected: !item.selected } : item)
+                              })}
+                              className={`transition-colors ${acc.selected ? 'text-indigo-600' : 'text-slate-300'}`}
+                            >
+                              {acc.selected ? <CheckSquare size={20} /> : <Square size={20} />}
+                            </button>
+                            <p className="text-sm font-bold text-slate-900 dark:text-white">{acc.name}</p>
+                          </div>
+                          <div className="text-left font-mono">
+                            <span className="text-xs text-rose-500 line-through decoration-rose-500/30">{acc.oldBalance.toLocaleString()}</span>
+                            <span className="mx-2 text-slate-400">→</span>
+                            <span className="text-sm font-bold text-emerald-500">{acc.newBalance.toLocaleString()}</span>
+                            <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-3">
+                <button 
+                  onClick={handleApplySync}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-sm shadow-xl shadow-indigo-500/20 transition flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 size={18} />
+                  اعتماد وتطبيق التغييرات المختارة
+                </button>
+                <button 
+                  onClick={() => setSyncPreview(null)}
+                  className="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold text-sm hover:bg-slate-200 transition"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </motion.div>
+          )}
 
           {log && (
             <div className="mt-4 p-4 bg-slate-900 rounded-2xl border border-slate-800 font-mono text-xs text-emerald-400 overflow-auto max-h-[300px] whitespace-pre-wrap" dir="ltr">

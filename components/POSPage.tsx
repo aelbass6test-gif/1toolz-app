@@ -841,6 +841,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
           wallet={wallet}
           treasury={treasury}
           selectedWarehouse={selectedWarehouse}
+          customers={customersList}
         />
       )}
     </div>
@@ -857,9 +858,10 @@ interface POSSalesLogProps {
   wallet: WalletType;
   treasury?: Treasury;
   selectedWarehouse: string;
+  customers?: any[];
 }
 
-const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, treasury, selectedWarehouse }) => {
+const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, treasury, selectedWarehouse, customers }) => {
   const warehouses = settings.warehouses || [];
   const [filter, setFilter] = useState({
     startDate: '',
