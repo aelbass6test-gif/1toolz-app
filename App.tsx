@@ -2681,6 +2681,8 @@ export const AppComponent = () => {
                             forceSync={pageProps.forceSync}
                             saveStatus={saveStatus}
                             saveMessage={saveMessage}
+                            allStoresData={allStoresData}
+                            setAllStoresData={setAllStoresData}
                         />
                     } />
                 </Route>

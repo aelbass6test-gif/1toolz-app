@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity } from 'lucide-react';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive } from '../services/databaseService';
 
 const SupabaseIcon = () => (
@@ -937,6 +937,8 @@ interface DeveloperSettingsPageProps {
   forceSync?: () => Promise<void>;
   saveStatus?: string;
   saveMessage?: string;
+  allStoresData: any;
+  setAllStoresData: (updater: any) => void;
 }
 
 const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({ 
@@ -950,10 +952,13 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   forcePullFromCloud,
   forceSync,
   saveStatus,
-  saveMessage
+  saveMessage,
+  allStoresData,
+  setAllStoresData
 }) => {
   const [integrations, setIntegrations] = useState<WebhookIntegration[]>(settings.webhookIntegrations || []);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [log, setLog] = useState<string>('');
 
   const handleFixFlexShipSchema = () => {
     handleFixDBSchema();
@@ -1596,6 +1601,120 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
               >
                 <Download size={16} />
                 تنزيل البيانات
+              </button>
+
+              <button
+                onClick={async () => {
+                  try {
+                    setLog(`Starting database audit for discrepancies...\n`);
+                    const results: string[] = [];
+                    
+                    const storeId = activeStoreId;
+                    if (!storeId) return;
+
+                    const storeData = allStoresData[storeId];
+                    if (!storeData) return;
+
+                    const treasury = storeData.treasury || { accounts: [], transactions: [] };
+                    const treasuryMatch = treasury.accounts.filter((a: any) => a.balance === 600 || a.initialBalance === 600);
+                    if (treasuryMatch.length > 0) {
+                      results.push(`Found treasury accounts with 600 balance/initial: ${treasuryMatch.map((a: any) => a.name).join(', ')}`);
+                    }
+
+                    const wallet = storeData.wallet || { balance: 0, transactions: [] };
+                    if (wallet.balance === 600) results.push(`Wallet balance is exactly 600`);
+                    
+                    const walletTxMatch = (wallet.transactions || []).filter((t: any) => t.amount === 600);
+                    if (walletTxMatch.length > 0) {
+                      results.push(`Found ${walletTxMatch.length} wallet transactions with amount 600`);
+                    }
+
+                    const customersMatch = (storeData.customers || []).filter((c: any) => c.debtBalance === 600);
+                    if (customersMatch.length > 0) {
+                      results.push(`Found ${customersMatch.length} customers with 600 debt`);
+                    }
+
+                    const posSales = storeData.settings?.posSales || [];
+                    const creditSales = posSales.filter((s: any) => s.cashHolderId === 'credit');
+                    
+                    (storeData.customers || []).forEach((c: any) => {
+                      const customerCreditSales = creditSales.filter((s: any) => s.customerPhone === c.phone);
+                      const totalCredit = customerCreditSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
+                      if (totalCredit !== (c.debtBalance || 0)) {
+                        results.push(`Customer ${c.name} (${c.phone}) debt mismatch: Record ${c.debtBalance}, Calculated from sales: ${totalCredit}`);
+                      }
+                    });
+
+                    if (results.length === 0) {
+                      setLog(prev => prev + `No clear discrepancies found.\n`);
+                    } else {
+                      setLog(prev => prev + `AUDIT RESULTS:\n` + results.join('\n') + `\n`);
+                    }
+                  } catch (err: any) {
+                    setLog(prev => prev + `ERROR: ${err.message}\n`);
+                  }
+                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
+              >
+                <Search size={16} />
+                فحص وتحليل الفروقات المالية (Audit)
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!confirm('هل أنت متأكد من تصفير الحسابات وإعادة حسابها من السجلات؟ قد يؤدي ذلك لتغيير الأرصدة الحالية.')) return;
+                  try {
+                    setLog(`Starting global debt and treasury sync...\n`);
+                    const storeId = activeStoreId;
+                    if (!storeId) return;
+
+                    const storeData = allStoresData[storeId];
+                    if (!storeData) return;
+
+                    const posSales = storeData.settings?.posSales || [];
+                    const creditSales = posSales.filter((s: any) => s.cashHolderId === 'credit');
+                    const updatedCustomers = (storeData.customers || []).map((c: any) => {
+                      const customerCreditSales = creditSales.filter((s: any) => s.customerPhone === c.phone);
+                      const totalCredit = customerCreditSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
+                      if (totalCredit !== (c.debtBalance || 0)) {
+                        setLog(prev => prev + `Syncing ${c.name}: ${c.debtBalance} -> ${totalCredit}\n`);
+                      }
+                      return { ...c, debtBalance: totalCredit };
+                    });
+
+                    const treasury = storeData.treasury || { accounts: [], transactions: [] };
+                    const updatedAccounts = treasury.accounts.map((acc: any) => {
+                      const accTxs = (treasury.transactions || []).filter((t: any) => t.fromAccountId === acc.id || t.toAccountId === acc.id);
+                      const calculatedBalance = accTxs.reduce((sum: number, t: any) => {
+                        if (t.toAccountId === acc.id) return sum + t.amount;
+                        if (t.fromAccountId === acc.id) return sum - t.amount;
+                        return sum;
+                      }, acc.initialBalance || 0);
+                      
+                      if (calculatedBalance !== acc.balance) {
+                        setLog(prev => prev + `Syncing Treasury ${acc.name}: ${acc.balance} -> ${calculatedBalance}\n`);
+                      }
+                      return { ...acc, balance: calculatedBalance };
+                    });
+
+                    setAllStoresData((prev: any) => ({
+                      ...prev,
+                      [storeId]: {
+                        ...prev[storeId],
+                        customers: updatedCustomers,
+                        treasury: { ...treasury, accounts: updatedAccounts }
+                      }
+                    }));
+
+                    setLog(prev => prev + `Sync completed successfully.\n`);
+                  } catch (err: any) {
+                    setLog(prev => prev + `ERROR: ${err.message}\n`);
+                  }
+                }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition flex items-center gap-2"
+              >
+                <Wrench size={16} />
+                إعادة مزامنة المديونيات والخزينة من السجلات
               </button>
 
               {(localStorage.getItem('custom_cloud_url') || localStorage.getItem('custom_cloud_anon_key')) && (

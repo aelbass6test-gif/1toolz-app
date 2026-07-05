@@ -54,7 +54,9 @@ interface POSPageProps {
   customers?: any[];
 }
 
-const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wallet, treasury, updateStoreData, currentUser, activeStore, customers }) => {
+const POSPage: React.FC<POSPageProps> = (props) => {
+  const { settings, updateSettings, orders, wallet, treasury, updateStoreData, currentUser, activeStore, customers } = props;
+  
   if (settings.isPosEnabled === false) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-12 text-center space-y-6" dir="rtl">
@@ -392,12 +394,51 @@ const POSPage: React.FC<POSPageProps> = ({ settings, updateSettings, orders, wal
         };
       }
 
+      // Update Customers (Debt handling)
+      let updatedCustomers = [...(customers || [])];
+      if (isCredit && customerInfo.phone) {
+        const cIdx = updatedCustomers.findIndex(c => c.phone === customerInfo.phone);
+        const debtEntry = {
+          id: `debt-${Date.now()}`,
+          amount: totalAmount,
+          type: 'increase',
+          reason: `مبيعات آجل - طلب #${saleNumber}`,
+          date: new Date().toISOString()
+        };
+
+        if (cIdx > -1) {
+          updatedCustomers[cIdx] = {
+            ...updatedCustomers[cIdx],
+            debtBalance: (updatedCustomers[cIdx].debtBalance || 0) + totalAmount,
+            debtHistory: [debtEntry, ...(updatedCustomers[cIdx].debtHistory || [])]
+          };
+        } else {
+          // Create customer if they don't exist
+          updatedCustomers.push({
+            id: customerInfo.phone,
+            name: customerInfo.name || 'عميل آجل',
+            phone: customerInfo.phone,
+            debtBalance: totalAmount,
+            debtHistory: [debtEntry],
+            totalOrders: 1,
+            successfulOrders: 0,
+            returnedOrders: 0,
+            totalSpent: 0,
+            firstOrderDate: new Date().toISOString(),
+            lastOrderDate: new Date().toISOString(),
+            tags: ['عميل آجل'],
+            loyaltyPoints: 0
+          });
+        }
+      }
+
       // Perform a single atomic update to the store data
       updateStoreData({ 
         settings: newSettings, 
         orders: [newOrder, ...orders],
         wallet: updatedWallet,
-        treasury: updatedTreasury
+        treasury: updatedTreasury,
+        customers: updatedCustomers
       });
 
       // تشغيل الاحتفالات والسمعيات السحابية لبيع الكاشير
@@ -962,11 +1003,32 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
     // 4. Remove equivalent Order
     const newOrders = orders.filter(o => o.id !== saleId);
 
+    // 5. Revert Customer Debt if it was a credit sale
+    let updatedCustomers = [...(customers || [])];
+    if (sale.cashHolderId === 'credit' && sale.customerPhone) {
+      const cIdx = updatedCustomers.findIndex(c => c.phone === sale.customerPhone);
+      if (cIdx > -1) {
+        const debtEntry = {
+          id: `debt-revert-${Date.now()}`,
+          amount: sale.totalAmount,
+          type: 'decrease',
+          reason: `إلغاء مبيعات آجل - طلب #${sale.saleNumber}`,
+          date: new Date().toISOString()
+        };
+        updatedCustomers[cIdx] = {
+          ...updatedCustomers[cIdx],
+          debtBalance: Math.max(0, (updatedCustomers[cIdx].debtBalance || 0) - sale.totalAmount),
+          debtHistory: [debtEntry, ...(updatedCustomers[cIdx].debtHistory || [])]
+        };
+      }
+    }
+
     updateStoreData({
       settings: { ...settings, products: updatedProducts, posSales: newSales, cashHolders: updatedHolders, cashHandovers: updatedHandovers },
       orders: newOrders,
       wallet: updatedWallet,
-      treasury: updatedTreasury
+      treasury: updatedTreasury,
+      customers: updatedCustomers
     });
   };
 
