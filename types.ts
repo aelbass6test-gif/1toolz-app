@@ -700,6 +700,7 @@ export interface Settings {
   sameDayWithdrawalFlatFee?: number;
   minWithdrawalFee?: number;
   enableWithdrawalFees?: boolean;
+  enableInternalWithdrawalFees?: boolean;
   feeApplicableMethods?: string[]; // e.g. ['card', 'instapay', 'wallet']
   inventoryAudits?: InventoryAuditSession[];
   stockTransfers?: StockTransfer[];

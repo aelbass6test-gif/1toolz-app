@@ -2826,6 +2826,19 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                             </button>
                         </div>
 
+                        <div className="flex items-center justify-between flex-row-reverse bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30">
+                            <div className="text-right">
+                                <h3 className="font-black text-indigo-800 dark:text-indigo-400 text-sm">تطبيق الرسوم على التحويل للخزينة (داخلي)</h3>
+                                <p className="text-[10px] text-indigo-600 dark:text-indigo-500">عند التفعيل، سيتم تطبيق نفس رسوم السحب عند تحويل الرصيد إلى الخزينة الداخلية.</p>
+                            </div>
+                            <button
+                                onClick={() => setSettings(prev => ({ ...prev, enableInternalWithdrawalFees: !prev.enableInternalWithdrawalFees }))}
+                                className={`w-12 h-6 rounded-full relative transition-colors ${settings.enableInternalWithdrawalFees ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                            >
+                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.enableInternalWithdrawalFees ? 'left-7' : 'left-1'}`} />
+                            </button>
+                        </div>
+
                         <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
                             <ArrowDownLeft size={18} className="text-rose-500" />
                             رسوم السحب العادي

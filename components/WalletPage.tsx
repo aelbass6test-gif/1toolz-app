@@ -279,7 +279,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
   const currentWithdrawFee = useMemo(() => {
     if (!settings.enableWithdrawalFees) return 0;
-    if (preferredMethod === 'treasury') return 0;
+    if (preferredMethod === 'treasury' && !settings.enableInternalWithdrawalFees) return 0;
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) return 0;
 
