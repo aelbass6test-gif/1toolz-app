@@ -962,6 +962,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const [syncPreview, setSyncPreview] = useState<{
     customers: any[];
     treasury: any[];
+    wallet: any[];
     storeId: string;
   } | null>(null);
 
@@ -971,14 +972,15 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
 
   const handleApplySync = () => {
     if (!syncPreview) return;
-    const { storeId, customers, treasury } = syncPreview;
+    const { storeId, customers, treasury, wallet } = syncPreview;
     const storeData = allStoresData[storeId];
     if (!storeData) return;
 
     const selectedCustomersCount = customers.filter(c => c.selected).length;
     const selectedTreasuryCount = treasury.filter(t => t.selected).length;
+    const selectedWalletCount = wallet.filter(w => w.selected).length;
 
-    if (selectedCustomersCount === 0 && selectedTreasuryCount === 0) {
+    if (selectedCustomersCount === 0 && selectedTreasuryCount === 0 && selectedWalletCount === 0) {
       alert('يرجى اختيار تغيير واحد على الأقل لتطبيقه.');
       return;
     }
@@ -1002,16 +1004,37 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
       return acc;
     });
 
+    // Apply wallet changes
+    let originalWallet = storeData.wallet || { balance: 0, transactions: [] };
+    let updatedWalletBalance = originalWallet.balance;
+    let updatedWalletTxs = [...(originalWallet.transactions || [])];
+
+    // Handle wallet balance fix
+    const balanceFix = wallet.find(w => w.id === 'wallet_balance' && w.selected);
+    if (balanceFix) {
+      updatedWalletBalance = balanceFix.newBalance;
+    }
+
+    // Handle transaction removals (sort by index descending to avoid index shifts)
+    const txRemovals = wallet
+      .filter(w => w.type === 'tx_remove' && w.selected)
+      .sort((a, b) => b.txIndex - a.txIndex);
+    
+    txRemovals.forEach(rem => {
+      updatedWalletTxs.splice(rem.txIndex, 1);
+    });
+
     setAllStoresData((prev: any) => ({
       ...prev,
       [storeId]: {
         ...prev[storeId],
         customers: updatedCustomers,
-        treasury: { ...originalTreasury, accounts: updatedAccounts }
+        treasury: { ...originalTreasury, accounts: updatedAccounts },
+        wallet: { ...originalWallet, balance: updatedWalletBalance, transactions: updatedWalletTxs }
       }
     }));
 
-    setLog(prev => prev + `✅ تمت معالجة ${selectedCustomersCount + selectedTreasuryCount} تغيير مختار بنجاح.\n`);
+    setLog(prev => prev + `✅ تمت معالجة ${selectedCustomersCount + selectedTreasuryCount + selectedWalletCount} تغيير مختار بنجاح.\n`);
     setSyncPreview(null);
   };
 
@@ -1783,7 +1806,38 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       }
                     });
 
-                    if (customerChanges.length === 0 && treasuryChanges.length === 0) {
+                    const wallet = storeData.wallet || { balance: 0, transactions: [] };
+                    const walletChanges: any[] = [];
+                    const walletTxs = wallet.transactions || [];
+                    const calculatedWalletBalance = walletTxs.reduce((sum: number, t: any) => sum + (t.type === 'deposit' ? t.amount : -t.amount), 0);
+                    
+                    if (calculatedWalletBalance !== wallet.balance) {
+                      walletChanges.push({
+                        id: 'wallet_balance',
+                        name: 'رصيد المحفظة الإجمالي',
+                        oldBalance: wallet.balance,
+                        newBalance: calculatedWalletBalance,
+                        type: 'balance_fix',
+                        selected: true
+                      });
+                    }
+
+                    // Check for suspicious 600 transactions in wallet
+                    walletTxs.forEach((t: any, idx: number) => {
+                      if (t.amount === 600) {
+                        walletChanges.push({
+                          id: `wallet_tx_${idx}_${t.timestamp}`,
+                          name: `عملية مشبوهة بقيمة 600 (${t.description || 'بدون وصف'})`,
+                          oldBalance: 600,
+                          newBalance: 0,
+                          type: 'tx_remove',
+                          txIndex: idx,
+                          selected: false // Don't select by default to be safe
+                        });
+                      }
+                    });
+
+                    if (customerChanges.length === 0 && treasuryChanges.length === 0 && walletChanges.length === 0) {
                       setLog(prev => prev + `✅ البيانات مطابقة تماماً للسجلات، لا توجد فروقات للمزامنة.\n`);
                       return;
                     }
@@ -1791,9 +1845,10 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                     setSyncPreview({
                       customers: customerChanges,
                       treasury: treasuryChanges,
+                      wallet: walletChanges,
                       storeId
                     });
-                    setLog(prev => prev + `🔍 تم العثور على ${customerChanges.length + treasuryChanges.length} فرق مالي. يرجى مراجعتها أدناه.\n`);
+                    setLog(prev => prev + `🔍 تم العثور على ${customerChanges.length + treasuryChanges.length + walletChanges.length} فرق مالي. يرجى مراجعتها أدناه.\n`);
                   } catch (err: any) {
                     setLog(prev => prev + `❌ خطأ في التحليل: ${err.message}\n`);
                   }
@@ -1921,6 +1976,44 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                             <span className="text-xs text-rose-500 line-through decoration-rose-500/30">{acc.oldBalance.toLocaleString()}</span>
                             <span className="mx-2 text-slate-400">→</span>
                             <span className="text-sm font-bold text-emerald-500">{acc.newBalance.toLocaleString()}</span>
+                            <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {syncPreview.wallet.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                      <Key size={16} className="text-indigo-500" />
+                      المحفظة وتوازن العمليات ({syncPreview.wallet.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {syncPreview.wallet.map((w) => (
+                        <div key={w.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center gap-3">
+                            <button 
+                              onClick={() => setSyncPreview({
+                                ...syncPreview,
+                                wallet: syncPreview.wallet.map(item => item.id === w.id ? { ...item, selected: !item.selected } : item)
+                              })}
+                              className={`transition-colors ${w.selected ? 'text-indigo-600' : 'text-slate-300'}`}
+                            >
+                              {w.selected ? <CheckSquare size={20} /> : <Square size={20} />}
+                            </button>
+                            <div>
+                              <p className="text-sm font-bold text-slate-900 dark:text-white">{w.name}</p>
+                              <p className="text-[10px] text-indigo-500 font-bold">
+                                {w.type === 'tx_remove' ? 'سيتم حذف العملية لتصحيح الفرق' : 'سيتم تصحيح الرصيد الإجمالي'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-left font-mono">
+                            <span className="text-xs text-rose-500 line-through decoration-rose-500/30">{w.oldBalance.toLocaleString()}</span>
+                            <span className="mx-2 text-slate-400">→</span>
+                            <span className="text-sm font-bold text-emerald-500">{w.newBalance.toLocaleString()}</span>
                             <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
                           </div>
                         </div>
