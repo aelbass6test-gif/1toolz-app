@@ -1501,21 +1501,48 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                 </div>
 
                 {/* Expense Paid By input */}
-                {paymentMethod !== 'partner' && (
-                  <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
-                    <label className="text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5 block">
-                      الشخص / الجهة القائمة بدفع المصروفات الإضافية (إن وجدت)
+                {(shippingFees > 0 || otherFees > 0) && (
+                  <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60 space-y-2.5">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300 block flex items-center justify-between">
+                      <span>مصدر دفع المصروفات الإضافية / الشحن (المحفظة أو الشركاء):</span>
+                      <span className="text-[10px] text-indigo-500 font-bold">يحدد جهة الصرف في سجل المصروفات</span>
                     </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setExpensePaidBy('المحفظة العامة')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${expensePaidBy === 'المحفظة العامة' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
+                      >
+                        💳 دفع من المحفظة العامة
+                      </button>
+                      {settings.partners?.map((p: any) => (
+                        <button 
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            if (!expensePaidBy || expensePaidBy === 'المحفظة العامة') {
+                              setExpensePaidBy(p.name);
+                            } else if (!expensePaidBy.includes(p.name)) {
+                              setExpensePaidBy(`${expensePaidBy} و ${p.name}`);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition cursor-pointer"
+                        >
+                          👤 + شريك: {p.name}
+                        </button>
+                      ))}
+                    </div>
                     <div className="relative">
                       <input 
                         type="text"
                         list="partnersListModal"
-                        placeholder="اختر الشريك أو اكتب اسم جهة الدفع..."
+                        placeholder="اختر من الأزرار بالأعلى أو اكتب التفاصيل (مثال: 300 دفعهم زهره شريك و 300 دفعهم البص شريك)..."
                         value={expensePaidBy || ''}
                         onChange={e => setExpensePaidBy(e.target.value)}
                         className="w-full p-3 pl-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs dark:text-white font-extrabold shadow-sm"
                       />
                       <datalist id="partnersListModal">
+                        <option value="المحفظة العامة" />
                         {settings.partners?.map((p: any) => (
                           <option key={p.id} value={p.name} />
                         ))}

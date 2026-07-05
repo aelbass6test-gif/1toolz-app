@@ -1007,6 +1007,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                           status: 'completed',
                           details: {
                             expensePaidBy,
+                            treasuryAccountId: (expensePaidBy === 'المحفظة العامة' || shippingFeesPaymentMethod === 'wallet') ? 'main_wallet' : undefined,
                             note: shippingFeesNote,
                             supplierId: supplier?.id,
                             orderId: currentOrderId
@@ -1033,6 +1034,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
                               status: 'completed',
                               details: {
                                 expensePaidBy,
+                                treasuryAccountId: expensePaidBy === 'المحفظة العامة' ? 'main_wallet' : undefined,
                                 note: otherFeesNote,
                                 supplierId: supplier?.id,
                                 orderId: currentOrderId

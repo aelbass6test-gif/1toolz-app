@@ -13,6 +13,77 @@ interface ExpensesPageProps {
   setTreasury?: (updater: any) => void;
 }
 
+const getPayerInfo = (exp: Transaction, settings: any, treasury?: Treasury) => {
+  if (exp.details?.paidByPartnerId) {
+    const p = settings.partners?.find((p: any) => p.id === exp.details?.paidByPartnerId);
+    return {
+      text: p ? `🤝 شريك: ${p.name}` : '🤝 سداد شريك',
+      icon: <User size={12} />,
+      colorClass: 'text-amber-700 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 font-bold',
+      type: 'partner'
+    };
+  }
+  if (exp.details?.expensePaidBy && exp.details.expensePaidBy.trim() !== '') {
+    return {
+      text: `🤝 بواسطة: ${exp.details.expensePaidBy}`,
+      icon: <User size={12} />,
+      colorClass: 'text-purple-700 bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 font-bold',
+      type: 'partner'
+    };
+  }
+  if (exp.details?.treasuryAccountId === 'main_wallet' || exp.details?.paymentMethod === 'wallet' || exp.details?.paymentMethod === 'supply_wallet' || exp.details?.paymentMethod === 'cash') {
+    return {
+      text: '💳 المحفظة العامة (محفظة المتجر)',
+      icon: <WalletIcon size={12} />,
+      colorClass: 'text-blue-700 bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 font-bold',
+      type: 'treasury'
+    };
+  }
+  if (exp.details?.treasuryAccountId) {
+    const acc = treasury?.accounts.find(a => a.id === exp.details?.treasuryAccountId);
+    if (acc) {
+      const typeIcon = acc.type === 'bank' ? <Building2 size={12} /> : acc.type === 'wallet' ? <WalletIcon size={12} /> : <Landmark size={12} />;
+      return {
+        text: `${acc.name} (${acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'خزينة'})`,
+        icon: typeIcon,
+        colorClass: 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 font-bold',
+        type: 'treasury'
+      };
+    } else if (exp.details.treasuryAccountId === 'main_wallet') {
+      return {
+        text: '💳 المحفظة العامة',
+        icon: <WalletIcon size={12} />,
+        colorClass: 'text-blue-700 bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 font-bold',
+        type: 'treasury'
+      };
+    }
+  }
+  if (exp.note && (exp.note.includes('بواسطة') || exp.note.includes('شريك') || exp.note.includes('شركاء') || exp.note.includes('دفعهم'))) {
+    let pName = 'سداد شركاء';
+    if (exp.note.includes('بواسطة')) {
+      const parts = exp.note.split('بواسطة');
+      pName = parts[1]?.trim() || 'شريك';
+      if (pName.startsWith(':')) pName = pName.substring(1).trim();
+      pName = pName.replace(/\)$/, '').trim();
+    } else if (exp.note.includes('دفعهم')) {
+      const idx = exp.note.indexOf('دفعهم');
+      pName = exp.note.substring(idx).replace(/\)$/, '').trim();
+    }
+    return {
+      text: `🤝 بواسطة: ${pName}`,
+      icon: <User size={12} />,
+      colorClass: 'text-amber-700 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 font-bold',
+      type: 'partner'
+    };
+  }
+  return {
+    text: '💳 المحفظة العامة / الخزينة',
+    icon: <WalletIcon size={12} />,
+    colorClass: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800 font-bold',
+    type: 'treasury'
+  };
+};
+
 const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings, updateSettings, treasury, setTreasury }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [filterCategory, setFilterCategory] = useState('all');
@@ -25,7 +96,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   // Add Expense Form States
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
-  const [accountId, setAccountId] = useState('');
+  const [accountId, setAccountId] = useState('main_wallet');
   const [paymentSource, setPaymentSource] = useState<'treasury' | 'partner'>('treasury');
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
   const [category, setCategory] = useState<TransactionCategory>(
@@ -35,10 +106,10 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   );
 
   useEffect(() => {
-    if (treasury?.accounts && treasury.accounts.length > 0 && !accountId) {
-      setAccountId(treasury.accounts[0].id);
+    if (!accountId) {
+      setAccountId('main_wallet');
     }
-  }, [treasury, accountId]);
+  }, [accountId]);
   
   // Custom dialog & toast states
   const [dialog, setDialog] = useState<{
@@ -50,6 +121,83 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Edit Payer Modal States
+  const [editingPayerExp, setEditingPayerExp] = useState<Transaction | null>(null);
+  const [editingPayerType, setEditingPayerType] = useState<'main_wallet' | 'treasury' | 'partner_text' | 'partner_id'>('main_wallet');
+  const [editingPayerText, setEditingPayerText] = useState('');
+  const [editingPayerAccId, setEditingPayerAccId] = useState('');
+  const [editingPayerPartnerId, setEditingPayerPartnerId] = useState('');
+
+  const handleOpenEditPayer = (exp: Transaction) => {
+    setEditingPayerExp(exp);
+    if (exp.details?.paidByPartnerId) {
+      setEditingPayerType('partner_id');
+      setEditingPayerPartnerId(exp.details.paidByPartnerId);
+    } else if (exp.details?.expensePaidBy) {
+      setEditingPayerType('partner_text');
+      setEditingPayerText(exp.details.expensePaidBy);
+    } else if (exp.note.includes('بواسطة') || exp.note.includes('دفعهم')) {
+      setEditingPayerType('partner_text');
+      if (exp.note.includes('بواسطة')) {
+        const parts = exp.note.split('بواسطة');
+        let pName = parts[1]?.trim() || 'شريك';
+        if (pName.startsWith(':')) pName = pName.substring(1).trim();
+        setEditingPayerText(pName.replace(/\)$/, '').trim());
+      } else {
+        const idx = exp.note.indexOf('دفعهم');
+        setEditingPayerText(exp.note.substring(idx).replace(/\)$/, '').trim());
+      }
+    } else if (exp.details?.treasuryAccountId && exp.details.treasuryAccountId !== 'main_wallet') {
+      setEditingPayerType('treasury');
+      setEditingPayerAccId(exp.details.treasuryAccountId);
+    } else {
+      setEditingPayerType('main_wallet');
+    }
+  };
+
+  const handleSavePayer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPayerExp) return;
+    const id = editingPayerExp.id;
+    
+    setWallet(prevWallet => {
+      const updated = prevWallet.transactions.map(t => {
+        if (t.id !== id) return t;
+        let newDetails = { ...t.details };
+        let newNote = t.note;
+        
+        if (editingPayerType === 'main_wallet') {
+          newDetails.treasuryAccountId = 'main_wallet';
+          newDetails.paymentMethod = 'wallet';
+          delete newDetails.paidByPartnerId;
+          delete newDetails.expensePaidBy;
+        } else if (editingPayerType === 'treasury') {
+          newDetails.treasuryAccountId = editingPayerAccId;
+          delete newDetails.paidByPartnerId;
+          delete newDetails.expensePaidBy;
+        } else if (editingPayerType === 'partner_id') {
+          newDetails.paidByPartnerId = editingPayerPartnerId;
+          delete newDetails.treasuryAccountId;
+          delete newDetails.expensePaidBy;
+        } else if (editingPayerType === 'partner_text') {
+          newDetails.expensePaidBy = editingPayerText;
+          delete newDetails.treasuryAccountId;
+          delete newDetails.paidByPartnerId;
+          if (!newNote.includes('بواسطة') && !newNote.includes('دفعهم') && !newNote.includes('شريك')) {
+            newNote = `${newNote} - دفع بواسطة: ${editingPayerText}`;
+          } else if (newNote.includes('بواسطة:')) {
+            newNote = newNote.replace(/بواسطة:.*$/, `بواسطة: ${editingPayerText}`);
+          }
+        }
+        return { ...t, note: newNote, details: newDetails };
+      });
+      return { ...prevWallet, transactions: updated };
+    });
+    
+    showToast('تم تحديث مصدر الدفع / جهة السداد بنجاح');
+    setEditingPayerExp(null);
+  };
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
       setToast({message, type});
@@ -81,8 +229,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         
         // Account / Wallet Filter (اختيار المحفظة في الاختيارات)
         const matchesAccount = filterAccount === 'all' ||
-            (filterAccount === 'partner_personal' && (!!exp.details?.paidByPartnerId || exp.note.includes('سداد شريك') || exp.note.includes('تحمل شخصي') || exp.note.includes('بواسطة'))) ||
-            (filterAccount === 'main_wallet' && !exp.details?.treasuryAccountId && !exp.details?.paidByPartnerId && !exp.note.includes('بواسطة')) ||
+            (filterAccount === 'partner_personal' && (!!exp.details?.paidByPartnerId || !!exp.details?.expensePaidBy || exp.note.includes('سداد شريك') || exp.note.includes('تحمل شخصي') || exp.note.includes('بواسطة') || exp.note.includes('دفعهم') || exp.note.includes('شريك') || exp.note.includes('شركاء'))) ||
+            (filterAccount === 'main_wallet' && (!exp.details?.treasuryAccountId || exp.details.treasuryAccountId === 'main_wallet' || exp.details.paymentMethod === 'wallet' || exp.details.paymentMethod === 'supply_wallet' || exp.details.paymentMethod === 'cash') && !exp.details?.paidByPartnerId && !exp.details?.expensePaidBy && !exp.note.includes('بواسطة') && !exp.note.includes('دفعهم')) ||
             (exp.details?.treasuryAccountId === filterAccount) ||
             (treasury?.accounts.find(a => a.id === filterAccount) && exp.note.includes(treasury?.accounts.find(a => a.id === filterAccount)!.name));
         
@@ -212,7 +360,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       showToast(`تم تسجيل المصروف وقيده كذمة دائنة للشريك ${partner.name}`);
     } else {
       const selectedAcc = treasury?.accounts.find(a => a.id === accountId);
-      const accName = selectedAcc ? selectedAcc.name : 'الخزينة';
+      const accName = selectedAcc ? selectedAcc.name : (accountId === 'main_wallet' ? 'المحفظة العامة' : 'الخزينة');
 
       const newTransaction: Transaction = {
           id: newTransactionId,
@@ -234,7 +382,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           };
       });
 
-      if (setTreasury) {
+      if (setTreasury && accountId !== 'main_wallet') {
         const treasuryTx: TreasuryTransaction = {
           id: newTransactionId,
           date: new Date().toISOString(),
@@ -340,7 +488,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           setWallet(prevWallet => {
             const updatedTransactions = prevWallet.transactions.filter(t => t.id !== id);
             const currentBalance = Number(prevWallet.balance) || 0;
-            const newBalance = txAccountToRefund ? currentBalance + amntoRefund : currentBalance;
+            const newBalance = (!paidByPartnerId && !transactionToDelete.details?.expensePaidBy && !transactionToDelete.note.includes('بواسطة') && !transactionToDelete.note.includes('دفعهم')) || txAccountToRefund ? currentBalance + amntoRefund : currentBalance;
 
             return {
                 ...prevWallet,
@@ -349,7 +497,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
             };
           });
 
-          if (setTreasury && amntoRefund > 0 && txAccountToRefund) {
+          if (setTreasury && amntoRefund > 0 && txAccountToRefund && txAccountToRefund !== 'main_wallet') {
             setTreasury((prev: Treasury) => {
               const updatedAccounts = prev.accounts.map(acc => 
                 acc.id === txAccountToRefund ? { ...acc, balance: acc.balance + amntoRefund } : acc
@@ -892,33 +1040,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   const catInfo = expenseCategoriesConfig.find(c => c.key === exp.category);
                   
                   // Determine Payer info
-                  let payerBadge = { text: 'الخزينة العامة', icon: <Landmark size={12} />, colorClass: 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800' };
-                  
-                  if (exp.details?.paidByPartnerId) {
-                    const p = settings.partners?.find(p => p.id === exp.details?.paidByPartnerId);
-                    payerBadge = { 
-                      text: p ? `شريك: ${p.name}` : 'سداد شريك', 
-                      icon: <User size={12} />, 
-                      colorClass: 'text-amber-700 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 font-bold'
-                    };
-                  } else if (exp.details?.treasuryAccountId) {
-                    const acc = treasury?.accounts.find(a => a.id === exp.details?.treasuryAccountId);
-                    if (acc) {
-                      const typeIcon = acc.type === 'bank' ? <Building2 size={12} /> : acc.type === 'wallet' ? <WalletIcon size={12} /> : <Landmark size={12} />;
-                      payerBadge = {
-                        text: `${acc.name} (${acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'خزينة'})`,
-                        icon: typeIcon,
-                        colorClass: 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 font-bold'
-                      };
-                    }
-                  } else if (exp.note.includes('بواسطة')) {
-                    const pName = exp.note.split('بواسطة')[1]?.split(':')[0]?.trim() || 'شريك';
-                    payerBadge = {
-                      text: `بواسطة: ${pName}`,
-                      icon: <User size={12} />,
-                      colorClass: 'text-amber-700 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 font-bold'
-                    };
-                  }
+                  const payerBadge = getPayerInfo(exp, settings, treasury);
 
                   return (
                     <tr key={exp.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-850/50 transition-colors group">
@@ -938,10 +1060,19 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                         </span>
                       </td>
                       <td className="px-6 py-4.5">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs border ${payerBadge.colorClass}`}>
-                          {payerBadge.icon}
-                          <span>{payerBadge.text}</span>
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs border ${payerBadge.colorClass}`}>
+                            {payerBadge.icon}
+                            <span>{payerBadge.text}</span>
+                          </span>
+                          <button 
+                            onClick={() => handleOpenEditPayer(exp)} 
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="تعديل جهة الدفع أو الشريك لهذا المصروف"
+                          >
+                            <CreditCard size={13} />
+                          </button>
+                        </div>
                       </td>
                       <td className="px-6 py-4.5">
                         <div className="text-xs font-bold text-slate-700 dark:text-slate-300 font-mono">
@@ -986,19 +1117,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
             {filteredExpenses.map(exp => {
               const catInfo = expenseCategoriesConfig.find(c => c.key === exp.category);
               
-              let payerText = 'الخزينة العامة';
-              let payerType = 'treasury';
-              if (exp.details?.paidByPartnerId) {
-                const p = settings.partners?.find(p => p.id === exp.details?.paidByPartnerId);
-                payerText = p ? `شريك: ${p.name}` : 'سداد شريك';
-                payerType = 'partner';
-              } else if (exp.details?.treasuryAccountId) {
-                const acc = treasury?.accounts.find(a => a.id === exp.details?.treasuryAccountId);
-                payerText = acc ? `${acc.name} (${acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'خزينة'})` : 'خزينة / محفظة';
-              } else if (exp.note.includes('بواسطة')) {
-                payerText = `بواسطة: ${exp.note.split('بواسطة')[1]?.split(':')[0]?.trim() || 'شريك'}`;
-                payerType = 'partner';
-              }
+              const payerInfo = getPayerInfo(exp, settings, treasury);
+              const payerText = payerInfo.text;
+              const payerType = payerInfo.type;
 
               return (
                 <div key={exp.id} className="bg-slate-50/80 dark:bg-slate-800/50 rounded-3xl p-5 border border-slate-200/60 dark:border-slate-750 flex flex-col justify-between hover:border-rose-500/40 transition-all group relative overflow-hidden">
@@ -1023,10 +1144,19 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   </div>
 
                   <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-xs mt-2">
-                    <span className={`inline-flex items-center gap-1 font-bold px-2.5 py-1 rounded-xl ${payerType === 'partner' ? 'text-amber-700 bg-amber-100/60 dark:bg-amber-950/50' : 'text-indigo-700 bg-indigo-100/60 dark:bg-indigo-950/50'}`}>
-                      {payerType === 'partner' ? <User size={12} /> : <WalletIcon size={12} />}
-                      <span>{payerText}</span>
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`inline-flex items-center gap-1 font-bold px-2.5 py-1 rounded-xl ${payerType === 'partner' ? 'text-amber-700 bg-amber-100/60 dark:bg-amber-950/50' : 'text-indigo-700 bg-indigo-100/60 dark:bg-indigo-950/50'}`}>
+                        {payerType === 'partner' ? <User size={12} /> : <WalletIcon size={12} />}
+                        <span>{payerText}</span>
+                      </span>
+                      <button 
+                        onClick={() => handleOpenEditPayer(exp)} 
+                        className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="تعديل جهة الدفع"
+                      >
+                        <CreditCard size={13} />
+                      </button>
+                    </div>
 
                     <div className="flex items-center gap-1 text-slate-400 font-mono text-[11px]">
                       <Calendar size={11} />
@@ -1112,9 +1242,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 space-y-2">
                   <label className="text-xs font-black text-indigo-950 dark:text-indigo-300 block flex items-center justify-between">
                     <span>اختر الحساب المالي المخصوم منه:</span>
-                    {accountId && treasury?.accounts.find(a => a.id === accountId) && (
+                    {accountId && (
                       <span className="text-emerald-600 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-950/80 px-2.5 py-0.5 rounded-lg text-[11px] font-mono font-bold">
-                        رصيد الحساب: {treasury.accounts.find(a => a.id === accountId)?.balance.toLocaleString()} ج.م
+                        رصيد الحساب: {(accountId === 'main_wallet' ? Number(wallet.balance || 0) : treasury?.accounts.find(a => a.id === accountId)?.balance || 0).toLocaleString()} ج.م
                       </span>
                     )}
                   </label>
@@ -1126,6 +1256,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                       className="w-full appearance-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-10 font-bold text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all cursor-pointer"
                     >
                       <option value="" disabled>-- اختر الخزينة أو البنك أو المحفظة --</option>
+                      <option value="main_wallet">💳 المحفظة العامة (رصيد المحفظة: {Number(wallet.balance || 0).toLocaleString()} ج.م)</option>
                       {treasury?.accounts.map(acc => (
                         <option key={acc.id} value={acc.id}>
                           {acc.type === 'bank' ? '🏦 بنك:' : acc.type === 'wallet' ? '📱 محفظة:' : '💵 خزينة:'} {acc.name} - (الرصيد: {acc.balance.toLocaleString()} ج.م)
@@ -1248,6 +1379,149 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   type="button" 
                   onClick={() => setShowAddModal(false)} 
                   className="px-6 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-bold transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Payer Modal */}
+      {editingPayerExp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:hidden" dir="rtl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="text-indigo-600 dark:text-indigo-400" size={22} />
+                <h3 className="font-black text-lg text-slate-800 dark:text-white">تعديل مصدر الدفع / جهة السداد</h3>
+              </div>
+              <button onClick={() => setEditingPayerExp(null)} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl cursor-pointer">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-300">
+              <span className="font-bold block mb-1">المصروف:</span>
+              <span className="font-extrabold text-slate-800 dark:text-white">{editingPayerExp.note} ({editingPayerExp.amount} ج.م)</span>
+            </div>
+            <form onSubmit={handleSavePayer} className="space-y-4">
+              <div>
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 mb-2 block">اختر نوع مصدر الدفع:</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingPayerType('main_wallet')}
+                    className={`p-3 rounded-2xl text-xs font-black border flex items-center gap-2 transition cursor-pointer ${editingPayerType === 'main_wallet' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
+                  >
+                    <WalletIcon size={16} />
+                    <span>💳 المحفظة العامة (محفظة المتجر)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingPayerType('treasury')}
+                    className={`p-3 rounded-2xl text-xs font-black border flex items-center gap-2 transition cursor-pointer ${editingPayerType === 'treasury' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'}`}
+                  >
+                    <Landmark size={16} />
+                    <span>🏦 خزينة أو حساب بنكي محدد</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingPayerType('partner_text')}
+                    className={`p-3 rounded-2xl text-xs font-black border flex items-center gap-2 transition cursor-pointer ${editingPayerType === 'partner_text' ? 'bg-amber-600 text-white border-amber-600 shadow-md' : 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'}`}
+                  >
+                    <User size={16} />
+                    <span>🤝 سداد شركاء (كتابة أسماء / تفاصيل)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingPayerType('partner_id')}
+                    className={`p-3 rounded-2xl text-xs font-black border flex items-center gap-2 transition cursor-pointer ${editingPayerType === 'partner_id' ? 'bg-amber-600 text-white border-amber-600 shadow-md' : 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'}`}
+                  >
+                    <User size={16} />
+                    <span>👤 تحديد شريك من القائمة</span>
+                  </button>
+                </div>
+              </div>
+
+              {editingPayerType === 'treasury' && (
+                <div>
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5 block">اختر الحساب المالي:</label>
+                  <select
+                    required
+                    value={editingPayerAccId}
+                    onChange={e => setEditingPayerAccId(e.target.value)}
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs outline-none text-slate-800 dark:text-white cursor-pointer"
+                  >
+                    <option value="" disabled>-- اختر الحساب --</option>
+                    {treasury?.accounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.balance.toLocaleString()} ج.م)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {editingPayerType === 'partner_id' && (
+                <div>
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5 block">اختر الشريك المساهم:</label>
+                  <select
+                    required
+                    value={editingPayerPartnerId}
+                    onChange={e => setEditingPayerPartnerId(e.target.value)}
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs outline-none text-slate-800 dark:text-white cursor-pointer"
+                  >
+                    <option value="" disabled>-- اختر الشريك --</option>
+                    {settings.partners?.map((p: any) => (
+                      <option key={p.id} value={p.id}>
+                        👤 {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {editingPayerType === 'partner_text' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">اكتب أسماء الشركاء أو تفاصيل السداد:</label>
+                  <div className="flex flex-wrap gap-1.5 mb-1">
+                    {settings.partners?.map((p: any) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          if (!editingPayerText) setEditingPayerText(`300 دفعهم ${p.name} شريك`);
+                          else setEditingPayerText(`${editingPayerText} و 300 دفعهم ${p.name} شريك`);
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-200 cursor-pointer transition"
+                      >
+                        + {p.name}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="مثال: 300 دفعهم زهره شريك و 300 دفعهم البص شريك مدفعوين للسائق..."
+                    value={editingPayerText}
+                    onChange={e => setEditingPayerText(e.target.value)}
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs outline-none text-slate-800 dark:text-white"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="submit"
+                  className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-sm shadow-lg transition-all cursor-pointer"
+                >
+                  حفظ التعديل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingPayerExp(null)}
+                  className="px-6 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-bold text-sm cursor-pointer"
                 >
                   إلغاء
                 </button>
