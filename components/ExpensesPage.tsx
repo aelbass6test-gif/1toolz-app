@@ -211,6 +211,18 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+
+  const liveBalance = useMemo(() => {
+    return (wallet.transactions || []).reduce((sum, t) => {
+        const amount = Number(t.amount) || 0;
+        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+        if (t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) return sum;
+        if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+        if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+        return sum;
+    }, 0);
+  }, [wallet.transactions]);
+
   const expenses = useMemo(() => {
       return wallet.transactions
         .filter(t => t.type === 'سحب' && t.category && (settings.expenseCategories || []).includes(t.category))
@@ -225,7 +237,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         // Partner Filter
         const matchesPartner = filterPartner === 'all' || 
             (exp.details?.paidByPartnerId === filterPartner) ||
-            (exp.note.includes(settings.partners?.find(p => p.id === filterPartner)?.name || '___NEVER_MATCH___'));
+            (exp.note.includes(settings.partners?.find(p => p.id === filterPartner)?.name || '___NEVER_MATCH___')) ||
+            (exp.details?.expensePaidBy?.includes(settings.partners?.find(p => p.id === filterPartner)?.name || '___NEVER_MATCH___'));
         
         // Account / Wallet Filter (اختيار المحفظة في الاختيارات)
         const matchesAccount = filterAccount === 'all' ||
@@ -256,6 +269,19 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
             (exp.details?.note && exp.details.note.toLowerCase().includes(searchQuery.toLowerCase()));
 
         return matchesCategory && matchesPartner && matchesAccount && matchesPeriod && matchesSearch;
+    }).map(exp => {
+        if (filterPartner !== 'all') {
+            const partnerName = settings.partners?.find(p => p.id === filterPartner)?.name;
+            if (partnerName) {
+                const text = exp.details?.expensePaidBy || exp.note;
+                const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*دفعهم\\s*${partnerName}`, 'i');
+                const match = text.match(regex);
+                if (match && parseFloat(match[1]) > 0) {
+                    return { ...exp, amount: parseFloat(match[1]) };
+                }
+            }
+        }
+        return exp;
     });
   }, [expenses, filterCategory, filterPartner, filterAccount, filterPeriod, searchQuery, settings.partners, treasury?.accounts]);
 
@@ -1244,7 +1270,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <span>اختر الحساب المالي المخصوم منه:</span>
                     {accountId && (
                       <span className="text-emerald-600 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-950/80 px-2.5 py-0.5 rounded-lg text-[11px] font-mono font-bold">
-                        رصيد الحساب: {(accountId === 'main_wallet' ? Number(wallet.balance || 0) : treasury?.accounts.find(a => a.id === accountId)?.balance || 0).toLocaleString()} ج.م
+                        رصيد الحساب: {(accountId === 'main_wallet' ? liveBalance : treasury?.accounts.find(a => a.id === accountId)?.balance || 0).toLocaleString()} ج.م
                       </span>
                     )}
                   </label>
@@ -1256,7 +1282,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                       className="w-full appearance-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-10 font-bold text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all cursor-pointer"
                     >
                       <option value="" disabled>-- اختر الخزينة أو البنك أو المحفظة --</option>
-                      <option value="main_wallet">💳 المحفظة العامة (رصيد المحفظة: {Number(wallet.balance || 0).toLocaleString()} ج.م)</option>
+                      <option value="main_wallet">💳 المحفظة العامة (رصيد المحفظة: {liveBalance.toLocaleString()} ج.م)</option>
                       {treasury?.accounts.map(acc => (
                         <option key={acc.id} value={acc.id}>
                           {acc.type === 'bank' ? '🏦 بنك:' : acc.type === 'wallet' ? '📱 محفظة:' : '💵 خزينة:'} {acc.name} - (الرصيد: {acc.balance.toLocaleString()} ج.م)
