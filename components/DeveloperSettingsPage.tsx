@@ -1825,22 +1825,6 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       });
                     }
 
-                    // Check for suspicious 600 transactions in wallet
-                    walletTxs.forEach((t: any, idx: number) => {
-                      if (t.amount === 600) {
-                        walletChanges.push({
-                          id: `wallet_tx_${idx}_${t.timestamp}`,
-                          name: `عملية مشبوهة بقيمة 600 (${t.description || 'بدون وصف'})`,
-                          oldBalance: 600,
-                          newBalance: 0,
-                          type: 'tx_remove',
-                          description: "عملية قد تكون ناتجة عن خطأ تقني سابق. حذفها قد يساعد في استعادة توازن الحسابات.",
-                          txIndex: idx,
-                          selected: false // Don't select by default to be safe
-                        });
-                      }
-                    });
-
                     if (customerChanges.length === 0 && treasuryChanges.length === 0 && walletChanges.length === 0) {
                       setLog(prev => prev + `✅ البيانات مطابقة تماماً للسجلات، لا توجد فروقات للمزامنة.\n`);
                       return;
