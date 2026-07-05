@@ -1606,34 +1606,39 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
               <button
                 onClick={async () => {
                   try {
-                    setLog(`Starting database audit for discrepancies...\n`);
+                    setLog(`جاري البدء في فحص وتحليل البيانات المالية...\n`);
                     const results: string[] = [];
                     
                     const storeId = activeStoreId;
-                    if (!storeId) return;
+                    if (!storeId) {
+                      setLog(prev => prev + `⚠️ تنبيه: لم يتم اكتشاف متجر نشط حالياً لفحصه. يرجى اختيار متجر أولاً.\n`);
+                      return;
+                    }
 
                     const storeData = allStoresData[storeId];
                     if (!storeData) return;
 
+                    // Check for 600 specific values
                     const treasury = storeData.treasury || { accounts: [], transactions: [] };
                     const treasuryMatch = treasury.accounts.filter((a: any) => a.balance === 600 || a.initialBalance === 600);
                     if (treasuryMatch.length > 0) {
-                      results.push(`Found treasury accounts with 600 balance/initial: ${treasuryMatch.map((a: any) => a.name).join(', ')}`);
+                      results.push(`🚩 تم العثور على حسابات في الخزينة برصيد أو رصيد افتتاحي 600: ${treasuryMatch.map((a: any) => a.name).join(', ')}`);
                     }
 
                     const wallet = storeData.wallet || { balance: 0, transactions: [] };
-                    if (wallet.balance === 600) results.push(`Wallet balance is exactly 600`);
+                    if (wallet.balance === 600) results.push(`🚩 رصيد المحفظة الإجمالي هو 600 بالضبط`);
                     
                     const walletTxMatch = (wallet.transactions || []).filter((t: any) => t.amount === 600);
                     if (walletTxMatch.length > 0) {
-                      results.push(`Found ${walletTxMatch.length} wallet transactions with amount 600`);
+                      results.push(`🚩 تم العثور على ${walletTxMatch.length} عملية في المحفظة بقيمة 600`);
                     }
 
                     const customersMatch = (storeData.customers || []).filter((c: any) => c.debtBalance === 600);
                     if (customersMatch.length > 0) {
-                      results.push(`Found ${customersMatch.length} customers with 600 debt`);
+                      results.push(`🚩 تم العثور على ${customersMatch.length} عملاء مديونيتهم 600`);
                     }
 
+                    // Deep Debt Check
                     const posSales = storeData.settings?.posSales || [];
                     const creditSales = posSales.filter((s: any) => s.cashHolderId === 'credit');
                     
@@ -1641,17 +1646,31 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       const customerCreditSales = creditSales.filter((s: any) => s.customerPhone === c.phone);
                       const totalCredit = customerCreditSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
                       if (totalCredit !== (c.debtBalance || 0)) {
-                        results.push(`Customer ${c.name} (${c.phone}) debt mismatch: Record ${c.debtBalance}, Calculated from sales: ${totalCredit}`);
+                        results.push(`❗ فرق مديونية للعميل ${c.name} (${c.phone}): المسجل ${c.debtBalance}، المحسوب من السجلات ${totalCredit}`);
+                      }
+                    });
+
+                    // Treasury Integrity Check
+                    treasury.accounts.forEach((acc: any) => {
+                      const accTxs = (treasury.transactions || []).filter((t: any) => t.fromAccountId === acc.id || t.toAccountId === acc.id);
+                      const calculatedBalance = accTxs.reduce((sum: number, t: any) => {
+                        if (t.toAccountId === acc.id) return sum + t.amount;
+                        if (t.fromAccountId === acc.id) return sum - t.amount;
+                        return sum;
+                      }, acc.initialBalance || 0);
+
+                      if (calculatedBalance !== acc.balance) {
+                        results.push(`❗ فرق رصيد في الخزينة ${acc.name}: المسجل ${acc.balance}، المحسوب من العمليات ${calculatedBalance}`);
                       }
                     });
 
                     if (results.length === 0) {
-                      setLog(prev => prev + `No clear discrepancies found.\n`);
+                      setLog(prev => prev + `✅ لم يتم العثور على أي فروقات أو أخطاء في توازن الحسابات.\n`);
                     } else {
-                      setLog(prev => prev + `AUDIT RESULTS:\n` + results.join('\n') + `\n`);
+                      setLog(prev => prev + `⚠️ تم العثور على الملاحظات التالية:\n\n` + results.join('\n') + `\n\n💡 نصيحة: يمكنك استخدام زر "إعادة المزامنة" لتصحيح هذه الفروقات آلياً بناءً على سجلات العمليات.`);
                     }
                   } catch (err: any) {
-                    setLog(prev => prev + `ERROR: ${err.message}\n`);
+                    setLog(prev => prev + `❌ خطأ في الفحص: ${err.message}\n`);
                   }
                 }}
                 className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-amber-500/20 transition flex items-center gap-2"
@@ -1662,11 +1681,14 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 
               <button
                 onClick={async () => {
-                  if (!confirm('هل أنت متأكد من تصفير الحسابات وإعادة حسابها من السجلات؟ قد يؤدي ذلك لتغيير الأرصدة الحالية.')) return;
+                  if (!confirm('هل أنت متأكد من إعادة حساب كافة الأرصدة والمديونيات؟ سيتم اعتماد سجلات العمليات كمصدر وحيد للحقيقة.')) return;
                   try {
-                    setLog(`Starting global debt and treasury sync...\n`);
+                    setLog(`جاري البدء في المزامنة الشاملة...\n`);
                     const storeId = activeStoreId;
-                    if (!storeId) return;
+                    if (!storeId) {
+                      setLog(prev => prev + `⚠️ تنبيه: لم يتم اكتشاف متجر نشط حالياً للمزامنة. يرجى اختيار متجر أولاً.\n`);
+                      return;
+                    }
 
                     const storeData = allStoresData[storeId];
                     if (!storeData) return;
@@ -1677,7 +1699,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       const customerCreditSales = creditSales.filter((s: any) => s.customerPhone === c.phone);
                       const totalCredit = customerCreditSales.reduce((sum: number, s: any) => sum + s.totalAmount, 0);
                       if (totalCredit !== (c.debtBalance || 0)) {
-                        setLog(prev => prev + `Syncing ${c.name}: ${c.debtBalance} -> ${totalCredit}\n`);
+                        setLog(prev => prev + `🔄 مزامنة العميل ${c.name}: ${c.debtBalance} -> ${totalCredit}\n`);
                       }
                       return { ...c, debtBalance: totalCredit };
                     });
@@ -1692,7 +1714,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       }, acc.initialBalance || 0);
                       
                       if (calculatedBalance !== acc.balance) {
-                        setLog(prev => prev + `Syncing Treasury ${acc.name}: ${acc.balance} -> ${calculatedBalance}\n`);
+                        setLog(prev => prev + `🔄 مزامنة الخزينة ${acc.name}: ${acc.balance} -> ${calculatedBalance}\n`);
                       }
                       return { ...acc, balance: calculatedBalance };
                     });
@@ -1706,9 +1728,9 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                       }
                     }));
 
-                    setLog(prev => prev + `Sync completed successfully.\n`);
+                    setLog(prev => prev + `✅ تمت المزامنة بنجاح.\n`);
                   } catch (err: any) {
-                    setLog(prev => prev + `ERROR: ${err.message}\n`);
+                    setLog(prev => prev + `❌ خطأ في المزامنة: ${err.message}\n`);
                   }
                 }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition flex items-center gap-2"
@@ -1716,6 +1738,15 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                 <Wrench size={16} />
                 إعادة مزامنة المديونيات والخزينة من السجلات
               </button>
+
+              {log && (
+                <button
+                  onClick={() => setLog('')}
+                  className="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-300 transition"
+                >
+                  مسح السجل
+                </button>
+              )}
 
               {(localStorage.getItem('custom_cloud_url') || localStorage.getItem('custom_cloud_anon_key')) && (
                 <button 
@@ -1737,6 +1768,18 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
               </button>
             )}
           </div>
+
+          {log && (
+            <div className="mt-4 p-4 bg-slate-900 rounded-2xl border border-slate-800 font-mono text-xs text-emerald-400 overflow-auto max-h-[300px] whitespace-pre-wrap" dir="ltr">
+              <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-800">
+                <span className="text-slate-400 font-bold">نتائج الفحص والمزامنة:</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setLog('')} className="text-rose-400 hover:text-rose-300">إغلاق</button>
+                </div>
+              </div>
+              {log}
+            </div>
+          )}
 
           {isSupabaseActive() && (
             <div className="w-full mt-4 p-5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-3xl border border-indigo-200/50 dark:border-indigo-900/30">
