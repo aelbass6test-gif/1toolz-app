@@ -562,7 +562,38 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     });
 
     // Handle Treasury Account Balance Integration
-    if (selectedTreasuryId && setTreasury && treasury) {
+    // Handle Treasury Account Balance Integration
+    if (selectedTreasuryId === 'main_wallet') {
+        const walletTransaction: Transaction = {
+            id: `pt_${tId}`,
+            type: isWithdrawal ? 'سحب' : 'إيداع',
+            amount: amount,
+            date: new Date().toISOString(),
+            note: `تسوية عبر المحفظة العامة (شريك: ${partners.find(p => p.id === partnerId)?.name}): ${
+                transactionType === 'capital_addition' ? 'إضافة رأس مال' : 
+                transactionType === 'repayment' ? 'سداد سلفة' :
+                transactionType === 'loan' ? 'سحب سلفة' :
+                transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
+                transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
+                transactionType === 'expense_repayment' ? 'رد مصروفات نقدية' :
+                transactionType === 'supply_funding' ? 'إيداع لشراء بضاعة ومخزون' : 
+                transactionType === 'pos_collection' ? 'استلام كاش مبيعات الشريك' : 'عملية شريك'
+            }`,
+            category: isWithdrawal ? 'partner_withdrawal' : 'partner_deposit',
+            status: 'completed',
+            details: {
+                partnerId: partnerId,
+                paymentMethod: 'wallet',
+                transactionType: transactionType
+            }
+        };
+
+        setWallet(prev => ({
+            ...prev,
+            balance: isWithdrawal ? prev.balance - amount : prev.balance + amount,
+            transactions: [walletTransaction, ...prev.transactions]
+        }));
+    } else if (selectedTreasuryId && setTreasury && treasury) {
        const selectedAccount = treasury.accounts.find(a => a.id === selectedTreasuryId);
        if (selectedAccount) {
          setTreasury((prev: any) => {
@@ -1326,7 +1357,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                   onChange={(e) => setSelectedTreasuryId(e.target.value)}
                                   className="w-full bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 p-3.5 rounded-2xl font-bold text-xs focus:outline-none focus:border-indigo-500 text-right dark:text-white shadow-sm"
                                 >
-                                  <option value="">📋 تسجيل دفتري / حساب جاري فقط (بدون سحب أو إيداع من خزائن المحل الفعلية)</option>
+                                                                    <option value="">📋 تسجيل دفتري / حساب جاري فقط (بدون سحب أو إيداع من خزائن المحل الفعلية)</option>
+                                  <option value="main_wallet">💼 المحفظة العامة الموحدة للمحل — (الرصيد المتاح حالياً: {wallet?.balance?.toLocaleString() || 0} ج.م)</option>
                                   {(Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {})).map((acc: any) => (
                                     <option key={acc.id} value={acc.id}>
                                       🏦 {acc.name} — (الرصيد المتاح حالياً: {acc.balance.toLocaleString()} ج.م)
