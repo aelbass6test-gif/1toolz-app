@@ -71,8 +71,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         // Exclude transactions that come from the Supply Wallet (they were already deducted from main during funding or never entered main)
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
 
-        // Exclude partner personal expenses from the global wallet balance
-        if (t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) return sum;
+        // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
+        if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
 
         // Deposits: only include when completed
         if (t.type === 'إيداع') {

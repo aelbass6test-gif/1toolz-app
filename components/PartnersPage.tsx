@@ -562,7 +562,18 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     });
 
     // Handle Treasury Account Balance Integration
-    if (selectedTreasuryId && setTreasury && treasury) {
+    if (selectedTreasuryId === 'central_wallet' && setWallet) {
+        setWallet(prev => {
+            const amountNum = amount;
+            const isGive = isWithdrawal;
+            
+            return {
+                ...prev,
+                balance: isGive ? prev.balance - amountNum : prev.balance + amountNum,
+                transactions: [walletTransaction, ...(prev.transactions || [])]
+            };
+        });
+    } else if (selectedTreasuryId && setTreasury && treasury) {
        const selectedAccount = treasury.accounts.find(a => a.id === selectedTreasuryId);
        if (selectedAccount) {
          setTreasury((prev: any) => {
