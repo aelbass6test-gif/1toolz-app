@@ -73,7 +73,11 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
 
         // Exclude partner personal expenses from the global wallet balance
-        if (t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) return sum;
+        // We only allow partner transactions that are specifically 'manual_deposit' or 'manual_withdrawal' or 'supply_funding'
+        const isPartnerRelated = t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك');
+        const isOfficialWalletTx = ['manual_deposit', 'manual_withdrawal', 'supply_funding'].includes(t.category || '');
+        
+        if (isPartnerRelated && !isOfficialWalletTx) return sum;
 
         // Deposits: only include when completed
         if (t.type === 'إيداع') {
