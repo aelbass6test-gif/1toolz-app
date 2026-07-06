@@ -556,25 +556,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   });
               }
 
-              // Revert Partner Expenses if any
-              const partnerExpenseTxs = updatedPartnerTransactions.filter(pt => 
-                  pt.id.startsWith(`supply_expense_shipping_${currentOldOrder.id}_pt_`) ||
-                  pt.id.startsWith(`supply_expense_other_${currentOldOrder.id}_pt_`)
-              );
-              partnerExpenseTxs.forEach(pt => {
-                  const pIdx = updatedPartners.findIndex(p => p.id === pt.partnerId);
-                  if (pIdx > -1) {
-                      updatedPartners[pIdx] = {
-                          ...updatedPartners[pIdx],
-                          balance: (updatedPartners[pIdx].balance || 0) - pt.amount
-                      };
-                  }
-              });
-              updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => 
-                  !pt.id.startsWith(`supply_expense_shipping_${currentOldOrder.id}_pt_`) &&
-                  !pt.id.startsWith(`supply_expense_other_${currentOldOrder.id}_pt_`)
-              );
-              
               // Revert Partner Balance if was partner funded
               if (currentOldOrder.paymentMethod === 'partner') {
                   const oldPayments = currentOldOrder.partnerPayments || (currentOldOrder.partnerId ? [{ partnerId: currentOldOrder.partnerId, amount: currentOldOrder.totalCost }] : []);
@@ -833,50 +814,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               });
           }
 
-          
-          // Handle expensePaidBy splitting for Partners
-          const handlePartnerExpense = (amountStr: number, baseNote: string, baseId: string) => {
-              if (amountStr <= 0 || !expensePaidBy || expensePaidBy === 'المحفظة العامة') return;
-              
-              const payersList = expensePaidBy.split(' و ').map(s => s.trim()).filter(Boolean);
-              if (payersList.length === 0) return;
-              
-              const splitAmount = amountStr / payersList.length;
-              payersList.forEach((payer, idx) => {
-                  const partnerIdx = updatedPartners.findIndex(p => p.name === payer);
-                  if (partnerIdx > -1) {
-                      updatedPartners[partnerIdx] = {
-                          ...updatedPartners[partnerIdx],
-                          balance: (updatedPartners[partnerIdx].balance || 0) + splitAmount
-                      };
-                      updatedPartnerTransactions.push({
-                          id: `${baseId}_pt_${idx}`,
-                          partnerId: updatedPartners[partnerIdx].id,
-                          type: 'supply_funding',
-                          amount: splitAmount,
-                          date: new Date().toISOString(),
-                          note: `${baseNote} - دفع بواسطة: ${payer}`,
-                          reference: baseId
-                      } as any);
-                  }
-              });
-          };
-
-          if (recordExpensesFormally || shippingFeesPaymentMethod === 'with_order') {
-              if (shippingFees > 0 && shippingFeesPaymentMethod === 'with_order' && paymentMethod !== 'partner') {
-                   // if paymentMethod is partner, it's already included in total funding. If not, maybe paid by someone else?
-                   // Wait, if it's with_order, it's included in totalCost. So the expensePaidBy is only for separate expenses?
-                   // Usually expensePaidBy is applied to the separate expenses.
-              }
-          }
-          
-          if (shippingFees > 0 && shippingFeesPaymentMethod !== 'with_order') {
-               handlePartnerExpense(shippingFees, `مصاريف شحن (فاتورة مورد: ${supplier?.name})`, `supply_expense_shipping_${currentOrderId}`);
-          }
-          if (otherFees > 0 && recordExpensesFormally) {
-               handlePartnerExpense(otherFees, `مصاريف إضافية (فاتورة مورد: ${supplier?.name})`, `supply_expense_other_${currentOrderId}`);
-          }
-
           // 6. Update Treasury Balance
           if (paymentMethod === 'treasury' && setTreasury) {
               const outerSelectedTreasuryAccountId = selectedTreasuryAccountId;
@@ -1088,18 +1025,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                       if (payers.length > 1) {
                           const splitAmount = amount / payers.length;
                           payers.forEach((payer, idx) => {
-                              // Deposit from partner
-                              newWalletTransactions.push({
-                                  id: `${baseId}_fund_${idx}`,
-                                  type: 'إيداع',
-                                  amount: splitAmount,
-                                  date: new Date(date.getTime() + msOffset + idx - 1).toISOString(),
-                                  note: `تمويل مصروف من الشريك: ${payer}`,
-                                  category: 'supply_deposit',
-                                  status: 'completed',
-                                  details: { partnerName: payer }
-                              } as Transaction);
-                              
                               const payerNote = ` - دفع بواسطة: ${payer}`;
                               newWalletTransactions.push({
                                   id: `${baseId}_split${idx}`,
@@ -1118,18 +1043,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                               } as Transaction);
                           });
                       } else {
-                          if (expensePaidBy && expensePaidBy !== 'المحفظة العامة') {
-                              newWalletTransactions.push({
-                                  id: `${baseId}_fund`,
-                                  type: 'إيداع',
-                                  amount: amount,
-                                  date: new Date(date.getTime() + msOffset - 1).toISOString(),
-                                  note: `تمويل مصروف من الشريك: ${expensePaidBy}`,
-                                  category: 'supply_deposit',
-                                  status: 'completed',
-                                  details: { partnerName: expensePaidBy }
-                              } as Transaction);
-                          }
                           const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
                           newWalletTransactions.push({
                               id: baseId,
@@ -1151,15 +1064,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                       
                       if (isShipping && shippingFeesPaymentMethod === 'wallet') {
                           newBalance -= amount;
-                      } else if (!isShipping && expensePaidBy === 'المحفظة العامة') {
-                          newBalance -= amount;
-                      } else if (expensePaidBy && expensePaidBy !== 'المحفظة العامة') {
-                          // Funding from partner(s)
-                          if (isCapitalPayment) {
-                              newSupplyBalance += amount;
-                          } else {
-                              newBalance += amount;
-                          }
                       }
                   };
 
@@ -1397,25 +1301,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   }
               });
           }
-
-          // Revert Partner Expenses if any
-          const partnerExpenseTxs = updatedPartnerTransactions.filter(pt => 
-              pt.id.startsWith(`supply_expense_shipping_${order.id}_pt_`) ||
-              pt.id.startsWith(`supply_expense_other_${order.id}_pt_`)
-          );
-          partnerExpenseTxs.forEach(pt => {
-              const pIdx = updatedPartners.findIndex(p => p.id === pt.partnerId);
-              if (pIdx > -1) {
-                  updatedPartners[pIdx] = {
-                      ...updatedPartners[pIdx],
-                      balance: (updatedPartners[pIdx].balance || 0) - pt.amount
-                  };
-              }
-          });
-          updatedPartnerTransactions = updatedPartnerTransactions.filter(pt => 
-              !pt.id.startsWith(`supply_expense_shipping_${order.id}_pt_`) &&
-              !pt.id.startsWith(`supply_expense_other_${order.id}_pt_`)
-          );
 
           if (order.paymentMethod === 'partner') {
               const oldPayments = order.partnerPayments || (order.partnerId ? [{ partnerId: order.partnerId, amount: order.grandTotal || order.totalCost }] : []);
