@@ -48,7 +48,11 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         return;
      }
 
-     const selectedAccount = treasury?.accounts?.find((a: any) => a.id === custodyTreasuryId);
+     const isCentralWallet = custodyTreasuryId === 'central_wallet';
+     const selectedAccount = isCentralWallet 
+        ? { id: 'central_wallet', name: 'المحفظة الماليّة المركزيّة (الرصيد الأساسي)', balance: wallet.balance }
+        : treasury?.accounts?.find((a: any) => a.id === custodyTreasuryId);
+
      if (!selectedAccount) return;
 
      let warningMsg = '';
@@ -99,7 +103,30 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         });
      }
 
-     if (setTreasury && treasury) {
+     if (isCentralWallet) {
+        setWallet(prev => {
+           const isGive = custodyType === 'give';
+           const amountNum = amount;
+           
+           const walletTx: Transaction = {
+              id: `W-CUST-${Date.now()}`,
+              type: isGive ? 'سحب' : 'إيداع',
+              amount: amountNum,
+              date: dateStr,
+              note: isGive 
+                 ? `صرف عهدة نقدية للشريك ${partnerHolderName} من المحفظة المركزية: ${custodyNotes || 'عهدة جديدة'}`
+                 : `تسوية واسترداد عهدة من الشريك ${partnerHolderName} للمحفظة المركزية: ${custodyNotes || 'توريد للمحفظة'}`,
+              category: isGive ? 'manual_withdrawal' : 'manual_deposit',
+              status: 'completed'
+           } as Transaction;
+
+           return {
+              ...prev,
+              balance: isGive ? prev.balance - amountNum : prev.balance + amountNum,
+              transactions: [walletTx, ...(prev.transactions || [])]
+           };
+        });
+     } else if (setTreasury && treasury) {
         setTreasury((prev: any) => {
            if (!prev) return prev;
            const updatedAccs = prev.accounts.map((acc: any) => {
@@ -835,6 +862,9 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                               className="w-full bg-white dark:bg-slate-800 outline-none border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-bold dark:text-white"
                           >
                               <option value="">-- اختر حساباً مالياً --</option>
+                              <option value="central_wallet" className="text-indigo-600 font-black">
+                                 💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد: {wallet.balance.toLocaleString()} ج.م)
+                              </option>
                               {treasury?.accounts?.map((acc: any) => (
                                   <option key={acc.id} value={acc.id}>
                                       {acc.name} (المتاح: {acc.balance.toLocaleString()} ج.م)

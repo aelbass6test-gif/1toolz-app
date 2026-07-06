@@ -6,7 +6,6 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getAdvancePaymentCustodyName } from '../utils/financials';
 import { CustodyLedger } from './AccountingReports';
 import { triggerCelebration } from '../utils/celebration';
-import { PartnerWalletTxModal } from './PartnerWalletTxModal';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -36,7 +35,7 @@ interface WalletPageProps {
 }
 
 const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders, settings, treasury, setTreasury }) => {
-  const [modalMode, setModalMode] = useState<'none' | 'charge' | 'withdraw' | 'settings' | 'history' | 'bank' | 'cod_history' | 'withdraw_confirm' | 'error' | 'transfer_supply' | 'partner_tx'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'charge' | 'withdraw' | 'settings' | 'history' | 'bank' | 'cod_history' | 'withdraw_confirm' | 'error' | 'transfer_supply'>('none');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>('');
   const [errorConfig, setErrorConfig] = useState({ title: '', message: '' });
   const [supplyAmount, setSupplyAmount] = useState('');
@@ -73,11 +72,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
 
         // Exclude partner personal expenses from the global wallet balance
-        // We only allow partner transactions that are specifically 'manual_deposit' or 'manual_withdrawal' or 'supply_funding'
-        const isPartnerRelated = t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك');
-        const isOfficialWalletTx = ['manual_deposit', 'manual_withdrawal', 'supply_funding'].includes(t.category || '');
-        
-        if (isPartnerRelated && !isOfficialWalletTx) return sum;
+        if (t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) return sum;
 
         // Deposits: only include when completed
         if (t.type === 'إيداع') {
@@ -660,7 +655,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       <button onClick={() => setModalMode('history')} className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center">سجل العمليات</button>
                       <button onClick={() => { setAmount(''); setModalMode('charge'); }} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-emerald-500/20">شحن الرصيد</button>
                       <button onClick={() => { setAmount(''); setModalMode('withdraw'); }} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-indigo-500/20">طلب سحب نقدي</button>
-                      <button onClick={() => { setAmount(''); setModalMode('partner_tx'); }} className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-amber-500/20">حسابات الشركاء</button>
                   </div>
               </div>
 
@@ -2286,17 +2280,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         message="هل أنت متأكد من حذف هذه العملية؟ سيتم تعديل الرصيد تلقائياً إذا كانت العملية قد اكتملت."
         onConfirm={confirmDeleteTransaction}
         onCancel={() => setTxToDelete(null)}
-      />
-
-      <PartnerWalletTxModal
-        isOpen={modalMode === 'partner_tx'}
-        onClose={() => setModalMode('none')}
-        settings={settings}
-        updateSettings={(newSettings) => setSettings(newSettings)}
-        wallet={wallet}
-        setWallet={setWallet}
-        treasury={treasury}
-        setTreasury={setTreasury}
       />
     </div>
   );

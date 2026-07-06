@@ -550,7 +550,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
             transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع تمويل البضائع)' : 
             transactionType === 'pos_collection' ? 'تحصيل مبيعات نقطة البيع' : 'سداد سلفة'
-        }${selectedTreasuryId && treasury ? ` (عبر ${treasury.accounts.find(a => a.id === selectedTreasuryId)?.name || 'الخزينة'})` : ''}`,
+        }${selectedTreasuryId === 'central_wallet' ? ' (عبر المحفظة المركزية)' : (selectedTreasuryId && treasury ? ` (عبر ${treasury.accounts.find(a => a.id === selectedTreasuryId)?.name || 'الخزينة'})` : '')}`,
         category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'manual_withdrawal' : 'manual_deposit'),
         status: 'completed'
     } as Transaction;
@@ -1327,6 +1327,9 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                   className="w-full bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 p-3.5 rounded-2xl font-bold text-xs focus:outline-none focus:border-indigo-500 text-right dark:text-white shadow-sm"
                                 >
                                   <option value="">📋 تسجيل دفتري / حساب جاري فقط (بدون سحب أو إيداع من خزائن المحل الفعلية)</option>
+                                  <option value="central_wallet" className="text-indigo-600 font-black">
+                                    💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد حالياً: {wallet.balance.toLocaleString()} ج.م)
+                                  </option>
                                   {(Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {})).map((acc: any) => (
                                     <option key={acc.id} value={acc.id}>
                                       🏦 {acc.name} — (الرصيد المتاح حالياً: {acc.balance.toLocaleString()} ج.م)
