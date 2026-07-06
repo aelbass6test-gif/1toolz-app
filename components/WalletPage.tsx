@@ -71,9 +71,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         // Exclude transactions that come from the Supply Wallet (they were already deducted from main during funding or never entered main)
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
 
-        // Exclude partner personal expenses from the global wallet balance
-        if (t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) return sum;
-
         // Deposits: only include when completed
         if (t.type === 'إيداع') {
              return t.status === 'completed' ? sum + amount : sum;
@@ -770,8 +767,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         <p className="text-2xl font-black text-emerald-400">{wallet.withdrawRequests?.length || 0}</p>
                     </div>
                     <div className="p-5 bg-white/5 rounded-[2rem] border border-white/10 hover:bg-white/10 transition-colors">
-                        <p className="text-[10px] font-bold text-white/40 mb-1">متوسط السحب</p>
-                        <p className="text-2xl font-black text-emerald-400">٠ <span className="text-[10px] opacity-40">ج.م</span></p>
+                        <p className="text-[10px] font-bold text-white/40 mb-1">رصيد محفظة الموردين</p>
+                        <p className="text-2xl font-black text-indigo-400">{(wallet.supplyBalance || 0).toLocaleString()} <span className="text-[10px] opacity-40">ج.م</span></p>
                     </div>
                 </div>
             </div>

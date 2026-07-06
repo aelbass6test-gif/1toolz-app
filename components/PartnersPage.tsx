@@ -537,114 +537,116 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         return p;
     });
 
-    const walletTransaction: Transaction = {
-        id: `pt_w_${tId}`,
-        type: (isWithdrawal) ? 'سحب' : 'إيداع',
-        amount: amount,
-        date: new Date().toISOString(),
-        note: `معاملة شريك: ${partner.name} - ${
-            transactionType === 'loan' ? 'سلفة' : 
-            transactionType === 'capital_addition' ? 'إيداع رأس مال' : 
-            transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
-            transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
-            transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
-            transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع تمويل البضائع)' : 
-            transactionType === 'pos_collection' ? 'تحصيل مبيعات نقطة البيع' : 'سداد سلفة'
-        }${selectedTreasuryId && treasury ? ` (عبر ${treasury.accounts.find(a => a.id === selectedTreasuryId)?.name || 'الخزينة'})` : ''}`,
-        category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'manual_withdrawal' : 'manual_deposit'),
-        status: 'completed'
-    } as Transaction;
-
     updateSettings({
       ...settings,
       partners: updatedPartners,
       partnerTransactions: [...transactions, newTransaction]
     });
 
-    // Handle Treasury Account Balance Integration
-    // Handle Treasury Account Balance Integration
-    if (selectedTreasuryId === 'main_wallet') {
-        const walletTransaction: Transaction = {
-            id: `pt_${tId}`,
-            type: isWithdrawal ? 'سحب' : 'إيداع',
-            amount: amount,
-            date: new Date().toISOString(),
-            note: `تسوية عبر المحفظة العامة (شريك: ${partners.find(p => p.id === partnerId)?.name}): ${
-                transactionType === 'capital_addition' ? 'إضافة رأس مال' : 
-                transactionType === 'repayment' ? 'سداد سلفة' :
-                transactionType === 'loan' ? 'سحب سلفة' :
-                transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
-                transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
-                transactionType === 'expense_repayment' ? 'رد مصروفات نقدية' :
-                transactionType === 'supply_funding' ? 'إيداع لشراء بضاعة ومخزون' : 
-                transactionType === 'pos_collection' ? 'استلام كاش مبيعات الشريك' : 'عملية شريك'
-            }`,
-            category: isWithdrawal ? 'partner_withdrawal' : 'partner_deposit',
-            status: 'completed',
-            details: {
-                partnerId: partnerId,
-                paymentMethod: 'wallet',
-                transactionType: transactionType
-            }
-        };
-
-        setWallet(prev => ({
-            ...prev,
-            balance: isWithdrawal ? prev.balance - amount : prev.balance + amount,
-            transactions: [walletTransaction, ...prev.transactions]
-        }));
-    } else if (selectedTreasuryId && setTreasury && treasury) {
-       const selectedAccount = treasury.accounts.find(a => a.id === selectedTreasuryId);
-       if (selectedAccount) {
-         setTreasury((prev: any) => {
-           if (!prev) return prev;
-           const updatedAccounts = prev.accounts.map((acc: any) => {
-             if (acc.id === selectedTreasuryId) {
-                return {
-                  ...acc,
-                  balance: isWithdrawal ? acc.balance - amount : acc.balance + amount
-                };
-             }
-             return acc;
-           });
-           
-           const newTreasuryTx = {
-             id: `T-PART-${Date.now()}`,
-             date: new Date().toISOString(),
-             type: isWithdrawal ? 'withdrawal' : 'deposit',
-             amount,
-             description: `معاملة متبادلة مع الشريك ${partner.name}: ${
-                 transactionType === 'loan' ? 'سحب سلفة أو سلفة نقدية' : 
-                 transactionType === 'capital_addition' ? 'إيداع استثماري (رأس مال)' : 
-                 transactionType === 'profit_withdrawal' ? 'سحب أرباح نقدية' : 
-                 transactionType === 'shipping_funding' ? 'إيداع تمويل شحن' :
-                 transactionType === 'expense_repayment' ? 'رد مصروفات نقدية' :
-                 transactionType === 'supply_funding' ? 'إيداع لشراء بضاعة ومخزون' : 
-                 transactionType === 'pos_collection' ? 'استلام كاش مبيعات الشريك' : 'استلام تسديد سلفة'
-             }`,
-             toAccountId: isWithdrawal ? undefined : selectedTreasuryId,
-             fromAccountId: isWithdrawal ? selectedTreasuryId : undefined,
-             reference: `pt_${tId}`
-           };
-           
-           return {
-             ...prev,
-             accounts: updatedAccounts,
-             transactions: [newTreasuryTx, ...(prev.transactions || [])]
-           };
-         });
-       }
-    }
-
     const movesRealMoney = !['profit_distribution', 'customer_advance'].includes(transactionType);
     
+    // Unified Wallet/Treasury Handling
     if (movesRealMoney) {
-        setWallet(prev => ({ 
-            ...prev, 
-            balance: isSupplyFunding ? prev.balance : prev.balance + (isWithdrawal ? -amount : amount),
+        if (selectedTreasuryId === 'main_wallet' || !selectedTreasuryId) {
+            // It goes through the Main Wallet
+            setWallet(prev => {
+                const currentBalance = prev.balance || 0;
+                const currentSupplyBalance = prev.supplyBalance || 0;
+                
+                let nextBalance = currentBalance;
+                let nextSupplyBalance = currentSupplyBalance;
+                
+                if (isSupplyFunding) {
+                    nextSupplyBalance += amount;
+                } else {
+                    nextBalance = isWithdrawal ? currentBalance - amount : currentBalance + amount;
+                }
+                
+                const walletTx: Transaction = {
+                    id: `pt_w_${tId}`,
+                    type: isWithdrawal ? 'سحب' : 'إيداع',
+                    amount: amount,
+                    date: new Date().toISOString(),
+                    note: `معاملة شريك: ${partner.name} - ${
+                        transactionType === 'loan' ? 'سلفة' : 
+                        transactionType === 'capital_addition' ? 'إيداع رأس مال' : 
+                        transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
+                        transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
+                        transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
+                        transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع تمويل البضائع)' : 
+                        transactionType === 'pos_collection' ? 'تحصيل مبيعات نقطة البيع' : 'سداد سلفة'
+                    }`,
+                    category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'profit_withdrawal' : 'capital_addition'),
+                    status: 'completed'
+                } as Transaction;
+
+                return {
+                    ...prev,
+                    balance: nextBalance,
+                    supplyBalance: nextSupplyBalance,
+                    transactions: [walletTx, ...prev.transactions]
+                };
+            });
+        } else if (selectedTreasuryId && setTreasury && treasury) {
+            // It goes through a specific Treasury Account
+            const selectedAccount = treasury.accounts.find(a => a.id === selectedTreasuryId);
+            if (selectedAccount) {
+                setTreasury((prev: any) => {
+                    if (!prev) return prev;
+                    const updatedAccounts = prev.accounts.map((acc: any) => {
+                        if (acc.id === selectedTreasuryId) {
+                            return {
+                                ...acc,
+                                balance: isWithdrawal ? acc.balance - amount : acc.balance + amount
+                            };
+                        }
+                        return acc;
+                    });
+                    
+                    const newTreasuryTx = {
+                        id: `T-PART-${Date.now()}`,
+                        date: new Date().toISOString(),
+                        type: isWithdrawal ? 'withdrawal' : 'deposit',
+                        amount,
+                        description: `معاملة متبادلة مع الشريك ${partner.name}: ${
+                            transactionType === 'loan' ? 'سحب سلفة أو سلفة نقدية' : 
+                            transactionType === 'capital_addition' ? 'إيداع استثمار (رأس مال)' : 
+                            transactionType === 'profit_withdrawal' ? 'سحب أرباح نقدية' : 
+                            transactionType === 'shipping_funding' ? 'إيداع تمويل شحن' :
+                            transactionType === 'expense_repayment' ? 'رد مصروفات نقدية' :
+                            transactionType === 'supply_funding' ? 'إيداع لشراء بضاعة ومخزون' : 
+                            transactionType === 'pos_collection' ? 'استلام كاش مبيعات الشريك' : 'استلام تسديد سلفة'
+                        }`,
+                        toAccountId: isWithdrawal ? undefined : selectedTreasuryId,
+                        fromAccountId: isWithdrawal ? selectedTreasuryId : undefined,
+                        reference: `pt_${tId}`
+                    };
+                    
+                    return {
+                        ...prev,
+                        accounts: updatedAccounts,
+                        transactions: [newTreasuryTx, ...(prev.transactions || [])]
+                    };
+                });
+            }
             
-            transactions: [walletTransaction, ...prev.transactions] 
-        }));
+            // Still log a transaction in the Wallet ledger as a record (optional, but keep for consistency)
+            const walletTxRecord: Transaction = {
+                id: `pt_w_rec_${tId}`,
+                type: isWithdrawal ? 'سحب' : 'إيداع',
+                amount: amount,
+                date: new Date().toISOString(),
+                note: `معاملة شريك (عبر الخزينة): ${partner.name} - ${transactionType}`,
+                category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'profit_withdrawal' : 'capital_addition'),
+                status: 'completed',
+                details: { treasuryAccountId: selectedTreasuryId }
+            } as Transaction;
+            
+            setWallet(prev => ({
+                ...prev,
+                transactions: [walletTxRecord, ...prev.transactions]
+            }));
+        }
     }
     
     setTransactionAmount('');
