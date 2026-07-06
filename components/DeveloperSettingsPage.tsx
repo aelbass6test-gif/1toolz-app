@@ -965,6 +965,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
     wallet: any[];
     storeId: string;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState<'database' | 'security' | 'webhooks' | 'logs' | 'platforms'>('database');
 
   const handleFixFlexShipSchema = () => {
     handleFixDBSchema();
@@ -1555,21 +1556,62 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12 px-4">
-      <div className="flex justify-between items-end mb-6">
-          <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white mb-2 ml-2">أدوات المطورين </h1>
-            <p className="text-slate-500 dark:text-slate-400">إدارة التكاملات وربط المتاجر الأخرى عبر Webhooks.</p>
-          </div>
-          <button 
-            onClick={saveSettings}
-            className="btn btn-primary shadow-lg shadow-primary/30 flex items-center gap-2"
-          >
-            <Save size={18} />
-             حفظ
-          </button>
+      <div className="flex justify-between items-end mb-8 bg-gradient-to-r from-slate-900 to-slate-800 p-8 rounded-3xl shadow-xl shadow-slate-900/20 text-white relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/20 blur-[100px] rounded-full pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-indigo-500/20 blur-[80px] rounded-full pointer-events-none"></div>
+        <div className="relative z-10">
+          <h1 className="text-3xl font-black mb-2 flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md border border-white/20">
+              <Code size={24} className="text-white" />
+            </div>
+            أدوات المطورين
+          </h1>
+          <p className="text-slate-300 font-medium">لوحة التحكم المتقدمة بإعدادات التكامل وربط المنصات</p>
+        </div>
+        <button 
+          onClick={saveSettings}
+          className="relative z-10 btn bg-white text-slate-900 hover:bg-slate-100 shadow-lg shadow-white/10 flex items-center gap-2 font-bold px-6 py-2.5 rounded-xl transition-all hover:scale-105 active:scale-95"
+        >
+          <Save size={18} />
+          حفظ التغييرات
+        </button>
       </div>
 
-      <div id="custom-database-settings" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
+      
+      {/* Modern Tabs */}
+      <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
+        {[
+          { id: 'database', label: 'قاعدة البيانات', icon: <Database size={16} /> },
+          { id: 'security', label: 'الأمان والمزامنة', icon: <ShieldAlert size={16} /> },
+          { id: 'webhooks', label: 'Webhooks', icon: <Webhook size={16} /> },
+          { id: 'logs', label: 'سجل النشاط', icon: <History size={16} /> },
+          { id: 'platforms', label: 'المنصات', icon: <ShoppingCart size={16} /> }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as any)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${
+              activeTab === tab.id 
+                ? 'bg-primary text-white shadow-md shadow-primary/20' 
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      
+      <AnimatePresence mode="wait">
+
+        {activeTab === 'database' && (
+          <motion.div
+            key="database"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <div id="custom-database-settings"  className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -2172,7 +2214,16 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
           </div>
         </div>
       </div>
+          </motion.div>
+        )}
 
+        {activeTab === 'security' && (
+          <motion.div
+            key="security"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mb-8">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3 text-right">
@@ -2353,7 +2404,16 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
           </div>
         </div>
       </div>
+          </motion.div>
+        )}
 
+        {activeTab === 'webhooks' && (
+          <motion.div
+            key="webhooks"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
@@ -2433,7 +2493,16 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
           )}
         </div>
       </div>
+          </motion.div>
+        )}
 
+        {activeTab === 'logs' && (
+          <motion.div
+            key="logs"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
       <div id="activity-movements" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden mt-8">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
@@ -2485,7 +2554,16 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
           </div>
         </div>
       </div>
+          </motion.div>
+        )}
 
+        {activeTab === 'platforms' && (
+          <motion.div
+            key="platforms"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mt-8">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
@@ -2539,6 +2617,9 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
           </div>
         </div>
       </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Custom Alarm / Prompt Sound Alert Modal */}
       <AnimatePresence>
