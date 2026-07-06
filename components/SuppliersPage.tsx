@@ -1011,54 +1011,79 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               const pushFormalExpenses = (date: Date) => {
                   const isCapitalPayment = paymentMethod === 'supply_wallet' || paymentMethod === 'partner';
                   
+                  const addExpenseEntries = (
+                      amount: number, 
+                      baseId: string, 
+                      baseNote: string, 
+                      category: string, 
+                      msOffset: number, 
+                      isShipping: boolean
+                  ) => {
+                      if (amount <= 0) return;
+                      const payers = (expensePaidBy && expensePaidBy !== 'المحفظة العامة') ? expensePaidBy.split(' و ').map(s => s.trim()).filter(Boolean) : [];
+                      
+                      if (payers.length > 1) {
+                          const splitAmount = amount / payers.length;
+                          payers.forEach((payer, idx) => {
+                              const payerNote = ` - دفع بواسطة: ${payer}`;
+                              newWalletTransactions.push({
+                                  id: `${baseId}_split${idx}`,
+                                  type: 'سحب',
+                                  amount: splitAmount,
+                                  date: new Date(date.getTime() + msOffset + idx).toISOString(),
+                                  note: `${baseNote}${payerNote}`,
+                                  category: category,
+                                  status: 'completed',
+                                  details: {
+                                      expensePaidBy: payer,
+                                      note: isShipping ? shippingFeesNote : otherFeesNote,
+                                      supplierId: supplier?.id,
+                                      orderId: currentOrderId
+                                  }
+                              } as Transaction);
+                          });
+                      } else {
+                          const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
+                          newWalletTransactions.push({
+                              id: baseId,
+                              type: 'سحب',
+                              amount: amount,
+                              date: new Date(date.getTime() + msOffset).toISOString(),
+                              note: `${baseNote}${payerNote}`,
+                              category: category,
+                              status: 'completed',
+                              details: {
+                                  expensePaidBy,
+                                  treasuryAccountId: (expensePaidBy === 'المحفظة العامة' || (isShipping && shippingFeesPaymentMethod === 'wallet')) ? 'main_wallet' : undefined,
+                                  note: isShipping ? shippingFeesNote : otherFeesNote,
+                                  supplierId: supplier?.id,
+                                  orderId: currentOrderId
+                              }
+                          } as Transaction);
+                      }
+                      
+                      if (isShipping && shippingFeesPaymentMethod === 'wallet') {
+                          newBalance -= amount;
+                      }
+                  };
+
                   // Always record shipping fees separately if paid from wallet, 
                   // or if recorded formally
                   if (shippingFees > 0 && (recordExpensesFormally || shippingFeesPaymentMethod === 'wallet')) {
                       const shippingNote = shippingFeesNote ? ` (${shippingFeesNote})` : '';
-                      const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
-                      newWalletTransactions.push({
-                          id: `supply_expense_shipping_${currentOrderId}`,
-                          type: 'سحب',
-                          amount: shippingFees,
-                          date: new Date(date.getTime() + 2).toISOString(),
-                          note: `مصاريف شحن${shippingNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})${payerNote}`,
-                          category: (isCapitalPayment && shippingFeesPaymentMethod === 'with_order') ? 'supply_expense_shipping' : 'expense_shipping_fees',
-                          status: 'completed',
-                          details: {
-                            expensePaidBy,
-                            treasuryAccountId: (expensePaidBy === 'المحفظة العامة' || shippingFeesPaymentMethod === 'wallet') ? 'main_wallet' : undefined,
-                            note: shippingFeesNote,
-                            supplierId: supplier?.id,
-                            orderId: currentOrderId
-                          }
-                      } as Transaction);
+                      const baseNote = `مصاريف شحن${shippingNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})`;
+                      const category = (isCapitalPayment && shippingFeesPaymentMethod === 'with_order') ? 'supply_expense_shipping' : 'expense_shipping_fees';
                       
-                      // Deduct from appropriate wallet balance if paid via wallet
-                      if (shippingFeesPaymentMethod === 'wallet') {
-                          newBalance -= shippingFees;
-                      }
+                      addExpenseEntries(shippingFees, `supply_expense_shipping_${currentOrderId}`, baseNote, category, 2, true);
                   }
                   
                   if (recordExpensesFormally) {
                       if (otherFees > 0) {
                           const otherNote = otherFeesNote ? ` (${otherFeesNote})` : '';
-                          const payerNote = expensePaidBy ? ` - دفع بواسطة: ${expensePaidBy}` : '';
-                          newWalletTransactions.push({
-                              id: `supply_expense_other_${currentOrderId}`,
-                              type: 'سحب',
-                              amount: otherFees,
-                              date: new Date(date.getTime() + 3).toISOString(),
-                              note: `مصاريف إضافية${otherNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})${payerNote}`,
-                              category: isCapitalPayment ? 'supply_expense_other' : 'expense_other',
-                              status: 'completed',
-                              details: {
-                                expensePaidBy,
-                                treasuryAccountId: expensePaidBy === 'المحفظة العامة' ? 'main_wallet' : undefined,
-                                note: otherFeesNote,
-                                supplierId: supplier?.id,
-                                orderId: currentOrderId
-                              }
-                          } as Transaction);
+                          const baseNote = `مصاريف إضافية${otherNote} (فاتورة مورد: ${supplier?.name}) (أمر: ${orderReference || currentOrderId})`;
+                          const category = isCapitalPayment ? 'supply_expense_other' : 'expense_other';
+                          
+                          addExpenseEntries(otherFees, `supply_expense_other_${currentOrderId}`, baseNote, category, 10, false);
                       }
                   }
               };
