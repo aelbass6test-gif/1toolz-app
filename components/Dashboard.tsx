@@ -643,7 +643,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     }, 0);
 
     const treasuryTotal = (treasury?.accounts || []).reduce((sum, acc) => sum + (acc.balance || 0), 0);
-    const workingCapital = treasuryTotal + (wallet?.supplyBalance || 0) + totalInventoryValue;
+    const workingCapital = treasuryTotal + totalInventoryValue;
 
     // Calculate Admin & Operational Expenses
     const adminExpenses = (wallet?.transactions || [])

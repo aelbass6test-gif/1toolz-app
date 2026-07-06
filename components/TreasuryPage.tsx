@@ -757,9 +757,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                     required
                   >
                     <option value="">-- اختر الحساب --</option>
-                    {(transactionType === 'transfer' || transactionType === 'deposit') && (
-                      <option value="supply_wallet">محفظة التوريد (رأس مال المخزون) - رصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م</option>
-                    )}
+                    
                     {accounts.filter(acc => transactionType !== 'advance' || acc.type === 'custody').map(acc => (
                       <option key={acc.id} value={acc.id} disabled={acc.id === fromAccount}>{acc.name} {acc.type === 'custody' ? '(عهدة)' : ''}</option>
                     ))}

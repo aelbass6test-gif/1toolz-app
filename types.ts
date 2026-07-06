@@ -177,7 +177,7 @@ export interface Wallet {
   id?: string;
   data?: any;
   balance: number;
-  supplyBalance?: number; // Added supplyBalance for inventory funding
+  supplyBalance?: number; // deprecated // Added supplyBalance for inventory funding
   transactions: Transaction[];
   withdrawRequests?: WithdrawRequest[];
   settings?: WalletSettings;

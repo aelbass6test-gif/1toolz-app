@@ -1952,13 +1952,13 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
     let cash = 0;
     let credit = 0;
     let partner = 0;
-    let supply_wallet = 0;
+    
 
     orders.forEach(o => {
       if (o.status === 'cancelled') return;
       if (o.paymentMethod === 'credit') credit += o.totalCost;
       else if (o.paymentMethod === 'partner') partner += o.totalCost;
-      else if (o.paymentMethod === 'supply_wallet') supply_wallet += o.totalCost;
+      
       else cash += o.totalCost;
     });
 
@@ -1966,7 +1966,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
       { name: 'نقدي (كاش)', value: cash, color: '#10b981' },
       { name: 'آجل مديونية', value: credit, color: '#f43f5e' },
       { name: 'تمويل شركاء', value: partner, color: '#f59e0b' },
-      { name: 'محفظة توريد', value: supply_wallet, color: '#6366f1' }
+      
     ].filter(i => i.value > 0);
   }, [settings.supplyOrders]);
 
@@ -2385,7 +2385,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                                   <div class="meta-box">
                                     <div class="meta-label">بروتوكول السداد ومصدر التمويل:</div>
                                     <div class="meta-val">
-                                      ${order.paymentMethod === 'credit' ? 'آجل مديونية معلقة' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'سداد عهدة شخصية' : order.paymentMethod === 'supply_wallet' ? 'تمويل محفظة التوريد' : order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
+                                      ${order.paymentMethod === 'credit' ? 'آجل مديونية معلقة' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'سداد عهدة شخصية' :  order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
                                     </div>
                                     <div class="meta-val" style="font-size: 11px; margin-top: 5px; color: #64748b;">الحالة: مُعتمدة ومُرحلة للمخازن</div>
                                   </div>
@@ -3212,7 +3212,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                                     <tbody>
                                       ${suppOrders.map((order, idx) => {
                                         const itemsList = order.items.map(it => `${it.name || 'مادة'} (${it.quantity} قطع بسعر تكلفة ${it.cost} ج.م)`).join(' ، ');
-                                        const payMethodText = order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' : order.paymentMethod === 'supply_wallet' ? 'محفظة توريد كاش' : 'نقدي (كاش)';
+                                        const payMethodText = order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' :  'نقدي (كاش)';
                                         return `
                                           <tr>
                                             <td>${idx + 1}</td>
@@ -3510,7 +3510,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   >
                     <option value="credit">رصيد المورد (خصم وتقليص مديونية الآجل المستحقة له)</option>
                     <option value="treasury">نقدي (إيداع نقدي فوري لحساب خزينة محددة)</option>
-                    <option value="supply_wallet">محفظة التوريد (إيداع رصيد المحفظة السحابية الدائري)</option>
+                    
                   </select>
                 </div>
               </div>
@@ -3653,14 +3653,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   >
                     المحفظة العامة
                   </button>
-                  <button 
-                    onClick={() => setPaymentMethod('supply_wallet')} 
-                    className={`flex-1 py-2 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${
-                      paymentMethod === 'supply_wallet' ? 'bg-white dark:bg-slate-700 text-emerald-600 shadow-sm' : 'text-slate-500'
-                    }`}
-                  >
-                    محفظة التوريد
-                  </button>
+                  
                   <button 
                     onClick={() => setPaymentMethod('treasury')} 
                     className={`flex-1 py-2 text-center rounded-lg font-black transition-all text-[10px] sm:text-xs cursor-pointer ${

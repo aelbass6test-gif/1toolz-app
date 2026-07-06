@@ -474,8 +474,7 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                   {[
                     { id: 'cash', label: 'كاش (العامة)', icon: Wallet, color: 'indigo', desc: 'خصم مباشر من المحفظة العامة' },
-                    { id: 'supply_wallet', label: 'محفظة التوريد', icon: Box, color: 'emerald', desc: 'خصم من محفظة التوريد المركزية' },
-                    { id: 'partner', label: 'تمويل شركاء', icon: User, color: 'amber', desc: 'توزيع التكلفة على أرصدة الشركاء' },
+                                        { id: 'partner', label: 'تمويل شركاء', icon: User, color: 'amber', desc: 'توزيع التكلفة على أرصدة الشركاء' },
                     { id: 'treasury', label: 'الخزينة البنكية', icon: Building2, color: 'blue', desc: 'سحب من حساب خزينة أو بنك' },
                     { id: 'custody', label: 'عهدة شخصية', icon: Coins, color: 'teal', desc: 'سحب من العهد وحاملي النقدية' },
                     { id: 'credit', label: 'آجل مديونية', icon: CreditCard, color: 'rose', desc: 'تسجيل كحساب دائن للمورد' }

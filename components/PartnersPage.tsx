@@ -252,33 +252,6 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     showToast('تم تعديل اسم الشريك بنجاح');
   };
 
-  const recalculateSupplyBalance = () => {
-    setDialog({
-        isOpen: true,
-        title: 'مزامنة محفظة التوريد',
-        message: 'هل تريد إعادة حساب رصيد محفظة التوريد بناءً على سجل المعاملات؟ سيقوم هذا الإجراء بتصحيح أي خطأ في الرصيد الحالي الناتج عن عمليات التعديل السابقة.',
-        onConfirm: () => {
-            const supplyTxs = wallet.transactions.filter(t => 
-                t.status === 'completed' && 
-                ['supply_deposit', 'supply_purchase', 'supply_funding', 'partner_supply'].includes(t.category || '')
-            );
-            
-            const newSupplyBalance = supplyTxs.reduce((sum, t) => {
-                const amount = Number(t.amount) || 0;
-                return t.type === 'إيداع' ? sum + amount : sum - amount;
-            }, 0);
-
-            setWallet(prev => ({
-                ...prev,
-                supplyBalance: newSupplyBalance
-            }));
-            
-            setDialog(null);
-            showToast('تمت إعادة مزامنة رصيد محفظة التوريد بنجاح');
-        }
-    });
-  };
-
   const recalculatePartnerBalances = () => {
     setDialog({
         isOpen: true,
@@ -320,7 +293,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       case 'profit_withdrawal': return { label: 'سحب من الأرباح الموزعة', desc: 'سحب الشريك لجزء أو كل أرباحه السابقة الموزعة له من المحل.', icon: DollarSign, color: 'text-amber-600 border-amber-200 bg-amber-50' };
       case 'repayment': return { label: 'سداد سلفة / رد كاش للمحل', desc: 'قيام الشريك برد مبلغ سلفة سابق أو إيداع كاش لحسابه الشخصي (يُضاف للخزينة).', icon: Check, color: 'text-emerald-600 border-emerald-200 bg-emerald-50' };
       case 'capital_addition': return { label: 'إيداع رأس مال / استثمار جديد', desc: 'ضخ سيولة جديدة لتأسيس أو توسيع نشاط المحل (يزيد إجمالي رأس المال المستثمر).', icon: ArrowUpLeft, color: 'text-blue-600 border-blue-200 bg-blue-50' };
-      case 'supply_funding': return { label: 'تمويل شراء بضاعة (محفظة التوريد)', desc: 'دفع الشريك من ماله الخاص لشراء بضاعة أو مخزون للمحل (يُضاف لرصيد محفظة التوريد).', icon: PackageIcon, color: 'text-indigo-600 border-indigo-200 bg-indigo-50' };
+      case 'supply_funding': return { label: 'تمويل شراء بضاعة (تمويل البضائع)', desc: 'دفع الشريك من ماله الخاص لشراء بضاعة أو مخزون للمحل (يُضاف لرصيد تمويل البضائع).', icon: PackageIcon, color: 'text-indigo-600 border-indigo-200 bg-indigo-50' };
       case 'shipping_funding': return { label: 'تمويل ودفع مصاريف شحن', desc: 'دفع الشريك لمصاريف شحن وتوصيل الطلبات عن المحل.', icon: Truck, color: 'text-purple-600 border-purple-200 bg-purple-50' };
       case 'expense_coverage': return { label: 'تغطية مصروفات تشغيلية', desc: 'دفع الشريك لفواتير أو مصروفات إدارية وتشغيلية خاصة بالمحل من حسابه.', icon: DollarSign, color: 'text-teal-600 border-teal-200 bg-teal-50' };
       case 'expense_repayment': return { label: 'استرداد مقابل مصروفات مدفوعة', desc: 'قيام المحل برد مبلغ للشريك كان قد دفعه سابقاً كمصروفات تشغيلية عن المحل.', icon: Check, color: 'text-emerald-600 border-emerald-200 bg-emerald-50' };
@@ -575,7 +548,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
             transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
             transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
-            transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع محفظة التوريد)' : 
+            transactionType === 'supply_funding' ? 'تمويل شراء بضاعة (إيداع تمويل البضائع)' : 
             transactionType === 'pos_collection' ? 'تحصيل مبيعات نقطة البيع' : 'سداد سلفة'
         }${selectedTreasuryId && treasury ? ` (عبر ${treasury.accounts.find(a => a.id === selectedTreasuryId)?.name || 'الخزينة'})` : ''}`,
         category: isSupplyFunding ? 'supply_deposit' : (isWithdrawal ? 'manual_withdrawal' : 'manual_deposit'),
@@ -638,7 +611,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         setWallet(prev => ({ 
             ...prev, 
             balance: isSupplyFunding ? prev.balance : prev.balance + (isWithdrawal ? -amount : amount),
-            supplyBalance: isSupplyFunding ? (prev.supplyBalance || 0) + amount : prev.supplyBalance,
+            
             transactions: [walletTransaction, ...prev.transactions] 
         }));
     }
@@ -721,14 +694,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 <Printer size={18} />
                 طباعة التقرير
               </button>
-              <button 
-                onClick={recalculateSupplyBalance}
-                className="bg-white dark:bg-slate-800 border-2 border-indigo-600/20 text-indigo-600 dark:text-indigo-400 px-6 py-3 rounded-2xl font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center gap-2"
-                title="إعادة حساب رصيد محفظة التوريد من المعاملات"
-              >
-                <Activity size={18} />
-                مزامنة المحفظة
-              </button>
+              
               <button 
                 onClick={recalculatePartnerBalances}
                 className="bg-white dark:bg-slate-800 border-2 border-emerald-600/20 text-emerald-600 dark:text-emerald-400 px-6 py-3 rounded-2xl font-bold hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-all flex items-center gap-2"
@@ -1312,7 +1278,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                               )) : [
                                 { key: 'capital_addition', label: '1️⃣ إيداع رأس مال / زيادة حصة استثمارية (+)', desc: 'ضخ سيولة لزيادة رأس مال المحل وحصته الثابتة (لا يتأثر بالسحب اليومي).', icon: ArrowUpLeft, badge: 'رأس مال ثابت', badgeColor: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' },
                                 { key: 'repayment', label: '2️⃣ سداد سلفة / إرجاع كاش للمحل (+)', desc: 'إرجاع الشريك لمبلغ سلفة أو كاش كان قد سحبه سابقاً من المحل.', icon: Check, badge: 'سداد سلفة', badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' },
-                                { key: 'supply_funding', label: '3️⃣ تمويل شراء بضاعة ومخزون (محفظة التوريد) (+)', desc: 'دفع الشريك سيولة من ماله الخاص لشراء بضاعة ومخزون جديد للمحل.', icon: PackageIcon, badge: 'تمويل بضاعة', badgeColor: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' },
+                                { key: 'supply_funding', label: '3️⃣ تمويل شراء بضاعة ومخزون (تمويل البضائع) (+)', desc: 'دفع الشريك سيولة من ماله الخاص لشراء بضاعة ومخزون جديد للمحل.', icon: PackageIcon, badge: 'تمويل بضاعة', badgeColor: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' },
                                 { key: 'shipping_funding', label: '4️⃣ تغطية مصروفات تشغيلية أو شحن (+)', desc: 'دفع الشريك فواتير شحن أو مصروفات تشغيلية عن المحل من جيبه الخاص.', icon: Truck, badge: 'مصروفات وشحن', badgeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' }
                               ].map(type => (
                                 <div 

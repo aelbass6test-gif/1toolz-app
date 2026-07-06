@@ -316,18 +316,12 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
             const isSupplyFunding = t.type === 'supply_funding';
             
             let newBalance = prev.balance;
-            let newSupplyBalance = prev.supplyBalance || 0;
             
-            if (isSupplyFunding) {
-              newSupplyBalance = Math.max(0, newSupplyBalance - t.amount);
-            } else {
-              newBalance = isWithdrawal ? newBalance + t.amount : newBalance - t.amount;
-            }
+            newBalance = isWithdrawal ? newBalance + t.amount : newBalance - t.amount;
             
             return {
               ...prev,
               balance: newBalance,
-              supplyBalance: newSupplyBalance,
               transactions: updatedTransactions
             };
           });

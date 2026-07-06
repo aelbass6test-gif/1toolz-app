@@ -466,7 +466,7 @@ const BalanceSheet = ({ orders, settings, wallet }: Omit<Props, 'activeStore'>) 
                     </div>
                     <div className="p-6 space-y-4">
                         <ReportRow label="السيولة النقدية (المحفظة العامة)" value={stats.cashBalance} />
-                        <ReportRow label="محفظة التوريد (Supply Wallet)" value={wallet.supplyBalance || 0} />
+                        
                         <ReportRow label="بضاعة في المخزن (Inventory)" value={stats.inventoryValue} />
                         <ReportRow label="ذمم مدينة (معلقة لدى شركات الشحن)" value={stats.receivablesPending} />
                         <div className="pt-4 border-t">

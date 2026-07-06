@@ -122,68 +122,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     };
   }, [wallet.transactions, wallet.supplyBalance, orders]);
 
-  const handleTransferSupply = (e: React.FormEvent) => {
-    e.preventDefault();
-    const numAmount = parseFloat(supplyAmount);
-    if (isNaN(numAmount) || numAmount <= 0) return;
-
-    if (transferDirection === 'to_supply') {
-      if (numAmount > walletStats.liveBalance) {
-        setErrorConfig({
-          title: 'رصيد غير كافٍ',
-          message: 'لا يمكنك تحويل مبلغ أكبر من متاح المحفظة الأساسية.'
-        });
-        setModalMode('error');
-        return;
-      }
-
-      const transMain: Transaction = {
-        id: `TR-S-${Date.now()}`,
-        type: 'سحب',
-        amount: numAmount,
-        date: new Date().toISOString(),
-        note: 'تحويل إلى محفظة الموردين (تمويل مخزون)',
-        category: 'supply_funding',
-        status: 'completed'
-      };
-
-      setWallet(prev => ({
-        ...prev,
-        balance: prev.balance - numAmount,
-        supplyBalance: (prev.supplyBalance || 0) + numAmount,
-        transactions: [transMain, ...prev.transactions]
-      }));
-    } else {
-      if (numAmount > walletStats.supplyBalance) {
-        setErrorConfig({
-            title: 'رصيد غير كافٍ',
-            message: 'لا يمكنك تحويل مبلغ أكبر من متاح محفظة الموردين.'
-          });
-          setModalMode('error');
-          return;
-      }
-
-      const transMain: Transaction = {
-        id: `TR-M-${Date.now()}`,
-        type: 'إيداع',
-        amount: numAmount,
-        date: new Date().toISOString(),
-        note: 'تحويل من محفظة الموردين إلى المحفظة الأساسية',
-        category: 'manual_deposit',
-        status: 'completed'
-      };
-
-      setWallet(prev => ({
-        ...prev,
-        balance: prev.balance + numAmount,
-        supplyBalance: (prev.supplyBalance || 0) - numAmount,
-        transactions: [transMain, ...prev.transactions]
-      }));
-    }
-
-    setModalMode('none');
-    setSupplyAmount('');
-  };
 
   const handleDeleteTransaction = (transactionId: string) => {
     setTxToDelete(transactionId);
@@ -759,37 +697,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               </div>
             </motion.div>
 
-            {/* Supply Wallet Widget */}
-            <motion.div variants={itemVariants} className="grid grid-cols-1 gap-8 mb-8 font-sans">
-              {/* Supply Wallet Card */}
-              <div className="relative group">
-                <div className="relative overflow-hidden bg-slate-50 dark:bg-slate-900/40 rounded-[2.5rem] p-8 text-right shadow-sm border border-slate-200/60 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6">
-                    <div className="flex items-center gap-5 flex-row-reverse">
-                        <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-650 dark:text-indigo-400 flex items-center justify-center">
-                            <Coins size={28} />
-                        </div>
-                        <div className="text-right">
-                            <h3 className="text-lg font-black text-slate-850 dark:text-white mb-1">محفظة التوريد (رأس مال المخزون)</h3>
-                            <p className="text-xs text-slate-400 font-bold">مخصصة لتمويل عمليات شراء البضاعة والطلب المسبق بأمان مالي تام.</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-6">
-                        <div className="text-right font-sans">
-                            <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المتاح للمخزون</span>
-                            <p className="text-3xl font-black text-slate-900 dark:text-white mt-0.5">
-                                {walletStats.supplyBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
-                            </p>
-                        </div>
-                        <button
-                            onClick={() => { setSupplyAmount(''); setModalMode('transfer_supply'); }}
-                            className="px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs transition-all shadow-md cursor-pointer whitespace-nowrap"
-                        >
-                            تحويل للمخزون
-                        </button>
-                    </div>
-                </div>
-              </div>
-            </motion.div>
+            
 
         {/* Stats Grid - Bento Style */}
         <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
@@ -1010,7 +918,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     { id: 'all', label: 'الجميع' },
                     { id: 'orders', label: 'طلبات' },
                     { id: 'withdrawals', label: 'سحوبات' },
-                    { id: 'supply_wallet', label: 'التوريد' },
+                    
                     { id: 'manual', label: 'يدوي' }
                 ].map(tab => (
                     <button
@@ -1152,9 +1060,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                       </h5>
                                       <div className="flex items-center gap-3 flex-row-reverse mt-1.5">
                                           <span className="text-[11px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-100 dark:border-slate-700">#{item.orderNumber || item.id.slice(-6)}</span>
-                                           {item.category?.startsWith('supply_') && (
-                                              <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-900/40 px-2 py-0.5 rounded-lg border border-indigo-100 dark:border-indigo-800">محفظة التوريد</span>
-                                           )}
+                                           
                                           <span className="w-1 h-1 bg-slate-300 dark:bg-slate-600 rounded-full"></span>
                                           <div className="flex items-center gap-1.5 flex-row-reverse">
                                               <Calendar size={12} className="text-slate-400"/>
@@ -2219,77 +2125,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         )}
       </AnimatePresence>
 
-      {/* Supply Transfer Modal */}
-      <AnimatePresence>
-        {modalMode === 'transfer_supply' && (
-          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md" onClick={() => setModalMode('none')}>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="p-10 space-y-8">
-                <div className="flex justify-between items-center flex-row-reverse">
-                    <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">إدارة رأس المال</h3>
-                    <button onClick={() => setModalMode('none')} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><X size={24}/></button>
-                </div>
 
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
-                    <button 
-                        onClick={() => setTransferDirection('to_supply')}
-                        className={`flex-1 py-3 text-center rounded-xl font-black text-xs transition-all ${transferDirection === 'to_supply' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        تحويل للمخزون
-                    </button>
-                    <button 
-                        onClick={() => setTransferDirection('from_supply')}
-                        className={`flex-1 py-3 text-center rounded-xl font-black text-xs transition-all ${transferDirection === 'from_supply' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                    >
-                        استرداد للمحفظة
-                    </button>
-                </div>
-
-                <form onSubmit={handleTransferSupply} className="space-y-6">
-                    <div className="space-y-3">
-                        <label className="text-sm font-black text-slate-600 dark:text-slate-400 block text-right">المبلغ المراد تحويله</label>
-                        <div className="relative">
-                            <input
-                                type="number"
-                                value={supplyAmount}
-                                onChange={e => setSupplyAmount(e.target.value)}
-                                className="w-full p-5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl text-center text-2xl font-black focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all dark:text-white"
-                                placeholder="0.00"
-                                required
-                            />
-                            <div className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-slate-400">ج.م</div>
-                        </div>
-                        <div className="flex justify-between flex-row-reverse text-[10px] font-bold text-slate-400 px-2">
-                           <span>الرصيد المتاح: {transferDirection === 'to_supply' ? walletStats.liveBalance.toLocaleString() : walletStats.supplyBalance.toLocaleString()} ج.م</span>
-                        </div>
-                    </div>
-
-                    <div className="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-[2rem] border border-indigo-100 dark:border-indigo-500/20 text-right">
-                        <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 leading-relaxed">
-                            {transferDirection === 'to_supply' 
-                                ? 'سيتم خصم المبلغ من محفظتك الأساسية وإضافته لمحفظة الموردين. هذا المبلغ سيُستخدم حصرياً لتمويل مشتريات البضاعة.' 
-                                : 'سيتم استرداد المبلغ من محفظة الموردين وإعادته لمحفظتك الأساسية المتاحة للسحب.'}
-                        </p>
-                    </div>
-
-                    <button
-                        type="submit"
-                        className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black shadow-xl shadow-indigo-600/20 hover:bg-indigo-700 transition-all text-sm"
-                    >
-                        تأكيد العملية
-                    </button>
-                </form>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Error / Alert Modal */}
       <AnimatePresence>

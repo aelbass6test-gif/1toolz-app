@@ -694,16 +694,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                         >
                           خزينة بالمنظومة
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHandoverType('supply_wallet');
-                            setNewHandover({ ...newHandover, toUserId: 'supply_wallet' });
-                          }}
-                          className={`py-2 px-1.5 rounded-xl text-[10px] sm:text-xs font-black border transition-all ${handoverType === 'supply_wallet' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                        >
-                          محفظة التوريد
-                        </button>
+                        
                      </div>
                   </div>
 
@@ -856,7 +847,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 px-4 rounded-xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 text-right"
                     >
                       <option value="">-- اختر الحساب المالي --</option>
-                      <option value="supply_wallet">محفظة التوريد (رأس مال المخزون) - رصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م</option>
+                      
                       {(treasury?.accounts || []).map((acc: any) => (
                         <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
                       ))}
