@@ -26,6 +26,7 @@
     "hono": "^4.12.23",
     "html-to-image": "^1.11.13",
     "html2pdf.js": "^0.14.0",
+    "jsdom": "^29.1.1",
     "jspdf": "^2.5.1",
     "lucide-react": "^0.563.0",
     "motion": "^12.38.0",

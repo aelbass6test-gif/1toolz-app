@@ -371,6 +371,11 @@ export const generateOrdersReportHTML = (
   let totalProfit = 0;
   let totalCollectedAmount = 0;
   let totalItems = 0;
+  let sumProductPrice = 0;
+  let sumProductCost = 0;
+  let sumShippingCost = 0;
+  let sumCollectionAmount = 0;
+  let sumInvoiceTotal = 0;
 
   const tableRows = orders.map(order => {
     const isPosOrder = order.channel === 'pos' || order.shippingCompany?.startsWith('كاشير -') || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
@@ -408,6 +413,11 @@ export const generateOrdersReportHTML = (
     totalProfit += net;
     totalCollectedAmount += displayTotal;
     totalItems += totalQuantity;
+    sumProductPrice += Number(order.productPrice) || 0;
+    sumProductCost += productCost;
+    sumShippingCost += (carrierFees - inspectionRevenue - flexShipCompanyDeduction);
+    sumCollectionAmount += (isPosOrder ? (order.totalAmountOverride || order.productPrice || displayTotal) : displayTotal);
+    sumInvoiceTotal += invoiceTotal;
 
     const getStatusStyles = (status: string, type: 'status' | 'payment') => {
         const paymentIsPaid = ['مدفوع'].includes(status);
@@ -485,9 +495,6 @@ export const generateOrdersReportHTML = (
       <title>تقرير الطلبات - ${storeName}</title>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
-    @theme {
-      --font-sans: "Cairo", "Inter", ui-sans-serif, system-ui, sans-serif;
-    }
     @page { size: ${isContinuous ? 'auto' : `A4 ${orientation}`}; margin: ${isContinuous ? '0' : '1cm'}; }
         * { box-sizing: border-box; }
         body { 
@@ -672,6 +679,18 @@ export const generateOrdersReportHTML = (
           </thead>
           <tbody>
             ${tableRows}
+            <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
+              <td colspan="2" class="text-right font-bold" style="background-color: #f1f5f9;">الإجمالي</td>
+              <td class="text-center" style="background-color: #f1f5f9;">${sumProductPrice.toLocaleString()}</td>
+              <td class="text-center" style="background-color: #f1f5f9;">${sumProductCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+              <td class="text-center" style="background-color: #f1f5f9;">${totalItems}</td>
+              <td class="text-center font-bold" style="background-color: #f1f5f9;">${sumShippingCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+              <td class="text-center font-bold" style="background-color: #f1f5f9;">${sumCollectionAmount.toLocaleString()}</td>
+              <td class="text-center font-bold" style="background-color: #f1f5f9;">${sumInvoiceTotal.toLocaleString()}</td>
+              <td style="background-color: #f1f5f9;"></td>
+              <td style="background-color: #f1f5f9;"></td>
+              <td class="text-center font-bold" style="background-color: #f1f5f9; color: ${totalProfit >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${totalProfit > 0 ? '+' : ''}${totalProfit.toLocaleString()} ج.م</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -693,6 +712,7 @@ export const generateCollectionsReportHTML = (
 ): string => {
     let totalGross = 0;
     let totalNetProfit = 0;
+    let totalCogs = 0;
 
     orders.forEach(o => {
       const compFees = settings.companySpecificFees?.[o.shippingCompany];
@@ -709,6 +729,7 @@ export const generateCollectionsReportHTML = (
 
       const { net } = calculateOrderProfitLoss(o, settings);
       totalNetProfit += net;
+      totalCogs += o.productCost || 0;
     });
 
     const tableRows = orders.map(order => {
@@ -919,8 +940,9 @@ export const generateCollectionsReportHTML = (
           <thead>
             <tr>
               <th class="text-center">رقم الطلب</th>
-              <th>العميل والعهدة</th>
+              <th>العميل</th>
               <th class="text-center">التاريخ</th>
+              <th class="text-center">جهة التحصيل (العهدة)</th>
               <th class="text-center">المبلغ المحصل</th>
               <th class="text-center">التكلفة</th>
               <th class="text-center">صافي الربح/الخسارة</th>
@@ -928,6 +950,13 @@ export const generateCollectionsReportHTML = (
           </thead>
           <tbody>
             ${tableRows}
+            <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
+              <td colspan="3" class="text-right font-bold" style="background-color: #f1f5f9;">الإجمالي</td>
+              <td style="background-color: #f1f5f9;"></td>
+              <td class="text-right font-bold" style="background-color: #f1f5f9;">${totalGross.toLocaleString()} ج.م</td>
+              <td class="text-center font-bold" style="background-color: #f1f5f9;">${totalCogs.toLocaleString()}</td>
+              <td class="text-center font-bold" style="background-color: #f1f5f9; color: ${totalNetProfit >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${totalNetProfit > 0 ? '+' : ''}${totalNetProfit.toLocaleString()} ج.م</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -1361,6 +1390,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalInspectionRevenue = 0;
     let totalRequiredCollection = 0;
     let totalDiscount = 0;
+    let sumCollectedProductPrice = 0;
+    let sumCollectedShippingFee = 0;
+    let sumCollectedTax = 0;
 
     const collectedRows = collectedOrders.map((order, idx) => {
         const { profit, netRevenue, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
@@ -1437,6 +1469,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         totalProductRevenue += orderBaseRevenue;
         totalDiscount += safeDiscount;
+        sumCollectedProductPrice += safeProductPrice;
+        sumCollectedShippingFee += order.shippingFee;
+        sumCollectedTax += (bostaVat + safeTax);
         totalProductExtraMarkup += orderProductExtraMarkup;
         totalOverrideAdjustment += overrideAdjustment;
         totalInspectionRevenue += inspectionFeeCollected;
@@ -1815,14 +1850,40 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي (Collection Log)</h2>
             <table class="modern-table">
                 <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>ضريبة</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
-                <tbody>${collectedRows}</tbody>
+                <tbody>
+                    ${collectedRows}
+                    <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
+                        <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">-</td>
+                        <td colspan="2" style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
+                        <td style="background-color: #f1f5f9;">${sumCollectedProductPrice.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${sumCollectedShippingFee.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${sumCollectedTax.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${totalCogs.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${totalInsuranceFees.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${totalInspectionFees.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${totalCodFees.toLocaleString()}</td>
+                        <td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${totalProfit.toLocaleString()}</td>
+                    </tr>
+                </tbody>
             </table>` : '';
 
     const lossLogHtml = (failedRows && s.showLossLog) ? `
             <h2 class="section-header" style="color: var(--danger);">${sectionCounter++}. سجل المرتجعات والخسائر (Loss Log)</h2>
             <table class="modern-table">
                 <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>الحالة</th><th>شحن</th><th>تأمين</th><th>معاينة</th><th>مرتجع</th><th>الخسارة</th></tr></thead>
-                <tbody>${failedRows}</tbody>
+                <tbody>
+                    ${failedRows}
+                    <tr class="total-row" style="background-color: #fee2e2; font-weight: bold; border-top: 2px solid #fca5a5;">
+                        <td style="text-align: center; font-weight: bold; background-color: #fee2e2;">-</td>
+                        <td colspan="2" style="text-align: right; font-weight: bold; background-color: #fee2e2;">الإجمالي</td>
+                        <td style="background-color: #fee2e2;">-</td>
+                        <td style="background-color: #fee2e2;">${totalFailedShipping.toLocaleString()}</td>
+                        <td style="background-color: #fee2e2;">${totalFailedInsurance.toLocaleString()}</td>
+                        <td style="background-color: #fee2e2;">${totalFailedInspection.toLocaleString()}</td>
+                        <td style="background-color: #fee2e2;">${totalReturnFees.toLocaleString()}</td>
+                        <td style="color: #b91c1c; font-weight: bold; background-color: #fee2e2;">${totalLoss.toLocaleString()}</td>
+                    </tr>
+                </tbody>
             </table>` : '';
 
     const expensesLogHtml = s.showExpensesLog ? `

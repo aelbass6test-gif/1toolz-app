@@ -9,15 +9,25 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         container = document.createElement('div');
         container.className = 'pdf-container';
         // Ensure the HTML string is wrapped in a container with explicit white background for rendering and sanitized with DOMPurify
-        // Explicitly allow <style> tags so report styles are not stripped
-        const sanitizedHtml = DOMPurify.sanitize(elementOrHtml, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] });
+        // Explicitly allow <style> tags and preserve the whole document structure so report styles are not stripped
+        const sanitizedHtml = DOMPurify.sanitize(elementOrHtml, { 
+            WHOLE_DOCUMENT: true, 
+            FORCE_BODY: false, 
+            ADD_TAGS: ['style'], 
+            ADD_ATTR: ['style'] 
+        });
         // Replace oklab/oklch colors with a fallback to avoid PDF export error
-        const cleanHtml = convertOklchAndOklabToRgb(sanitizedHtml);
-        container.innerHTML = `<div class="pdf-inner-wrapper" style="background: white !important; width: 100%; height: auto !important; min-height: auto !important; overflow: visible !important; padding: 20px; font-family: 'Cairo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${cleanHtml}</div>`;
+        let cleanHtml = convertOklchAndOklabToRgb(sanitizedHtml);
         
-        // Use visible but off-screen positioning to ensure browser renders it fully
+        // Dynamic CSS rewrite: Replace any "body" style selectors with "body, .pdf-inner-wrapper, .pdf-container"
+        // so that styles targeting body are properly applied inside our nested temporary container div.
+        cleanHtml = cleanHtml.replace(/body\s*([,{])/g, 'body, .pdf-inner-wrapper, .pdf-container $1');
+
+        container.innerHTML = `<div class="pdf-inner-wrapper" style="background: white !important; color: #333333 !important; width: 100%; height: auto !important; min-height: auto !important; overflow: visible !important; padding: 20px; font-family: 'Cairo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${cleanHtml}</div>`;
+        
+        // Use fixed positioning so it stays fully inside the viewport bounds for html2canvas to measure/render without being affected by window scroll
         container.style.position = 'fixed';
-        container.style.left = '-9999px';
+        container.style.left = '0';
         container.style.top = '0';
         container.style.width = orientation === 'landscape' ? '297mm' : '210mm';
         container.style.height = 'auto';
@@ -26,21 +36,28 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         container.style.overflow = 'visible';
         container.style.zIndex = '-9999';
         container.style.background = 'white';
+        container.style.color = '#333333';
         container.style.opacity = '1';
+        container.style.visibility = 'visible';
+        container.style.pointerEvents = 'none';
         document.body.appendChild(container);
         shouldCleanup = true;
     } else {
         container = elementOrHtml.cloneNode(true) as HTMLElement;
         
-        // Ensure white background
+        // Ensure white background and dark text defaults
         container.style.background = 'white';
+        container.style.color = '#333333';
         
-        // Position it off-screen
+        // Position it within standard viewport limits for html2canvas but behind content
         container.style.position = 'fixed';
-        container.style.left = '-9999px';
+        container.style.left = '0';
         container.style.top = '0';
         container.style.width = orientation === 'landscape' ? '297mm' : '210mm';
         container.style.zIndex = '-9999';
+        container.style.opacity = '1';
+        container.style.visibility = 'visible';
+        container.style.pointerEvents = 'none';
         
         document.body.appendChild(container);
         
@@ -53,11 +70,11 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
     const originalGetComputedStyle = window.getComputedStyle;
     const originalGetPropertyValue = CSSStyleDeclaration.prototype.getPropertyValue;
 
-    // Temporarily patch window.getComputedStyle during PDF generation
+    // Temporarily patch window.getComputedStyle during PDF generation with 100% safe receiver binding to avoid illegal invocation errors
     (window as any).getComputedStyle = function (elt: Element, pseudoElt?: string) {
         const style = originalGetComputedStyle.call(window, elt, pseudoElt);
         return new Proxy(style, {
-            get(target, prop) {
+            get(target, prop, receiver) {
                 if (prop === 'getPropertyValue') {
                     return function(propertyName: string) {
                         const value = target.getPropertyValue(propertyName);
@@ -68,18 +85,15 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
                     };
                 }
                 
-                let value;
-                try {
-                    value = Reflect.get(target, prop, target);
-                } catch (e) {
-                    return undefined;
+                // Get the value bound to the original target to prevent illegal invocation on native getters
+                const value = Reflect.get(target, prop, target);
+
+                if (typeof value === 'function') {
+                    return value.bind(target);
                 }
 
                 if (typeof value === 'string' && (value.includes('oklch') || value.includes('oklab'))) {
                     return convertOklchAndOklabToRgb(value);
-                }
-                if (typeof value === 'function') {
-                    return value.bind(target);
                 }
                 return value;
             }
@@ -102,10 +116,15 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         const widthMm = orientation === 'landscape' ? 297 : 210;
         let formatOption: any = 'a4';
         
+        // Dynamically calculate a safe scale to avoid blowing up the maximum canvas size limit (especially on mobile)
+        // 16,777,216 pixels is a common hard limit on iOS for canvas area.
+        let safeScale = 3;
+        let containerHeightPx = 500;
+        
         if (isContinuous) {
             // Measure exact container height after browser rendering
             const innerWrapper = container.querySelector('.pdf-inner-wrapper') as HTMLElement || container;
-            const containerHeightPx = Math.max(
+            containerHeightPx = Math.max(
                 innerWrapper.scrollHeight,
                 innerWrapper.offsetHeight,
                 innerWrapper.getBoundingClientRect().height,
@@ -121,6 +140,14 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
                 calculatedHeightMm = 5080;
             }
             formatOption = [widthMm, calculatedHeightMm];
+
+            const baseWidth = orientation === 'landscape' ? 1122 : 794;
+            const baseArea = baseWidth * containerHeightPx;
+            const maxSafeArea = 15000000; // 15 Megapixels
+            if (baseArea * 9 > maxSafeArea) {
+                // scale^2 * baseArea = maxSafeArea => scale = sqrt(maxSafeArea / baseArea)
+                safeScale = Math.max(1, Math.floor(Math.sqrt(maxSafeArea / baseArea) * 10) / 10);
+            }
         }
 
         const opt = {
@@ -129,18 +156,20 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
             image:        { type: 'jpeg' as const, quality: 0.98 },
             pagebreak:    isContinuous ? { mode: [] } : { mode: 'css' },
             html2canvas:  { 
-                scale: 3, 
+                scale: safeScale, 
                 useCORS: true, 
                 letterRendering: true, 
                 backgroundColor: '#ffffff',
                 logging: false,
                 removeContainer: true,
-                windowWidth: orientation === 'landscape' ? 1122 : 794
+                windowWidth: orientation === 'landscape' ? 1122 : 794,
+                scrollY: 0,
+                scrollX: 0
             },
             jsPDF:        { 
                 unit: 'mm' as const, 
                 format: formatOption, 
-                orientation: orientation as 'portrait' | 'landscape',
+                orientation: isContinuous ? 'portrait' : (orientation as 'portrait' | 'landscape'),
                 compress: true,
                 precision: 16
             }
