@@ -93,7 +93,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             else totalLoss += Math.abs(net);
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''))).reduce((sum, t) => sum + t.amount, 0);
         
         // Compute trend based on standard days in filtered data
         // If they chose custom range, map those days; otherwise last 7 days as default
@@ -186,7 +186,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             }
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''))).reduce((sum, t) => sum + t.amount, 0);
         
         const marketingAds = (wallet?.transactions || [])
             .filter(t => t.category === 'expense_ads' || (t.note && (t.note.toLowerCase().includes('تسويق') || t.note.toLowerCase().includes('إعلان') || t.note.toLowerCase().includes('ads') || t.note.toLowerCase().includes('marketing'))))
@@ -1212,7 +1212,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         totalCogs += extraPosCOGS;
         totalProfit += extraPosProfit;
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''))).reduce((sum, t) => sum + t.amount, 0);
 
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
@@ -1252,7 +1252,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             { name: 'إيجار', value: (wallet?.transactions || []).filter(t => t.category === 'expense_rent').reduce((sum, t) => sum + t.amount, 0), color: '#8b5cf6' },
             { name: 'شحن مشتريات (توريد)', value: (wallet?.transactions || []).filter(t => (t.category as string) === 'supply_expense_shipping' || t.category === 'expense_shipping_fees').reduce((sum, t) => sum + t.amount, 0), color: '#f59e0b' },
             { name: 'مصاريف توريد أخرى', value: (wallet?.transactions || []).filter(t => (t.category as string) === 'supply_expense_other').reduce((sum, t) => sum + t.amount, 0), color: '#059669' },
-            { name: 'أخرى', value: (wallet?.transactions || []).filter(t => t.category === 'expense_other').reduce((sum, t) => sum + t.amount, 0), color: '#ec4899' },
+            { name: 'أخرى', value: (wallet?.transactions || []).filter(t => {
+                const isExp = t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''));
+                if (!isExp) return false;
+                const standardCategories = ['expense_ads', 'expense_salary', 'expense_rent', 'supply_expense_shipping', 'expense_shipping_fees', 'supply_expense_other'];
+                return !standardCategories.includes(t.category || '');
+            }).reduce((sum, t) => sum + t.amount, 0), color: '#ec4899' },
         ].filter(c => c.value > 0);
 
         // Carrier Performance (Filter to processed orders only)
@@ -3017,7 +3022,7 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             totalLoss += loss;
         });
 
-        const totalExpenses = (wallet?.transactions || []).filter(t => t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_')).reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''))).reduce((sum, t) => sum + t.amount, 0);
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
         const inventoryValue = (settings?.products || []).reduce((sum, p) => {

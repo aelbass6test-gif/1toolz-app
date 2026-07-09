@@ -296,7 +296,7 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
         cogs += extraPosCOGS;
 
         // Expenses from wallet
-        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_')));
+        const expenseTxs = (wallet?.transactions || []).filter(t => t.type === 'سحب' && t.category && (t.category.startsWith('expense_') || t.category.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category)));
         const totalExpenses = expenseTxs.reduce((sum, t) => sum + t.amount, 0);
 
         // Losses from returns/failures
