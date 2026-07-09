@@ -2265,7 +2265,22 @@ export const AppComponent = () => {
         orders: activeStoreId ? allStoresData[activeStoreId]?.orders || [] : [],
         products: activeStoreId ? allStoresData[activeStoreId]?.settings?.products || [] : [],
         settings: activeStoreId ? allStoresData[activeStoreId]?.settings || INITIAL_SETTINGS : INITIAL_SETTINGS,
-        wallet: activeStoreId ? allStoresData[activeStoreId]?.wallet || { balance: 0, transactions: [] } : { balance: 0, transactions: [] },
+        wallet: (() => {
+            const rawWallet = activeStoreId ? allStoresData[activeStoreId]?.wallet || { balance: 0, transactions: [] } : { balance: 0, transactions: [] };
+            const txs = rawWallet.transactions || [];
+            const liveBalance = txs.reduce((sum: number, t: any) => {
+                const amount = Number(t.amount) || 0;
+                if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+                if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+                if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+                if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+                return sum;
+            }, 0);
+            return {
+                ...rawWallet,
+                balance: liveBalance
+            };
+        })(),
         treasury: activeStoreId ? allStoresData[activeStoreId]?.treasury || { accounts: [{ id: '1', name: 'الخزينة الرئيسية', type: 'safe', balance: 0, currency: 'EGP' }, { id: '2', name: 'فودافون كاش', type: 'wallet', balance: 0, currency: 'EGP' }, { id: '3', name: 'الحساب البنكي', type: 'bank', balance: 0, currency: 'EGP' }], transactions: [] } : undefined,
         cart,
         forceSync,
@@ -2344,6 +2359,18 @@ export const AppComponent = () => {
                     const newWallet = typeof updater === 'function' ? updater(currentWallet) : updater;
                     
                     if (currentWallet === newWallet) return p;
+
+                    if (newWallet && Array.isArray(newWallet.transactions)) {
+                        const txs = newWallet.transactions;
+                        newWallet.balance = txs.reduce((sum: number, t: any) => {
+                            const amount = Number(t.amount) || 0;
+                            if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+                            if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+                            if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+                            if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+                            return sum;
+                        }, 0);
+                    }
 
                     return {
                         ...p, 
