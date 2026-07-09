@@ -436,7 +436,14 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
           </div>
           ` : ''}
         </td>
-        <td class="text-center font-medium">${order.productPrice.toLocaleString()}</td>
+        <td class="text-center font-medium">
+          <div>${order.productPrice.toLocaleString()}</div>
+          ${order.discount > 0 ? `
+          <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: 800; white-space: nowrap;">
+            خصم: ${order.discount.toLocaleString()} ج.م
+          </div>
+          ` : ''}
+        </td>
         <td class="text-center text-gray-600">${productCost.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
         <td class="text-center">${totalQuantity}</td>
         <td class="text-center">
@@ -1127,13 +1134,21 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         const products = order.items.map(i => i.name).join(' + ') || order.productName;
         const quantities = order.items.map(i => i.quantity).join(' + ') || '1';
         const prices = order.items.map(i => i.price.toLocaleString()).join(' + ') || order.productPrice.toLocaleString();
+        const discountHtml = order.discount > 0 ? `
+          <div style="margin-top: 4px; font-size: 8px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 3px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
+            خصم: ${order.discount.toLocaleString()} ج.م
+          </div>
+        ` : '';
         
         return `
             <tr style="border-bottom: 1px solid #e5e7eb;">
                 <td style="padding: 8px;">${order.customerName}</td>
                 <td style="padding: 8px;">${products}</td>
                 <td style="padding: 8px; text-align: center;">${quantities}</td>
-                <td style="padding: 8px;">${prices}</td>
+                <td style="padding: 8px;">
+                  <div>${prices}</div>
+                  ${discountHtml}
+                </td>
                 <td style="padding: 8px;">${order.shippingFee.toLocaleString()}</td>
                 <td style="padding: 8px;">${(insuranceFee + inspectionCost + bostaVat).toLocaleString()}</td>
                 <td style="padding: 8px;">${order.productCost.toLocaleString()}</td>
@@ -1450,7 +1465,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                   </div>` : ''}
                 </td>
                 <td class="col-products">${productDetails}</td>
-                <td>${order.productPrice.toLocaleString()}</td>
+                <td>
+                  <div>${order.productPrice.toLocaleString()}</div>
+                  ${order.discount > 0 ? `
+                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
+                    خصم: ${order.discount.toLocaleString()} ج.م
+                  </div>
+                  ` : ''}
+                </td>
                 <td>${order.shippingFee.toLocaleString()}</td>
                 <td>${taxDisplay}</td>
                 <td>${productCost.toLocaleString()}</td>
