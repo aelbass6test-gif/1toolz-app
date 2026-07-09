@@ -523,25 +523,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   };
               }
 
-              // Revert Treasury if was treasury funded
-              if (currentOldOrder.paymentMethod === 'treasury') {
-                const oldTreasuryPayments = currentOldOrder.treasuryPayments || (currentOldOrder.treasuryAccountId ? [{ treasuryAccountId: currentOldOrder.treasuryAccountId, amount: (currentOldOrder.grandTotal || currentOldOrder.totalCost) }] : []);
-                setTreasury((prev: any) => ({
-                    ...prev,
-                    accounts: prev.accounts.map((acc: any) => {
-                        const pm = oldTreasuryPayments.find(p => p.treasuryAccountId === acc.id);
-                        if (pm) {
-                            return { ...acc, balance: acc.balance + pm.amount };
-                        }
-                        return acc;
-                    }),
-                    transactions: prev.transactions.filter((t: any) => 
-                        !t.id.startsWith(`supply_tx_${currentOldOrder.id}`) &&
-                        !t.id.startsWith(`expense_tx_${currentOldOrder.id}`)
-                    )
-                }));
-              }
-
               // Revert Custody if was custody funded
               if (currentOldOrder.paymentMethod === 'custody') {
                   const oldCustodyPayments = currentOldOrder.custodyPayments || [];
@@ -814,101 +795,6 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               });
           }
 
-          // 6. Update Treasury Balance
-          if (paymentMethod === 'treasury' && setTreasury) {
-              const outerSelectedTreasuryAccountId = selectedTreasuryAccountId;
-              setTreasury((prev: any) => {
-                 const activeTreasuryPayments = isSplitTreasury 
-                   ? treasuryPayments 
-                   : (outerSelectedTreasuryAccountId ? [{ treasuryAccountId: outerSelectedTreasuryAccountId, amount: orderPayableAmount }] : []);
-                 
-                 let newTxs = [...prev.transactions];
-                 const firstAccountId = activeTreasuryPayments[0]?.treasuryAccountId || '';
-                 const selectedTreasuryAccountId = firstAccountId || outerSelectedTreasuryAccountId;
-                 let updatedAccounts = [...prev.accounts];
-                 
-                 activeTreasuryPayments.forEach((p) => {
-                      updatedAccounts = updatedAccounts.map((acc: any) => 
-                          acc.id === p.treasuryAccountId 
-                          ? { ...acc, balance: acc.balance - p.amount } 
-                          : acc
-                      );
-                  });
-
-                 if (recordExpensesFormally) {
-                     if (shippingFees > 0) {
-                         newTxs.unshift({
-                             id: `expense_tx_${currentOrderId}_shipping`,
-                             date: new Date().toISOString(),
-                             type: 'expense',
-                             amount: shippingFees,
-                             category: 'supply_expense_shipping',
-                             fromAccountId: selectedTreasuryAccountId,
-                             description: `مصاريف شحن فاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
-                         });
-                         
-                         if (setWallet) {
-                            setWallet((prevW: any) => ({
-                                ...prevW,
-                                transactions: [{
-                                    id: `wallet_exp_${currentOrderId}_shipping`,
-                                    date: new Date().toISOString(),
-                                    type: 'سحب',
-                                    amount: shippingFees,
-                                    category: 'supply_expense_shipping',
-                                    note: `شحن فاتورة مشتريات: ${orderReference || currentOrderId}`,
-                                    status: 'completed'
-                                }, ...prevW.transactions]
-                            }));
-                         }
-                     }
-                     if (otherFees > 0) {
-                         newTxs.unshift({
-                             id: `expense_tx_${currentOrderId}_other`,
-                             date: new Date().toISOString(),
-                             type: 'expense',
-                             amount: otherFees,
-                             category: 'supply_expense_other',
-                             fromAccountId: selectedTreasuryAccountId,
-                             description: `مصاريف إضافية لفاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
-                         });
- 
-                         if (setWallet) {
-                            setWallet((prevW: any) => ({
-                                ...prevW,
-                                transactions: [{
-                                    id: `wallet_exp_${currentOrderId}_other`,
-                                    date: new Date().toISOString(),
-                                    type: 'سحب',
-                                    amount: otherFees,
-                                    category: 'supply_expense_other',
-                                    note: `مصاريف إضافية شحنة: ${orderReference || currentOrderId}`,
-                                    status: 'completed'
-                                }, ...prevW.transactions]
-                            }));
-                         }
-                     }
-                 }
-
-                 const baseAmount = recordExpensesFormally ? (orderPayableAmount - shippingFees - otherFees) : orderPayableAmount;
-
-                 newTxs.unshift({
-                     id: `supply_tx_${currentOrderId}`,
-                     date: new Date().toISOString(),
-                     type: 'withdrawal',
-                     amount: baseAmount,
-                     fromAccountId: selectedTreasuryAccountId,
-                     description: `شراء بضاعة من المورد ${supplier?.name} (أمر: ${orderReference || currentOrderId})`
-                 });
-                 
-                 return {
-                     ...prev,
-                     accounts: updatedAccounts,
-                     transactions: newTxs
-                 };
-              });
-          }
-
           if (editingOrder) {
               updatedOrders = updatedOrders.map(o => o.id === editingOrder.id ? {
                   ...o,
@@ -980,6 +866,91 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               cashHolders: updatedCashHolders
           };
       });
+
+      // Update Treasury
+      if (setTreasury && (paymentMethod === 'treasury' || (editingOrder && editingOrder.paymentMethod === 'treasury'))) {
+          const orderPayableAmount = totalCost - (shippingFeesPaymentMethod === 'wallet' ? shippingFees : 0);
+          const outerSelectedTreasuryAccountId = selectedTreasuryAccountId;
+
+          setTreasury((prev: any) => {
+              if (!prev) return prev;
+              let updatedAccounts = [...prev.accounts];
+              let newTxs = [...prev.transactions];
+
+              // 1. Revert Old if was treasury
+              if (editingOrder && editingOrder.paymentMethod === 'treasury') {
+                  const oldTreasuryPayments = editingOrder.treasuryPayments || (editingOrder.treasuryAccountId ? [{ treasuryAccountId: editingOrder.treasuryAccountId, amount: (editingOrder.grandTotal || editingOrder.totalCost) }] : []);
+                  updatedAccounts = updatedAccounts.map((acc: any) => {
+                      const pm = oldTreasuryPayments.find(p => String(p.treasuryAccountId) === String(acc.id));
+                      if (pm) return { ...acc, balance: (Number(acc.balance) || 0) + pm.amount };
+                      return acc;
+                  });
+                  newTxs = newTxs.filter(t => 
+                      !t.id.startsWith(`supply_tx_${editingOrder.id}`) && 
+                      !t.id.startsWith(`expense_tx_${editingOrder.id}`)
+                  );
+              }
+
+              // 2. Apply New if is treasury
+              if (paymentMethod === 'treasury') {
+                  const activeTreasuryPayments = isSplitTreasury 
+                    ? treasuryPayments 
+                    : (outerSelectedTreasuryAccountId ? [{ treasuryAccountId: outerSelectedTreasuryAccountId, amount: orderPayableAmount }] : []);
+                  
+                  const firstAccId = activeTreasuryPayments[0]?.treasuryAccountId || outerSelectedTreasuryAccountId;
+
+                  activeTreasuryPayments.forEach((p) => {
+                      updatedAccounts = updatedAccounts.map((acc: any) => 
+                          String(acc.id) === String(p.treasuryAccountId) 
+                          ? { ...acc, balance: (Number(acc.balance) || 0) - p.amount } 
+                          : acc
+                      );
+                  });
+
+                  if (recordExpensesFormally) {
+                      if (shippingFees > 0) {
+                          newTxs.unshift({
+                              id: `expense_tx_${currentOrderId}_shipping`,
+                              date: new Date().toISOString(),
+                              type: 'expense',
+                              amount: shippingFees,
+                              category: 'supply_expense_shipping',
+                              fromAccountId: firstAccId,
+                              description: `مصاريف شحن فاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
+                          });
+                      }
+                      if (otherFees > 0) {
+                          newTxs.unshift({
+                              id: `expense_tx_${currentOrderId}_other`,
+                              date: new Date().toISOString(),
+                              type: 'expense',
+                              amount: otherFees,
+                              category: 'supply_expense_other',
+                              fromAccountId: firstAccId,
+                              description: `مصاريف إضافية لفاتورة مشتريات (أمر: ${orderReference || currentOrderId})`
+                          });
+                      }
+                  }
+
+                  const baseAmount = recordExpensesFormally ? (orderPayableAmount - shippingFees - otherFees) : orderPayableAmount;
+
+                  newTxs.unshift({
+                      id: `supply_tx_${currentOrderId}`,
+                      date: new Date().toISOString(),
+                      type: 'withdrawal',
+                      amount: baseAmount,
+                      fromAccountId: firstAccId,
+                      description: `شراء بضاعة من المورد ${supplier?.name} (أمر: ${orderReference || currentOrderId})`
+                  });
+              }
+
+              return {
+                  ...prev,
+                  accounts: updatedAccounts,
+                  transactions: newTxs
+              };
+          });
+      }
 
       // Update Wallet
       if (paymentMethod === 'cash' || paymentMethod === 'partner' || paymentMethod === 'supply_wallet') {

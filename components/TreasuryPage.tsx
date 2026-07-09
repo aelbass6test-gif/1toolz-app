@@ -26,6 +26,25 @@ interface TreasuryPageProps {
 
 export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury, wallet, setWallet }) => {
   const accounts = treasury?.accounts || [];
+  const virtualAccounts: TreasuryAccount[] = [
+    {
+      id: 'main_wallet',
+      name: 'المحفظة العامة (الرصيد الأساسي)',
+      type: 'wallet',
+      balance: Number(wallet?.balance || 0),
+      currency: 'EGP',
+      walletName: 'المحفظة العامة'
+    },
+    {
+      id: 'supply_wallet',
+      name: 'محفظة التوريد (رأس مال المخزون)',
+      type: 'wallet',
+      balance: Number(wallet?.supplyBalance || 0),
+      currency: 'EGP',
+      walletName: 'محفظة التوريد'
+    }
+  ];
+  const allAccounts = [...virtualAccounts, ...accounts];
   const transactions = treasury?.transactions || [];
   
   // Modals state
@@ -272,7 +291,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
 
     // Overdraft safeguard check
     if (fromAccountId) {
-      const srcAcc = accounts.find(a => a.id === fromAccountId);
+      const srcAcc = allAccounts.find(a => a.id === fromAccountId);
       if (srcAcc && srcAcc.balance < amount) {
         setAlertConfig({
           isOpen: true,
@@ -297,39 +316,55 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
     if (setTreasury) {
       setTreasury((prev: Treasury) => {
         let updatedAccounts = [...prev.accounts];
-        if (newTx.fromAccountId) {
+        if (newTx.fromAccountId && !['main_wallet', 'supply_wallet'].includes(newTx.fromAccountId)) {
           updatedAccounts = updatedAccounts.map(acc => 
             acc.id === newTx.fromAccountId ? { ...acc, balance: acc.balance - amount } : acc
           );
         }
-        if (newTx.toAccountId && newTx.toAccountId !== 'supply_wallet') {
+        if (newTx.toAccountId && !['main_wallet', 'supply_wallet'].includes(newTx.toAccountId)) {
           updatedAccounts = updatedAccounts.map(acc => 
             acc.id === newTx.toAccountId ? { ...acc, balance: acc.balance + amount } : acc
           );
         }
         return {
+          ...prev,
           accounts: updatedAccounts,
           transactions: [newTx, ...prev.transactions]
         };
       });
     }
 
-    if (toAccountId === 'supply_wallet' && setWallet) {
+    // Handle wallet updates if virtual accounts are used
+    if (setWallet && (fromAccountId === 'main_wallet' || fromAccountId === 'supply_wallet' || toAccountId === 'main_wallet' || toAccountId === 'supply_wallet')) {
       setWallet((prev: any) => {
-        const sourceAccName = accounts.find(a => a.id === fromAccountId)?.name || 'الخزينة';
-        const walletTx = {
-          id: `TR-TREASURY-${Date.now()}`,
-          type: 'إيداع',
-          amount,
-          date: new Date().toISOString(),
-          note: `شحن محفظة التوريد بتحويل من حساب الخزينة (${sourceAccName}): ${transDesc}`,
-          category: 'supply_funding',
-          status: 'completed'
-        };
+        let newBalance = Number(prev.balance) || 0;
+        let newSupplyBalance = Number(prev.supplyBalance) || 0;
+        const walletTxs = [...(prev.transactions || [])];
+
+        // Handle From
+        if (fromAccountId === 'main_wallet') newBalance -= amount;
+        if (fromAccountId === 'supply_wallet') newSupplyBalance -= amount;
+
+        // Handle To
+        if (toAccountId === 'main_wallet') newBalance += amount;
+        if (toAccountId === 'supply_wallet') newSupplyBalance += amount;
+
+        // Add wallet transaction record
+        walletTxs.unshift({
+            id: `TR-${newTx.id}`,
+            type: transactionType === 'transfer' ? 'تحويل' : (toAccountId ? 'إيداع' : 'سحب'),
+            amount,
+            date: newTx.date,
+            note: transDesc || `عملية خزينة: ${transactionType}`,
+            category: 'treasury_sync',
+            status: 'completed'
+        });
+
         return {
-          ...prev,
-          supplyBalance: (prev.supplyBalance || 0) + amount,
-          transactions: [walletTx, ...(prev.transactions || [])]
+            ...prev,
+            balance: newBalance,
+            supplyBalance: newSupplyBalance,
+            transactions: walletTxs
         };
       });
     }
@@ -450,7 +485,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {accounts.map(acc => (
+          {allAccounts.map(acc => (
             <div key={acc.id} className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/85 p-6 hover:shadow-xl hover:border-indigo-500/20 dark:hover:border-indigo-500/20 transition-all duration-300 flex flex-col justify-between min-h-[14rem] group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-bl-full pointer-events-none"></div>
               <div>
@@ -463,28 +498,35 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                   }`} style={{backgroundColor: acc.type === 'safe' ? 'rgba(16, 185, 129, 0.08)' : acc.type === 'bank' ? 'rgba(59, 130, 246, 0.08)' : acc.type === 'wallet' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(245, 158, 11, 0.08)'}}>
                     {getAccountIcon(acc.type)}
                   </div>
-                  <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                    {acc.type === 'safe' ? 'خزينة' : acc.type === 'bank' ? 'حساب بنكي' : acc.type === 'wallet' ? 'محفظة' : 'عهدة موقتة'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {['main_wallet', 'supply_wallet'].includes(acc.id) && (
+                      <span className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 px-2 py-1 rounded-lg font-black italic">أساسي</span>
+                    )}
+                    <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                      {acc.type === 'safe' ? 'خزينة' : acc.type === 'bank' ? 'حساب بنكي' : acc.type === 'wallet' ? 'محفظة' : 'عهدة موقتة'}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <h4 className="text-slate-800 dark:text-slate-100 font-extrabold text-base truncate" title={acc.name}>{acc.name}</h4>
-                  <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                     <button 
-                       onClick={(e) => { e.stopPropagation(); startEditAccount(acc); }} 
-                       className="p-1.5 bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer" 
-                       title="تعديل الحساب"
-                     >
-                       <Edit2 className="w-3.5 h-3.5" />
-                     </button>
-                     <button 
-                       onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc); }} 
-                       className="p-1.5 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer" 
-                       title="حذف الحساب"
-                     >
-                       <Trash2 className="w-3.5 h-3.5" />
-                     </button>
-                  </div>
+                  {!['main_wallet', 'supply_wallet'].includes(acc.id) && (
+                    <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); startEditAccount(acc); }} 
+                        className="p-1.5 bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/50 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer" 
+                        title="تعديل الحساب"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc); }} 
+                        className="p-1.5 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer" 
+                        title="حذف الحساب"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 
                 {acc.type === 'bank' && (
@@ -562,10 +604,10 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                     {tx.description}
                   </td>
                   <td className="p-4 text-sm text-slate-500">
-                    {tx.fromAccountId ? accounts.find(a => a.id === tx.fromAccountId)?.name : '-'}
+                    {tx.fromAccountId ? allAccounts.find(a => a.id === tx.fromAccountId)?.name : '-'}
                   </td>
                   <td className="p-4 text-sm text-slate-500">
-                    {tx.toAccountId ? accounts.find(a => a.id === tx.toAccountId)?.name : '-'}
+                    {tx.toAccountId ? allAccounts.find(a => a.id === tx.toAccountId)?.name : '-'}
                   </td>
                   <td className={`p-4 text-sm font-black tabular-nums ${
                     tx.type === 'deposit' ? 'text-emerald-600' :
@@ -740,7 +782,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                     required
                   >
                     <option value="">-- اختر الحساب --</option>
-                    {accounts.map(acc => (
+                    {allAccounts.map(acc => (
                       <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {acc.balance.toLocaleString()} ج.م)</option>
                     ))}
                   </select>
@@ -758,7 +800,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                   >
                     <option value="">-- اختر الحساب --</option>
                     
-                    {accounts.filter(acc => transactionType !== 'advance' || acc.type === 'custody').map(acc => (
+                    {allAccounts.filter(acc => transactionType !== 'advance' || acc.type === 'custody').map(acc => (
                       <option key={acc.id} value={acc.id} disabled={acc.id === fromAccount}>{acc.name} {acc.type === 'custody' ? '(عهدة)' : ''}</option>
                     ))}
                   </select>
@@ -921,8 +963,8 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                   <h4 className="font-extrabold text-slate-800 dark:text-slate-100 text-base">{transactionToDelete.description}</h4>
                   <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                     {new Date(transactionToDelete.date).toLocaleDateString('ar-EG')} | الحساب: {
-                      transactionToDelete.fromAccountId ? accounts.find(a => a.id === transactionToDelete.fromAccountId)?.name :
-                      transactionToDelete.toAccountId ? accounts.find(a => a.id === transactionToDelete.toAccountId)?.name : '-'
+                      transactionToDelete.fromAccountId ? allAccounts.find(a => a.id === transactionToDelete.fromAccountId)?.name :
+                      transactionToDelete.toAccountId ? allAccounts.find(a => a.id === transactionToDelete.toAccountId)?.name : '-'
                     }
                   </p>
                 </div>
@@ -951,8 +993,8 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                         <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{tx.description}</p>
                         <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                           الحساب: {
-                            tx.fromAccountId ? accounts.find(a => a.id === tx.fromAccountId)?.name :
-                            tx.toAccountId ? accounts.find(a => a.id === tx.toAccountId)?.name : '-'
+                            tx.fromAccountId ? allAccounts.find(a => a.id === tx.fromAccountId)?.name :
+                            tx.toAccountId ? allAccounts.find(a => a.id === tx.toAccountId)?.name : '-'
                           }
                         </p>
                       </div>

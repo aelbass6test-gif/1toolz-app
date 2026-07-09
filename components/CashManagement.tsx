@@ -52,7 +52,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   const [selectedHandover, setSelectedHandover] = useState<CashHandover | null>(null);
 
   // New Handover Form
-  const [handoverType, setHandoverType] = useState<'holder' | 'treasury' | 'supply_wallet'>('holder');
+  const [handoverType, setHandoverType] = useState<'holder' | 'treasury' | 'supply_wallet' | 'main_wallet'>('holder');
   const [newHandover, setNewHandover] = useState({
     fromUserId: '',
     toUserId: '',
@@ -274,22 +274,24 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
           };
         });
       }
-    } else if (handoverType === 'supply_wallet') {
-      // Update Supply Wallet
+    } else if (handoverType === 'supply_wallet' || handoverType === 'main_wallet') {
+      // Update Wallets
       if (setWallet) {
         setWallet((prev: any) => {
+          const isMain = handoverType === 'main_wallet';
           const walletTx = {
-            id: `TR-CUSTODY-${Date.now()}`,
+            id: `HND-${Date.now()}`,
             type: 'إيداع',
             amount,
             date: new Date().toISOString(),
-            note: `توريد عهدة نقدية من ${fromUserName} إلى محفظة التوريد: ${newHandover.notes || ''}`,
-            category: 'supply_funding',
+            note: `توريد عهدة نقدية من ${fromUserName} إلى ${isMain ? 'المحفظة العامة' : 'محفظة التوريد'}: ${newHandover.notes || ''}`,
+            category: isMain ? 'general_deposit' : 'supply_funding',
             status: 'completed'
           };
           return {
             ...prev,
-            supplyBalance: (prev.supplyBalance || 0) + amount,
+            balance: isMain ? (Number(prev.balance) || 0) + amount : prev.balance,
+            supplyBalance: !isMain ? (Number(prev.supplyBalance) || 0) + amount : prev.supplyBalance,
             transactions: [walletTx, ...(prev.transactions || [])]
           };
         });
@@ -314,11 +316,11 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         {
           id: `log-${Date.now()}`,
           user: fromUserName,
-          action: handoverType === 'treasury' ? 'توريد عهدة للخزينة' : handoverType === 'supply_wallet' ? 'توريد عهدة لمحفظة التوريد' : 'تسليم نقدية',
+          action: handoverType === 'treasury' ? 'توريد عهدة للخزينة' : (handoverType === 'main_wallet' || handoverType === 'supply_wallet') ? 'توريد عهدة للمحفظة' : 'تسليم نقدية',
           details: handoverType === 'treasury' 
             ? `توريد مبلغ ${amount} ج.م من عهدة ${fromUserName} إلى حساب ${toUserName}`
-            : handoverType === 'supply_wallet'
-            ? `توريد مبلغ ${amount} ج.م من عهدة ${fromUserName} إلى محفظة التوريد (رأس مال المخزون)`
+            : (handoverType === 'main_wallet' || handoverType === 'supply_wallet')
+            ? `توريد مبلغ ${amount} ج.م من عهدة ${fromUserName} إلى ${handoverType === 'main_wallet' ? 'المحفظة العامة' : 'محفظة التوريد'}`
             : `تسليم مبلغ ${amount} ج.م من عهدة ${fromUserName} إلى ${handoverData.toUserName}`,
           date: new Date().toLocaleString('ar-EG'),
           timestamp: Date.now()
@@ -331,6 +333,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     setNewHandover({ fromUserId: '', toUserId: '', amount: 0, notes: '' });
     alert(
       handoverType === 'treasury' ? 'تم توريد مبلغ العهدة للخزينة بنجاح وترقية الحساب' :
+      handoverType === 'main_wallet' ? 'تم توريد مبلغ العهدة للمحفظة العامة بنجاح' :
       handoverType === 'supply_wallet' ? 'تم توريد مبلغ العهدة لمحفظة التوريد بنجاح' :
       'تم تسجيل عملية التسليم وتحديث العهد بنجاح'
     );
@@ -343,10 +346,13 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
     const amount = Number(treasuryAmount);
     const isSupplyWallet = selectedTreasuryAccountId === 'supply_wallet';
+    const isMainWallet = selectedTreasuryAccountId === 'main_wallet';
     
     let toUserName = '';
     if (isSupplyWallet) {
       toUserName = 'محفظة التوريد (رأس مال المخزون)';
+    } else if (isMainWallet) {
+      toUserName = 'المحفظة العامة (الرصيد الأساسي)';
     } else {
       const treasuryAccountsList = treasury?.accounts || [];
       const targetAccount = treasuryAccountsList.find((acc: any) => acc.id === selectedTreasuryAccountId);
@@ -359,7 +365,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       id: handoverId,
       fromUserId: selectedHolderForTreasury.userId,
       fromUserName: selectedHolderForTreasury.userName,
-      toUserId: isSupplyWallet ? 'supply_wallet' : `treasury_${selectedTreasuryAccountId}`,
+      toUserId: isSupplyWallet ? 'supply_wallet' : isMainWallet ? 'main_wallet' : `treasury_${selectedTreasuryAccountId}`,
       toUserName,
       amount,
       date: new Date().toISOString(),
@@ -380,7 +386,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     });
 
     // Update Destination state
-    if (isSupplyWallet) {
+    if (isSupplyWallet || isMainWallet) {
       if (setWallet) {
         setWallet((prev: any) => {
           const walletTx = {
@@ -388,13 +394,14 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
             type: 'إيداع',
             amount,
             date: new Date().toISOString(),
-            note: `توريد عهدة نقدية من الموظف/الشريك ${selectedHolderForTreasury.userName} إلى محفظة التوريد: ${treasuryNotes || ''}`,
-            category: 'supply_funding',
+            note: `توريد عهدة نقدية من الموظف/الشريك ${selectedHolderForTreasury.userName} إلى ${isMainWallet ? 'المحفظة العامة' : 'محفظة التوريد'}: ${treasuryNotes || ''}`,
+            category: isMainWallet ? 'general_deposit' : 'supply_funding',
             status: 'completed'
           };
           return {
             ...prev,
-            supplyBalance: (prev.supplyBalance || 0) + amount,
+            balance: isMainWallet ? (Number(prev.balance) || 0) + amount : prev.balance,
+            supplyBalance: !isMainWallet ? (Number(prev.supplyBalance) || 0) + amount : prev.supplyBalance,
             transactions: [walletTx, ...(prev.transactions || [])]
           };
         });
@@ -673,16 +680,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                      <label className="text-xs font-black text-slate-500 uppercase mr-1 flex items-center gap-1.5 justify-end">
                        جهة تسليم المبلغ
                      </label>
-                     <div className="grid grid-cols-3 gap-1.5">
+                     <div className="grid grid-cols-4 gap-1.5">
                         <button
                           type="button"
                           onClick={() => {
                             setHandoverType('holder');
                             setNewHandover({ ...newHandover, toUserId: '' });
                           }}
-                          className={`py-2 px-1.5 rounded-xl text-[10px] sm:text-xs font-black border transition-all ${handoverType === 'holder' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                          className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'holder' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                         >
-                          عهدة شخصية
+                          عهدة
                         </button>
                         <button
                           type="button"
@@ -690,11 +697,30 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                             setHandoverType('treasury');
                             setNewHandover({ ...newHandover, toUserId: treasury?.accounts?.[0]?.id || '' });
                           }}
-                          className={`py-2 px-1.5 rounded-xl text-[10px] sm:text-xs font-black border transition-all ${handoverType === 'treasury' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                          className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'treasury' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                         >
-                          خزينة بالمنظومة
+                          خزينة
                         </button>
-                        
+                        <button
+                           type="button"
+                           onClick={() => {
+                             setHandoverType('main_wallet');
+                             setNewHandover({ ...newHandover, toUserId: 'main_wallet' });
+                           }}
+                           className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'main_wallet' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                         >
+                           المحفظة
+                         </button>
+                         <button
+                           type="button"
+                           onClick={() => {
+                             setHandoverType('supply_wallet');
+                             setNewHandover({ ...newHandover, toUserId: 'supply_wallet' });
+                           }}
+                           className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'supply_wallet' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                         >
+                           التوريد
+                         </button>
                      </div>
                   </div>
 
@@ -848,9 +874,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                     >
                       <option value="">-- اختر الحساب المالي --</option>
                       
-                      {(treasury?.accounts || []).map((acc: any) => (
-                        <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
-                      ))}
+                      <optgroup label="المحافظ الإلكترونية">
+                         <option value="main_wallet">المحفظة العامة (الرصيد: {Number(wallet?.balance || 0).toLocaleString()} ج.م)</option>
+                         <option value="supply_wallet">محفظة التوريد (الرصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م)</option>
+                      </optgroup>
+
+                      <optgroup label="الخزائن والحسابات البنكية">
+                        {(treasury?.accounts || []).map((acc: any) => (
+                          <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
+                        ))}
+                      </optgroup>
                     </select>
                  </div>
                  
