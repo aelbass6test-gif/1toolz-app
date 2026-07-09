@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { 
   Search, 
   History, 
@@ -20,12 +20,14 @@ import {
   Download, 
   RefreshCw,
   TrendingUp as ProfitIcon,
-  HelpCircle
+  HelpCircle,
+  FileText
 } from 'lucide-react';
 import { Order, Settings, Store, OrderItem } from '../types';
 import { generateCollectionsReportHTML } from '../utils/reportGenerator';
 import { isBosta, calculateInsuranceFee, calculateBostaVat, calculateOrderProfitLoss, calculateCodFee } from '../utils/financials';
 import { printHTMLDirectly } from '../utils/printHelper';
+import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { 
   AreaChart, 
   Area, 
@@ -69,6 +71,25 @@ interface UpgradedBreakdownDetails {
 const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, settings, activeStore }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBreakdown, setSelectedBreakdown] = useState<UpgradedBreakdownDetails | null>(null);
+  
+  const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(null);
+  const [reportIsContinuous, setReportIsContinuous] = useState(false);
+  const [reportOrientation, setReportOrientation] = useState<'portrait' | 'landscape'>('portrait');
+
+  useEffect(() => {
+    if (reportPreviewHtml !== null) {
+      const storeName = activeStore?.name || "متجري";
+      const html = generateCollectionsReportHTML(
+        collectedOrders,
+        settings,
+        storeName,
+        undefined,
+        reportIsContinuous,
+        reportOrientation
+      );
+      setReportPreviewHtml(html);
+    }
+  }, [reportIsContinuous, reportOrientation]);
 
   if (!settings) return null;
   
@@ -300,8 +321,10 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
 
   const handlePrintReport = () => {
     const storeName = activeStore?.name || 'متجري';
-    const html = generateCollectionsReportHTML(collectedOrders, settings, storeName);
-    printHTMLDirectly(html);
+    setReportIsContinuous(false);
+    setReportOrientation('portrait');
+    const html = generateCollectionsReportHTML(collectedOrders, settings, storeName, undefined, false, 'portrait');
+    setReportPreviewHtml(html);
   };
 
   const handleExportCSV = () => {
@@ -1019,6 +1042,98 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                     <span className="text-2xl font-black">{selectedBreakdown.net.toLocaleString()} ج.م</span>
                   </div>
                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Preview Modal */}
+      {reportPreviewHtml && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500">
+                  <FileText size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                    معاينة تقرير التحصيلات
+                  </h3>
+                  <p className="text-xs font-bold text-slate-500">
+                    راجع البيانات قبل الطباعة أو التحميل
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                {/* Pages / Continuous Toggle */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700" dir="rtl">
+                  <button
+                    onClick={() => setReportIsContinuous(false)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${!reportIsContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    صفحات
+                  </button>
+                  <button
+                    onClick={() => setReportIsContinuous(true)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reportIsContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    متصل
+                  </button>
+                </div>
+
+                {/* Portrait / Landscape Toggle */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700" dir="rtl">
+                  <button
+                    onClick={() => setReportOrientation("portrait")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reportOrientation === "portrait" ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    طولي
+                  </button>
+                  <button
+                    onClick={() => setReportOrientation("landscape")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reportOrientation === "landscape" ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    عرضي
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={async () => {
+                    const filename = `تقرير_التحصيلات_${new Date().toISOString().split('T')[0]}.pdf`;
+                    await exportHTMLToPDF(reportPreviewHtml, reportOrientation, filename, reportIsContinuous);
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-emerald-600/10"
+                >
+                  <Download size={18} />
+                  <span>تصدير PDF</span>
+                </button>
+                <button
+                  onClick={() => {
+                    printHTMLDirectly(reportPreviewHtml);
+                  }}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  <Printer size={18} />
+                  <span>طباعة / تحميل</span>
+                </button>
+                <button
+                  onClick={() => setReportPreviewHtml(null)}
+                  className="p-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-slate-100 dark:bg-slate-950 p-6 overflow-hidden">
+              <iframe
+                srcDoc={reportPreviewHtml}
+                className="w-full h-full border-none rounded-xl shadow-inner bg-white"
+                title="Report Preview"
+              />
             </div>
           </div>
         </div>

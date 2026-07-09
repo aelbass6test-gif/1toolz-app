@@ -9,16 +9,21 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         container = document.createElement('div');
         container.className = 'pdf-container';
         // Ensure the HTML string is wrapped in a container with explicit white background for rendering and sanitized with DOMPurify
-        const sanitizedHtml = DOMPurify.sanitize(elementOrHtml, { ADD_ATTR: ['style'] });
+        // Explicitly allow <style> tags so report styles are not stripped
+        const sanitizedHtml = DOMPurify.sanitize(elementOrHtml, { ADD_TAGS: ['style'], ADD_ATTR: ['style'] });
         // Replace oklab/oklch colors with a fallback to avoid PDF export error
         const cleanHtml = convertOklchAndOklabToRgb(sanitizedHtml);
-        container.innerHTML = `<div style="background: white !important; width: 100%; min-height: 100%; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${cleanHtml}</div>`;
+        container.innerHTML = `<div class="pdf-inner-wrapper" style="background: white !important; width: 100%; height: auto !important; min-height: auto !important; overflow: visible !important; padding: 20px; font-family: 'Cairo', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">${cleanHtml}</div>`;
         
         // Use visible but off-screen positioning to ensure browser renders it fully
         container.style.position = 'fixed';
         container.style.left = '-9999px';
         container.style.top = '0';
         container.style.width = orientation === 'landscape' ? '297mm' : '210mm';
+        container.style.height = 'auto';
+        container.style.minHeight = 'auto';
+        container.style.maxHeight = 'none';
+        container.style.overflow = 'visible';
         container.style.zIndex = '-9999';
         container.style.background = 'white';
         container.style.opacity = '1';
@@ -99,9 +104,22 @@ export async function exportHTMLToPDF(elementOrHtml: HTMLElement | string, orien
         
         if (isContinuous) {
             // Measure exact container height after browser rendering
-            const containerHeightPx = Math.max(container.scrollHeight, container.offsetHeight, container.getBoundingClientRect().height, 500);
+            const innerWrapper = container.querySelector('.pdf-inner-wrapper') as HTMLElement || container;
+            const containerHeightPx = Math.max(
+                innerWrapper.scrollHeight,
+                innerWrapper.offsetHeight,
+                innerWrapper.getBoundingClientRect().height,
+                container.scrollHeight,
+                container.offsetHeight,
+                500
+            );
             // Convert px to mm (1 inch = 96 px = 25.4 mm) and add safety margin so it never splits into multiple pages
-            const calculatedHeightMm = Math.max(widthMm, Math.ceil((containerHeightPx * 25.4) / 96) + 20);
+            let calculatedHeightMm = Math.max(widthMm, Math.ceil((containerHeightPx * 25.4) / 96) + 30);
+            
+            // jsPDF max size is 14400 points = 5080 mm. If it exceeds, cap it to avoid breaking or throwing.
+            if (calculatedHeightMm > 5080) {
+                calculatedHeightMm = 5080;
+            }
             formatOption = [widthMm, calculatedHeightMm];
         }
 

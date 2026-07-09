@@ -360,7 +360,14 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
   `;
 };
 
-export const generateOrdersReportHTML = (orders: Order[], settings: Settings, storeName: string, dateRangeText?: string): string => {
+export const generateOrdersReportHTML = (
+  orders: Order[],
+  settings: Settings,
+  storeName: string,
+  dateRangeText?: string,
+  isContinuous: boolean = false,
+  orientation: 'portrait' | 'landscape' = 'landscape'
+): string => {
   let totalProfit = 0;
   let totalCollectedAmount = 0;
   let totalItems = 0;
@@ -478,26 +485,29 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
       <title>تقرير الطلبات - ${storeName}</title>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
-        @page { size: A4 landscape; margin: 1cm; }
+    @theme {
+      --font-sans: "Cairo", "Inter", ui-sans-serif, system-ui, sans-serif;
+    }
+    @page { size: ${isContinuous ? 'auto' : `A4 ${orientation}`}; margin: ${isContinuous ? '0' : '1cm'}; }
         * { box-sizing: border-box; }
         body { 
           font-family: 'Cairo', sans-serif; 
           font-size: 11px; 
           -webkit-print-color-adjust: exact; 
           color-adjust: exact; 
-          background-color: #f8fafc;
+          background-color: ${isContinuous ? '#ffffff' : '#f8fafc'};
           color: #334155;
           margin: 0;
-          padding: 20px;
+          padding: ${isContinuous ? '10px' : '20px'};
         }
         .report-container { 
           width: 100%; 
-          max-width: 1200px;
+          max-width: ${isContinuous ? '100%' : (orientation === 'landscape' ? '297mm' : '210mm')};
           margin: 0 auto;
           background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-          padding: 30px;
+          border-radius: ${isContinuous ? '0' : '12px'};
+          box-shadow: ${isContinuous ? 'none' : '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'};
+          padding: ${isContinuous ? '15px' : '30px'};
         }
         .header-section {
           display: flex;
@@ -673,7 +683,14 @@ export const generateOrdersReportHTML = (orders: Order[], settings: Settings, st
   `;
 };
 
-export const generateCollectionsReportHTML = (orders: Order[], settings: Settings, storeName: string, dateRangeText?: string): string => {
+export const generateCollectionsReportHTML = (
+  orders: Order[],
+  settings: Settings,
+  storeName: string,
+  dateRangeText?: string,
+  isContinuous: boolean = false,
+  orientation: 'portrait' | 'landscape' = 'portrait'
+): string => {
     let totalGross = 0;
     let totalNetProfit = 0;
 
@@ -743,26 +760,26 @@ export const generateCollectionsReportHTML = (orders: Order[], settings: Setting
       <title>تقرير التحصيلات - ${storeName}</title>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet" crossorigin="anonymous">
       <style>
-        @page { size: A4 portrait; margin: 1cm; }
+    @page { size: ${isContinuous ? 'auto' : `A4 ${orientation}`}; margin: ${isContinuous ? '0' : '1cm'}; }
         * { box-sizing: border-box; }
         body { 
           font-family: 'Cairo', sans-serif; 
           font-size: 12px; 
           -webkit-print-color-adjust: exact; 
           color-adjust: exact; 
-          background-color: #f8fafc;
+          background-color: ${isContinuous ? '#ffffff' : '#f8fafc'};
           color: #334155;
           margin: 0;
-          padding: 20px;
+          padding: ${isContinuous ? '10px' : '20px'};
         }
         .report-container { 
           width: 100%; 
-          max-width: 900px;
+          max-width: ${isContinuous ? '100%' : (orientation === 'landscape' ? '297mm' : '210mm')};
           margin: 0 auto;
           background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-          padding: 30px;
+          border-radius: ${isContinuous ? '0' : '12px'};
+          box-shadow: ${isContinuous ? 'none' : '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'};
+          padding: ${isContinuous ? '15px' : '30px'};
         }
         .header-section {
           display: flex;

@@ -120,6 +120,7 @@ import {
 import { generateOrdersReportHTML } from "../utils/reportGenerator";
 import { triggerWebhooks } from "../utils/webhook";
 import { printHTMLDirectly } from "../utils/printHelper";
+import { exportHTMLToPDF } from "../utils/pdfHelper";
 import { OrderDetailsModal } from "./OrderDetailsModal";
 import {
   AreaChart,
@@ -506,6 +507,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [reportPreviewHtml, setReportPreviewHtml] = useState<string | null>(
     null,
   );
+  const [reportIsContinuous, setReportIsContinuous] = useState(false);
+  const [reportOrientation, setReportOrientation] = useState<"portrait" | "landscape">("landscape");
+
+  useEffect(() => {
+    if (reportPreviewHtml !== null) {
+      const storeName = activeStore?.name || "متجري";
+      const html = generateOrdersReportHTML(
+        filteredOrders,
+        settings,
+        storeName,
+        undefined,
+        reportIsContinuous,
+        reportOrientation
+      );
+      setReportPreviewHtml(html);
+    }
+  }, [reportIsContinuous, reportOrientation]);
 
   const addAuditLog = (orderId: string, action: string, details: string) => {
     setOrders((prev) =>
@@ -2951,13 +2969,17 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   const handleExportOrders = () => {
     const storeName = activeStore?.name || "متجري";
-    const html = generateOrdersReportHTML(filteredOrders, settings, storeName);
+    setReportIsContinuous(false);
+    setReportOrientation("landscape");
+    const html = generateOrdersReportHTML(filteredOrders, settings, storeName, undefined, false, "landscape");
     setReportPreviewHtml(html);
   };
 
   const handleExportPDF = () => {
     const storeName = activeStore?.name || "متجري";
-    const html = generateOrdersReportHTML(filteredOrders, settings, storeName);
+    setReportIsContinuous(false);
+    setReportOrientation("landscape");
+    const html = generateOrdersReportHTML(filteredOrders, settings, storeName, undefined, false, "landscape");
     setReportPreviewHtml(html);
   };
 
@@ -4663,7 +4685,50 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                   </p>
                 </div>
               </div>
+              <div className="flex items-center gap-4">
+                {/* Pages / Continuous Toggle */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700" dir="rtl">
+                  <button
+                    onClick={() => setReportIsContinuous(false)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${!reportIsContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    صفحات
+                  </button>
+                  <button
+                    onClick={() => setReportIsContinuous(true)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reportIsContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    متصل
+                  </button>
+                </div>
+
+                {/* Portrait / Landscape Toggle */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700" dir="rtl">
+                  <button
+                    onClick={() => setReportOrientation("portrait")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reportOrientation === "portrait" ? 'bg-white dark:bg-slate-700 shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    طولي
+                  </button>
+                  <button
+                    onClick={() => setReportOrientation("landscape")}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${reportOrientation === "landscape" ? 'bg-white dark:bg-slate-700 shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                  >
+                    عرضي
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center gap-3">
+                <button
+                  onClick={async () => {
+                    const filename = `تقرير_الطلبات_${new Date().toISOString().split('T')[0]}.pdf`;
+                    await exportHTMLToPDF(reportPreviewHtml, reportOrientation, filename, reportIsContinuous);
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-emerald-600/10"
+                >
+                  <Download size={18} />
+                  <span>تصدير PDF</span>
+                </button>
                 <button
                   onClick={() => {
                     printHTMLDirectly(reportPreviewHtml);
