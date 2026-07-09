@@ -289,11 +289,24 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         category: 'wallet_withdrawal'
       };
 
+      const feeTransaction: Transaction | null = fee > 0 ? {
+        id: `WTF-${Date.now()}`,
+        type: 'سحب',
+        amount: fee,
+        fees: 0,
+        date: new Date().toISOString(),
+        status: 'completed',
+        note: `رسوم تحويل داخلي إلى خزينة: ${selectedAccount?.name || 'غير معروف'}`,
+        category: 'withdrawal_fee'
+      } : null;
+
+      const walletTransactions = feeTransaction ? [newTransaction, feeTransaction] : [newTransaction];
+
       // update wallet
       setWallet(prev => ({
         ...prev,
-        transactions: [newTransaction, ...prev.transactions],
-        balance: prev.balance - numAmount
+        transactions: [...walletTransactions, ...prev.transactions],
+        balance: prev.balance - totalDeduction
       }));
 
       // update treasury
@@ -304,15 +317,29 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           type: 'deposit',
           amount: numAmount,
           description: 'تحويل وارد من محفظة الشحن الأساسية',
+          fromAccountId: 'main_wallet',
           toAccountId: selectedTreasuryId
         };
+
+        const feeTreasuryTx: any = fee > 0 ? {
+          id: `TWF-${Date.now()}`,
+          date: new Date().toISOString(),
+          type: 'withdrawal',
+          amount: fee,
+          description: `رسوم تحويل داخلي إلى خزينة: ${selectedAccount?.name || 'غير معروف'}`,
+          fromAccountId: 'main_wallet'
+        } : null;
+
+        const treasuryTransactions = feeTreasuryTx 
+          ? [newTreasuryTx, feeTreasuryTx, ...(prev.transactions || [])] 
+          : [newTreasuryTx, ...(prev.transactions || [])];
         
         return {
           ...prev,
           accounts: prev.accounts.map(acc => 
             acc.id === selectedTreasuryId ? { ...acc, balance: acc.balance + numAmount } : acc
           ),
-          transactions: [newTreasuryTx, ...(prev.transactions || [])]
+          transactions: treasuryTransactions
         };
       });
 

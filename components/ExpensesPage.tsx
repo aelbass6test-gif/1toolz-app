@@ -213,15 +213,15 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
 
   const liveBalance = useMemo(() => {
-    return (wallet.transactions || []).reduce((sum, t) => {
+    return wallet.balance ?? (wallet.transactions || []).reduce((sum, t) => {
         const amount = Number(t.amount) || 0;
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
-        if (t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) return sum;
+        if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
         if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
         if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
         return sum;
     }, 0);
-  }, [wallet.transactions]);
+  }, [wallet.transactions, wallet.balance]);
 
   const expenses = useMemo(() => {
       return wallet.transactions
