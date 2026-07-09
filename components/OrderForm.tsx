@@ -62,7 +62,9 @@ import {
   Compass,
   ArrowRightCircle,
   ArrowLeftCircle,
-  Edit3
+  Edit3,
+  Lock,
+  Unlock
 } from "lucide-react";
 import {
   Order,
@@ -747,6 +749,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     itemDiscounts,
     orderData.shippingFee,
     orderData.discount,
+    orderData.discountAffectsInsurance,
     orderData.governorate,
     orderData.city,
     orderData.shippingArea,
@@ -1929,9 +1932,32 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Percent size={14} className="text-emerald-500" /> خصم إضافي على إجمالي الفاتورة (ج.م)
-            </label>
+            <div className="flex justify-between items-center flex-wrap gap-2">
+              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Percent size={14} className="text-emerald-500" /> خصم إضافي على إجمالي الفاتورة (ج.م)
+              </label>
+              <button
+                type="button"
+                onClick={() => handleFieldChange("discountAffectsInsurance", orderData.discountAffectsInsurance === false ? true : false)}
+                className={`text-[10px] font-bold px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 cursor-pointer select-none border ${
+                  orderData.discountAffectsInsurance !== false
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30 hover:bg-emerald-100/70"
+                    : "bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30 hover:bg-rose-100/70"
+                }`}
+              >
+                {orderData.discountAffectsInsurance !== false ? (
+                  <>
+                    <Unlock size={11} className="text-emerald-500" />
+                    <span>تأثير الخصم على التأمين: نشط 🔓</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock size={11} className="text-rose-500" />
+                    <span>تأثير الخصم على التأمين: مغلق 🔒</span>
+                  </>
+                )}
+              </button>
+            </div>
             <input
               type="number"
               placeholder="0"

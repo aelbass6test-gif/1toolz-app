@@ -1033,6 +1033,7 @@ export interface Order {
   inspectionFee?: number;
   weight: number; 
   discount: number;
+  discountAffectsInsurance?: boolean;
   totalAmountOverride?: number;
   totalAmountOverrideReason?: string;
   includeInspectionFee?: boolean; 

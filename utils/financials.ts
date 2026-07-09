@@ -161,7 +161,8 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
         result = (basePrice * insuranceRate) / 100;
     } else {
         // total basis: (Price + Shipping - Discount)
-        const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - (Number(order.discount) || 0);
+        const discountAmount = (order.discountAffectsInsurance ?? true) ? (Number(order.discount) || 0) : 0;
+        const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - discountAmount;
         result = (Math.max(0, totalAmount) * insuranceRate) / 100;
     }
     
