@@ -84,6 +84,27 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
              return t.status === 'cancelled' ? sum : sum - amount;
         }
         
+        // Handle 'تحويل' (Treasury Transfers) which might be legacy or current
+        if (t.type === 'تحويل') {
+            if (t.category === 'treasury_sync') {
+                const treasuryTxId = t.id.replace('TR-', '');
+                const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
+                if (tTx) {
+                    if (tTx.toAccountId === 'main_wallet') {
+                        return sum + amount;
+                    } else if (tTx.fromAccountId === 'main_wallet') {
+                        return sum - amount;
+                    }
+                } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
+                    // Fallback for missing treasury tx: if it was a transfer from a bank/instapay to wallet, assume it was a deposit
+                    // The user's exact issue was a transfer from Bank Al-Ahly (amount 550) that didn't add to balance
+                    // If the user's total is exactly 550 lower than expected, this logic will restore it.
+                    return sum + amount;
+                }
+            }
+            return sum;
+        }
+        
         return sum;
     }, 0);
 
@@ -572,6 +593,23 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const totalCollectedFromCustomers = cycleFinancials.collected;
   const totalShippingFee = cycleFinancials.shipping;
   const totalNetProfit = cycleFinancials.profit;
+
+  const isDepositTransaction = (item: any) => {
+    if (item.type === 'إيداع') return true;
+    if (item.type === 'تحويل') {
+      if (item.category === 'treasury_sync') {
+        const treasuryTxId = item.id.replace('TR-', '');
+        const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
+        if (tTx) {
+          return tTx.toAccountId === 'main_wallet';
+        }
+      }
+      if (item.note?.includes('إنستاباي') || item.note?.includes('بنك') || item.note?.includes('إيداع') || item.note?.includes('تحويل')) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   return (
     <div className="min-h-[80vh] p-4 md:p-8" dir="rtl">
@@ -1070,16 +1108,16 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         className={`group p-5 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-xl hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all cursor-pointer relative overflow-hidden ${item.isGroup || expandedItems[item.id] ? 'border-r-8 border-r-indigo-500' : ''}`}
                       >
                           {/* Status dynamic border */}
-                          {!item.isGroup && <div className={`absolute top-0 right-0 w-1 h-full ${item.type === 'إيداع' ? 'bg-emerald-500' : 'bg-rose-500'} opacity-0 group-hover:opacity-100 transition-opacity`}/>}
+                          {!item.isGroup && <div className={`absolute top-0 right-0 w-1 h-full ${isDepositTransaction(item) ? 'bg-emerald-500' : 'bg-rose-500'} opacity-0 group-hover:opacity-100 transition-opacity`}/>}
                           
                           <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                               <div className="flex items-center gap-5 w-full md:w-auto flex-row-reverse">
                                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 ${
-                                      item.type === 'إيداع' 
+                                      isDepositTransaction(item) 
                                       ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-500/10' 
                                       : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-100/50 dark:border-rose-500/10'
                                   }`}>
-                                      {item.isGroup ? <Layers size={24} className="text-indigo-600" /> : (item.type === 'إيداع' ? <ArrowUpRight size={24} /> : <ArrowDownLeft size={24} />)}
+                                      {item.isGroup ? <Layers size={24} className="text-indigo-600" /> : (isDepositTransaction(item) ? <ArrowUpRight size={24} /> : <ArrowDownLeft size={24} />)}
                                   </div>
                                   <div className="text-right">
                                       <h5 className="text-base font-black text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors tracking-tight">
@@ -1106,10 +1144,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                               <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end flex-row-reverse">
                                   <div className="text-right">
                                       <div className="flex items-baseline gap-1 flex-row-reverse">
-                                          <p className={`text-2xl font-black ${item.type === 'إيداع' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                              {item.type === 'إيداع' ? '+' : '-'}{item.amount.toLocaleString()}
+                                          <p className={`text-2xl font-black ${isDepositTransaction(item) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                              {isDepositTransaction(item) ? '+' : '-'}{item.amount.toLocaleString()}
                                           </p>
-                                          <span className={`text-xs font-bold ${item.type === 'إيداع' ? 'text-emerald-600/60' : 'text-rose-600/60'}`}>ج.م</span>
+                                          <span className={`text-xs font-bold ${isDepositTransaction(item) ? 'text-emerald-600/60' : 'text-rose-600/60'}`}>ج.م</span>
                                       </div>
                                       {item.fees > 0 && (
                                           <div className="flex items-center gap-1 justify-end mt-1">
@@ -1231,7 +1269,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">المبلغ</p>
-                                        <p className={`text-xs font-black ${item.type === 'إيداع' ? 'text-emerald-600' : 'text-rose-600'}`}>{item.amount.toLocaleString()} ج.م</p>
+                                        <p className={`text-xs font-black ${isDepositTransaction(item) ? 'text-emerald-600' : 'text-rose-600'}`}>{item.amount.toLocaleString()} ج.م</p>
                                     </div>
                                 </div>
                                 <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />

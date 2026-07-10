@@ -11,6 +11,7 @@ import { jsPDF } from 'jspdf';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, LineChart, Line, CartesianGrid, Legend } from 'recharts';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { exportHTMLToPDF } from '../utils/pdfHelper';
+import { useLocalStorage } from '../src/hooks/useLocalStorage';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -1041,7 +1042,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
-    const [reportSections, setReportSections] = useState<ComprehensiveReportSections>({
+    const [reportSections, setReportSections] = useLocalStorage<ComprehensiveReportSections>('report_sections_prefs', {
         showSummary: true,
         showIncomeStatement: true,
         showOperational: true,
@@ -1053,8 +1054,11 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         showExpensesLog: true,
         showInventoryLog: true,
         showRecommendations: true,
-        showInventoryValue: showInventoryValue
+        showInventoryValue: showInventoryValue,
+        includeMarkupsInProductRevenue: false,
+        showExtraServicesRow: true
     });
+    const [isControlsExpanded, setIsControlsExpanded] = useState(false);
 
     useEffect(() => {
         setReportSections(prev => ({ ...prev, showInventoryValue: showInventoryValue }));
@@ -1502,83 +1506,103 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             </div>
 
             <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-3">
-                    <div className="flex items-center gap-2">
-                        <span className="p-1.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                            <SettingsIcon size={18} />
+                <div 
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 cursor-pointer group"
+                    onClick={() => setIsControlsExpanded(!isControlsExpanded)}
+                >
+                    <div className="flex items-center gap-3">
+                        <span className="p-1.5 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-lg group-hover:bg-indigo-100 transition-colors">
+                            <SettingsIcon size={18} className={`transform transition-transform ${isControlsExpanded ? 'rotate-90' : ''}`} />
                         </span>
                         <div>
-                            <h3 className="font-bold text-slate-800 dark:text-white text-sm sm:text-base">التحكم في الأقسام المعروضة في التقرير والطباعة</h3>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">اختر الأقسام التي ترغب في تضمينها عند المعاينة أو استخراج ملف PDF</p>
+                            <h3 className="font-bold text-slate-800 dark:text-white text-sm sm:text-base">تخصيص الأقسام المعروضة في التقرير والطباعة</h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">اختر الأقسام التي ترغب في تضمينها (يتم حفظ تفضيلاتك تلقائياً)</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setReportSections({
-                                showSummary: true, showIncomeStatement: true, showOperational: true,
-                                showProductProfitability: true, showPartners: true, showCustody: true,
-                                showCollectionLog: true, showLossLog: true, showExpensesLog: true,
-                                showInventoryLog: true, showRecommendations: true, showInventoryValue: true, showExtraServicesRow: true
-                            })}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-all"
-                        >
-                            تحديد الكل
-                        </button>
-                        <button
-                            onClick={() => setReportSections({
-                                showSummary: true, showIncomeStatement: true, showOperational: false,
-                                showProductProfitability: false, showPartners: false, showCustody: false,
-                                showCollectionLog: false, showLossLog: false, showExpensesLog: false,
-                                showInventoryLog: false, showRecommendations: true, showInventoryValue: false, showExtraServicesRow: true
-                            })}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-all"
-                        >
-                            الأساسيات فقط (الملخص وقائمة الدخل)
-                        </button>
+                        {isControlsExpanded ? <ArrowUp size={18} className="text-slate-400" /> : <ArrowDown size={18} className="text-slate-400" />}
                     </div>
                 </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                    {[
-                        { key: 'showSummary', label: 'المرحلة 1 و 2 (ملخص الإيرادات والتكاليف)' },
-                        { key: 'showIncomeStatement', label: 'قائمة الدخل الموحدة' },
-                        { key: 'showOperational', label: 'الأداء التشغيلي (الشحن والمناطق)' },
-                        { key: 'showProductProfitability', label: 'ربحية المنتجات' },
-                        { key: 'showCollectionLog', label: 'سجل التحصيل المالي' },
-                        { key: 'showLossLog', label: 'سجل المرتجعات والخسائر' },
-                        { key: 'showExpensesLog', label: 'المصروفات الإدارية والتشغيلية' },
-                        { key: 'showInventoryLog', label: 'حركة المخزون والمشتريات' },
-                        { key: 'showPartners', label: 'توزيع أرباح الشركاء' },
-                        { key: 'showCustody', label: 'ذمم العهد والموظفين' },
-                        { key: 'showRecommendations', label: 'التوصيات الذكية' },
-                        { key: 'showInventoryValue', label: 'إظهار قيمة البضاعة المتاحة في المخزن' },
-                        { key: 'showExtraServicesRow', label: 'إظهار بند أرباح الخدمات والإضافات (معاينة / تعديل يدوي)' },
-                    ].map((sec) => {
-                        const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
-                        return (
+
+                {isControlsExpanded && (
+                    <div className="pt-3 border-t border-slate-100 dark:border-slate-700 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex flex-wrap items-center gap-2">
                             <button
-                                key={sec.key}
-                                onClick={() => {
-                                    if (sec.key === 'showInventoryValue') {
-                                        toggleInventoryValue();
-                                    } else {
-                                        setReportSections(prev => ({
-                                            ...prev,
-                                            [sec.key]: !isSelected
-                                        }));
-                                    }
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReportSections({
+                                        showSummary: true, showIncomeStatement: true, showOperational: true,
+                                        showProductProfitability: true, showPartners: true, showCustody: true,
+                                        showCollectionLog: true, showLossLog: true, showExpensesLog: true,
+                                        showInventoryLog: true, showRecommendations: true, showInventoryValue: true, showExtraServicesRow: true,
+                                        includeMarkupsInProductRevenue: reportSections.includeMarkupsInProductRevenue
+                                    });
                                 }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                                    isSelected 
-                                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300 shadow-sm' 
-                                        : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-500 hover:border-slate-300'
-                                }`}
+                                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold transition-all border border-indigo-100 dark:border-indigo-800"
                             >
-                                <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-transparent'}`}>✓</span>
-                                {sec.label}
+                                تحديد الكل
                             </button>
-                        );
-                    })}
-                </div>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReportSections({
+                                        showSummary: true, showIncomeStatement: true, showOperational: false,
+                                        showProductProfitability: false, showPartners: false, showCustody: false,
+                                        showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                        showInventoryLog: false, showRecommendations: true, showInventoryValue: false, showExtraServicesRow: true,
+                                        includeMarkupsInProductRevenue: reportSections.includeMarkupsInProductRevenue
+                                    });
+                                }}
+                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-all border border-slate-200 dark:border-slate-600"
+                            >
+                                الأساسيات فقط
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {[
+                                { key: 'showSummary', label: 'ملخص الإيرادات والتكاليف' },
+                                { key: 'showIncomeStatement', label: 'قائمة الدخل الموحدة' },
+                                { key: 'showOperational', label: 'الأداء التشغيلي (الشحن)' },
+                                { key: 'showProductProfitability', label: 'ربحية المنتجات' },
+                                { key: 'showCollectionLog', label: 'سجل التحصيل المالي' },
+                                { key: 'showLossLog', label: 'سجل المرتجعات' },
+                                { key: 'showExpensesLog', label: 'المصروفات الإدارية' },
+                                { key: 'showInventoryLog', label: 'حركة المخزون' },
+                                { key: 'showPartners', label: 'أرباح الشركاء' },
+                                { key: 'showCustody', label: 'العهد والموظفين' },
+                                { key: 'showRecommendations', label: 'التوصيات الذكية' },
+                                { key: 'showInventoryValue', label: 'قيمة البضاعة بالمخزن' },
+                                { key: 'showExtraServicesRow', label: 'أرباح الخدمات والإضافات' },
+                            ].map((sec) => {
+                                const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
+                                return (
+                                    <button
+                                        key={sec.key}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (sec.key === 'showInventoryValue') {
+                                                toggleInventoryValue();
+                                            } else {
+                                                setReportSections(prev => ({
+                                                    ...prev,
+                                                    [sec.key]: !isSelected
+                                                }));
+                                            }
+                                        }}
+                                        className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all border ${
+                                            isSelected 
+                                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-700 dark:text-indigo-300 shadow-sm' 
+                                                : 'bg-slate-50 border-slate-200 text-slate-500 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-400 hover:bg-slate-100 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <div className={`w-4 h-4 shrink-0 rounded flex items-center justify-center text-[10px] transition-colors ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-transparent'}`}>✓</div>
+                                        <span className="text-right flex-1">{sec.label}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Stage 1: Revenues */}

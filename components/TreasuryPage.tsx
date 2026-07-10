@@ -26,12 +26,41 @@ interface TreasuryPageProps {
 
 export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury, wallet, setWallet }) => {
   const accounts = treasury?.accounts || [];
+  
+  // Dynamically calculate live balance for main wallet to match WalletPage behavior
+  const calculateMainWalletBalance = () => {
+    return (wallet?.transactions || []).reduce((sum: number, t: any) => {
+        const amount = Number(t.amount) || 0;
+        
+        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+        if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+
+        if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+        if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+        
+        if (t.type === 'تحويل') {
+            if (t.category === 'treasury_sync') {
+                const treasuryTxId = t.id.replace('TR-', '');
+                const tTx = treasury?.transactions?.find((x: any) => x.id === treasuryTxId);
+                if (tTx) {
+                    if (tTx.toAccountId === 'main_wallet') return sum + amount;
+                    if (tTx.fromAccountId === 'main_wallet') return sum - amount;
+                } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
+                    return sum + amount;
+                }
+            }
+            return sum;
+        }
+        return sum;
+    }, 0);
+  };
+
   const virtualAccounts: TreasuryAccount[] = [
     {
       id: 'main_wallet',
       name: 'المحفظة العامة (الرصيد الأساسي)',
       type: 'wallet',
-      balance: Number(wallet?.balance || 0),
+      balance: calculateMainWalletBalance(),
       currency: 'EGP',
       walletName: 'المحفظة العامة'
     },
@@ -352,7 +381,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
         // Add wallet transaction record
         walletTxs.unshift({
             id: `TR-${newTx.id}`,
-            type: transactionType === 'transfer' ? 'تحويل' : (toAccountId ? 'إيداع' : 'سحب'),
+            type: (toAccountId === 'main_wallet' || toAccountId === 'supply_wallet') ? 'إيداع' : 'سحب',
             amount,
             date: newTx.date,
             note: transDesc || `عملية خزينة: ${transactionType}`,
