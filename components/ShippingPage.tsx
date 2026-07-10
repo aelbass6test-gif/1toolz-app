@@ -385,7 +385,7 @@ const ShippingPage: React.FC<{
 };
 
 const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompany, onAddCompany, onDeleteCompany }) => {
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => { const { name, value, type } = e.target; setSettings((prev: Settings) => ({ ...prev, [name]: type === 'number' ? Number(value) : value })); };
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => { const { name, value, type } = e.target; setSettings((prev: Settings) => ({ ...prev, [name]: type === 'number' ? (value === '' ? undefined : Number(value)) : value })); };
     const toggleSetting = (key: keyof Settings) => { setSettings((prev: Settings) => ({ ...prev, [key]: !prev[key] })); };
     const toggleCompanyActive = (company: string) => { setSettings((prev: Settings) => ({ ...prev, activeCompanies: { ...prev.activeCompanies, [company]: !prev.activeCompanies[company] } })); };
 
@@ -454,6 +454,44 @@ const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompa
                   <div className={`space-y-6 transition-all duration-300 ${!settings.enableGlobalFinancials && 'opacity-40 pointer-events-none grayscale'}`}>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                           <FinancialCard label="نسبة التأمين (%)" name="insuranceFeePercent" value={settings.insuranceFeePercent} isActive={settings.enableInsurance} onToggle={() => toggleSetting('enableInsurance')} onChange={handleChange} icon={<ShieldCheck size={16} className="text-blue-500" />} desc="تُخصم من إجمالي الأوردر عند التحصيل." />
+                          <div className={`p-5 rounded-2xl border transition-all ${settings.enableInsurance ? 'bg-white dark:bg-slate-800/30 border-slate-300 dark:border-slate-700' : 'bg-slate-100 dark:bg-slate-800/30 border-slate-200 dark:border-slate-800 opacity-60'}`}>
+                              <div className="flex items-center justify-between mb-4">
+                                  <label className="text-sm font-black text-slate-800 dark:text-slate-300 flex items-center gap-2">
+                                      <ShieldCheck size={16} className="text-blue-500" /> أدنى مبلغ تأمين (ج.م)
+                                  </label>
+                              </div>
+                              <div className="relative">
+                                  <input 
+                                      type="number" 
+                                      name="insuranceMinAmount" 
+                                      disabled={!settings.enableInsurance} 
+                                      className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed font-black dark:text-white shadow-inner transition-all" 
+                                      value={settings.insuranceMinAmount !== undefined ? settings.insuranceMinAmount : ''} 
+                                      onChange={handleChange} 
+                                      placeholder="بلا أدنى حد"
+                                  />
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-3 leading-relaxed font-bold">أقل رسوم تأمين يتم فرضها على الشحنة.</p>
+                          </div>
+                          <div className={`p-5 rounded-2xl border transition-all ${settings.enableInsurance ? 'bg-white dark:bg-slate-800/30 border-slate-300 dark:border-slate-700' : 'bg-slate-100 dark:bg-slate-800/30 border-slate-200 dark:border-slate-800 opacity-60'}`}>
+                              <div className="flex items-center justify-between mb-4">
+                                  <label className="text-sm font-black text-slate-800 dark:text-slate-300 flex items-center gap-2">
+                                      <ShieldCheck size={16} className="text-blue-500" /> أقصى مبلغ تأمين (ج.م)
+                                  </label>
+                              </div>
+                              <div className="relative">
+                                  <input 
+                                      type="number" 
+                                      name="insuranceMaxAmount" 
+                                      disabled={!settings.enableInsurance} 
+                                      className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed font-black dark:text-white shadow-inner transition-all" 
+                                      value={settings.insuranceMaxAmount !== undefined ? settings.insuranceMaxAmount : ''} 
+                                      onChange={handleChange} 
+                                      placeholder="بلا أقصى حد"
+                                  />
+                              </div>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-3 leading-relaxed font-bold">أعلى رسوم تأمين يتم فرضها على الشحنة.</p>
+                          </div>
                           <FinancialCard label="رسوم المعاينة (ج.م)" name="inspectionFee" value={settings.inspectionFee} isActive={settings.enableInspection} onToggle={() => toggleSetting('enableInspection')} onChange={handleChange} icon={<Eye size={16} className="text-emerald-500" />} desc="رسوم مقابل فحص المنتج عند الاستلام." />
                           <FinancialCard label="شحن المرتجع (ج.م)" name="returnShippingFee" value={settings.returnShippingFee} isActive={settings.enableReturnShipping} onToggle={() => toggleSetting('enableReturnShipping')} onChange={handleChange} icon={<RefreshCcw size={16} className="text-red-500" />} desc="مبلغ إضافي يُحسب كخسارة في المرتجع." />
                           <FinancialCard label="السعر الافتراضي (ج.م)" name="defaultProductPrice" value={settings.defaultProductPrice} isActive={settings.enableDefaultPrice} onToggle={() => toggleSetting('enableDefaultPrice')} onChange={handleChange} icon={<Package size={16} className="text-indigo-500" />} desc="السعر التلقائي عند تسجيل أوردر جديد." />
@@ -1031,6 +1069,7 @@ const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
     </SectionCard>
   );
 };
+
 const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
     const companyFees = settings?.companySpecificFees?.[companyName] || { useCustomFees: false };
     const handleCompanyFeeChange = (field: keyof CompanyFees, value: any) => { 
@@ -1057,10 +1096,8 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                     <ToggleButton active={companyFees.useCustomFees} onToggle={() => handleCompanyFeeChange('useCustomFees', !companyFees.useCustomFees)} variant="emerald" />
                 </div>
                 <div className={`space-y-6 ${!companyFees.useCustomFees && 'opacity-40 pointer-events-none grayscale'}`}>
-                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> {/* تم تعديل الشبكة لتكون 4 أعمدة */}
-                        <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 dark:text-slate-500">التأمين %</label><input type="number" value={companyFees.insuranceFeePercent || 0} onChange={(e) => handleCompanyFeeChange('insuranceFeePercent', Number(e.target.value))} className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold" /></div>
-                        
-                        {/* الإضافة الجديدة: خانة الوزن الافتراضي */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* خانة الوزن الافتراضي */}
                         <div className="space-y-1.5">
                             <label className="text-xs font-bold text-indigo-600 dark:text-indigo-400">الوزن الافتراضي (كجم)</label>
                             <input 
@@ -1071,25 +1108,59 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                                 placeholder="مثلاً 5" 
                             />
                         </div>
-
                         <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 dark:text-slate-500">المعاينة ج.م</label><input type="number" value={companyFees.inspectionFee || 0} onChange={(e) => handleCompanyFeeChange('inspectionFee', Number(e.target.value))} className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold" /></div>
                         <div className="space-y-1.5"><label className="text-xs font-bold text-slate-500 dark:text-slate-500">مرتجع ثابت ج.م</label><input type="number" value={companyFees.returnShippingFee || 0} onChange={(e) => handleCompanyFeeChange('returnShippingFee', Number(e.target.value))} className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold" /></div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-                        {/* طريقة احتساب التأمين */}
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">أساس احتساب رسوم التأمين</label>
-                            <select 
-                                value={companyFees.insuranceBasis ?? (isBosta(companyName) ? 'cost' : 'total')} 
-                                onChange={(e) => handleCompanyFeeChange('insuranceBasis', e.target.value as any)} 
-                                className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white"
-                            >
-                                <option value="total">سعر المنتج + مصاريف الشحن (الإجمالي)</option>
-                                <option value="cost">سعر شراء/تكلفة المنتج الفعلي</option>
-                                <option value="price">سعر بيع المنتج الأصلي فقط</option>
-                                <option value="base">السعر الأساسي للمنتج</option>
-                            </select>
+                    {/* إعدادات التأمين المخصصة للشركة */}
+                    <div className="bg-sky-50 dark:bg-sky-950/20 p-5 rounded-xl border border-sky-200 dark:border-sky-900/40 space-y-4">
+                        <span className="text-sm font-bold text-sky-900 dark:text-sky-300">إعدادات التأمين المخصصة للشركة</span>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">التأمين (%)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.01"
+                                    value={companyFees.insuranceFeePercent || 0} 
+                                    onChange={(e) => handleCompanyFeeChange('insuranceFeePercent', Number(e.target.value))} 
+                                    className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white" 
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">أساس احتساب رسوم التأمين</label>
+                                <select 
+                                    value={companyFees.insuranceBasis ?? (isBosta(companyName) ? 'cost' : 'total')} 
+                                    onChange={(e) => handleCompanyFeeChange('insuranceBasis', e.target.value as any)} 
+                                    className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white"
+                                >
+                                    <option value="total">سعر المنتج + مصاريف الشحن (الإجمالي)</option>
+                                    <option value="cost">سعر شراء/تكلفة المنتج الفعلي</option>
+                                    <option value="price">سعر بيع المنتج الأصلي فقط</option>
+                                    <option value="base">السعر الأساسي للمنتج</option>
+                                </select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">أدنى مبلغ تأمين (ج.م)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.1"
+                                    value={companyFees.insuranceMinAmount !== undefined ? companyFees.insuranceMinAmount : ''} 
+                                    onChange={(e) => handleCompanyFeeChange('insuranceMinAmount', e.target.value === '' ? undefined : Number(e.target.value))} 
+                                    className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white" 
+                                    placeholder="مثلاً 5"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">أقصى مبلغ تأمين (ج.م)</label>
+                                <input 
+                                    type="number" 
+                                    step="0.1"
+                                    value={companyFees.insuranceMaxAmount !== undefined ? companyFees.insuranceMaxAmount : ''} 
+                                    onChange={(e) => handleCompanyFeeChange('insuranceMaxAmount', e.target.value === '' ? undefined : Number(e.target.value))} 
+                                    className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-bold dark:text-white" 
+                                    placeholder="مثلاً 20"
+                                />
+                            </div>
                         </div>
                     </div>
                     

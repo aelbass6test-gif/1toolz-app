@@ -185,6 +185,8 @@ export interface Wallet {
 
 export interface CompanyFees {
   insuranceFeePercent: number;
+  insuranceMinAmount?: number;
+  insuranceMaxAmount?: number;
   inspectionFee: number;
   returnShippingFee: number;
   useCustomFees: boolean;
@@ -617,6 +619,8 @@ export interface Settings {
   supabaseUrl?: string;
   supabaseAnonKey?: string;
   insuranceFeePercent: number;
+  insuranceMinAmount?: number;
+  insuranceMaxAmount?: number;
   enableInsurance: boolean; 
   inspectionFee: number;
   enableInspection: boolean; 

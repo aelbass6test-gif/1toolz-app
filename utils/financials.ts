@@ -166,6 +166,21 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
         result = (Math.max(0, totalAmount) * insuranceRate) / 100;
     }
     
+    // Apply min/max boundaries if configured
+    const minAmount = useCustom ? compFees?.insuranceMinAmount : settings?.insuranceMinAmount;
+    const maxAmount = useCustom ? compFees?.insuranceMaxAmount : settings?.insuranceMaxAmount;
+    
+    if (typeof minAmount === 'number' && minAmount > 0) {
+        if (result < minAmount) {
+            result = minAmount;
+        }
+    }
+    if (typeof maxAmount === 'number' && maxAmount > 0) {
+        if (result > maxAmount) {
+            result = maxAmount;
+        }
+    }
+    
     return Math.round(result * 100) / 100;
 };
 
