@@ -1252,14 +1252,14 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         // Expense Categories for Pie Chart
         const expenseCategories = [
             { name: 'إعلانات', value: (wallet?.transactions || []).filter(t => t.category === 'expense_ads').reduce((sum, t) => sum + t.amount, 0), color: '#4f46e5' },
-            { name: 'رواتب', value: (wallet?.transactions || []).filter(t => t.category === 'expense_salary').reduce((sum, t) => sum + t.amount, 0), color: '#06b6d4' },
+            { name: 'إدارة شؤون الموظفين', value: (wallet?.transactions || []).filter(t => t.category === 'expense_hr' || t.category === 'expense_salary').reduce((sum, t) => sum + t.amount, 0), color: '#06b6d4' },
             { name: 'إيجار', value: (wallet?.transactions || []).filter(t => t.category === 'expense_rent').reduce((sum, t) => sum + t.amount, 0), color: '#8b5cf6' },
             { name: 'شحن مشتريات (توريد)', value: (wallet?.transactions || []).filter(t => (t.category as string) === 'supply_expense_shipping' || t.category === 'expense_shipping_fees').reduce((sum, t) => sum + t.amount, 0), color: '#f59e0b' },
             { name: 'مصاريف توريد أخرى', value: (wallet?.transactions || []).filter(t => (t.category as string) === 'supply_expense_other').reduce((sum, t) => sum + t.amount, 0), color: '#059669' },
             { name: 'أخرى', value: (wallet?.transactions || []).filter(t => {
                 const isExp = t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''));
                 if (!isExp) return false;
-                const standardCategories = ['expense_ads', 'expense_salary', 'expense_rent', 'supply_expense_shipping', 'expense_shipping_fees', 'supply_expense_other'];
+                const standardCategories = ['expense_ads', 'expense_salary', 'expense_hr', 'expense_rent', 'supply_expense_shipping', 'expense_shipping_fees', 'supply_expense_other'];
                 return !standardCategories.includes(t.category || '');
             }).reduce((sum, t) => sum + t.amount, 0), color: '#ec4899' },
         ].filter(c => c.value > 0);

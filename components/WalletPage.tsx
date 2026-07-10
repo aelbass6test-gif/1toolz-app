@@ -81,6 +81,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         
         // Withdrawals: include both completed AND pending (reserve them)
         if (t.type === 'سحب') {
+             if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
              return t.status === 'cancelled' ? sum : sum - amount;
         }
         

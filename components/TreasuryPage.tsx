@@ -36,7 +36,10 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
 
         if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
-        if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+        if (t.type === 'سحب') {
+            if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
+            return t.status === 'cancelled' ? sum : sum - amount;
+        }
         
         if (t.type === 'تحويل') {
             if (t.category === 'treasury_sync') {

@@ -186,12 +186,31 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
               type: 'withdrawal',
               amount: tx.amount,
               description: desc,
-              fromAccountId: tx.treasuryAccountId
+              fromAccountId: tx.treasuryAccountId,
+              category: 'expense_hr'
             },
             ...(prev.transactions || [])
           ]
         };
       });
+
+      setWallet((prev: any) => ({
+        ...prev,
+        balance: (prev.balance || 0) - tx.amount,
+        transactions: [
+          {
+            id: `wallet-pay-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            type: 'سحب',
+            amount: tx.amount,
+            date: today,
+            note: desc,
+            category: 'expense_hr',
+            status: 'completed',
+            details: { treasuryAccountId: tx.treasuryAccountId }
+          },
+          ...(prev.transactions || [])
+        ]
+      }));
     } else {
       setWallet((prev: any) => ({
         ...prev,
@@ -203,7 +222,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
             amount: tx.amount,
             date: today,
             note: desc,
-            category: 'expense_salary',
+            category: 'expense_hr',
             status: 'completed'
           },
           ...(prev.transactions || [])

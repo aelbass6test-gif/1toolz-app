@@ -224,10 +224,23 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   }, [wallet.transactions, wallet.balance]);
 
   const expenses = useMemo(() => {
-      return wallet.transactions
-        .filter(t => t.type === 'سحب' && t.category && (settings.expenseCategories || []).includes(t.category))
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [wallet.transactions, settings.expenseCategories]);
+      const walletExps = wallet.transactions.filter(t => t.type === 'سحب' && t.category && (settings.expenseCategories || []).includes(t.category));
+      
+      const treasuryExps = (treasury?.transactions || [])
+        .filter((t: any) => t.type === 'withdrawal' && t.category && (settings.expenseCategories || []).includes(t.category))
+        .map((t: any) => ({
+            id: t.id,
+            type: 'سحب',
+            amount: t.amount,
+            date: t.date,
+            note: t.description,
+            category: t.category,
+            status: 'completed',
+            details: t.fromAccountId ? { accountId: t.fromAccountId } : undefined
+        } as any));
+
+      return [...walletExps, ...treasuryExps].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [wallet.transactions, treasury?.transactions, settings.expenseCategories]);
 
   const filteredExpenses = useMemo(() => {
     return expenses.filter(exp => {
@@ -1233,7 +1246,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   <button type="button" onClick={() => applyTemplate('expense_packaging', 'شراء كراتين وبلاستر وأدوات تغليف')} className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-extrabold border border-indigo-200/60 dark:border-indigo-900/40 hover:bg-indigo-100 transition-all cursor-pointer">📦 أدوات تغليف</button>
                   <button type="button" onClick={() => applyTemplate('expense_other', 'ضيافة ومشروبات المتجر')} className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-extrabold border border-amber-200/60 dark:border-amber-900/40 hover:bg-amber-100 transition-all cursor-pointer">☕ ضيافة ومشروبات</button>
                   <button type="button" onClick={() => applyTemplate('expense_shipping_fees', 'إكراميات ومصاريف شحن وتوصيل')} className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-xs font-extrabold border border-emerald-200/60 dark:border-emerald-900/40 hover:bg-emerald-100 transition-all cursor-pointer">🚚 شحن وإكراميات</button>
-                  <button type="button" onClick={() => applyTemplate('expense_salary', 'سلفة / راتب موظف')} className="px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-extrabold border border-blue-200/60 dark:border-blue-900/40 hover:bg-blue-100 transition-all cursor-pointer">💼 سلف ورواتب</button>
+                  <button type="button" onClick={() => applyTemplate('expense_hr', 'سلفة / راتب موظف')} className="px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-extrabold border border-blue-200/60 dark:border-blue-900/40 hover:bg-blue-100 transition-all cursor-pointer">💼 سلف ورواتب</button>
                 </div>
               </div>
 

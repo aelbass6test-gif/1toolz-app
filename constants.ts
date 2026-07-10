@@ -237,7 +237,7 @@ export const INITIAL_SETTINGS: Settings = {
   collections: [],
   whatsappTemplates: DEFAULT_WHATSAPP_TEMPLATES,
   callScripts: DEFAULT_CALL_SCRIPTS,
-  expenseCategories: ['expense_ads', 'expense_salary', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other', 'supply_expense_shipping', 'supply_expense_other', 'vat'],
+  expenseCategories: ['expense_ads', 'expense_salary', 'expense_hr', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other', 'supply_expense_shipping', 'supply_expense_other', 'vat'],
   employeeDashboardSettings: {
     showAssignedOrders: true,
     showOrderStatuses: ['في_انتظار_المكالمة', 'قيد_التنفيذ', 'جاري_المراجعة'],
@@ -270,6 +270,7 @@ export const TRANSACTION_CATEGORY_LABELS: Record<string, string> = {
     'manual_withdrawal': 'سحب يدوي',
     'expense_ads': 'إعلانات وتسويق',
     'expense_salary': 'رواتب ومكافآت',
+    'expense_hr': 'إدارة شؤون الموظفين',
     'expense_rent': 'إيجار ومرافق',
     'expense_packaging': 'أدوات تغليف',
     'expense_shipping_fees': 'مصاريف شحن إدارية',
