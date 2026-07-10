@@ -441,6 +441,11 @@ export const generateOrdersReportHTML = (
             <span>#${order.id.slice(0, 8)}</span>
             ${isPosOrder ? `<span style="color: #6366f1; font-weight: 800;">[${posName}]</span>` : ''}
           </div>
+          <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
+          ${order.enableFlexShip ? `
+          <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+            دفع فليكس شيب: ${order.flexShipFee ?? (settings.companySpecificFees?.[order.shippingCompany]?.useCustomFees ? (settings.companySpecificFees?.[order.shippingCompany]?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+          </div>` : ''}
         </td>
         <td>
           <div class="text-gray-900 leading-tight">${order.productName}</div>
@@ -758,7 +763,14 @@ export const generateCollectionsReportHTML = (
         return `
             <tr>
                 <td class="text-center font-bold text-gray-900">${order.orderNumber || order.id.slice(0, 8)}</td>
-                <td class="text-gray-900">${order.customerName}</td>
+                <td>
+                  <div class="font-bold text-gray-900">${order.customerName}</div>
+                  <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
+                  ${order.enableFlexShip ? `
+                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                  </div>` : ''}
+                </td>
                 <td class="text-center text-gray-500 font-mono">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
                 <td class="text-center">
                     ${isPosOrder ? `
@@ -1188,7 +1200,14 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         
         return `
             <tr style="border-bottom: 1px solid #e5e7eb;">
-                <td style="padding: 8px;">${order.customerName}</td>
+                <td style="padding: 8px;">
+                  <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
+                  <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
+                  ${order.enableFlexShip ? `
+                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                  </div>` : ''}
+                </td>
                 <td style="padding: 8px;">${products}</td>
                 <td style="padding: 8px; text-align: center;">${quantities}</td>
                 <td style="padding: 8px;">
@@ -1507,6 +1526,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td>
                   <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
                   <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
+                  <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
+                  ${order.enableFlexShip ? `
+                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                  </div>` : ''}
                   ${isPosOrder ? `
                   <div style="margin-top: 2px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block;">
                     نقطة بيع (POS) - عهدة: ${resolveCashHolderName(order, settings)}
@@ -1551,13 +1575,15 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const isInsured = order.isInsured ?? true;
         const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+        const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
+        const displayInsuranceFee = insuranceFee + bostaVat;
         
         const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
         const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
         const inspectionFeeCollected = 0;
 
         totalFailedShipping += order.shippingFee;
-        totalFailedInsurance += insuranceFee;
+        totalFailedInsurance += displayInsuranceFee;
         totalFailedInspection += inspectionCost;
         totalReturnFees += returnFeeAmount;
         totalLoss += loss;
@@ -1569,11 +1595,16 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td>
                   <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
                   <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
+                  <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
+                  ${order.enableFlexShip ? `
+                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                  </div>` : ''}
                 </td>
                 <td class="col-products">${productDetails}</td>
                 <td>${order.status.replace(/_/g, ' ')}</td>
                 <td>${order.shippingFee.toLocaleString()}</td>
-                <td>${insuranceFee.toLocaleString()}</td>
+                <td>${displayInsuranceFee.toLocaleString()}</td>
                 <td>${(inspectionCost - inspectionFeeCollected).toLocaleString()}</td>
                 <td>${returnFeeAmount.toLocaleString()}</td>
                 <td style="color: #b91c1c; font-weight: bold;">${loss.toLocaleString()}</td>
@@ -1870,7 +1901,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const lossLogHtml = (failedRows && s.showLossLog) ? `
             <h2 class="section-header" style="color: var(--danger);">${sectionCounter++}. سجل المرتجعات والخسائر (Loss Log)</h2>
             <table class="modern-table">
-                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>الحالة</th><th>شحن</th><th>تأمين</th><th>معاينة</th><th>مرتجع</th><th>الخسارة</th></tr></thead>
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>الحالة</th><th>شحن</th><th>تأمين وضريبة</th><th>معاينة</th><th>مرتجع</th><th>الخسارة</th></tr></thead>
                 <tbody>
                     ${failedRows}
                     <tr class="total-row" style="background-color: #fee2e2; font-weight: bold; border-top: 2px solid #fca5a5;">
