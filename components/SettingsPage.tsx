@@ -3,13 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Settings, PlatformIntegration, Store, TransactionCategory } from '../types';
 import { 
-  Link2, CheckCircle2, Database, Upload, RefreshCw, AlertTriangle, Check, Trash2, XCircle, Lock, 
+  Link2, CheckCircle2, Database, Upload, RefreshCw, AlertTriangle, Check, Trash2, XCircle, Lock, Eye,
   ShoppingCart, Package, Users, Wallet, Activity, Tag, MessageSquare, PhoneCall, Plus, Edit3, 
   Save, X, Link as LinkIcon, AppWindow, Globe, CreditCard, Smartphone, Banknote, ShoppingBasket, LayoutDashboard, 
   UserPlus, TrendingUp, Settings as SettingsIcon, Grid, UserCog, Loader2, Cloud, CloudDownload, 
   CloudUpload, ShieldCheck, Wifi, WifiOff, FileJson, Clock, HardDrive, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
-import { clearStoreData } from '../services/databaseService';
+import { calculateOrderProfitLoss } from '../utils/financials';
+import { clearStoreData, checkSupabaseConnection } from '../services/databaseService';
+import * as dbService from '../services/databaseService';
+import { db as localDb } from '../src/lib/db';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
 
 interface SettingsPageProps {
@@ -47,8 +50,7 @@ const handleImportData = (file: File) => {
         throw new Error('الملف لا يحتوي على بيانات متجر صحيحة');
       }
 
-      const db = await import('../services/databaseService');
-      await db.saveLocal(storeId, data);
+      await dbService.saveLocal(storeId, data);
       
       alert('تم استعادة البيانات بنجاح! سيتم إعادة تحميل الصفحة لتطبيق التغييرات.');
       window.location.reload();
@@ -59,33 +61,29 @@ const handleImportData = (file: File) => {
   reader.readAsText(file);
 };
 
-const handleExportData = () => {
+const handleExportData = async () => {
   const storeId = localStorage.getItem('lastActiveStoreId');
   if (!storeId) {
     alert('يرجى اختيار متجر أولاً');
     return;
   }
   
-  import('../services/databaseService').then(async (db) => {
-    const data = await db.getLocal(storeId);
-    if (!data) {
-      alert('لم يتم العثور على بيانات محلية لهذا المتجر للتصدير');
-      return;
-    }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `backup_${storeId}_${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  });
+  const data = await dbService.getLocal(storeId);
+  if (!data) {
+    alert('لم يتم العثور على بيانات محلية لهذا المتجر للتصدير');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `backup_${storeId}_${new Date().toISOString().split('T')[0]}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
 };
 
 const handleExportMasterBackup = async () => {
   try {
-    const { db: localDb } = await import('../src/lib/db');
-    
     // 1. Read IndexedDB Tables
     const orders = await localDb.orders.toArray();
     const settings = await localDb.settings.toArray();
@@ -142,8 +140,6 @@ const handleImportMasterBackup = (file: File) => {
       if (data._type !== 'wuilt_master_backup_v1' || !data.indexedDb) {
         throw new Error('الملف لا يحتوي على نسخة احتياطية شاملة صالحة لنظام Wuilt.');
       }
-
-      const { db: localDb } = await import('../src/lib/db');
 
       // Clear current IndexedDB tables safely
       await localDb.orders.clear();
@@ -268,7 +264,6 @@ const DatabaseCard: React.FC<{
     setPingStatus('checking');
     const start = performance.now();
     try {
-      const { checkSupabaseConnection } = await import('../services/databaseService');
       const isConnected = await checkSupabaseConnection();
       if (isConnected) {
         const duration = Math.round(performance.now() - start);
@@ -418,7 +413,6 @@ const DatabaseCard: React.FC<{
       }
 
       const parsed = JSON.parse(savedData);
-      const dbService = await import('../services/databaseService');
       const storeId = activeStore?.id || 'default';
 
       // Rewrite IndexedDB
@@ -1776,11 +1770,113 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <DatabaseManagementCard onSync={onManualSave} />
           )}
 
+          <DisplaySettingsCard settings={settings} setSettings={setSettings} orders={orders} />
+
           <DangerZone activeStore={activeStore} />
         </div>
       )}
     </div>
   );
+};
+
+const DisplaySettingsCard: React.FC<{ 
+    settings: Settings, 
+    setSettings: React.Dispatch<React.SetStateAction<Settings>>,
+    orders?: any[]
+}> = ({ settings, setSettings, orders = [] }) => {
+    return (
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-right">
+            <div className="flex items-center gap-3 text-indigo-600 dark:text-indigo-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg"><Eye size={24}/></div>
+                <div>
+                    <h2 className="text-xl font-black dark:text-white">إعدادات العرض والخصوصية</h2>
+                    <p className="text-xs text-slate-500">تخصيص كيفية ظهور الأرقام والمبالغ في التقارير والواجهة.</p>
+                </div>
+            </div>
+
+            <div className="max-w-md space-y-6">
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="text-right">
+                        <label className="text-sm font-bold text-slate-700 dark:text-slate-200 block">تفعيل إخفاء مبلغ (فرق التقفيل)</label>
+                        <p className="text-[10px] text-slate-500">تمكين أو تعطيل خصم مبلغ معين من الرصيد الظاهري.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                            type="checkbox" 
+                            className="sr-only peer" 
+                            checked={settings.enableHiddenWalletAmount || false}
+                            onChange={(e) => setSettings(prev => ({ ...prev, enableHiddenWalletAmount: e.target.checked }))}
+                        />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                    </label>
+                </div>
+
+                <div className={`space-y-6 transition-all duration-300 ${settings.enableHiddenWalletAmount ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <div className="p-4 bg-indigo-50/50 dark:bg-indigo-900/10 rounded-xl border border-indigo-100 dark:border-indigo-800/30">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-right">
+                                <label className="text-sm font-black text-indigo-900 dark:text-indigo-200 block">الحساب التلقائي لفرق التقفيل</label>
+                                <p className="text-[10px] text-indigo-600/70 dark:text-indigo-400/70 font-bold">استنتاج الفرق تلقائياً من فروقات التحصيل في الطلبات.</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only peer" 
+                                    checked={settings.enableAutoClosingDifference || false}
+                                    onChange={(e) => setSettings(prev => ({ ...prev, enableAutoClosingDifference: e.target.checked }))}
+                                />
+                                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                        
+                        {settings.enableAutoClosingDifference && (
+                            <div className="mt-3 pt-3 border-t border-indigo-100/50 dark:border-indigo-800/30">
+                                <div className="flex justify-between items-center text-xs font-bold">
+                                    <span className="text-indigo-600 dark:text-indigo-400">القيمة المحسوبة حالياً:</span>
+                                    <span className="text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-900 px-2 py-1 rounded-md border border-indigo-100 dark:border-indigo-800">
+                                        {Math.abs((orders || [])
+                                            .filter(o => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'مرتجع_جزئي'].includes(o.status))
+                                            .reduce((sum, o) => sum + (calculateOrderProfitLoss(o, settings).closingDifference || 0), 0)
+                                        ).toLocaleString()} ج.م
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {!settings.enableAutoClosingDifference && (
+                        <div>
+                            <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mb-2">قيمة المبلغ المراد إخفاءه يدوياً</label>
+                            <div className="relative">
+                                <input 
+                                    type="number" 
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-center"
+                                    value={settings.hiddenWalletAmount || 0}
+                                    onChange={(e) => setSettings(prev => ({ ...prev, hiddenWalletAmount: Number(e.target.value) || 0 }))}
+                                />
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block mb-2">مسمى هذا المبلغ (اختياري)</label>
+                        <input 
+                            type="text" 
+                            placeholder="مثال: فرق تقفيل يدوي، رصيد أمان..."
+                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500 text-right"
+                            value={settings.hiddenWalletAmountLabel || ''}
+                            onChange={(e) => setSettings(prev => ({ ...prev, hiddenWalletAmountLabel: e.target.value }))}
+                        />
+                    </div>
+                    
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                        هذا المبلغ سيتم خصمه "ظاهرياً" من إجمالي رصيد المحفظة في التقارير المالية لضمان الخصوصية أو حجز مبالغ معينة ذهنياً كفروقات تقفيل. لا يؤثر هذا على العمليات الحقيقية في المحفظة.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const InventorySettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>> }> = ({ settings, setSettings }) => {

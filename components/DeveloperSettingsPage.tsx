@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
 import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square } from 'lucide-react';
-import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive } from '../services/databaseService';
+import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, getLocal, saveStoreData } from '../services/databaseService';
 
 const SupabaseIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3ECF8E]">
@@ -1439,7 +1439,6 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
     if (customCloudUrl.trim() && customCloudAnonKey.trim()) {
       setIsVerifying(true);
       try {
-        const { verifySupabaseConnection } = await import('../services/databaseService');
         const verification = await verifySupabaseConnection(customCloudUrl.trim(), customCloudAnonKey.trim());
         
         if (!verification.success) {
@@ -2123,7 +2122,6 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
                           btn.innerHTML = '<span class="animate-spin">🔄</span> جاري الرفع...';
                           
                           try {
-                            const { getLocal, saveStoreData } = await import('../services/databaseService');
                             const storeId = activeStoreId || localStorage.getItem('lastActiveStoreId');
                             const store = activeStore;
                             

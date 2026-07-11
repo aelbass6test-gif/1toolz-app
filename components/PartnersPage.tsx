@@ -13,7 +13,7 @@ const normalizeName = (name: string): string => {
 };
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
-import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter } from 'lucide-react';
+import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2 } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -38,7 +38,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
 
   // Advanced Modern Systems States
-  const [activeSection, setActiveSection] = useState<'overview' | 'simulator' | 'analytics' | 'transfers' | 'summary_table'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'valuation' | 'simulator' | 'analytics' | 'transfers' | 'summary_table'>('overview');
   const [showHelpGuide, setShowHelpGuide] = useState(false);
   const [txCategoryTab, setTxCategoryTab] = useState<'personal' | 'capital' | 'operations'>('personal');
   const [simProfitAmount, setSimProfitAmount] = useState('');
@@ -70,26 +70,53 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   
   // Calculate Profit
   const { 
-      totalSuccessfulNet, 
+      totalSuccessfulNetPos,
+      totalSuccessfulNetShipping,
       totalExpenses, 
       returnsLosses, 
       adminExpenses,
       allTimeNetProfit,
       undistributedProfit,
-      otherIncome
+      otherIncome,
+      availableLiquidity,
+      hidden,
+      totalCogs,
+      totalDeposits,
+      shippingDeposits,
+      totalStockPurchases,
+      inventoryValue
   } = useMemo(() => {
     if (!settings) return { 
-        totalSuccessfulNet: 0, totalExpenses: 0, returnsLosses: 0, adminExpenses: 0, 
-        allTimeNetProfit: 0, undistributedProfit: 0, otherIncome: 0 
+        totalSuccessfulNetPos: 0, totalSuccessfulNetShipping: 0, totalExpenses: 0, returnsLosses: 0, adminExpenses: 0, 
+        allTimeNetProfit: 0, undistributedProfit: 0, otherIncome: 0, availableLiquidity: 0,
+        totalCogs: 0, totalDeposits: 0, shippingDeposits: 0, totalStockPurchases: 0, inventoryValue: 0
     };
-    let totalSuccessfulNet = 0;
+    let totalSuccessfulNetPos = 0;
+    let totalSuccessfulNetShipping = 0;
+    let totalCogs = 0;
     let returnsLosses = 0;
+
+    const inventoryValue = (settings.products || []).reduce((sum, p) => {
+        const stock = Number(p.stockQuantity) || 0;
+        const cost = Number(p.costPrice) || 0;
+        return sum + (stock * cost);
+    }, 0);
 
     orders.forEach(order => {
         const { net } = calculateOrderProfitLoss(order, settings);
+        const isPos = order.channel === 'pos' || 
+                      order.shippingCompany === 'كاشير - بيع مباشر' || 
+                      order.shippingArea === 'نقطة البيع' ||
+                      (order.id && order.id.startsWith('POS-'));
         
         if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || (order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل')) {
-            totalSuccessfulNet += net;
+            if (isPos) {
+                totalSuccessfulNetPos += net;
+            } else {
+                totalSuccessfulNetShipping += net;
+            }
+            // Calculate COGS for successful orders
+            totalCogs += getOrderProductCost(order, settings);
         } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(order.status)) {
             returnsLosses += Math.abs(net);
         }
@@ -114,24 +141,63 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       .reduce((sum, t) => sum + t.amount, 0);
       
     const totalExpenses = returnsLosses + adminExpenses;
-    const allTimeNetProfit = totalSuccessfulNet + otherIncome - totalExpenses;
+    const allTimeNetProfit = totalSuccessfulNetPos + totalSuccessfulNetShipping + otherIncome - totalExpenses;
     
     const distributed = transactions
       .filter(t => t.type === 'profit_distribution')
       .reduce((sum, t) => sum + t.amount, 0);
+    
+    const totalDeposits = transactions
+      .filter(t => ['capital_addition', 'shipping_funding', 'supply_funding', 'expense_coverage'].includes(t.type))
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const shippingDeposits = transactions
+      .filter(t => t.type === 'shipping_funding')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalStockPurchasesWallet = wallet.transactions
+      .filter(t => t.type === 'سحب' && (t.note?.includes('شراء بضاعة') || t.category === 'supply_purchase' || t.category === 'supply_deposit'))
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalStockPurchasesTreasury = (treasury?.transactions || [])
+      .filter(t => t.type === 'withdrawal' && (t.description?.includes('شراء بضاعة') || t.category === 'supply_purchase'))
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalStockPurchases = totalStockPurchasesWallet + totalStockPurchasesTreasury;
 
     const undistributedProfit = Math.max(0, allTimeNetProfit - distributed);
     
+    // Calculate Liquidity
+    const treasuryTotal = (treasury?.accounts || []).reduce((sum: number, acc: any) => sum + (Number(acc.balance) || 0), 0);
+    const walletBalance = Number(wallet.balance) || 0;
+    
+    const autoClosingDiff = settings.enableAutoClosingDifference 
+        ? Math.abs(orders
+            .filter(o => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'مرتجع_جزئي'].includes(o.status))
+            .reduce((sum, o) => sum + (calculateOrderProfitLoss(o, settings).closingDifference || 0), 0))
+        : (settings.hiddenWalletAmount || 0);
+    const hidden = settings.enableHiddenWalletAmount ? autoClosingDiff : 0;
+
+    const availableLiquidity = Math.max(0, (treasuryTotal + walletBalance) - hidden);
+    
     return { 
-        totalSuccessfulNet, 
+        totalSuccessfulNetPos,
+        totalSuccessfulNetShipping,
         totalExpenses, 
         returnsLosses, 
         adminExpenses,
         allTimeNetProfit,
         undistributedProfit,
-        otherIncome
+        otherIncome,
+        availableLiquidity,
+        hidden,
+        totalCogs,
+        totalDeposits,
+        shippingDeposits,
+        totalStockPurchases,
+        inventoryValue
     };
-  }, [orders, wallet.transactions, settings, transactions]);
+  }, [orders, wallet.transactions, wallet.balance, settings, transactions, treasury]);
 
   const addPartner = () => {
     if (!partnerName) return;
@@ -818,6 +884,10 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'transfers' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
           ><ArrowRightLeft size={16}/> التحويلات الداخلية بين الشركاء</button>
           <button 
+            onClick={() => setActiveSection('valuation')}
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'valuation' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+          ><Sparkles size={16}/> تقييم المشروع وتصفية الحسابات</button>
+          <button 
             onClick={() => setActiveSection('summary_table')}
             className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'summary_table' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
           ><FileText size={16}/> جدول المركز المالي المجمع</button>
@@ -839,7 +909,121 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
           </div>
           
           <div className="p-8">
-            <div className="grid md:grid-cols-2 gap-8">
+             {/* 💡 ملخص السيولة والربح للشركاء */}
+             <div className="mb-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-emerald-50/80 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30 p-6 rounded-3xl relative overflow-hidden">
+                    <div className="flex justify-between items-start mb-2">
+                        <div>
+                            <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">إجمالي السيولة المتاحة (كاش)</p>
+                            <h3 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums">{availableLiquidity.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span></h3>
+                        </div>
+                        <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl text-emerald-600">
+                            <WalletIcon size={24} />
+                        </div>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-bold">هذا هو المبلغ المتوفر حالياً في (الخزينة + البنك + المحافظ) ويمكن استخدامه لشراء البضاعة.</p>
+                </div>
+
+                <div className="bg-blue-50/80 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 p-6 rounded-3xl relative overflow-hidden">
+                    <div className="flex justify-between items-start mb-2">
+                        <div>
+                            <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">صـافي الأربـاح المتاحة للتوزيع</p>
+                            <h3 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums">{undistributedProfit.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span></h3>
+                        </div>
+                        <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
+                            <TrendingUp size={24} />
+                        </div>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-bold">هذا هو صافي المكسب الفعلي بعد خصم كل المصاريف والخسائر والمبالغ التي تم توزيعها سابقاً.</p>
+                </div>
+             </div>
+
+             {/* 📊 تحليل السيولة المالية (أين ذهبت الأموال؟) */}
+             <div className="mb-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm overflow-hidden relative">
+                <div className="absolute top-0 right-0 p-8 opacity-5">
+                    <Calculator size={120} />
+                </div>
+                
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 relative z-10">
+                    <div className="flex items-center gap-3">
+                        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 rounded-2xl">
+                            <Calculator size={24} />
+                        </div>
+                        <div>
+                            <h4 className="font-black text-lg text-slate-900 dark:text-white">تحليل السيولة المتاحة (كاش)</h4>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">موازنة التدفقات المالية وتكلفة البضاعة</p>
+                        </div>
+                    </div>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2">
+                        السيولة المتوفرة: {availableLiquidity.toLocaleString()} ج.م
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+                    <div className="space-y-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800 pb-2">رأس المال والمدخلات (+)</p>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 font-medium">تكلفة المنتجات (رأس مال مسترد)</span>
+                                <span className="text-emerald-600 font-black">+{totalCogs.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 font-medium">مبالغ إيداع شحن الشركاء</span>
+                                <span className="text-emerald-600 font-black">+{shippingDeposits.toLocaleString()}</span>
+                            </div>
+                            { (totalDeposits - shippingDeposits) > 0 && (
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-slate-500 font-medium">إيداعات رأس مال وتوريد أخرى</span>
+                                    <span className="text-emerald-600 font-black">+{(totalDeposits - shippingDeposits).toLocaleString()}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 font-medium">صافي الأرباح (بعد المصاريف)</span>
+                                <span className="text-emerald-600 font-black">+{allTimeNetProfit.toLocaleString()}</span>
+                            </div>
+                            <div className="pt-2 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center text-sm font-black">
+                                <span className="text-slate-700 dark:text-slate-300">إجمالي المدخلات</span>
+                                <span className="text-emerald-600">+{(totalDeposits + totalCogs + allTimeNetProfit).toLocaleString()}</span>
+                            </div>
+                        </div>
+                        <p className="text-[9px] text-slate-400 italic">ملاحظة: صافي الأرباح محسوب بالفعل بعد خصم المرتجعات والمصاريف الإدارية.</p>
+                    </div>
+
+                    <div className="space-y-4">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800 pb-2">المسحوبات والمشتريات (-)</p>
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 font-medium">سحب أرباح موزعة</span>
+                                <span className="text-red-500 font-black">-{ (allTimeNetProfit - undistributedProfit).toLocaleString() }</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-slate-500 font-medium">شراء بضاعة ومخزون</span>
+                                <span className="text-red-500 font-black">-{totalStockPurchases.toLocaleString()}</span>
+                            </div>
+                            <div className="pt-2 border-t border-slate-50 dark:border-slate-800 flex justify-between items-center text-sm font-black">
+                                <span className="text-slate-700 dark:text-slate-300">إجمالي المخرجات</span>
+                                <span className="text-red-500">-{( (allTimeNetProfit - undistributedProfit) + totalStockPurchases ).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-6 rounded-3xl border border-indigo-100 dark:border-indigo-900/30 flex flex-col justify-center text-center">
+                        <p className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-2">السيولة المتاحة للاستخدام</p>
+                        <h5 className="text-4xl font-black text-slate-900 dark:text-white tabular-nums mb-1">{availableLiquidity.toLocaleString()}</h5>
+                        <p className="text-xs font-bold text-slate-400 mb-4">ج.م</p>
+                        <div className="space-y-2">
+                             <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                <div className="h-full bg-indigo-500 animate-pulse" style={{ width: '100%' }}></div>
+                             </div>
+                             <p className="text-[9px] text-slate-400 font-bold leading-relaxed">
+                                هذه هي المبالغ المتوفرة فعلياً في خزائنك وبنوكك بعد استرداد ثمن البضاعة وإضافة المكسب وخصم كل المصاريف والمشتريات.
+                             </p>
+                        </div>
+                    </div>
+                </div>
+             </div>
+
+             <div className="grid md:grid-cols-2 gap-8">
                 <div className="space-y-6">
                     <div className="bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30 p-6 rounded-3xl group transition-all hover:border-indigo-300">
                         <div className="flex justify-between items-start mb-4">
@@ -849,9 +1033,23 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                           <TrendingUp className="text-indigo-300 dark:text-indigo-700" size={24} />
                         </div>
                         <div className="space-y-3">
-                            <div className="flex justify-between items-end border-b border-indigo-100 dark:border-indigo-900/30 pb-3">
-                                <h3 className="text-3xl font-black text-slate-900 dark:text-white">{totalSuccessfulNet.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-slate-400">ج.م</span></h3>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase">من الطلبات الناجحة</p>
+                            <div className="flex justify-between items-center text-sm border-b border-indigo-100 dark:border-indigo-900/10 pb-2">
+                                <span className="text-slate-500 font-bold flex items-center gap-2">
+                                    <Monitor size={14} className="text-indigo-400" /> مبيعات نقطة البيع (POS)
+                                </span>
+                                <span className="text-slate-900 dark:text-white font-black">{totalSuccessfulNetPos.toLocaleString()} <span className="text-[10px]">ج.م</span></span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-sm border-b border-indigo-100 dark:border-indigo-900/10 pb-2">
+                                <span className="text-slate-500 font-bold flex items-center gap-2">
+                                    <Truck size={14} className="text-indigo-400" /> مبيعات الشحن (أونلاين)
+                                </span>
+                                <span className="text-slate-900 dark:text-white font-black">{totalSuccessfulNetShipping.toLocaleString()} <span className="text-[10px]">ج.م</span></span>
+                            </div>
+
+                            <div className="flex justify-between items-end border-b border-indigo-100 dark:border-indigo-900/30 pb-3 pt-1">
+                                <h3 className="text-3xl font-black text-slate-900 dark:text-white">{(totalSuccessfulNetPos + totalSuccessfulNetShipping).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-sm font-normal text-slate-400">ج.م</span></h3>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase">إجمالي الطلبات الناجحة</p>
                             </div>
                             
                             {otherIncome > 0 && (
@@ -862,7 +1060,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                             )}
                             <div className="flex justify-between text-sm text-slate-500 font-medium font-black border-t border-indigo-100 dark:border-indigo-900/30 pt-2">
                                 <span>صـافـي الأربـاح</span>
-                                <span className="text-indigo-600">{(totalSuccessfulNet + otherIncome).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
+                                <span className="text-indigo-600">{(totalSuccessfulNetPos + totalSuccessfulNetShipping + otherIncome).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                             </div>
                         </div>
                     </div>
@@ -1339,7 +1537,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                 >
                                   <option value="">📋 تسجيل دفتري / حساب جاري فقط (بدون سحب أو إيداع من خزائن المحل الفعلية)</option>
                                   <option value="central_wallet" className="text-indigo-600 font-black">
-                                    💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد حالياً: {wallet.balance.toLocaleString()} ج.م)
+                                    💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد حالياً: {Math.max(0, wallet.balance - hidden).toLocaleString()} ج.م)
                                   </option>
                                   {(Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {})).map((acc: any) => (
                                     <option key={acc.id} value={acc.id}>
@@ -1682,6 +1880,169 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             </div>
          </div>
       </div>
+      )}
+
+       {activeSection === 'valuation' && (
+        <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
+          {/* 🛡️ تقييم المركز المالي الشامل للمشروع */}
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-700/60 pb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner">
+                  <Sparkles size={28} />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800 dark:text-white leading-none">تقييم القيمة الكلية للمشروع (Business Valuation)</h2>
+                  <p className="text-xs font-bold text-slate-400 mt-2">جرد شامل للأصول السائلة، البضاعة، والأرباح المحتجزة للوقوف على مركز مالي دقيق.</p>
+                </div>
+              </div>
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 px-6 py-3 rounded-2xl border border-indigo-100 dark:border-indigo-800/50">
+                 <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase block mb-0.5">القيمة الكلية التقديرية للمشروع</span>
+                 <p className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{(availableLiquidity + inventoryValue).toLocaleString()} <span className="text-xs font-normal">ج.م</span></p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card 1: Inventory */}
+              <div className="p-6 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 rounded-3xl relative overflow-hidden group">
+                <div className="absolute -right-4 -bottom-4 opacity-5 text-amber-600 group-hover:scale-110 transition-transform"><PackageIcon size={120} /></div>
+                <h4 className="text-xs font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest mb-4">📦 قيمة البضاعة الحالية (بالمخزن)</h4>
+                <div className="space-y-1">
+                  <p className="text-3xl font-black text-slate-800 dark:text-white">{inventoryValue.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span></p>
+                  <p className="text-[10px] font-bold text-slate-400">القيمة بناءً على تكلفة الشراء الأصلية لـ {settings.products?.length || 0} صنف</p>
+                </div>
+              </div>
+
+              {/* Card 2: Liquidity */}
+              <div className="p-6 bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100 dark:border-emerald-900/30 rounded-3xl relative overflow-hidden group">
+                <div className="absolute -right-4 -bottom-4 opacity-5 text-emerald-600 group-hover:scale-110 transition-transform"><WalletIcon size={120} /></div>
+                <h4 className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-4">💰 إجمالي السيولة والكاش المتاح</h4>
+                <div className="space-y-1">
+                  <p className="text-3xl font-black text-slate-800 dark:text-white">{availableLiquidity.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.m</span></p>
+                  <p className="text-[10px] font-bold text-slate-400">يشمل رصيد المحفظة المركزية ({Math.max(0, (wallet.balance || 0) - (settings.enableHiddenWalletAmount ? (settings.hiddenWalletAmount || 0) : 0)).toLocaleString()} ج.م) + الخزائن الفرعية</p>
+                </div>
+              </div>
+
+              {/* Card 3: Undistributed Profit */}
+              <div className="p-6 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100 dark:border-indigo-900/30 rounded-3xl relative overflow-hidden group">
+                <div className="absolute -right-4 -bottom-4 opacity-5 text-indigo-600 group-hover:scale-110 transition-transform"><TrendingUp size={120} /></div>
+                <h4 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-4">📈 الأرباح المحتجزة (غير الموزعة)</h4>
+                <div className="space-y-1">
+                  <p className="text-3xl font-black text-slate-800 dark:text-white">{undistributedProfit.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span></p>
+                  <p className="text-[10px] font-bold text-slate-400">صافي الأرباح التشغيلية المتراكمة بعد المصاريف والخسائر والتي لم تُوزع بعد</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 📊 توزيع الحصص حسب الشركاء */}
+            <div className="space-y-4">
+               <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2 px-2">
+                 <Users2 size={20} className="text-indigo-600" /> تحليل نصيب كل شريك من القيمة الفعلية (السيولة + البضاعة)
+               </h3>
+               
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 {partners.map(partner => {
+                    const pTxs = transactions.filter(t => t.partnerId === partner.id);
+                    const pCapital = pTxs.filter(t => ['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
+                    
+                    // Share of Undistributed Profit
+                    const profitShare = (undistributedProfit * (partner.profitRatio / 100));
+                    
+                    // Total "Daftari" Rights (Capital + Profit Share + Current Balance Adjustments)
+                    const totalRights = partner.balance + profitShare;
+                    
+                    // Proportion of Current Inventory (Based on Profit Ratio or Capital? Usually Profit Ratio for ongoing, Capital for liquidation)
+                    // Let's show both or a combined view
+                    const inventoryShare = (inventoryValue * (partner.profitRatio / 100));
+
+                    return (
+                      <div key={`val-${partner.id}`} className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 p-6 rounded-[2rem] hover:border-indigo-300 transition-all group">
+                         <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-3">
+                               <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-xl flex items-center justify-center border border-slate-100 dark:border-slate-700 font-black text-indigo-600">
+                                  {partner.name.charAt(0)}
+                               </div>
+                               <div>
+                                  <h4 className="font-black text-slate-800 dark:text-white">{partner.name}</h4>
+                                  <p className="text-[10px] font-bold text-slate-400">نسبة الربح: {partner.profitRatio}%</p>
+                               </div>
+                            </div>
+                            <div className="text-right">
+                               <span className="text-[10px] font-black text-slate-400 block mb-0.5">القيمة التقديرية لنصيبه</span>
+                               <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">{(partner.balance + profitShare + inventoryShare).toLocaleString()} ج.م</span>
+                            </div>
+                         </div>
+
+                         <div className="grid grid-cols-2 gap-3 text-[11px]">
+                            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                               <span className="text-slate-400 block mb-1">نصيبه من الكاش والسيولة:</span>
+                               <span className="font-black text-slate-800 dark:text-white">{(partner.balance + profitShare).toLocaleString()} ج.م</span>
+                               <p className="text-[9px] text-slate-500 mt-1">(رصيد جاري + نصيب أرباح غير موزعة)</p>
+                            </div>
+                            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                               <span className="text-slate-400 block mb-1">نصيبه من قيمة البضاعة:</span>
+                               <span className="font-black text-slate-800 dark:text-white">{inventoryShare.toLocaleString()} ج.م</span>
+                               <p className="text-[9px] text-slate-500 mt-1">(حصة عينية في المخزن الحالي)</p>
+                            </div>
+                         </div>
+
+                         {/* Action: Settle / Liquidate */}
+                         <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                            <button 
+                              onClick={() => {
+                                setDialog({
+                                  isOpen: true,
+                                  title: `محاكاة تصفية حساب: ${partner.name}`,
+                                  message: `أنت على وشك حساب مستحقات الشريك في حال الرغبة في التخارج. 
+                                            المبلغ المتوقع لتصفيته الآن هو: ${(partner.balance + profitShare + inventoryShare).toLocaleString()} ج.م 
+                                            (يشمل استرداد حصته في البضاعة والأرباح والسيولة). هل تريد الانتقال لتسوية دفتتية؟`,
+                                  onConfirm: () => {
+                                    setDialog(null);
+                                    // This is just a guidance dialog, actual liquidation would involve a manual withdrawal of the full amount
+                                    showToast('يمكنك تصفية الحساب عن طريق تسجيل "سحب تصفية نهائية" بالقيمة الموضحة.', 'success');
+                                  }
+                                });
+                              }}
+                              className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 font-black text-xs rounded-xl transition-all border border-indigo-100 dark:border-indigo-800/50"
+                            >
+                               <ArrowRightLeft size={14} /> حساب تصفية الشريك (Exit Settlement)
+                            </button>
+                         </div>
+                      </div>
+                    );
+                 })}
+               </div>
+            </div>
+
+            {/* 📝 دليل التصفية والخروج */}
+            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 p-6 rounded-3xl space-y-4">
+               <h4 className="text-sm font-black text-amber-800 dark:text-amber-400 flex items-center gap-2">
+                 <HelpCircle size={18} /> كيف أصفي حساب شريك يرغب في التخارج (الرحيل)؟
+               </h4>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs leading-relaxed text-amber-900/80 dark:text-amber-300/80">
+                  <div className="space-y-3">
+                     <p className="font-bold">1. حساب المستحقات (الحسبة الموضحة بالأعلى):</p>
+                     <ul className="list-decimal list-inside space-y-1 pr-2">
+                        <li>يُحسب رصيده الجاري (إيداعاته - مسحوباته).</li>
+                        <li>يُضاف له نصيبه من الأرباح المحتجزة (Undistributed Profit).</li>
+                        <li>يُضاف له نصيبه من قيمة البضاعة الحالية بالمخزن (Inventory Value).</li>
+                     </ul>
+                  </div>
+                  <div className="space-y-3">
+                     <p className="font-bold">2. إجراءات التنفيذ العملية:</p>
+                     <ul className="list-decimal list-inside space-y-1 pr-2">
+                        <li><span className="font-black underline">توزيع الأرباح:</span> قم بتوزيع الأرباح المحتجزة دفترياً أولاً لتصحيح رصيده.</li>
+                        <li><span className="font-black underline">تسوية البضاعة:</span> سجل "إيداع تصفية بضاعة" برصيده ليعكس قيمتها نقداً له.</li>
+                        <li><span className="font-black underline">سحب التصفية:</span> سجل "سحب تصفية نهائية" بكامل المبلغ من الخزينة.</li>
+                     </ul>
+                  </div>
+               </div>
+               <p className="text-[10px] font-bold text-amber-700/60 dark:text-amber-500/60 text-center border-t border-amber-200/50 dark:border-amber-900/50 pt-3 italic">
+                 💡 ملاحظة: تصفية الشريك تعني أن المحل "يشتري" حصة الشريك الخارج، ويتحمل الشركاء الباقون قيمتها لزيادة حصصهم.
+               </p>
+            </div>
+          </div>
+        </div>
       )}
 
       {activeSection === 'summary_table' && (

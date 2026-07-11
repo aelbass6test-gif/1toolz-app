@@ -297,15 +297,17 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
   carrierFees: number;
   productCost: number;
   netRevenue: number;
+  closingDifference: number;
 } => {
   let profit = 0;
   let loss = 0;
   let carrierFees = 0;
   let productCostCalculated = getOrderProductCost(order, settings) || 0;
   let netRevenue = 0;
+  let closingDifference = 0;
 
   if (!settings || ['ملغي', 'جاري_المراجعة', 'قيد_التنفيذ', 'في_انتظار_المكالمة'].includes(order.status)) {
-    return { profit: 0, loss: 0, net: 0, carrierFees: 0, productCost: productCostCalculated, netRevenue: 0 };
+    return { profit: 0, loss: 0, net: 0, carrierFees: 0, productCost: productCostCalculated, netRevenue: 0, closingDifference: 0 };
   }
 
   const isPos = order.channel === 'pos' || 
@@ -347,16 +349,21 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     const safeTax = Number(order.tax) || 0;
     const safeDiscount = Number(order.discount) || 0;
     const safeAdvance = Number(order.advancePayment) || 0;
+    const safeAdminFee = Number(order.adminFee) || 0;
+    const safeCredit = Number((order as any).creditAmount) || 0;
+    const safeReturnCash = order.returnCashToCustomer && (order as any).cashToReturnAmount ? Number((order as any).cashToReturnAmount) : 0;
 
     const flexShipRevenue = (order.enableFlexShip && order.flexShipFeePaidByCustomer) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
     const flexShipCompanyDeduction = (order.enableFlexShip && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
 
-    const baseExpectedRevenue = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionRevenue + flexShipRevenue;
+    const baseExpectedRevenue = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionRevenue + flexShipRevenue + safeAdminFee;
 
     let totalRevenueForProfit = baseExpectedRevenue;
     let netRevenueCollected = baseExpectedRevenue;
 
-    if (order.source === 'synced' && order.totalPrice != null) {
+    if (order.netRevenue != null && !isNaN(Number(order.netRevenue))) {
+        netRevenueCollected = Number(order.netRevenue);
+    } else if (order.source === 'synced' && order.totalPrice != null) {
         netRevenueCollected = Number(order.totalPrice) + inspectionRevenue + flexShipRevenue;
     } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null && String(order.totalAmountOverride).trim() !== '') {
         // totalAmountOverride is the COD amount. Gross Revenue = COD + Advance.
@@ -367,6 +374,9 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     carrierFees = (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionExpense + codFee + bostaVat + flexShipCompanyDeduction;
     
     netRevenue = netRevenueCollected;
+    const baseExpectedRevenueWithFees = baseExpectedRevenue - safeCredit - safeReturnCash;
+    closingDifference = netRevenueCollected - baseExpectedRevenueWithFees;
+
     // Calculate profit based on base expected revenue (without manual differences)
     profit = totalRevenueForProfit - carrierFees - productCostCalculated;
   } else {
@@ -402,7 +412,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     net: Math.round((profit - loss) * 1000) / 1000,
     carrierFees: Math.round(carrierFees * 1000) / 1000,
     productCost: Math.round(productCostCalculated * 1000) / 1000,
-    netRevenue: Math.round(netRevenue * 1000) / 1000
+    netRevenue: Math.round(netRevenue * 1000) / 1000,
+    closingDifference: Math.round(closingDifference * 1000) / 1000
   };
 }
 

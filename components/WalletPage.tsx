@@ -135,14 +135,22 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       return sum + (base - advance);
     }, 0);
 
+    const autoClosingDiff = settings.enableAutoClosingDifference 
+        ? Math.abs(orders
+            .filter(o => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'مرتجع_جزئي'].includes(o.status))
+            .reduce((sum, o) => sum + (calculateOrderProfitLoss(o, settings).closingDifference || 0), 0))
+        : (settings.hiddenWalletAmount || 0);
+    const hidden = settings.enableHiddenWalletAmount ? autoClosingDiff : 0;
+
     return { 
-        liveBalance, 
+        liveBalance: Math.max(0, liveBalance - hidden), 
+        rawLiveBalance: liveBalance,
         supplyBalance: wallet.supplyBalance || 0,
         pendingWithdrawals: pendingWithdrawalsSum,
-        availableToWithdraw: liveBalance,
+        availableToWithdraw: Math.max(0, liveBalance - hidden),
         inRouteTotal
     };
-  }, [wallet.transactions, wallet.supplyBalance, orders]);
+  }, [wallet.transactions, wallet.supplyBalance, orders, settings.hiddenWalletAmount, settings.enableHiddenWalletAmount, settings.enableAutoClosingDifference]);
 
 
   const handleDeleteTransaction = (transactionId: string) => {

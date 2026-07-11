@@ -633,7 +633,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     }, 0);
 
     // Liquid cash calculation - Sum up transactions to get current balance
-    const cashBalance = (wallet?.transactions || []).reduce((sum, t) => {
+    const rawCashBalance = (wallet?.transactions || []).reduce((sum, t) => {
         const amount = Number(t.amount) || 0;
         if (t.details?.paidByPartnerId) return sum;
 
@@ -642,7 +642,16 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         return sum;
     }, 0);
 
-    const treasuryTotal = (treasury?.accounts || []).reduce((sum, acc) => sum + (acc.balance || 0), 0);
+    const autoClosingDiff = settings.enableAutoClosingDifference 
+        ? Math.abs(orders
+            .filter(o => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'مرتجع_جزئي'].includes(o.status))
+            .reduce((sum, o) => sum + (calculateOrderProfitLoss(o, settings).closingDifference || 0), 0))
+        : (settings.hiddenWalletAmount || 0);
+
+    const hidden = settings.enableHiddenWalletAmount ? autoClosingDiff : 0;
+    const cashBalance = Math.max(0, rawCashBalance - hidden);
+
+    const treasuryTotal = Math.max(0, (treasury?.accounts || []).reduce((sum, acc) => sum + (acc.balance || 0), 0) - hidden);
     const workingCapital = treasuryTotal + totalInventoryValue;
 
     // Calculate Admin & Operational Expenses
@@ -660,7 +669,8 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
     const bankBalance = (treasury?.accounts || []).filter(a => a.type === 'bank').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
     const safeBalance = (treasury?.accounts || []).filter(a => a.type === 'safe').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
-    const digitalWalletBalance = (treasury?.accounts || []).filter(a => a.type === 'wallet').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+    const rawDigitalWalletBalance = (treasury?.accounts || []).filter(a => a.type === 'wallet').reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+    const digitalWalletBalance = Math.max(0, rawDigitalWalletBalance - hidden);
 
     // 💡 Pro KPI Calculations
     const totalOrdersCount = (orders || []).length;

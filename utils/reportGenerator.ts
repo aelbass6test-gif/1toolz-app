@@ -1372,6 +1372,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         showExtraServicesRow: sections?.showExtraServicesRow !== false,
     };
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
+    const shippingCollectedOrders = collectedOrders.filter(o => !(o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر'));
+    const posCollectedOrders = collectedOrders.filter(o => o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر');
     const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
     const adminExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '')));
     const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
@@ -1413,26 +1415,44 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let sumCollectedShippingFee = 0;
     let sumCollectedTax = 0;
 
-    const collectedRows = collectedOrders.map((order, idx) => {
+    let ship_sumProductPrice = 0;
+    let ship_sumShippingFee = 0;
+    let ship_sumTax = 0;
+    let ship_totalCogs = 0;
+    let ship_totalInsurance = 0;
+    let ship_totalInspection = 0;
+    let ship_totalCod = 0;
+    let ship_totalProfit = 0;
+
+    let pos_sumProductPrice = 0;
+    let pos_sumShippingFee = 0;
+    let pos_sumTax = 0;
+    let pos_totalCogs = 0;
+    let pos_totalInsurance = 0;
+    let pos_totalInspection = 0;
+    let pos_totalCod = 0;
+    let pos_totalProfit = 0;
+
+    const shippingCollectedRows = shippingCollectedOrders.map((order, idx) => {
         const { profit, netRevenue, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
         const codFee = calculateCodFee(order, settings);
         
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
-        const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
+        const isPosOrder = false;
         
-        const standardShipping = isPosOrder ? 0 : getStandardShippingFee(order, settings);
-        const feesOnly = isPosOrder ? 0 : Math.max(0, carrierFees - standardShipping);
+        const standardShipping = getStandardShippingFee(order, settings);
+        const feesOnly = Math.max(0, carrierFees - standardShipping);
         
         totalSuccessShippingOnly += standardShipping;
         totalSuccessFeesOnly += feesOnly;
         
         const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+        const inspectionCost = (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
         const isInsured = order.isInsured ?? true;
-        const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-        const inspectionAdjustment = (!isPosOrder && order.inspectionFeePaidByCustomer !== false) ? 0 : inspectionCost;
-        const bostaVat = !isPosOrder ? calculateBostaVat(order, insuranceFee, settings) : 0;
+        const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+        const inspectionAdjustment = order.inspectionFeePaidByCustomer !== false ? 0 : inspectionCost;
+        const bostaVat = calculateBostaVat(order, insuranceFee, settings);
 
         const safeProductPrice = Number(order.productPrice) || 0;
         const safeShippingFee = Number(order.shippingFee) || 0;
@@ -1444,16 +1464,16 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             ? order.totalAmountOverride + safeAdvance
             : (safeProductPrice + safeShippingFee + safeTax - safeDiscount);
 
-        const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionCost : 0;
+        const inspectionFeeCollected = order.inspectionFeePaidByCustomer !== false ? inspectionCost : 0;
         const baseExpected = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionFeeCollected;
         const overrideAdjustment = totalCollected - baseExpected;
 
         totalShippingRevenue += order.shippingFee;
 
         // Use the full carrierFees for accurate expense reporting
-        totalActualShipping += isPosOrder ? 0 : carrierFees;
+        totalActualShipping += carrierFees;
 
-        const shippingMarkup = isPosOrder ? 0 : Math.max(0, order.shippingFee - standardShipping);
+        const shippingMarkup = Math.max(0, order.shippingFee - standardShipping);
         totalShippingMarkup += shippingMarkup;
 
         let orderBaseRevenue = 0;
@@ -1486,6 +1506,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
+        const currentCogs = (order.items || []).reduce((sum, item) => {
+            const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            return sum + (costVal * item.quantity);
+        }, 0);
+
         totalProductRevenue += orderBaseRevenue;
         totalDiscount += safeDiscount;
         sumCollectedProductPrice += safeProductPrice;
@@ -1497,15 +1522,22 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         totalRequiredCollection += netRevenue;
         totalExtraMarkup += (orderProductExtraMarkup + overrideAdjustment);
         
-        totalCogs += (order.items || []).reduce((sum, item) => {
-            const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
-            return sum + (costVal * item.quantity);
-        }, 0);
+        totalCogs += currentCogs;
         
         totalInsuranceFees += insuranceFee;
         totalInspectionFees += inspectionAdjustment;
         totalCodFees += codFee;
         totalProfit += profit;
+
+        // Subtotals for Shipping Table
+        ship_sumProductPrice += safeProductPrice;
+        ship_sumShippingFee += order.shippingFee;
+        ship_sumTax += (bostaVat + safeTax);
+        ship_totalCogs += currentCogs;
+        ship_totalInsurance += insuranceFee;
+        ship_totalInspection += inspectionAdjustment;
+        ship_totalCod += codFee;
+        ship_totalProfit += profit;
 
         const productDetails = order.items.map(item => {
             const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
@@ -1531,10 +1563,6 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                   <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
                     دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
                   </div>` : ''}
-                  ${isPosOrder ? `
-                  <div style="margin-top: 2px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block;">
-                    نقطة بيع (POS) - عهدة: ${resolveCashHolderName(order, settings)}
-                  </div>` : ''}
                   ${safeAdvance > 0 ? `
                   <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #d97706; background-color: #fffbeb; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px; display: inline-block;">
                     عربون مدفوع: ${safeAdvance.toLocaleString()}
@@ -1555,6 +1583,121 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td>${insuranceFee.toLocaleString()}</td>
                 <td>${inspectionAdjustment.toLocaleString()}</td>
                 <td>${codFee.toLocaleString()}</td>
+                <td style="color: #15803d; font-weight: bold;">${profit.toLocaleString()}</td>
+            </tr>`;
+    }).join('');
+
+    const posCollectedRows = posCollectedOrders.map((order, idx) => {
+        const { profit, netRevenue, productCost } = calculateOrderProfitLoss(order, settings);
+        const isPosOrder = true;
+        
+        const safeProductPrice = Number(order.productPrice) || 0;
+        const safeShippingFee = Number(order.shippingFee) || 0;
+        const safeDiscount = Number(order.discount) || 0;
+        const safeAdvance = Number(order.advancePayment) || 0;
+        const safeTax = Number((order as any).tax) || 0;
+
+        const totalCollected = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
+            ? order.totalAmountOverride + safeAdvance
+            : (safeProductPrice + safeShippingFee + safeTax - safeDiscount);
+
+        const baseExpected = safeProductPrice + safeShippingFee + safeTax - safeDiscount;
+        const overrideAdjustment = totalCollected - baseExpected;
+
+        totalShippingRevenue += order.shippingFee;
+        totalActualShipping += 0;
+
+        let orderBaseRevenue = 0;
+        let orderProductExtraMarkup = 0;
+
+        order.items.forEach(item => {
+            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+            const variant = product?.variants?.find(v => v.id === item.productId);
+            const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const itemProfit = (item.price - actualCost) * item.quantity;
+
+            const catalogPrice = (product?.profitMode === 'commission' && product.basePrice !== undefined) ? product.basePrice :
+                                 (product?.basePrice !== undefined && product.basePrice > 0) ? product.basePrice :
+                                 ((variant && variant.price !== undefined) ? variant.price : ((product && product.price !== undefined) ? product.price : item.price));
+
+            if (item.price > catalogPrice) {
+                orderBaseRevenue += catalogPrice * item.quantity;
+                orderProductExtraMarkup += (item.price - catalogPrice) * item.quantity;
+            } else {
+                orderBaseRevenue += item.price * item.quantity;
+            }
+
+            if (product?.profitMode === 'commission') {
+                totalCommissionProfit += itemProfit;
+            } else {
+                totalPercentageProfit += itemProfit;
+            }
+        });
+
+        const isMultiProfitOrder = orderProductExtraMarkup > 0;
+        const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
+
+        const currentCogs = (order.items || []).reduce((sum, item) => {
+            const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            return sum + (costVal * item.quantity);
+        }, 0);
+
+        totalProductRevenue += orderBaseRevenue;
+        totalDiscount += safeDiscount;
+        sumCollectedProductPrice += safeProductPrice;
+        sumCollectedShippingFee += order.shippingFee;
+        sumCollectedTax += safeTax;
+        totalProductExtraMarkup += orderProductExtraMarkup;
+        totalOverrideAdjustment += overrideAdjustment;
+        totalRequiredCollection += netRevenue;
+        totalExtraMarkup += (orderProductExtraMarkup + overrideAdjustment);
+        
+        totalCogs += currentCogs;
+        totalProfit += profit;
+
+        // Subtotals POS
+        pos_sumProductPrice += safeProductPrice;
+        pos_sumShippingFee += order.shippingFee;
+        pos_sumTax += safeTax;
+        pos_totalCogs += currentCogs;
+        pos_totalProfit += profit;
+
+        const productDetails = order.items.map(item => {
+            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+            const isMulti = product?.profitMode === 'commission' && product.basePrice !== undefined && item.price > product.basePrice;
+            return `
+                <div style="margin-bottom: 4px; line-height: 1.4;">
+                    <strong>${item.name}</strong> (${item.quantity})
+                    ${isMulti ? '<br/><span style="font-size: 8px; background: #0ea5e9; color: white; padding: 1px 4px; border-radius: 4px; display: inline-block; margin-top: 2px;">ربح مركب (أساسي + زيادة)</span>' : ''}
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <tr style="${rowStyle}">
+                <td style="text-align: center; font-weight: bold;">${idx + 1}</td>
+                <td>
+                  <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
+                  <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
+                  <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
+                  <div style="margin-top: 2px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block;">
+                    نقطة بيع (POS) - عهدة: ${resolveCashHolderName(order, settings)}
+                  </div>
+                  ${safeAdvance > 0 ? `
+                  <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #d97706; background-color: #fffbeb; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px; display: inline-block;">
+                    عربون مدفوع: ${safeAdvance.toLocaleString()}
+                  </div>` : ''}
+                </td>
+                <td class="col-products">${productDetails}</td>
+                <td>
+                  <div>${order.productPrice.toLocaleString()}</div>
+                  ${order.discount > 0 ? `
+                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
+                    خصم: ${order.discount.toLocaleString()} ج.م
+                  </div>
+                  ` : ''}
+                </td>
+                <td>${productCost.toLocaleString()}</td>
                 <td style="color: #15803d; font-weight: bold;">${profit.toLocaleString()}</td>
             </tr>`;
     }).join('');
@@ -1877,26 +2020,49 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <tbody>${productRows}</tbody>
             </table>` : '';
 
-    const collectionLogHtml = s.showCollectionLog ? `
-            <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي (Collection Log)</h2>
+    let collectionLogHtml = '';
+    if (s.showCollectionLog) {
+        if (shippingCollectedRows) {
+            collectionLogHtml += `
+            <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي - الشحن (Shipping Collection Log)</h2>
             <table class="modern-table">
                 <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>ضريبة</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
                 <tbody>
-                    ${collectedRows}
+                    ${shippingCollectedRows}
                     <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
                         <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">-</td>
                         <td colspan="2" style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
-                        <td style="background-color: #f1f5f9;">${sumCollectedProductPrice.toLocaleString()}</td>
-                        <td style="background-color: #f1f5f9;">${sumCollectedShippingFee.toLocaleString()}</td>
-                        <td style="background-color: #f1f5f9;">${sumCollectedTax.toLocaleString()}</td>
-                        <td style="background-color: #f1f5f9;">${totalCogs.toLocaleString()}</td>
-                        <td style="background-color: #f1f5f9;">${totalInsuranceFees.toLocaleString()}</td>
-                        <td style="background-color: #f1f5f9;">${totalInspectionFees.toLocaleString()}</td>
-                        <td style="background-color: #f1f5f9;">${totalCodFees.toLocaleString()}</td>
-                        <td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${totalProfit.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_sumProductPrice.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_sumShippingFee.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_sumTax.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_totalCogs.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_totalInsurance.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_totalInspection.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${ship_totalCod.toLocaleString()}</td>
+                        <td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${ship_totalProfit.toLocaleString()}</td>
                     </tr>
                 </tbody>
-            </table>` : '';
+            </table>`;
+        }
+        
+        if (posCollectedRows) {
+            collectionLogHtml += `
+            <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي - نقاط البيع (POS Collection Log)</h2>
+            <table class="modern-table">
+                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>التكلفة</th><th>الصافي</th></tr></thead>
+                <tbody>
+                    ${posCollectedRows}
+                    <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
+                        <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">-</td>
+                        <td colspan="2" style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
+                        <td style="background-color: #f1f5f9;">${pos_sumProductPrice.toLocaleString()}</td>
+                        <td style="background-color: #f1f5f9;">${pos_totalCogs.toLocaleString()}</td>
+                        <td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${pos_totalProfit.toLocaleString()}</td>
+                    </tr>
+                </tbody>
+            </table>`;
+        }
+    }
 
     const lossLogHtml = (failedRows && s.showLossLog) ? `
             <h2 class="section-header" style="color: var(--danger);">${sectionCounter++}. سجل المرتجعات والخسائر (Loss Log)</h2>

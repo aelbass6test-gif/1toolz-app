@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
 import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator } from 'lucide-react';
-import { getSupabaseRestrictedStatus, isSupabaseActive } from '../services/databaseService';
+import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
 
@@ -150,7 +150,6 @@ const Header: React.FC<HeaderProps> = ({
         setIsTestingPing(true);
         const startTime = performance.now();
         try {
-            const { checkSupabaseConnection } = await import('../services/databaseService');
             const success = await checkSupabaseConnection();
             const duration = Math.round(performance.now() - startTime);
             // Ensure a small realistic latency offset for UI satisfaction, while checking real connection

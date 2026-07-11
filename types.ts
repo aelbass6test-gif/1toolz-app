@@ -689,6 +689,10 @@ export interface Settings {
   employeeDashboardSettings?: EmployeeDashboardSettings;
   isPosEnabled?: boolean;
   wallet?: WalletSettings;
+  hiddenWalletAmount?: number;
+  enableHiddenWalletAmount?: boolean;
+  hiddenWalletAmountLabel?: string;
+  enableAutoClosingDifference?: boolean;
   partners?: Partner[];
   partnerTransactions?: PartnerTransaction[];
   expenseCategories?: string[]; // Added expense categories
@@ -1040,6 +1044,7 @@ export interface Order {
   discountAffectsInsurance?: boolean;
   totalAmountOverride?: number;
   totalAmountOverrideReason?: string;
+  netRevenue?: number;
   includeInspectionFee?: boolean; 
   isInsured?: boolean; 
   inspectionFeeDeducted?: boolean;

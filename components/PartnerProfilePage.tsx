@@ -5,6 +5,7 @@ import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, H
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
+import { calculateOrderProfitLoss } from '../utils/financials';
 
 import { Treasury } from '../types';
 
@@ -37,6 +38,16 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     return holder ? holder.currentBalance || 0 : 0;
   }, [settings.cashHolders, partner]);
 
+  const effectiveHiddenAmount = useMemo(() => {
+    if (!settings.enableHiddenWalletAmount) return 0;
+    const autoClosingDiff = settings.enableAutoClosingDifference 
+        ? Math.abs(orders
+            .filter(o => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'مرتجع_جزئي'].includes(o.status))
+            .reduce((sum, o) => sum + (calculateOrderProfitLoss(o, settings).closingDifference || 0), 0))
+        : (settings.hiddenWalletAmount || 0);
+    return autoClosingDiff;
+  }, [settings.enableHiddenWalletAmount, settings.enableAutoClosingDifference, settings.hiddenWalletAmount, orders, settings]);
+
   const executeCustodyTx = () => {
      const amount = parseFloat(custodyAmount);
      if (!amount || isNaN(amount) || amount <= 0) {
@@ -49,8 +60,10 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
      }
 
      const isCentralWallet = custodyTreasuryId === 'central_wallet';
+     const isCentralWalletBalance = Math.max(0, (wallet.balance || 0) - effectiveHiddenAmount);
+     
      const selectedAccount = isCentralWallet 
-        ? { id: 'central_wallet', name: 'المحفظة الماليّة المركزيّة (الرصيد الأساسي)', balance: wallet.balance }
+        ? { id: 'central_wallet', name: 'المحفظة الماليّة المركزيّة (الرصيد الأساسي)', balance: isCentralWalletBalance }
         : treasury?.accounts?.find((a: any) => a.id === custodyTreasuryId);
 
      if (!selectedAccount) return;
@@ -863,7 +876,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                           >
                               <option value="">-- اختر حساباً مالياً --</option>
                               <option value="central_wallet" className="text-indigo-600 font-black">
-                                 💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد: {wallet.balance.toLocaleString()} ج.م)
+                                 💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد: {Math.max(0, (wallet.balance || 0) - effectiveHiddenAmount).toLocaleString()} ج.م)
                               </option>
                               {treasury?.accounts?.map((acc: any) => (
                                   <option key={acc.id} value={acc.id}>

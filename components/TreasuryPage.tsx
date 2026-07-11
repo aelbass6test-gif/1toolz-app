@@ -14,7 +14,8 @@ import {
   Edit2,
   Trash2
 } from 'lucide-react';
-import { Settings, Treasury, TreasuryAccount, TreasuryTransaction } from '../types';
+import { Settings, Treasury, TreasuryAccount, TreasuryTransaction, Order } from '../types';
+import { calculateOrderProfitLoss } from '../utils/financials';
 
 interface TreasuryPageProps {
   settings: Settings;
@@ -22,9 +23,10 @@ interface TreasuryPageProps {
   setTreasury?: (updater: any) => void;
   wallet?: any;
   setWallet?: (updater: any) => void;
+  orders?: Order[];
 }
 
-export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury, wallet, setWallet }) => {
+export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury, wallet, setWallet, orders = [] }) => {
   const accounts = treasury?.accounts || [];
   
   // Dynamically calculate live balance for main wallet to match WalletPage behavior
@@ -58,12 +60,19 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
     }, 0);
   };
 
+  const autoClosingDiff = settings.enableAutoClosingDifference 
+      ? Math.abs(orders
+          .filter(o => ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'مرتجع_جزئي'].includes(o.status))
+          .reduce((sum, o) => sum + (calculateOrderProfitLoss(o, settings).closingDifference || 0), 0))
+      : (settings.hiddenWalletAmount || 0);
+  const hidden = settings.enableHiddenWalletAmount ? autoClosingDiff : 0;
+
   const virtualAccounts: TreasuryAccount[] = [
     {
       id: 'main_wallet',
       name: 'المحفظة العامة (الرصيد الأساسي)',
       type: 'wallet',
-      balance: calculateMainWalletBalance(),
+      balance: Math.max(0, calculateMainWalletBalance() - hidden),
       currency: 'EGP',
       walletName: 'المحفظة العامة'
     },
