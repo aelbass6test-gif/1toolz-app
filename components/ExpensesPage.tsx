@@ -97,8 +97,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [accountId, setAccountId] = useState('main_wallet');
-  const [paymentSource, setPaymentSource] = useState<'treasury' | 'partner'>('treasury');
+  const [paymentSource, setPaymentSource] = useState<'treasury' | 'partner' | 'custody'>('treasury');
   const [selectedPartnerId, setSelectedPartnerId] = useState('');
+  const [selectedCustodyId, setSelectedCustodyId] = useState('');
   const [category, setCategory] = useState<TransactionCategory>(
       (settings.expenseCategories && settings.expenseCategories.length > 0) 
       ? (settings.expenseCategories[0] as TransactionCategory) 
@@ -357,6 +358,11 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       return;
     }
 
+    if (paymentSource === 'custody' && !selectedCustodyId) {
+      showToast('الرجاء اختيار العهدة المسؤولة عن السداد', 'error');
+      return;
+    }
+
     const newTransactionId = Date.now().toString();
 
     if (paymentSource === 'partner') {
@@ -397,6 +403,57 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       }));
 
       showToast(`تم تسجيل المصروف وقيده كذمة دائنة للشريك ${partner.name}`);
+    } else if (paymentSource === 'custody') {
+      const holder = (settings.cashHolders || []).find(h => h.userId === selectedCustodyId);
+      if (!holder) return;
+
+      const categoryLabel = TRANSACTION_CATEGORY_LABELS[category] || category;
+      const dateStr = new Date().toISOString();
+
+      // Update cashHolders balance
+      const nextHolders = (settings.cashHolders || []).map(h => 
+        h.userId === selectedCustodyId 
+          ? { ...h, currentBalance: (h.currentBalance || 0) - numAmount, lastUpdated: dateStr } 
+          : h
+      );
+
+      // Record a handover/deduction transaction for custody tracking
+      const handoverId = `HND-EXP-${Date.now()}`;
+      const handoverData: any = {
+         id: handoverId,
+         fromUserId: selectedCustodyId,
+         fromUserName: holder.userName,
+         toUserId: 'expense',
+         toUserName: `مصروف: ${categoryLabel}`,
+         amount: numAmount,
+         date: dateStr,
+         notes: `سداد مصروف من العهدة: ${description || 'مصروف عام'}`,
+         status: 'completed'
+      };
+
+      updateSettings({
+         ...settings,
+         cashHolders: nextHolders,
+         cashHandovers: [handoverData, ...(settings.cashHandovers || [])]
+      });
+
+      const walletTransaction: Transaction = {
+          id: newTransactionId,
+          type: 'سحب',
+          amount: numAmount,
+          date: dateStr,
+          note: `مصروف (بواسطة عهدة ${holder.userName}): ${description || 'مصروف جديد'}`,
+          category: category,
+          status: 'completed',
+          details: { expensePaidBy: holder.userName, cashHolderId: selectedCustodyId }
+      };
+
+      setWallet(prev => ({
+          ...prev,
+          transactions: [walletTransaction, ...prev.transactions]
+      }));
+
+      showToast(`تم تسجيل المصروف وخصمه من عهدة ${holder.userName}`);
     } else {
       const selectedAcc = treasury?.accounts.find(a => a.id === accountId);
       const accName = selectedAcc ? selectedAcc.name : (accountId === 'main_wallet' ? 'المحفظة العامة' : 'الخزينة');
@@ -450,6 +507,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
     setAmount('');
     setDescription('');
     setSelectedPartnerId('');
+    setSelectedCustodyId('');
   };
 
   const handlePrint = () => {
@@ -1254,29 +1312,37 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
               <div>
                 <label className="text-xs font-black text-slate-700 dark:text-slate-300 mb-2 block flex items-center gap-1.5">
                   <CreditCard size={15} className="text-indigo-500" />
-                  <span>مصدر الدفع (المحفظة / الخزينة / الشريك)</span>
+                  <span>مصدر الدفع (المحفظة / الخزينة / الشركاء / العهد)</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl">
+                <div className="grid grid-cols-3 gap-2 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl">
                   <button 
                     type="button" 
                     onClick={() => setPaymentSource('treasury')} 
-                    className={`py-3 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${paymentSource === 'treasury' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
+                    className={`py-3 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 cursor-pointer ${paymentSource === 'treasury' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
                   >
-                    <WalletIcon size={16} />
-                    <span>الخزينة / المحفظة المالية</span>
+                    <WalletIcon size={14} />
+                    <span>خزينة / محفظة</span>
                   </button>
                   <button 
                     type="button" 
                     onClick={() => setPaymentSource('partner')} 
-                    className={`py-3 px-4 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${paymentSource === 'partner' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
+                    className={`py-3 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 cursor-pointer ${paymentSource === 'partner' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
                   >
-                    <User size={16} />
-                    <span>شريك (تحمل شخصي)</span>
+                    <User size={14} />
+                    <span>شريك (شخصي)</span>
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => setPaymentSource('custody')} 
+                    className={`py-3 px-2 rounded-xl text-[11px] font-black transition-all flex items-center justify-center gap-1 cursor-pointer ${paymentSource === 'custody' ? 'bg-white dark:bg-slate-700 text-teal-600 dark:text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    <Landmark size={14} />
+                    <span>عهدة موظف/شريك</span>
                   </button>
                 </div>
               </div>
 
-              {/* Conditional Account or Partner Select */}
+              {/* Conditional Account, Partner, or Custody Select */}
               {paymentSource === 'treasury' ? (
                 <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 space-y-2">
                   <label className="text-xs font-black text-indigo-950 dark:text-indigo-300 block flex items-center justify-between">
@@ -1305,7 +1371,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <Landmark className="absolute right-3.5 top-1/2 -translate-y-1/2 text-indigo-500 pointer-events-none" size={18}/>
                   </div>
                 </div>
-              ) : (
+              ) : paymentSource === 'partner' ? (
                 <div className="bg-amber-50/50 dark:bg-amber-950/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/40 space-y-2">
                   <label className="text-xs font-black text-amber-950 dark:text-amber-300 block flex items-center justify-between">
                     <span>اختر الشريك الذي قام بالسداد من جيبه:</span>
@@ -1326,6 +1392,33 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                       ))}
                     </select>
                     <User className="absolute right-3.5 top-1/2 -translate-y-1/2 text-amber-500 pointer-events-none" size={18}/>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-teal-50/50 dark:bg-teal-950/20 p-4 rounded-2xl border border-teal-100 dark:border-teal-900/40 space-y-2">
+                  <label className="text-xs font-black text-teal-950 dark:text-teal-300 block flex items-center justify-between">
+                    <span>اختر العهدة النقدية المخصوم منها:</span>
+                    {selectedCustodyId && (
+                      <span className="text-teal-600 dark:text-teal-400 bg-teal-100/80 dark:bg-teal-950/80 px-2.5 py-0.5 rounded-lg text-[11px] font-mono font-bold">
+                        رصيد العهدة الحالي: {((settings.cashHolders || []).find(h => h.userId === selectedCustodyId)?.currentBalance || 0).toLocaleString()} ج.م
+                      </span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <select 
+                      required={paymentSource === 'custody'} 
+                      value={selectedCustodyId} 
+                      onChange={e => setSelectedCustodyId(e.target.value)} 
+                      className="w-full appearance-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-10 font-bold text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-teal-500/40 transition-all cursor-pointer"
+                    >
+                      <option value="" disabled>-- اختر العهدة النقدية --</option>
+                      {(settings.cashHolders || []).map(h => (
+                        <option key={h.userId} value={h.userId}>
+                          💼 {h.userName} - (الرصيد: {h.currentBalance?.toLocaleString() || 0} ج.م)
+                        </option>
+                      ))}
+                    </select>
+                    <User className="absolute right-3.5 top-1/2 -translate-y-1/2 text-teal-500 pointer-events-none" size={18}/>
                   </div>
                 </div>
               )}

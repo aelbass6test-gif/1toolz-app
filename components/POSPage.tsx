@@ -31,12 +31,19 @@ import { printHTMLDirectly } from '../utils/printHelper';
 import { triggerCelebration } from '../utils/celebration';
 
 const normalizeName = (name: string): string => {
-  if (!name) return name;
+  if (!name) return '';
   let normalized = name.trim().replace(/\s+/g, ' ');
-  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin|أنت|انت)\)/gi, '');
   normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
-  normalized = normalized.trim();
-  if (/^(زهره|زهرة)/.test(normalized)) {
+  normalized = normalized
+    .replace(/أ/g, 'ا')
+    .replace(/إ/g, 'ا')
+    .replace(/آ/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .toLowerCase()
+    .trim();
+  if (/^(زهره)/.test(normalized)) {
       return 'زهره';
   }
   return normalized;

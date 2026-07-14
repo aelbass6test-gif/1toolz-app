@@ -605,7 +605,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
             سجل حركة النقدية
           </h3>
         </div>
-        <div className="overflow-x-auto">
+      <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-sm">
               <tr>
@@ -619,55 +619,67 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {transactions.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-8 text-center justify-center text-slate-500">
-                    <History className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                    <p className="font-bold">لا توجد حركات مسجلة</p>
-                  </td>
-                </tr>
-              ) : transactions.map(tx => (
-                <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="p-4 text-sm text-slate-600 dark:text-slate-300 font-medium">
-                    {new Date(tx.date).toLocaleDateString('ar-EG')} - {new Date(tx.date).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'})}
-                  </td>
-                  <td className="p-4">
-                    <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-bold ${
-                      tx.type === 'deposit' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                      tx.type === 'withdrawal' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' :
-                      tx.type === 'advance' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                      'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              {(() => {
+                const filteredTxs = transactions.filter(tx => {
+                  const involvesRealAccount = (tx.fromAccountId && !['main_wallet', 'supply_wallet'].includes(tx.fromAccountId)) || 
+                                              (tx.toAccountId && !['main_wallet', 'supply_wallet'].includes(tx.toAccountId));
+                  return involvesRealAccount;
+                });
+
+                if (filteredTxs.length === 0) {
+                  return (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center justify-center text-slate-500">
+                        <History className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                        <p className="font-bold">لا توجد حركات مسجلة</p>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                return filteredTxs.map(tx => (
+                  <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                    <td className="p-4 text-sm text-slate-600 dark:text-slate-300 font-medium">
+                      {new Date(tx.date).toLocaleDateString('ar-EG')} - {new Date(tx.date).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'})}
+                    </td>
+                    <td className="p-4">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-bold ${
+                        tx.type === 'deposit' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                        tx.type === 'withdrawal' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' :
+                        tx.type === 'advance' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                        'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                      }`}>
+                        {tx.type === 'deposit' ? 'إيداع' : tx.type === 'withdrawal' ? 'صرف' : tx.type === 'advance' ? 'تسليم عهدة' : 'تحويل'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-sm font-bold text-slate-800 dark:text-slate-200">
+                      {tx.description}
+                    </td>
+                    <td className="p-4 text-sm text-slate-500">
+                      {tx.fromAccountId ? allAccounts.find(a => a.id === tx.fromAccountId)?.name : '-'}
+                    </td>
+                    <td className="p-4 text-sm text-slate-500">
+                      {tx.toAccountId ? allAccounts.find(a => a.id === tx.toAccountId)?.name : '-'}
+                    </td>
+                    <td className={`p-4 text-sm font-black tabular-nums ${
+                      tx.type === 'deposit' ? 'text-emerald-600' :
+                      tx.type === 'withdrawal' ? 'text-rose-600' :
+                      'text-indigo-600'
                     }`}>
-                      {tx.type === 'deposit' ? 'إيداع' : tx.type === 'withdrawal' ? 'صرف' : tx.type === 'advance' ? 'تسليم عهدة' : 'تحويل'}
-                    </span>
-                  </td>
-                  <td className="p-4 text-sm font-bold text-slate-800 dark:text-slate-200">
-                    {tx.description}
-                  </td>
-                  <td className="p-4 text-sm text-slate-500">
-                    {tx.fromAccountId ? allAccounts.find(a => a.id === tx.fromAccountId)?.name : '-'}
-                  </td>
-                  <td className="p-4 text-sm text-slate-500">
-                    {tx.toAccountId ? allAccounts.find(a => a.id === tx.toAccountId)?.name : '-'}
-                  </td>
-                  <td className={`p-4 text-sm font-black tabular-nums ${
-                    tx.type === 'deposit' ? 'text-emerald-600' :
-                    tx.type === 'withdrawal' ? 'text-rose-600' :
-                    'text-indigo-600'
-                  }`}>
-                    {tx.type === 'withdrawal' ? '-' : tx.type === 'deposit' ? '+' : ''}{tx.amount.toLocaleString()}
-                  </td>
-                  <td className="p-4 text-center">
-                    <button
-                      onClick={() => initiateDeleteTransaction(tx)}
-                      className="p-2 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 rounded-xl transition-all duration-200 cursor-pointer"
-                      title="حذف الحركة وتسوية الرصيد"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {tx.type === 'withdrawal' ? '-' : tx.type === 'deposit' ? '+' : ''}{tx.amount.toLocaleString()}
+                    </td>
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => initiateDeleteTransaction(tx)}
+                        className="p-2 bg-slate-50 hover:bg-rose-50 dark:bg-slate-800/80 dark:hover:bg-rose-950/50 text-slate-400 hover:text-rose-600 rounded-xl transition-all duration-200 cursor-pointer"
+                        title="حذف الحركة وتسوية الرصيد"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ));
+              })()}
             </tbody>
           </table>
         </div>

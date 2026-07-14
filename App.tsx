@@ -94,6 +94,18 @@ interface EmployeeRegisterRequestData {
 import MobileNavigation from './components/MobileNavigation';
 import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
 
+const normalizeName = (name: string): string => {
+  if (!name) return name;
+  let normalized = name.trim().replace(/\s+/g, ' ');
+  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '');
+  normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+  normalized = normalized.trim();
+  if (/^(زهره|زهرة)/.test(normalized)) {
+      return 'زهره';
+  }
+  return normalized;
+};
+
 const MainLayout = ({ 
     currentUser, 
     handleLogout, 
@@ -251,13 +263,31 @@ const MainLayout = ({
 
         // 4. Check High Cash Holder Balances (Threshold: 5000)
         const cashHolders = settings.cashHolders || [];
+        const groupedHolders = new Map<string, { userName: string, totalBalance: number, ids: string[] }>();
         cashHolders.forEach(ch => {
-            if ((ch.currentBalance || 0) >= 5000) {
+            const norm = normalizeName(ch.userName);
+            const current = groupedHolders.get(norm);
+            if (current) {
+                current.totalBalance += (ch.currentBalance || 0);
+                current.ids.push(ch.userId);
+            } else {
+                groupedHolders.set(norm, {
+                    userName: ch.userName,
+                    totalBalance: ch.currentBalance || 0,
+                    ids: [ch.userId]
+                });
+            }
+        });
+
+        groupedHolders.forEach((data, normName) => {
+            if (data.totalBalance >= 5000) {
+                const isPartner = settings.partners?.some(p => normalizeName(p.name) === normName);
+                const titleRole = isPartner ? 'الشريك' : 'الموظف';
                 alerts.push({
                     type: 'cash_balance',
-                    id: `cash-${ch.userId}`,
+                    id: `cash-group-${normName}`,
                     title: 'عهدة نقدية مرتفعة',
-                    message: `الموظف "${ch.userName}" يحمل عهدة نقدية كبيرة بقيمة ${(ch.currentBalance ?? 0).toLocaleString()} ج.م`,
+                    message: `${titleRole} "${data.userName.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '')}" يحمل عهدة نقدية كبيرة بقيمة ${data.totalBalance.toLocaleString()} ج.م`,
                     severity: 'warning'
                 });
             }

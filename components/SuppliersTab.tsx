@@ -17,6 +17,8 @@ interface SuppliersTabProps {
   showConfirm: (title: string, message: string, onConfirm: () => void) => void;
   onOpenPaymentModal: (supplier: Supplier) => void;
   onOpenNewOrderModal: (supplierId?: string) => void;
+  wallet?: any;
+  treasury?: any;
 }
 
 export const SuppliersTab: React.FC<SuppliersTabProps> = ({
@@ -25,7 +27,9 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
   showAlert,
   showConfirm,
   onOpenPaymentModal,
-  onOpenNewOrderModal
+  onOpenNewOrderModal,
+  wallet,
+  treasury
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [debtFilter, setDebtFilter] = useState<'all' | 'indebted' | 'cleared' | 'credit'>('all');
@@ -305,10 +309,88 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       debit: number; // زيادة المديونية (فاتورة شراء)
       credit: number; // سداد أو مرتجع
       notes?: string;
+      isPaid?: boolean;
+      isAutoPaid?: boolean;
+      paymentMethod?: string;
     }[] = [];
+
+    // Calculate autoPaidOrdersMap for this supplier
+    const paidMap = new Map<string, boolean>();
+    orders.forEach(o => {
+      if (o.paymentMethod !== 'credit') {
+        paidMap.set(o.id, true);
+      } else if (o.isPaid) {
+        paidMap.set(o.id, true);
+      } else {
+        paidMap.set(o.id, false);
+      }
+    });
+
+    // Match by explicit reference in transaction notes
+    const walletTxs = wallet?.transactions || [];
+    const treasuryTxs = treasury?.transactions || [];
+    const allTxs = [
+      ...(walletTxs || []).map((t: any) => ({ note: t.note || '', amount: Number(t.amount) || 0 })),
+      ...(treasuryTxs || []).map((t: any) => ({ note: t.description || '', amount: Number(t.amount) || 0 }))
+    ];
+
+    orders.forEach(o => {
+      if (paidMap.get(o.id)) return;
+      const ref = o.referenceNumber;
+      const orderNo = o.orderNumber;
+      const id = o.id;
+
+      const foundExplicit = allTxs.some(t => {
+        const noteLower = t.note.toLowerCase();
+        const hasId = id && noteLower.includes(id.toLowerCase());
+        const hasRef = ref && noteLower.includes(ref.toLowerCase());
+        const hasOrderNo = orderNo && noteLower.includes(orderNo.toLowerCase());
+        return hasId || hasRef || hasOrderNo;
+      });
+
+      if (foundExplicit) {
+        paidMap.set(o.id, true);
+      }
+    });
+
+    // FIFO balance matching for this supplier
+    const supplierCreditOrders = [...orders]
+      .filter(o => o.paymentMethod === 'credit')
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Compute based on supplier balance (ultimate truth of paid amount)
+    const currentBalance = statementSupplier.balance || 0;
+    const totalCreditCost = supplierCreditOrders.reduce((sum, o) => sum + (o.grandTotal || o.totalCost || 0), 0);
+    const totalPaidFromBalance = Math.max(0, totalCreditCost - Math.max(0, currentBalance));
+
+    const nameToMatch = statementSupplier.name;
+    const supplierPayments = [
+      ...(walletTxs || []).filter((t: any) => {
+        const isSupplierPayment = t.category === 'supplier_payment' || t.category === 'supply_purchase';
+        const matchesName = t.note && t.note.includes(nameToMatch);
+        return isSupplierPayment && matchesName;
+      }).map((t: any) => Number(t.amount) || 0),
+      ...(treasuryTxs || []).filter((t: any) => {
+        const matchesName = t.description && t.description.includes(nameToMatch);
+        return matchesName;
+      }).map((t: any) => Number(t.amount) || 0)
+    ];
+
+    const totalPaidFromTxs = supplierPayments.reduce((sum, amt) => sum + amt, 0);
+    let totalPaid = Math.max(totalPaidFromBalance, totalPaidFromTxs);
+
+    supplierCreditOrders.forEach(o => {
+      const cost = o.grandTotal || o.totalCost || 0;
+      if (totalPaid >= cost) {
+        paidMap.set(o.id, true);
+        totalPaid -= cost;
+      }
+    });
 
     // Add orders
     orders.forEach(o => {
+      const isPaid = !!paidMap.get(o.id);
+      const isAutoPaid = isPaid && (o.paymentMethod === 'credit') && !o.isPaid;
       list.push({
         id: o.id,
         date: o.date || new Date().toISOString(),
@@ -317,7 +399,10 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
         reference: o.referenceNumber || o.orderNumber || o.id,
         debit: o.grandTotal || o.totalCost || 0,
         credit: 0,
-        notes: o.notes
+        notes: o.notes,
+        isPaid: isPaid,
+        isAutoPaid: isAutoPaid,
+        paymentMethod: o.paymentMethod
       });
     });
 
@@ -335,6 +420,41 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       });
     });
 
+    // Add wallet payments
+    walletTxs.forEach((t: any) => {
+      const isSupplierPayment = t.category === 'supplier_payment' || t.category === 'supply_purchase';
+      const matchesName = t.note && t.note.includes(nameToMatch);
+      if (isSupplierPayment && matchesName) {
+        list.push({
+          id: t.id,
+          date: t.date || new Date().toISOString(),
+          type: 'payment',
+          title: `سداد مديونية للمورد (${t.category === 'supply_purchase' ? 'محفظة التوريد' : 'المحفظة العامة'})`,
+          reference: t.id,
+          debit: 0,
+          credit: Number(t.amount) || 0,
+          notes: t.note
+        });
+      }
+    });
+
+    // Add treasury payments
+    treasuryTxs.forEach((t: any) => {
+      const matchesName = t.description && t.description.includes(nameToMatch);
+      if (matchesName) {
+        list.push({
+          id: t.id,
+          date: t.date || new Date().toISOString(),
+          type: 'payment',
+          title: `سداد مديونية للمورد (الخزينة)`,
+          reference: t.id,
+          debit: 0,
+          credit: Number(t.amount) || 0,
+          notes: t.description
+        });
+      }
+    });
+
     // Sort ascending by date
     list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -344,7 +464,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       running = running + item.debit - item.credit;
       return { ...item, runningBalance: running };
     });
-  }, [statementSupplier, settings.supplyOrders, settings.purchaseReturns]);
+  }, [statementSupplier, settings.supplyOrders, settings.purchaseReturns, wallet, treasury]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300" dir="rtl">
@@ -1040,8 +1160,19 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                               {new Date(entry.date).toLocaleDateString('ar-EG')}
                             </td>
                             <td className="py-3.5 px-2">
-                              <span className="font-extrabold block">{entry.title}</span>
-                              {entry.notes && <span className="text-[10px] text-slate-400 font-normal">{entry.notes}</span>}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-extrabold">{entry.title}</span>
+                                {entry.type === 'order' && entry.paymentMethod === 'credit' && (
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black leading-none ${
+                                    entry.isPaid
+                                      ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/50'
+                                      : 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/50'
+                                  }`}>
+                                    {entry.isAutoPaid ? 'تم السداد (تلقائي ⚡)' : entry.isPaid ? 'تم السداد' : 'آجل غير مسدد'}
+                                  </span>
+                                )}
+                              </div>
+                              {entry.notes && <span className="text-[10px] text-slate-400 font-normal block mt-1">{entry.notes}</span>}
                             </td>
                             <td className="py-3.5 px-2 font-mono text-slate-500 text-[11px]">
                               #{entry.reference}

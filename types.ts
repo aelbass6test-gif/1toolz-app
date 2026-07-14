@@ -517,6 +517,7 @@ export interface SupplyOrder {
   costUpdateMethod?: 'last_purchase' | 'weighted_average';
   otherFeesNote?: string;
   expensePaidBy?: string;
+  isPaid?: boolean;
 }
 
 export interface ActivityLog {
@@ -609,6 +610,52 @@ export interface PayrollTransaction {
   treasuryAccountId?: string;
 }
 
+export interface StaffAttendance {
+  id: string;
+  staffId: string;
+  staffName: string;
+  date: string; // YYYY-MM-DD
+  checkIn?: string; // HH:MM
+  checkOut?: string; // HH:MM
+  status: 'present' | 'absent' | 'leave' | 'delay';
+  delayMinutes?: number;
+  note?: string;
+}
+
+export interface StaffLeave {
+  id: string;
+  staffId: string;
+  staffName: string;
+  startDate: string;
+  endDate: string;
+  type: 'annual' | 'sick' | 'casual' | 'unpaid';
+  status: 'pending' | 'approved' | 'rejected';
+  reason?: string;
+  daysCount: number;
+}
+
+export interface StaffAdvance {
+  id: string;
+  staffId: string;
+  staffName: string;
+  amount: number;
+  date: string;
+  status: 'paid' | 'deducted' | 'pending';
+  deductedInMonth?: string; // YYYY-MM
+  note?: string;
+}
+
+export interface StaffDocument {
+  id: string;
+  staffId: string;
+  staffName: string;
+  docName: string;
+  docType: 'contract' | 'id_card' | 'passport' | 'other';
+  fileUrl?: string;
+  expiryDate?: string; // YYYY-MM-DD
+  notes?: string;
+}
+
 export interface Settings {
   id?: string;
   data?: any; // For flexible local storage
@@ -671,6 +718,10 @@ export interface Settings {
   employees: Employee[];
   staffMembers?: StaffMember[]; 
   payrollTransactions?: PayrollTransaction[]; 
+  staffAttendance?: StaffAttendance[];
+  staffLeaves?: StaffLeave[];
+  staffAdvances?: StaffAdvance[];
+  staffDocuments?: StaffDocument[];
   customization: StoreCustomization;
   discountCodes: DiscountCode[];
   abandonedCarts: AbandonedCart[];

@@ -351,25 +351,12 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           toAccountId: selectedTreasuryId
         };
 
-        const feeTreasuryTx: any = fee > 0 ? {
-          id: `TWF-${Date.now()}`,
-          date: new Date().toISOString(),
-          type: 'withdrawal',
-          amount: fee,
-          description: `رسوم تحويل داخلي إلى خزينة: ${selectedAccount?.name || 'غير معروف'}`,
-          fromAccountId: 'main_wallet'
-        } : null;
-
-        const treasuryTransactions = feeTreasuryTx 
-          ? [newTreasuryTx, feeTreasuryTx, ...(prev.transactions || [])] 
-          : [newTreasuryTx, ...(prev.transactions || [])];
-        
         return {
           ...prev,
           accounts: prev.accounts.map(acc => 
             acc.id === selectedTreasuryId ? { ...acc, balance: acc.balance + numAmount } : acc
           ),
-          transactions: treasuryTransactions
+          transactions: [newTreasuryTx, ...(prev.transactions || [])]
         };
       });
 

@@ -19,6 +19,25 @@ interface PartnerProfilePageProps {
   setTreasury?: (updater: any) => void;
 }
 
+const normalizeName = (name: string): string => {
+  if (!name) return '';
+  let normalized = name.trim().replace(/\s+/g, ' ');
+  normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin|أنت|انت)\)/gi, '');
+  normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+  normalized = normalized
+    .replace(/أ/g, 'ا')
+    .replace(/إ/g, 'ا')
+    .replace(/آ/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .toLowerCase()
+    .trim();
+  if (/^(زهره)/.test(normalized)) {
+      return 'زهره';
+  }
+  return normalized;
+};
+
 const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
   const { storeId, partnerId } = useParams<{ storeId: string; partnerId: string }>();
   const navigate = useNavigate();
@@ -32,10 +51,47 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
   const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId && t.type !== 'pos_collection'), [settings.partnerTransactions, partnerId]);
 
+  const handoversForPartner = useMemo(() => {
+    if (!partner) return [];
+    const holderId = `part_${partner.id}`;
+    const partnerHolders = (settings.cashHolders || []).filter((h: any) => 
+        h.userId === holderId || 
+        h.userId === partner.id || 
+        normalizeName(h.userName) === normalizeName(partner.name)
+    );
+    const partnerUserIds = partnerHolders.map(h => h.userId);
+    if (!partnerUserIds.includes(partner.id)) partnerUserIds.push(partner.id);
+    if (!partnerUserIds.includes(holderId)) partnerUserIds.push(holderId);
+
+    return (settings.cashHandovers || [])
+      .filter(h => partnerUserIds.includes(h.fromUserId) || partnerUserIds.includes(h.toUserId))
+      .map(h => {
+        const isGive = partnerUserIds.includes(h.toUserId);
+        return {
+          id: h.id,
+          partnerId: partner.id,
+          type: isGive ? 'custody_give' : 'custody_receive',
+          amount: Number(h.amount) || 0,
+          date: h.date,
+          note: h.notes || (isGive ? 'تسليم عهدة تشغيلية للشريك' : 'تسوية واسترداد عهدة من الشريك'),
+        } as any;
+      });
+  }, [settings.cashHandovers, settings.cashHolders, partner]);
+
+  const mergedTransactions = useMemo(() => {
+    const list = [...transactions, ...handoversForPartner];
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [transactions, handoversForPartner]);
+
   const partnerCustody = useMemo(() => {
-    const holderId = `part_${partner?.id}`;
-    const holder = (settings.cashHolders || []).find(h => h.userId === holderId || h.userId === partner?.id);
-    return holder ? holder.currentBalance || 0 : 0;
+    if (!partner) return 0;
+    const holderId = `part_${partner.id}`;
+    const partnerHolders = (settings.cashHolders || []).filter((h: any) => 
+        h.userId === holderId || 
+        h.userId === partner.id || 
+        normalizeName(h.userName) === normalizeName(partner.name)
+    );
+    return partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
   }, [settings.cashHolders, partner]);
 
   const effectiveHiddenAmount = useMemo(() => {
@@ -204,14 +260,24 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           message: 'هل أنت متأكد من مسح حركة العهدة؟ سيتم التراجع عن كل التغييرات المالية المتعلقة بها على الخزينة وحساب الشريك.',
           onConfirm: () => {
               const amount = h.amount;
-              const isGive = h.fromUserId === 'admin' || h.toUserId === `part_${partner?.id}`;
+              const holderId = `part_${partner?.id}`;
+              const partnerHolders = (settings.cashHolders || []).filter((holder: any) => 
+                  holder.userId === holderId || 
+                  holder.userId === partner?.id || 
+                  normalizeName(holder.userName) === normalizeName(partner?.name || '')
+              );
+              const partnerUserIds = partnerHolders.map(holder => holder.userId);
+              if (partner && !partnerUserIds.includes(partner.id)) partnerUserIds.push(partner.id);
+              if (!partnerUserIds.includes(holderId)) partnerUserIds.push(holderId);
+
+              const isGive = partnerUserIds.includes(h.toUserId);
               const tRef = h.id;
 
               const newHandovers = (settings.cashHandovers || []).filter((tx: any) => tx.id !== h.id);
 
               let currentHolders = [...(settings.cashHolders || [])];
-              const partnerHolderId = `part_${partner?.id}`;
-              const partnerIdx = currentHolders.findIndex((holder: any) => holder.userId === partnerHolderId || holder.userId === partner?.id);
+              const activeHolderId = isGive ? h.toUserId : h.fromUserId;
+              const partnerIdx = currentHolders.findIndex((holder: any) => holder.userId === activeHolderId);
               
               if (partnerIdx > -1) {
                   const currentBal = Number(currentHolders[partnerIdx].currentBalance ?? 0);
@@ -408,7 +474,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     if (!partner) return;
     
     // Sort transactions chronologically 
-    const sortedTxs = [...transactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sortedTxs = [...mergedTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     
     const getTxTypeName = (type: string) => {
       switch (type) {
@@ -423,12 +489,14 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         case 'expense_repayment': return 'استرداد مقابل مصروفات مدفوعة';
         case 'pos_collection': return 'استلام عهدة كاشير';
         case 'repayment': return 'سداد سلفة مالية';
+        case 'custody_give': return 'تسليم عهدة نقدية للشريك';
+        case 'custody_receive': return 'تسوية واسترداد عهدة من الشريك';
         default: return 'معاملة مالية';
       }
     };
 
     const isAddition = (type: string) => 
-      ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(type);
+      ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in', 'custody_receive'].includes(type);
 
     let rowsHtml = '';
     let runningBalance = 0;
@@ -496,8 +564,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           }
           .info-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
             margin-bottom: 40px;
             background: #f8fafc;
             padding: 20px;
@@ -566,6 +634,10 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           <div class="info-card">
             <span class="label">المسحوبات الشخصية والأرباح</span>
             <span class="value">${stats.totalWithdrawn.toLocaleString()} ج.م</span>
+          </div>
+          <div class="info-card">
+            <span class="label">العهدة والنقدية طرفه</span>
+            <span class="value" style="color: #4f46e5">${partnerCustody.toLocaleString()} ج.م</span>
           </div>
         </div>
 
@@ -928,14 +1000,25 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                   <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                     {(() => {
                         const holderId = `part_${partner?.id}`;
-                        const handovers = (settings.cashHandovers || []).filter(h => h.fromUserId === holderId || h.toUserId === holderId);
+                        const partnerHolders = (settings.cashHolders || []).filter((h: any) => 
+                            h.userId === holderId || 
+                            h.userId === partner?.id || 
+                            normalizeName(h.userName) === normalizeName(partner?.name || '')
+                        );
+                        const partnerUserIds = partnerHolders.map(h => h.userId);
+                        if (partner && !partnerUserIds.includes(partner.id)) partnerUserIds.push(partner.id);
+                        if (!partnerUserIds.includes(holderId)) partnerUserIds.push(holderId);
+
+                        const handovers = (settings.cashHandovers || []).filter(h => 
+                            partnerUserIds.includes(h.fromUserId) || partnerUserIds.includes(h.toUserId)
+                        );
                         
                         if (handovers.length === 0) {
                             return <p className="text-xs text-slate-500 text-center py-4">لا توجد حركات مسجلة</p>;
                         }
 
                         return handovers.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(h => {
-                            const isGive = h.fromUserId === 'admin' || h.toUserId === holderId; // partner receives money
+                            const isGive = partnerUserIds.includes(h.toUserId); // partner receives money
                             return (
                                 <div key={h.id} className="flex justify-between items-center p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm group">
                                     <div className="flex flex-col gap-1">
@@ -976,9 +1059,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           
           <div className="flex-1 overflow-y-auto max-h-[600px] p-6 space-y-8 custom-scrollbar">
             {Object.entries(
-              transactions
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                .reduce((groups: Record<string, PartnerTransaction[]>, t) => {
+              mergedTransactions
+                .reduce((groups: Record<string, any[]>, t) => {
                   const date = new Date(t.date).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric', day: 'numeric' });
                   if (!groups[date]) groups[date] = [];
                   groups[date].push(t);
@@ -995,9 +1077,9 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                 </div>
 
                 <div className="space-y-3">
-                  {group.map((t, idx) => {
-                    const isPositive = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in'].includes(t.type);
-                    const isTransfer = t.type.includes('transfer');
+                  {(group as any[]).map((t, idx) => {
+                    const isPositive = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in', 'custody_receive'].includes(t.type);
+                    const isCustody = t.type === 'custody_give' || t.type === 'custody_receive';
                     
                     return (
                       <motion.div 
@@ -1028,7 +1110,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                                t.type === 'supply_funding' ? <PackageIcon size={20}/> : 
                                t.type === 'expense_coverage' ? <DollarSign size={20}/> :
                                t.type === 'expense_repayment' ? <RefreshCw size={20}/> :
-                               t.type === 'repayment' ? <CheckCircle2 size={20}/> : <DollarSign size={20}/>}
+                               t.type === 'repayment' ? <CheckCircle2 size={20}/> :
+                               isCustody ? <Coins size={20}/> : <DollarSign size={20}/>}
                             </div>
 
                             <div className="flex flex-col">
@@ -1044,7 +1127,10 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                                  t.type === 'supply_funding' ? 'تمويل شراء مخزون' : 
                                  t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'تغطية مصاريف توريد' : 'تغطية مصروفات تشغيلية') :
                                  t.type === 'pos_collection' ? 'استلام إيراد نقطة بيع' :
-                                 t.type === 'expense_repayment' ? 'استرداد عهدة مصروفات' : 'سداد مديونية / سلفة'}
+                                 t.type === 'expense_repayment' ? 'استرداد عهدة مصروفات' :
+                                 t.type === 'custody_give' ? 'تسليم عهدة تشغيلية للشريك' :
+                                 t.type === 'custody_receive' ? 'تسوية واسترداد عهدة من الشريك' :
+                                 t.type === 'repayment' ? 'سداد مديونية / سلفة' : 'معاملة مالية'}
                               </h3>
                               <div className="flex items-center gap-3 mt-1.5">
                                 <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
@@ -1056,6 +1142,11 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                                     عبر الخزينة
                                   </span>
                                 )}
+                                {isCustody && (
+                                  <span className="text-[10px] font-black text-amber-500 bg-amber-50 dark:bg-amber-500/10 px-1.5 py-0.5 rounded-md">
+                                    حركة عهدة تشغيلية
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1065,13 +1156,15 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                               {isPositive ? '+' : '-'}{t.amount.toLocaleString()} 
                               <span className="text-[10px] font-bold mr-1 opacity-70">ج.م</span>
                             </div>
-                            <button 
-                                onClick={() => deleteTransaction(t)}
-                                className="mt-2 p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                title="حذف المعاملة"
-                            >
-                                <Trash2 size={14} />
-                            </button>
+                            {!isCustody && (
+                              <button 
+                                  onClick={() => deleteTransaction(t)}
+                                  className="mt-2 p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                  title="حذف المعاملة"
+                              >
+                                  <Trash2 size={14} />
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -1088,7 +1181,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
               </div>
             ))}
 
-            {transactions.length === 0 && (
+            {mergedTransactions.length === 0 && (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <div className="w-24 h-24 bg-slate-50 dark:bg-slate-900 rounded-full flex items-center justify-center mb-6">
                   <History size={40} className="text-slate-200 dark:text-slate-700" />

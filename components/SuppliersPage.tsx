@@ -1389,6 +1389,26 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
     });
   };
 
+  const toggleOrderPaymentStatus = (orderId: string) => {
+    setSettings(prev => {
+      const updatedOrders = (prev.supplyOrders || []).map(o => {
+        if (o.id === orderId) {
+          const newIsPaid = !o.isPaid;
+          audioSynth.announce(newIsPaid ? "تم تحديد الفاتورة كمسددة" : "تم إلغاء حالة السداد للفاتورة", "success");
+          return {
+            ...o,
+            isPaid: newIsPaid
+          };
+        }
+        return o;
+      });
+      return {
+        ...prev,
+        supplyOrders: updatedOrders
+      };
+    });
+  };
+
   const startReturnFromOrder = (order: SupplyOrder) => {
     setSelectedOrderForReturn(order);
     
@@ -1734,6 +1754,91 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
     }
     return colors[sum % colors.length];
   };
+
+  const autoPaidOrdersMap = React.useMemo(() => {
+    const paidMap = new Map<string, boolean>();
+    const supplyOrders = settings.supplyOrders || [];
+    const walletTxs = wallet?.transactions || [];
+    const treasuryTxs = treasury?.transactions || [];
+    const suppliers = settings.suppliers || [];
+
+    // 1. Mark non-credit and manually paid orders
+    supplyOrders.forEach(o => {
+      if (o.paymentMethod !== 'credit') {
+        paidMap.set(o.id, true);
+      } else if (o.isPaid) {
+        paidMap.set(o.id, true);
+      } else {
+        paidMap.set(o.id, false);
+      }
+    });
+
+    // 2. Direct reference matching (by order number, reference number, or order ID)
+    const allTxs = [
+      ...(walletTxs || []).map((t: any) => ({ note: t.note || '', amount: Number(t.amount) || 0 })),
+      ...(treasuryTxs || []).map((t: any) => ({ note: t.description || '', amount: Number(t.amount) || 0 }))
+    ];
+
+    supplyOrders.forEach(o => {
+      if (paidMap.get(o.id)) return; // Already paid
+
+      const ref = o.referenceNumber;
+      const orderNo = o.orderNumber;
+      const id = o.id;
+
+      const foundExplicit = allTxs.some(t => {
+        const noteLower = t.note.toLowerCase();
+        const hasId = id && noteLower.includes(id.toLowerCase());
+        const hasRef = ref && noteLower.includes(ref.toLowerCase());
+        const hasOrderNo = orderNo && noteLower.includes(orderNo.toLowerCase());
+        return hasId || hasRef || hasOrderNo;
+      });
+
+      if (foundExplicit) {
+        paidMap.set(o.id, true);
+      }
+    });
+
+    // 3. FIFO Supplier-based auto payment matching (by balance & payments)
+    suppliers.forEach(supplier => {
+      const supplierCreditOrders = [...supplyOrders]
+        .filter(o => o.supplierId === supplier.id && o.paymentMethod === 'credit')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      // Let's compute based on supplier balance (ultimate truth of paid amount)
+      const currentBalance = supplier.balance || 0;
+      const totalCreditCost = supplierCreditOrders.reduce((sum, o) => sum + (o.grandTotal || o.totalCost || 0), 0);
+      
+      // The total paid amount is the difference between total credit cost and what we still owe (currentBalance)
+      const totalPaidFromBalance = Math.max(0, totalCreditCost - Math.max(0, currentBalance));
+
+      const nameToMatch = supplier.name;
+      const supplierPayments = [
+        ...(walletTxs || []).filter((t: any) => {
+          const isSupplierPayment = t.category === 'supplier_payment' || t.category === 'supply_purchase';
+          const matchesName = t.note && t.note.includes(nameToMatch);
+          return isSupplierPayment && matchesName;
+        }).map((t: any) => Number(t.amount) || 0),
+        ...(treasuryTxs || []).filter((t: any) => {
+          const matchesName = t.description && t.description.includes(nameToMatch);
+          return matchesName;
+        }).map((t: any) => Number(t.amount) || 0)
+      ];
+
+      const totalPaidFromTxs = supplierPayments.reduce((sum, amt) => sum + amt, 0);
+      let totalPaid = Math.max(totalPaidFromBalance, totalPaidFromTxs);
+
+      supplierCreditOrders.forEach(o => {
+        const cost = o.grandTotal || o.totalCost || 0;
+        if (totalPaid >= cost) {
+          paidMap.set(o.id, true);
+          totalPaid -= cost;
+        }
+      });
+    });
+
+    return paidMap;
+  }, [settings.supplyOrders, settings.suppliers, wallet, treasury]);
 
   const totalLiabilities = React.useMemo(() => {
     return (settings.suppliers || []).reduce((sum, s) => sum + (s.balance || 0), 0);
@@ -2222,6 +2327,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             ) : (
               (settings.supplyOrders || []).map(order => {
                 const supplier = settings.suppliers.find(s => s.id === order.supplierId);
+                const isPaid = order.isPaid || !!autoPaidOrdersMap.get(order.id);
+                const isAutoPaid = !order.isPaid && !!autoPaidOrdersMap.get(order.id) && (order.paymentMethod === 'credit');
                 return (
                   <div key={order.id} className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200/80 dark:hover:border-slate-700/80 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-5 transition-all duration-300">
                     <div className="space-y-3 flex-1">
@@ -2257,6 +2364,24 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                           }`}></span>
                           {order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' : 'مدفوعة كاش'}
                         </span>
+
+                        {order.paymentMethod === 'credit' && (
+                          <>
+                            <span className="text-slate-300">|</span>
+                            <span
+                              onClick={() => toggleOrderPaymentStatus(order.id)}
+                              title="اضغط لتغيير حالة السداد يدوياً"
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1.5 border cursor-pointer select-none transition-all hover:brightness-95 active:scale-95 ${
+                                isPaid
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-450 border-emerald-150 dark:border-emerald-900/30'
+                                  : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-450 border-rose-150 dark:border-rose-900/30'
+                              }`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${isPaid ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                              {isAutoPaid ? 'تم السداد (تلقائي ⚡)' : isPaid ? 'مسددة' : 'غير مسددة'}
+                            </span>
+                          </>
+                        )}
 
                         <span className="text-slate-300">|</span>
 
@@ -2381,7 +2506,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                                   <div class="meta-box">
                                     <div class="meta-label">بروتوكول السداد ومصدر التمويل:</div>
                                     <div class="meta-val">
-                                      ${order.paymentMethod === 'credit' ? 'آجل مديونية معلقة' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'سداد عهدة شخصية' :  order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
+                                      ${order.paymentMethod === 'credit' ? `آجل مديونية (${(order.isPaid || !!autoPaidOrdersMap.get(order.id)) ? 'مسددة' : 'غير مسددة'})` : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'سداد عهدة شخصية' :  order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
                                     </div>
                                     <div class="meta-val" style="font-size: 11px; margin-top: 5px; color: #64748b;">الحالة: مُعتمدة ومُرحلة للمخازن</div>
                                   </div>
@@ -2515,6 +2640,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             onOpenNewOrderModal={(supplierId) => {
               setShowOrderModal(true);
             }}
+            wallet={wallet}
+            treasury={treasury}
           />
         </motion.div>
       )}
@@ -3208,7 +3335,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                                     <tbody>
                                       ${suppOrders.map((order, idx) => {
                                         const itemsList = order.items.map(it => `${it.name || 'مادة'} (${it.quantity} قطع بسعر تكلفة ${it.cost} ج.م)`).join(' ، ');
-                                        const payMethodText = order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' :  'نقدي (كاش)';
+                                        const isOrderPaid = order.isPaid || !!autoPaidOrdersMap.get(order.id);
+                                        const payMethodText = order.paymentMethod === 'credit' ? `آجل مديونية (${isOrderPaid ? 'مسددة' : 'غير مسددة'})` : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' :  'نقدي (كاش)';
                                         return `
                                           <tr>
                                             <td>${idx + 1}</td>

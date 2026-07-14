@@ -1602,36 +1602,93 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
 
                 {/* Expense Paid By input */}
                 {(shippingFees > 0 || otherFees > 0) && (
-                  <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60 space-y-2.5">
+                  <div className="pt-3 border-t border-slate-200/60 dark:border-slate-700/60 space-y-3.5">
                     <label className="text-xs font-black text-slate-700 dark:text-slate-300 block flex items-center justify-between">
-                      <span>مصدر دفع المصروفات الإضافية / الشحن (المحفظة أو الشركاء):</span>
+                      <span>مصدر دفع المصروفات الإضافية / الشحن (المحفظة، الخزائن، العهد أو الشركاء):</span>
                       <span className="text-[10px] text-indigo-500 font-bold">يحدد جهة الصرف في سجل المصروفات</span>
                     </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setExpensePaidBy('المحفظة العامة')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${expensePaidBy === 'المحفظة العامة' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
-                      >
-                        💳 دفع من المحفظة العامة
-                      </button>
-                      {settings.partners?.map((p: any) => (
-                        <button 
-                          key={p.id}
-                          type="button"
-                          onClick={() => {
-                            if (!expensePaidBy || expensePaidBy === 'المحفظة العامة') {
-                              setExpensePaidBy(p.name);
-                            } else if (!expensePaidBy.includes(p.name)) {
-                              setExpensePaidBy(`${expensePaidBy} و ${p.name}`);
-                            }
-                          }}
-                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition cursor-pointer"
-                        >
-                          👤 + شريك: {p.name}
-                        </button>
-                      ))}
+                    <div className="space-y-3 bg-slate-50/50 dark:bg-slate-900/30 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                      {/* Basic Wallet & Partners */}
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] font-black text-slate-400 dark:text-slate-500">السيولة الأساسية والشركاء:</div>
+                        <div className="flex flex-wrap gap-2">
+                          <button 
+                            type="button"
+                            onClick={() => setExpensePaidBy('المحفظة العامة')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${expensePaidBy === 'المحفظة العامة' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'}`}
+                          >
+                            💳 دفع من المحفظة العامة
+                          </button>
+                          {settings.partners?.map((p: any) => (
+                            <button 
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                if (!expensePaidBy || expensePaidBy === 'المحفظة العامة') {
+                                  setExpensePaidBy(p.name);
+                                } else if (!expensePaidBy.includes(p.name)) {
+                                  setExpensePaidBy(`${expensePaidBy} و ${p.name}`);
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition cursor-pointer"
+                            >
+                              👤 + شريك: {p.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Treasury Accounts */}
+                      {(treasury?.accounts || []).length > 0 && (
+                        <div className="space-y-1.5 pt-2 border-t border-slate-200/40 dark:border-slate-800/40">
+                          <div className="text-[10px] font-black text-slate-400 dark:text-slate-500">الحسابات والخزائن البنكية:</div>
+                          <div className="flex flex-wrap gap-2">
+                            {treasury.accounts.map((acc: any) => (
+                              <button 
+                                key={acc.id}
+                                type="button"
+                                onClick={() => {
+                                  if (!expensePaidBy || expensePaidBy === 'المحفظة العامة') {
+                                    setExpensePaidBy(acc.name);
+                                  } else if (!expensePaidBy.includes(acc.name)) {
+                                    setExpensePaidBy(`${expensePaidBy} و ${acc.name}`);
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition cursor-pointer"
+                              >
+                                🏦 + خزينة: {acc.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Cash Holders (Custodies) */}
+                      {(cashHolders || []).length > 0 && (
+                        <div className="space-y-1.5 pt-2 border-t border-slate-200/40 dark:border-slate-800/40">
+                          <div className="text-[10px] font-black text-slate-400 dark:text-slate-500">العهد النقدية طرف الموظفين/الشركاء:</div>
+                          <div className="flex flex-wrap gap-2">
+                            {(cashHolders || []).map((h: any) => (
+                              <button 
+                                key={h.userId}
+                                type="button"
+                                onClick={() => {
+                                  if (!expensePaidBy || expensePaidBy === 'المحفظة العامة') {
+                                    setExpensePaidBy(h.userName);
+                                  } else if (!expensePaidBy.includes(h.userName)) {
+                                    setExpensePaidBy(`${expensePaidBy} و ${h.userName}`);
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-teal-50 dark:bg-teal-950/30 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/50 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition cursor-pointer"
+                              >
+                                💼 + عهدة: {h.userName}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
+
                     <div className="relative">
                       <input 
                         type="text"
@@ -1645,6 +1702,12 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                         <option value="المحفظة العامة" />
                         {settings.partners?.map((p: any) => (
                           <option key={p.id} value={p.name} />
+                        ))}
+                        {(treasury?.accounts || []).map((acc: any) => (
+                          <option key={acc.id} value={acc.name} />
+                        ))}
+                        {(cashHolders || []).map((h: any) => (
+                          <option key={h.userId} value={h.userName} />
                         ))}
                       </datalist>
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
