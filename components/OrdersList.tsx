@@ -6972,8 +6972,8 @@ const OrderRow = ({
                 </span>
               </div>
             ) : (
-              <div className="font-medium text-slate-300 dark:text-slate-700 text-center">
-                -
+              <div className="font-medium text-slate-400 dark:text-slate-500 text-center text-xs">
+                غير مُطبَّق
               </div>
             )}
           </td>
