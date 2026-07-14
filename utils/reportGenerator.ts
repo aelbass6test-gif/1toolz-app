@@ -394,7 +394,7 @@ export const generateOrdersReportHTML = (
     const displayTotal = order.source === 'synced' && order.totalPrice != null ? Number(order.totalPrice) + inspectionFeeParams : amountToCollect;
     const invoiceTotal = order.source === 'synced' && order.totalPrice != null ? displayTotal + advancePaymentAmount : (order.totalAmountOverride != null ? Number(order.totalAmountOverride) + advancePaymentAmount : computedTotalBeforeAdvance);
 
-    const { net, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
+    const { net, carrierFees, productCost, closingDifference } = calculateOrderProfitLoss(order, settings);
     
     // Calculate carrier fee breakdown for display
     const standardShippingFee = getStandardShippingFee(order, settings);
@@ -468,6 +468,11 @@ export const generateOrdersReportHTML = (
           ${order.discount > 0 ? `
           <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: 800; white-space: nowrap;">
             خصم: ${order.discount.toLocaleString()} ج.م
+          </div>
+          ` : ''}
+          ${closingDifference < 0 ? `
+          <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: 800; white-space: nowrap;">
+            خصم تعديل: ${Math.abs(closingDifference).toLocaleString()} ج.م
           </div>
           ` : ''}
         </td>
@@ -1192,7 +1197,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
         
         const codFee = !isPosOrder ? calculateCodFee(order, settings) : 0;
-        const { loss } = calculateOrderProfitLoss(order, settings);
+        const { loss, closingDifference } = calculateOrderProfitLoss(order, settings);
         totalLoss += loss;
         totalProductPrice += order.productPrice;
         totalShippingFee += order.shippingFee;
@@ -1202,11 +1207,18 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         const products = order.items.map(i => i.name).join(' + ') || order.productName;
         const quantities = order.items.map(i => i.quantity).join(' + ') || '1';
         const prices = order.items.map(i => i.price.toLocaleString()).join(' + ') || order.productPrice.toLocaleString();
-        const discountHtml = order.discount > 0 ? `
+        const discountHtml = `
+          ${order.discount > 0 ? `
           <div style="margin-top: 4px; font-size: 8px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 3px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
             خصم: ${order.discount.toLocaleString()} ج.م
           </div>
-        ` : '';
+          ` : ''}
+          ${closingDifference < 0 ? `
+          <div style="margin-top: 4px; font-size: 8px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 3px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
+            خصم تعديل: ${Math.abs(closingDifference).toLocaleString()} ج.م
+          </div>
+          ` : ''}
+        `;
         
         return `
             <tr style="border-bottom: 1px solid #e5e7eb;">
@@ -1449,7 +1461,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let pos_totalProfit = 0;
 
     const shippingCollectedRows = shippingCollectedOrders.map((order, idx) => {
-        const { profit, netRevenue, carrierFees, productCost } = calculateOrderProfitLoss(order, settings);
+        const { profit, netRevenue, carrierFees, productCost, closingDifference } = calculateOrderProfitLoss(order, settings);
         const codFee = calculateCodFee(order, settings);
         
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
@@ -1596,6 +1608,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     خصم: ${order.discount.toLocaleString()} ج.م
                   </div>
                   ` : ''}
+                  ${closingDifference < 0 ? `
+                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
+                    خصم تعديل: ${Math.abs(closingDifference).toLocaleString()} ج.م
+                  </div>
+                  ` : ''}
                 </td>
                 <td>${order.shippingFee.toLocaleString()}</td>
                 <td>${taxDisplay}</td>
@@ -1608,7 +1625,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     }).join('');
 
     const posCollectedRows = posCollectedOrders.map((order, idx) => {
-        const { profit, netRevenue, productCost } = calculateOrderProfitLoss(order, settings);
+        const { profit, netRevenue, productCost, closingDifference } = calculateOrderProfitLoss(order, settings);
         const isPosOrder = true;
         
         const safeProductPrice = Number(order.productPrice) || 0;
@@ -1714,6 +1731,11 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                   ${order.discount > 0 ? `
                   <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
                     خصم: ${order.discount.toLocaleString()} ج.م
+                  </div>
+                  ` : ''}
+                  ${closingDifference < 0 ? `
+                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
+                    خصم تعديل: ${Math.abs(closingDifference).toLocaleString()} ج.م
                   </div>
                   ` : ''}
                 </td>
