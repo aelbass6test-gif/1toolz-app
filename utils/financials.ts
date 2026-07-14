@@ -379,6 +379,14 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
 
     // Calculate profit based on base expected revenue (without manual differences)
     profit = totalRevenueForProfit - carrierFees - productCostCalculated;
+
+    // If there is manual settlement/closure and closing difference is negative, deduct it from profit
+    const isManualSettlement = order.totalAmountOverride !== undefined && 
+                              order.totalAmountOverride !== null && 
+                              String(order.totalAmountOverride).trim() !== '';
+    if (isManualSettlement && closingDifference < 0) {
+        profit += closingDifference; // Since closingDifference is negative, adding it deducts it
+    }
   } else {
     const isReturn = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(order.status);
     

@@ -5861,7 +5861,7 @@ const ProfitBreakdown: React.FC<{
 
   const netProfit = isReturnedOrFailed
     ? flexPaidAmount - carrierCost - flexCompanyFeePaid
-    : baseRevenue - safeDiscount + extraAdjustment - totalExpenses;
+    : baseRevenue - safeDiscount + (extraAdjustment < 0 ? extraAdjustment : 0) - totalExpenses;
 
   const profitLabel = isReturnedOrFailed
     ? netProfit >= 0
