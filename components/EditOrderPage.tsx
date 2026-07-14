@@ -4,7 +4,7 @@ import { Order, Settings, User, CustomerProfile, Store, OrderStatus, AdvancePaym
 import { OrderForm } from './OrderForm';
 import GlobalLoader from './GlobalLoader';
 import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
-import { calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
+import { calculateInsuranceFee, getStandardShippingFee, calculateCodFee } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 
 interface EditOrderPageProps {
@@ -183,10 +183,11 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         const vatRate = useCustom ? (compFees?.shippingVatRate ?? defaultVatRate) : (settings.shippingVatRate ?? defaultVatRate);
         const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : (settings?.vatBasis || 'shipping_only');
         const hasVat = useCustom ? (compFees?.enableVat !== false) : true;
-        const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+        const insuranceValueForVat = (vatBasis === 'shipping_and_insurance' || vatBasis === 'shipping_insurance_and_cod') ? insuranceFee : 0;
+        const codValueForVat = vatBasis === 'shipping_insurance_and_cod' ? calculateCodFee(editingOrder as Order, settings) : 0;
         const useStandard = editingOrder.vatOnStandardShipping === true;
         const standardShippingFee = useStandard ? getStandardShippingFee(editingOrder as Order, settings) : (editingOrder.shippingFee || 0);
-        const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
+        const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat + codValueForVat;
         const vatValue = hasVat ? (Math.round(taxableBase * vatRate * 100) / 100) : 0;
         
         const isMaintenanceOrder = editingOrder.orderType === 'maintenance';

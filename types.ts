@@ -209,7 +209,7 @@ export interface CompanyFees {
   postCollectionReturnRefundsProductPrice: boolean;
   insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
   shippingVatRate?: number;
-  vatBasis?: 'shipping_only' | 'shipping_and_insurance'; // New field
+  vatBasis?: 'shipping_only' | 'shipping_and_insurance' | 'shipping_insurance_and_cod'; // New field
   enableVat?: boolean; // Toggle to completely turn off/on VAT for this company
   enableFlexShip?: boolean;
   flexShipFee?: number;
@@ -691,7 +691,7 @@ export interface Settings {
   codTaxRate: number;
   insuranceBasis?: 'cost' | 'price' | 'total' | 'base';
   shippingVatRate?: number;
-  vatBasis?: 'shipping_only' | 'shipping_and_insurance';
+  vatBasis?: 'shipping_only' | 'shipping_and_insurance' | 'shipping_insurance_and_cod';
   sku: string; 
   defaultProductPrice: number;
   enableDefaultPrice: boolean;

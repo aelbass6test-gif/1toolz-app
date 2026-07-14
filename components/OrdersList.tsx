@@ -6950,7 +6950,7 @@ const OrderRow = ({
                 <div className="flex items-center gap-1 justify-end">
                   <span
                     className="cursor-help text-slate-300 hover:text-indigo-500 transition-colors"
-                    title="رسوم فليكس شيب المستحقة"
+                    title={isDelivered ? "تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب" : "رسوم فليكس شيب المستحقة"}
                   >
                     <Info size={10} className="inline-block" />
                   </span>

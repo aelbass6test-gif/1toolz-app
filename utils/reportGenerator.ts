@@ -442,10 +442,15 @@ export const generateOrdersReportHTML = (
             ${isPosOrder ? `<span style="color: #6366f1; font-weight: 800;">[${posName}]</span>` : ''}
           </div>
           <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
-          ${order.enableFlexShip ? `
-          <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-            دفع فليكس شيب: ${order.flexShipFee ?? (settings.companySpecificFees?.[order.shippingCompany]?.useCustomFees ? (settings.companySpecificFees?.[order.shippingCompany]?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-          </div>` : ''}
+          ${order.enableFlexShip ? (
+            ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
+            <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
+              تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
+            </div>` : `
+            <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+              دفع فليكس شيب: ${order.flexShipFee ?? (settings.companySpecificFees?.[order.shippingCompany]?.useCustomFees ? (settings.companySpecificFees?.[order.shippingCompany]?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+            </div>`
+          ) : ''}
         </td>
         <td>
           <div class="text-gray-900 leading-tight">${order.productName}</div>
@@ -766,10 +771,15 @@ export const generateCollectionsReportHTML = (
                 <td>
                   <div class="font-bold text-gray-900">${order.customerName}</div>
                   <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
-                  ${order.enableFlexShip ? `
-                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                  </div>` : ''}
+                  ${order.enableFlexShip ? (
+                    ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
+                    <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
+                      تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                      دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                    </div>`
+                  ) : ''}
                 </td>
                 <td class="text-center text-gray-500 font-mono">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
                 <td class="text-center">
@@ -1203,10 +1213,15 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
                 <td style="padding: 8px;">
                   <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
                   <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
-                  ${order.enableFlexShip ? `
-                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                  </div>` : ''}
+                  ${order.enableFlexShip ? (
+                    ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
+                    <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
+                      تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                      دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                    </div>`
+                  ) : ''}
                 </td>
                 <td style="padding: 8px;">${products}</td>
                 <td style="padding: 8px; text-align: center;">${quantities}</td>
@@ -1559,10 +1574,15 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                   <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
                   <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
                   <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
-                  ${order.enableFlexShip ? `
-                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                  </div>` : ''}
+                  ${order.enableFlexShip ? (
+                    ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
+                    <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
+                      تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                      دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                    </div>`
+                  ) : ''}
                   ${safeAdvance > 0 ? `
                   <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #d97706; background-color: #fffbeb; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px; display: inline-block;">
                     عربون مدفوع: ${safeAdvance.toLocaleString()}
@@ -1684,8 +1704,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     نقطة بيع (POS) - عهدة: ${resolveCashHolderName(order, settings)}
                   </div>
                   ${safeAdvance > 0 ? `
-                  <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #d97706; background-color: #fffbeb; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px; display: inline-block;">
-                    عربون مدفوع: ${safeAdvance.toLocaleString()}
+                  <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #166534; background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 2px 6px; border-radius: 4px; display: inline-block;">
+                    ثمن المنتج (تحصيل نقدي): ${safeAdvance.toLocaleString()} ج.م
                   </div>` : ''}
                 </td>
                 <td class="col-products">${productDetails}</td>
@@ -1739,10 +1759,15 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                   <div style="font-weight: bold; color: #0f172a;">${order.customerName}</div>
                   <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
                   <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
-                  ${order.enableFlexShip ? `
-                  <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-                    دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                  </div>` : ''}
+                  ${order.enableFlexShip ? (
+                    ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
+                    <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
+                      تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
+                      دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                    </div>`
+                  ) : ''}
                 </td>
                 <td class="col-products">${productDetails}</td>
                 <td>${order.status.replace(/_/g, ' ')}</td>

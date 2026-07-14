@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order, Settings } from '../types';
-import { calculateInsuranceFee, getStandardShippingFee } from '../utils/financials';
+import { calculateInsuranceFee, getStandardShippingFee, calculateCodFee } from '../utils/financials';
 import { AlertTriangle } from 'lucide-react';
 
 interface OrderPreConfirmationModalProps {
@@ -22,10 +22,11 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
     const vatRate = useCustom ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
     const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
     const hasVat = compFees?.enableVat !== false;
-    const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+    const insuranceValueForVat = (vatBasis === 'shipping_and_insurance' || vatBasis === 'shipping_insurance_and_cod') ? insuranceFee : 0;
+    const codValueForVat = vatBasis === 'shipping_insurance_and_cod' ? calculateCodFee(order as Order, settings) : 0;
     const useStandard = order.vatOnStandardShipping === true;
     const standardShippingFee = useStandard ? getStandardShippingFee(order as Order, settings) : (order.shippingFee || 0);
-    const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
+    const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat + codValueForVat;
     const vatValue = (hasVat && vatRate > 0) ? (Math.round(taxableBase * vatRate * 100) / 100) : 0;
 
     const isMaintenance = order.orderType === 'maintenance';

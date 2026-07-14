@@ -16,7 +16,8 @@ import { Settings, Order } from '../types';
 import { EGYPT_GOVERNORATES } from '../constants';
 import { 
   calculateInsuranceFee, 
-  getStandardShippingFee 
+  getStandardShippingFee,
+  calculateCodFee
 } from '../utils/financials';
 
 interface ShippingCalculatorWidgetProps {
@@ -118,11 +119,12 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
       : "shipping_only";
 
     const taxableShipping = vatOnStandardShipping ? shippingFee : 0;
-    const insuranceValue = vatBasis === "shipping_and_insurance" ? insuranceFee : 0;
+    const insuranceValue = (vatBasis === "shipping_and_insurance" || vatBasis === "shipping_insurance_and_cod") ? insuranceFee : 0;
+    const codValue = vatBasis === "shipping_insurance_and_cod" ? calculateCodFee(dummyOrder, settings) : 0;
     
-    const taxableBase = taxableShipping + inspectionFeeValue + insuranceValue;
+    const taxableBase = taxableShipping + inspectionFeeValue + insuranceValue + codValue;
     return Math.round(taxableBase * vatRate * 100) / 100;
-  }, [shippingFee, insuranceFee, shippingCompany, settings, vatOnStandardShipping, inspectionFeeValue]);
+  }, [shippingFee, insuranceFee, shippingCompany, settings, vatOnStandardShipping, inspectionFeeValue, dummyOrder]);
 
   const totalDues = useMemo(() => {
     return Math.round((shippingFee + vatAmount + insuranceFee + inspectionFeeValue) * 100) / 100;

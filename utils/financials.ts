@@ -206,7 +206,8 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
         
     const defaultVatBasis = isCompanyBosta ? 'shipping_and_insurance' : 'shipping_only';
     const vatBasis = useCustom ? (compFees?.vatBasis || defaultVatBasis) : (settings?.vatBasis || defaultVatBasis);
-    const insuranceValue = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
+    const insuranceValue = (vatBasis === 'shipping_and_insurance' || vatBasis === 'shipping_insurance_and_cod') ? insuranceFee : 0;
+    const codValue = (vatBasis === 'shipping_insurance_and_cod' && settings) ? calculateCodFee(order, settings) : 0;
     
     const isMaintenance = order.orderType === 'maintenance';
     const serviceBase = isMaintenance ? (Number((order as any).maintenanceCost) || 0) : 0;
@@ -216,7 +217,7 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
          ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? (settings?.inspectionFee || 0) : 0)) 
          : 0;
     
-    const result = (baseShippingFee + insuranceValue + inspectionFeeParams + serviceBase) * vatRate;
+    const result = (baseShippingFee + insuranceValue + codValue + inspectionFeeParams + serviceBase) * vatRate;
     return Math.round(result * 100) / 100;
 };
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Order, Settings } from '../types';
-import { calculateInsuranceFee, getStandardShippingFee, getAdvancePaymentCustodyName } from '../utils/financials';
+import { calculateInsuranceFee, getStandardShippingFee, getAdvancePaymentCustodyName, calculateCodFee } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { generateShippingLabelHTML } from '../utils/shippingLabelGenerator';
@@ -29,8 +29,9 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
     const vatBasis = useCustomFees ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
     const useStandard = order.vatOnStandardShipping === true;
     const standardShippingFee = useStandard ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
-    const insuranceValueForVat = vatBasis === 'shipping_and_insurance' ? insuranceFee : 0;
-    const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat;
+    const insuranceValueForVat = (vatBasis === 'shipping_and_insurance' || vatBasis === 'shipping_insurance_and_cod') ? insuranceFee : 0;
+    const codValueForVat = vatBasis === 'shipping_insurance_and_cod' ? calculateCodFee(order, settings) : 0;
+    const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat + codValueForVat;
     const vatAmount = (isVatEnabled && vatRate > 0) ? Math.round(taxableBase * vatRate * 100) / 100 : 0;
     
     const safeAdvance = Number(order.advancePayment) || 0;

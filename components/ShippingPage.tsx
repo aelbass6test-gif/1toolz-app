@@ -1195,6 +1195,7 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
                                 >
                                     <option value="shipping_only">مصاريف الشحن فقط</option>
                                     <option value="shipping_and_insurance">مصاريف الشحن + التأمين</option>
+                                    <option value="shipping_insurance_and_cod">مصاريف الشحن + التأمين + رسوم تحصيل COD</option>
                                 </select>
                             </div>
                         </div>
