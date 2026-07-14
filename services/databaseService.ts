@@ -435,7 +435,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         if (val !== null && val !== undefined) acc[key] = val;
                         return acc;
                     }, {});
-                    const baseOrder = { ...detailsObj, ...cleanTopLevel };
+                    const baseOrder = { ...detailsObj };
+                    Object.entries(cleanTopLevel).forEach(([key, val]) => {
+                        const detailsVal = detailsObj[key];
+                        const isValEmpty = val === null || val === undefined || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
+                        const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
+                        if (isValEmpty && !isDetailsEmpty) {
+                            // Keep non-empty value from detailsObj
+                        } else {
+                            baseOrder[key] = val;
+                        }
+                    });
                     const localOrder = local?.orders?.find((lo: any) => lo.id === o.id);
                     const rawCloudItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : (Array.isArray(detailsObj.items) && detailsObj.items.length > 0 ? detailsObj.items : (Array.isArray(baseOrder.items) ? baseOrder.items : (baseOrder.items && typeof baseOrder.items === 'object' ? Object.values(baseOrder.items) : [])));
                     const localItems = localOrder && Array.isArray(localOrder.items) ? localOrder.items : [];
@@ -522,7 +532,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 let items = snap.docs.map(doc => {
                     const data = doc.data();
                     const detailsObj = data.details && typeof data.details === 'object' ? data.details : (typeof data.details === 'string' && data.details ? JSON.parse(data.details) : {});
-                    const mergedData = { ...detailsObj, ...data };
+                    const mergedData = { ...detailsObj };
+                    Object.entries(data).forEach(([key, val]) => {
+                        const detailsVal = detailsObj[key];
+                        const isValEmpty = val === null || val === undefined || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
+                        const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
+                        if (isValEmpty && !isDetailsEmpty) {
+                            // Keep non-empty details value
+                        } else {
+                            mergedData[key] = val;
+                        }
+                    });
                     const rawDocItems = Array.isArray(mergedData.items) ? mergedData.items : (mergedData.items && typeof mergedData.items === 'object' ? Object.values(mergedData.items) : []);
                     const localOrder = (localItems as any[])?.find(lo => lo.id === doc.id || lo.id === (doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id));
                     const docItems = (rawDocItems.length > 0 || !(localOrder?.items?.length)) ? rawDocItems : (Array.isArray(localOrder.items) ? localOrder.items : []);
@@ -537,7 +557,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     items = snap_snake.docs.map(doc => {
                         const data = doc.data();
                         const detailsObj = data.details && typeof data.details === 'object' ? data.details : (typeof data.details === 'string' && data.details ? JSON.parse(data.details) : {});
-                        const mergedData = { ...detailsObj, ...data };
+                        const mergedData = { ...detailsObj };
+                        Object.entries(data).forEach(([key, val]) => {
+                            const detailsVal = detailsObj[key];
+                            const isValEmpty = val === null || val === undefined || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
+                            const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
+                            if (isValEmpty && !isDetailsEmpty) {
+                                // Keep non-empty details value
+                            } else {
+                                mergedData[key] = val;
+                            }
+                        });
                         const rawDocItems = Array.isArray(mergedData.items) ? mergedData.items : (mergedData.items && typeof mergedData.items === 'object' ? Object.values(mergedData.items) : []);
                         const localOrder = (localItems as any[])?.find(lo => lo.id === doc.id || lo.id === (doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id));
                         const docItems = (rawDocItems.length > 0 || !(localOrder?.items?.length)) ? rawDocItems : (Array.isArray(localOrder.items) ? localOrder.items : []);
@@ -996,6 +1026,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             'maintenanceCost', 'maintenanceItemDescription', 'maintenanceItemSerial', 'maintenanceItemValue',
                             'maintenanceTechnicalReport', 'maintenanceStatus', 'originalOrderId', 'exchangeDifference',
                             'returnProductValue', 'returnTrackingNumber',
+                            'collectionProcessed', 'preparationStatus', 'classification', 'redeemedPoints', 'pointsDiscount',
+                            'loyaltyPointsAwarded', 'stockDeducted', 'confirmationLogs', 'cancellationReason', 'followUpReminder',
+                            'auditLogs', 'callAttempts',
                             'details'
                         ];
 
@@ -1076,6 +1109,18 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             exchangeDifference: cleanItem.exchangeDifference !== undefined ? Number(cleanItem.exchangeDifference) : null,
                             returnProductValue: cleanItem.returnProductValue !== undefined ? Number(cleanItem.returnProductValue) : null,
                             returnTrackingNumber: cleanItem.returnTrackingNumber || null,
+                            collectionProcessed: cleanItem.collectionProcessed !== undefined ? Boolean(cleanItem.collectionProcessed) : null,
+                            preparationStatus: cleanItem.preparationStatus || null,
+                            classification: cleanItem.classification || null,
+                            redeemedPoints: cleanItem.redeemedPoints !== undefined ? Number(cleanItem.redeemedPoints) : null,
+                            pointsDiscount: cleanItem.pointsDiscount !== undefined ? Number(cleanItem.pointsDiscount) : null,
+                            loyaltyPointsAwarded: cleanItem.loyaltyPointsAwarded !== undefined ? Boolean(cleanItem.loyaltyPointsAwarded) : null,
+                            stockDeducted: cleanItem.stockDeducted !== undefined ? Boolean(cleanItem.stockDeducted) : null,
+                            confirmationLogs: cleanItem.confirmationLogs || [],
+                            cancellationReason: cleanItem.cancellationReason || null,
+                            followUpReminder: cleanItem.followUpReminder || null,
+                            auditLogs: cleanItem.auditLogs || [],
+                            callAttempts: cleanItem.callAttempts || [],
                             details: detailsObj
                         };
                     }
