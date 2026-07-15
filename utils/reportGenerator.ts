@@ -397,7 +397,8 @@ export const generateOrdersReportHTML = (
     const { net, carrierFees, productCost, closingDifference } = calculateOrderProfitLoss(order, settings);
     
     // Calculate carrier fee breakdown for display
-    const standardShippingFee = getStandardShippingFee(order, settings);
+    const manualShippingFee = (order.isManualShippingOverride && order.shippingFee !== undefined) ? order.shippingFee : null;
+    const standardShippingFee = manualShippingFee !== null ? manualShippingFee : getStandardShippingFee(order, settings);
     const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
     const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
     const inspectionExpense = (!isPosOrder && (order.includeInspectionFee !== false)) ? inspectionFeeParams : 0;
@@ -433,6 +434,11 @@ export const generateOrdersReportHTML = (
         return 'background-color: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;'; // slate
     }
 
+    const whatsappIcon = `
+<svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; margin-right: 4px;">
+  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.937 3.659 1.432 5.631 1.433h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+</svg>`;
+
     return `
       <tr>
         <td>
@@ -446,10 +452,13 @@ export const generateOrdersReportHTML = (
             ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
             <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
               تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
-            </div>` : `
+            </div>` : (order.flexShipTransactionAdded ? `
             <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
               دفع فليكس شيب: ${order.flexShipFee ?? (settings.companySpecificFees?.[order.shippingCompany]?.useCustomFees ? (settings.companySpecificFees?.[order.shippingCompany]?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-            </div>`
+            </div>` : `
+            <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
+              العميل لم يدفع فليكس شيب
+            </div>`)
           ) : ''}
         </td>
         <td>
@@ -496,7 +505,16 @@ export const generateOrdersReportHTML = (
         </td>
         <td class="text-center font-bold text-gray-900">${invoiceTotal.toLocaleString()}</td>
         <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
-        <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.flexShipFeePaidByCustomer ? 'فليكس ✅' : order.paymentStatus}</span></td>
+        <td class="text-center">
+          ${order.status === 'ملغي' ? `
+            <span class="status-badge" style="background-color: #fff7ed; color: #c2410c; border: 1px solid #fdba74; display: inline-flex; align-items: center; gap: 4px;">
+              <span>ملغي</span>
+              ${whatsappIcon}
+            </span>
+          ` : `
+            <span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.flexShipFeePaidByCustomer ? 'فليكس ✅' : order.paymentStatus}</span>
+          `}
+        </td>
         <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.م</td>
       </tr>
     `;
@@ -780,10 +798,13 @@ export const generateCollectionsReportHTML = (
                     ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
-                    </div>` : `
+                    </div>` : (order.flexShipTransactionAdded ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
                       دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                    </div>`
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
+                      العميل لم يدفع فليكس شيب
+                    </div>`)
                   ) : ''}
                 </td>
                 <td class="text-center text-gray-500 font-mono">${new Date(order.date).toLocaleDateString('ar-EG')}</td>
@@ -1204,6 +1225,11 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         totalInsuranceInspection += (insuranceFee + inspectionCost + bostaVat);
         totalProductCost += order.productCost;
 
+    const whatsappIcon = `
+<svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; margin-right: 4px;">
+  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.937 3.659 1.432 5.631 1.433h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+</svg>`;
+
         const products = order.items.map(i => i.name).join(' + ') || order.productName;
         const quantities = order.items.map(i => i.quantity).join(' + ') || '1';
         const prices = order.items.map(i => i.price.toLocaleString()).join(' + ') || order.productPrice.toLocaleString();
@@ -1229,10 +1255,13 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
                     ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
-                    </div>` : `
+                    </div>` : (order.flexShipTransactionAdded ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
                       دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                    </div>`
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
+                      العميل لم يدفع فليكس شيب
+                    </div>`)
                   ) : ''}
                 </td>
                 <td style="padding: 8px;">${products}</td>
@@ -1244,7 +1273,20 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
                 <td style="padding: 8px;">${order.shippingFee.toLocaleString()}</td>
                 <td style="padding: 8px;">${(insuranceFee + inspectionCost + bostaVat).toLocaleString()}</td>
                 <td style="padding: 8px;">${order.productCost.toLocaleString()}</td>
-                <td style="padding: 8px;">${order.status.replace(/_/g, ' ')}</td>
+                <td style="padding: 8px;">
+                  ${(() => {
+                    const isCancelledWithLoss = order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded);
+                    if (isCancelledWithLoss) {
+                        return `
+                            <div style="background-color: #fff7ed; color: #c2410c; border: 1px solid #fdba74; padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; display: inline-flex; align-items: center; gap: 4px;">
+                                <span>ملغي</span>
+                                ${whatsappIcon}
+                            </div>
+                        `;
+                    }
+                    return order.status.replace(/_/g, ' ');
+                  })()}
+                </td>
                 <td style="padding: 8px;">${order.paymentStatus}</td>
                 <td style="padding: 8px; font-weight: bold; color: #b91c1c;">
                     -${loss.toLocaleString()}
@@ -1401,7 +1443,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const shippingCollectedOrders = collectedOrders.filter(o => !(o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر'));
     const posCollectedOrders = collectedOrders.filter(o => o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر');
-    const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
+    const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)));
     const adminExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '')));
     const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
     const totalInventoryPurchases = inventoryPurchases.reduce((sum, t) => sum + t.amount, 0);
@@ -1468,7 +1510,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const useCustom = compFees?.useCustomFees ?? false;
         const isPosOrder = false;
         
-        const standardShipping = getStandardShippingFee(order, settings);
+        const manualShippingFee = (order.isManualShippingOverride && order.shippingFee !== undefined) ? order.shippingFee : null;
+        const standardShipping = manualShippingFee !== null ? manualShippingFee : getStandardShippingFee(order, settings);
         const feesOnly = Math.max(0, carrierFees - standardShipping);
         
         totalSuccessShippingOnly += standardShipping;
@@ -1590,10 +1633,13 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
-                    </div>` : `
+                    </div>` : (order.flexShipTransactionAdded ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
                       دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                    </div>`
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
+                      العميل لم يدفع فليكس شيب
+                    </div>`)
                   ) : ''}
                   ${safeAdvance > 0 ? `
                   <div style="margin-top: 4px; font-size: 9px; font-weight: bold; color: #d97706; background-color: #fffbeb; border: 1px solid #fde68a; padding: 2px 6px; border-radius: 4px; display: inline-block;">
@@ -1785,14 +1831,32 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
-                    </div>` : `
+                    </div>` : (order.flexShipTransactionAdded ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
                       دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
-                    </div>`
+                    </div>` : `
+                    <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
+                      العميل لم يدفع فليكس شيب
+                    </div>`)
                   ) : ''}
                 </td>
                 <td class="col-products">${productDetails}</td>
-                <td>${order.status.replace(/_/g, ' ')}</td>
+                <td style="padding: 8px; text-align: center;">
+                    ${(() => {
+                        const isCancelledWithLoss = order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded);
+                        if (isCancelledWithLoss) {
+                            return `
+                                <div style="display: inline-flex; align-items: center; gap: 4px; color: #ea580c; font-weight: bold; background: #fff7ed; padding: 2px 8px; border-radius: 9999px; border: 1px solid #ffedd5; font-size: 9px;">
+                                    <span>ملغي</span>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="#25D366" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.937 3.659 1.432 5.631 1.433h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                                    </svg>
+                                </div>
+                            `;
+                        }
+                        return order.status.replace(/_/g, ' ');
+                    })()}
+                </td>
                 <td>${order.shippingFee.toLocaleString()}</td>
                 <td>${displayInsuranceFee.toLocaleString()}</td>
                 <td>${(inspectionCost - inspectionFeeCollected).toLocaleString()}</td>

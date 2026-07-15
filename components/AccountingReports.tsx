@@ -318,7 +318,7 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
 
         // Losses from returns/failures
         const lossFromReturnOrders = orders
-            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status))
+            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)))
             .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
 
         const totalProductRevenue = productRevenuePos + productRevenueShipping;
@@ -1634,7 +1634,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings 
     const computedShippingLosses = useMemo(() => {
         // Sum of shipping losses for returned/failed orders
         return orders
-            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status))
+            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)))
             .reduce((sum, o) => {
                 const { loss } = calculateOrderProfitLoss(o, settings);
                 return sum + loss;

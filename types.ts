@@ -1175,6 +1175,7 @@ export interface Order {
   allowOpenShipment?: boolean;
   assignedEmployeeId?: string;
   deliveryNotes?: string;
+  isManualShippingOverride?: boolean;
 }
 
 export interface TreasuryAccount {

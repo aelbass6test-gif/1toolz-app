@@ -254,7 +254,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
   const [showEditTotalModal, setShowEditTotalModal] = useState(false);
-  const [isManualShippingOverride, setIsManualShippingOverride] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
 
   // Product Adder Bar State
@@ -385,7 +384,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const selectedOption = shippingOptions.find(
       (opt) => opt.label === (orderData.governorate || orderData.shippingArea)
     );
-    if (selectedOption && !isManualShippingOverride) {
+    if (selectedOption && !orderData.isManualShippingOverride) {
       const getPriceKey = (type?: string) => {
         if (type === "exchange") return "exchangePrice";
         if (type === "return") return "returnPrice";
@@ -453,7 +452,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     shippingOptions,
     orderData.items,
     orderData.shipmentType,
-    isManualShippingOverride,
+    orderData.isManualShippingOverride,
   ]);
 
   const handleCustomerSelect = (customer: CustomerProfile) => {
@@ -1803,23 +1802,41 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </label>
               <button
                 type="button"
-                onClick={() => setIsManualShippingOverride(!isManualShippingOverride)}
-                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                onClick={() => handleFieldChange("isManualShippingOverride", !orderData.isManualShippingOverride)}
+                className={`text-[10px] px-2 py-1 rounded-lg font-black transition-all ${
+                  orderData.isManualShippingOverride 
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" 
+                    : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
+                } hover:opacity-80 cursor-pointer`}
               >
-                {isManualShippingOverride ? "🔄 العودة للحساب التلقائي" : "✏️ تعديل يدوي"}
+                {orderData.isManualShippingOverride ? "🔄 تفعيل الحساب التلقائي" : "✏️ تعديل سعر الشحن يدوياً"}
               </button>
             </div>
-            <input
-              type="number"
-              disabled={!isManualShippingOverride}
-              value={orderData.shippingFee !== undefined ? orderData.shippingFee : 0}
-              onChange={(e) => handleFieldChange("shippingFee", parseFloat(e.target.value) || 0)}
-              className={`w-full p-3.5 border rounded-2xl text-sm font-black font-mono transition-all ${
-                isManualShippingOverride
-                  ? "bg-amber-50/50 dark:bg-amber-950/20 border-amber-300 text-amber-900 dark:text-amber-300 focus:ring-2 focus:ring-amber-500/20"
-                  : "bg-slate-100 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 opacity-80 cursor-not-allowed"
-              }`}
-            />
+            <div className="relative group">
+              <input
+                type="number"
+                disabled={!orderData.isManualShippingOverride}
+                value={orderData.shippingFee !== undefined ? orderData.shippingFee : 0}
+                onChange={(e) => handleFieldChange("shippingFee", parseFloat(e.target.value) || 0)}
+                className={`w-full p-4 border-2 rounded-2xl text-lg font-black font-mono transition-all ${
+                  orderData.isManualShippingOverride
+                    ? "bg-white dark:bg-slate-900 border-amber-400 text-slate-800 dark:text-white shadow-lg shadow-amber-500/10 ring-4 ring-amber-500/5"
+                    : "bg-slate-100 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 opacity-90 cursor-not-allowed"
+                }`}
+              />
+              {!orderData.isManualShippingOverride && (
+                <div 
+                  className="absolute inset-0 cursor-pointer" 
+                  onClick={() => handleFieldChange("isManualShippingOverride", true)}
+                  title="اضغط لتعديل السعر يدوياً"
+                />
+              )}
+              {orderData.isManualShippingOverride && (
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+                  <span className="text-[10px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter">Manual</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

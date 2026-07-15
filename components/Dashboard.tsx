@@ -594,7 +594,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           outForDeliveryCount++;
       }
       
-      if (o.status === 'مرتجع' || o.status === 'تمت_الاعادة_لشركة_الشحن' || o.status === 'فشل_التوصيل') {
+      if (o.status === 'مرتجع' || o.status === 'تمت_الاعادة_لشركة_الشحن' || o.status === 'فشل_التوصيل' || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded))) {
           headedToYouCount++;
           totalReturnedExpenses += loss;
       }
@@ -610,7 +610,8 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     });
 
     const cancelledCount = counts['ملغي'] || 0;
-    const returnedCount = (counts['مرتجع'] || 0) + (counts['مرتجع_جزئي'] || 0) + (counts['تمت_الاعادة_لشركة_الشحن'] || 0);
+    const cancelledLossesCount = (orders || []).filter(o => o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)).length;
+    const returnedCount = (counts['مرتجع'] || 0) + (counts['مرتجع_جزئي'] || 0) + (counts['تمت_الاعادة_لشركة_الشحن'] || 0) + cancelledLossesCount;
     const failedCount = counts['فشل_التوصيل'] || 0;
     const delayedCount = (counts['مؤجل'] || 0) + (counts['مجدول'] || 0);
 

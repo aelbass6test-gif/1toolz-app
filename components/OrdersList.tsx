@@ -1494,7 +1494,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       newStatus === "تم_الارسال" &&
       !updatedOrderData.shippingAndInsuranceDeducted
     ) {
-      const standardShippingFee = getStandardShippingFee(
+      const manualShippingFee = (orderToUpdate.isManualShippingOverride && orderToUpdate.shippingFee !== undefined) ? orderToUpdate.shippingFee : null;
+      const standardShippingFee = manualShippingFee !== null ? manualShippingFee : getStandardShippingFee(
         orderToUpdate,
         settings,
       );
@@ -1585,8 +1586,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       updatedOrderData.shippingAndInsuranceDeducted = true;
     }
 
+    if (newStatus === "ملغي") {
+      updatedOrderData.shippingAndInsuranceDeducted = true;
+    }
+
     if (
-      (newStatus === "مرتجع" || newStatus === "فشل_التوصيل") &&
+      (newStatus === "مرتجع" || newStatus === "فشل_التوصيل" || (newStatus === "ملغي" && updatedOrderData.shippingAndInsuranceDeducted)) &&
       !updatedOrderData.returnFeeDeducted
     ) {
       const applyReturnFee = useCustom
@@ -1614,7 +1619,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     }
 
     if (
-      ["مرتجع", "فشل_التوصيل"].includes(newStatus) &&
+      (["مرتجع", "فشل_التوصيل"].includes(newStatus) || (newStatus === "ملغي" && updatedOrderData.shippingAndInsuranceDeducted)) &&
       updatedOrderData.flexShipFeePaidByCustomer
     ) {
       const flexShipFeeAmount =
@@ -1692,7 +1697,6 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       "في_انتظار_المكالمة",
       "جاري_المراجعة",
       "قيد_التنفيذ",
-      "ملغي",
       "مؤجل",
       "مجدول",
     ];
@@ -1791,7 +1795,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     // Handling reversal of return shipping fee if moved out of return status
     if (
       orderToUpdate.returnFeeDeducted &&
-      !["مرتجع", "فشل_التوصيل"].includes(newStatus)
+      !["مرتجع", "فشل_التوصيل", "ملغي"].includes(newStatus)
     ) {
       const applyReturnFee = useCustom
         ? (compFees?.enableFixedReturn ?? false)
@@ -6959,13 +6963,14 @@ const OrderRow = ({
                   </span>
                 </div>
                 <span
-                  className={`text-[8px] font-bold block ${["مرتجع", "فشل_التوصيل", "مرتجع_بعد_الاستلام", "مرتجع_جزئي"].includes(order.status) ? "text-amber-500" : "text-slate-400"}`}
+                  className={`text-[8px] font-bold block ${["مرتجع", "فشل_التوصيل", "مرتجع_بعد_الاستلام", "مرتجع_جزئي", "ملغي"].includes(order.status) ? "text-amber-500" : "text-slate-400"}`}
                 >
                   {[
                     "مرتجع",
                     "فشل_التوصيل",
                     "مرتجع_بعد_الاستلام",
                     "مرتجع_جزئي",
+                    "ملغي",
                   ].includes(order.status)
                     ? (order.flexShipFeePaidByCustomer ? "مدفوعة" : "مستحق للفصل")
                     : "غير مستحق"}
