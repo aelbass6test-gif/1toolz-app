@@ -2300,7 +2300,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             }
             @page { size: ${isContinuous ? 'auto' : (orientation === 'landscape' ? 'A4 landscape' : 'A4 portrait')}; margin: ${isContinuous ? '0' : '10mm'}; }
             body { font-family: 'Cairo', sans-serif; background: #fdfdfd; color: var(--slate-900); margin: 0; padding: ${isContinuous ? '20px' : '0'}; line-height: 1.6; }
-            .report-container { width: 100%; max-width: ${orientation === 'landscape' ? '297mm' : '210mm'}; margin: 0 auto; background: white; padding: ${isContinuous ? '20px' : '40px'}; box-sizing: border-box; border-radius: ${isContinuous ? '16px' : '0'}; box-shadow: ${isContinuous ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : 'none'}; }
+            .report-container { width: 100%; max-width: ${isContinuous ? '100%' : (orientation === 'landscape' ? '1400px' : '1000px')}; margin: 0 auto; background: white; padding: ${isContinuous ? '20px' : '40px'}; box-sizing: border-box; border-radius: ${isContinuous ? '16px' : '0'}; box-shadow: ${isContinuous ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : 'none'}; }
             
             .header-banner { background: var(--slate-900); color: white; padding: 40px; border-radius: 24px; margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
             .header-banner h1 { margin: 0; font-size: 36px; font-weight: 900; letter-spacing: -1px; }

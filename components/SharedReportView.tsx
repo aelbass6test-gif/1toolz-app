@@ -55,8 +55,8 @@ export const SharedReportView: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-4 sm:p-8">
-            <div className="max-w-[1200px] mx-auto">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-2 sm:p-4">
+            <div className="w-full max-w-[98%] mx-auto">
                 <div className="mb-6 flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
                      <div className="flex items-center gap-3">
                          <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">

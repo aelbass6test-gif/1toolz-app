@@ -139,6 +139,16 @@
         "notes": { "type": "string" },
         "orderId": { "type": "string" }
       }
+    },
+    "SharedReport": {
+      "title": "Shared Report",
+      "description": "Compressed HTML report for sharing",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content", "createdAt"]
     }
   },
   "firestore": {
@@ -273,6 +283,10 @@
     "/maintenance_requests/{id}": {
       "schema": "object",
       "description": "Maintenance requests"
+    },
+    "/shared_reports/{id}": {
+      "schema": "SharedReport",
+      "description": "Shared compressed reports"
     }
   }
 }
