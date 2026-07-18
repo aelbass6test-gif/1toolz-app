@@ -1275,7 +1275,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
                 <td style="padding: 8px;">${order.productCost.toLocaleString()}</td>
                 <td style="padding: 8px;">
                   ${(() => {
-                    const isCancelledWithLoss = order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded);
+                    const isCancelledWithLoss = order.status === 'ملغي';
                     if (isCancelledWithLoss) {
                         return `
                             <div style="background-color: #fff7ed; color: #c2410c; border: 1px solid #fdba74; padding: 4px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; display: inline-flex; align-items: center; gap: 4px;">
@@ -1421,6 +1421,7 @@ export interface ComprehensiveReportSections {
     showInventoryValue?: boolean;
     includeMarkupsInProductRevenue?: boolean;
     showExtraServicesRow?: boolean;
+    supplyOrders?: any[];
 }
 
 export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury, sections?: ComprehensiveReportSections): string => {
@@ -1443,10 +1444,16 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
     const shippingCollectedOrders = collectedOrders.filter(o => !(o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر'));
     const posCollectedOrders = collectedOrders.filter(o => o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر');
-    const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)));
+    const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status));
     const adminExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '')));
-    const inventoryPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase');
-    const totalInventoryPurchases = inventoryPurchases.reduce((sum, t) => sum + t.amount, 0);
+    const filteredSupplyOrders = sections?.supplyOrders;
+    const totalInventoryPurchases = filteredSupplyOrders 
+        ? filteredSupplyOrders.filter(o => o.status !== 'cancelled').reduce((sum, o) => {
+            // Subtract shipping fees and other fees if they are bundled in grandTotal/totalCost (handles both legacy and new orders)
+            const orderGrandTotal = Number(o.totalCost || o.grandTotal || 0) - (Number(o.shippingFees) || 0) - (Number(o.otherFees) || 0);
+            return sum + orderGrandTotal;
+        }, 0)
+        : (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase' || t.category === 'supply_purchase' || t.category === 'supplier_payment').reduce((sum, t) => sum + t.amount, 0);
 
     const totalInventoryValue = (settings?.products || []).reduce((sum, p) => {
         if (p.hasVariants && p.variants && p.variants.length > 0) {
@@ -1843,7 +1850,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td class="col-products">${productDetails}</td>
                 <td style="padding: 8px; text-align: center;">
                     ${(() => {
-                        const isCancelledWithLoss = order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded);
+                        const isCancelledWithLoss = order.status === 'ملغي';
                         if (isCancelledWithLoss) {
                             return `
                                 <div style="display: inline-flex; align-items: center; gap: 4px; color: #ea580c; font-weight: bold; background: #fff7ed; padding: 2px 8px; border-radius: 9999px; border: 1px solid #ffedd5; font-size: 9px;">

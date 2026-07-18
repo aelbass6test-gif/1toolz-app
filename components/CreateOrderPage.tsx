@@ -23,7 +23,7 @@ interface CreateOrderPageProps {
     setTreasury?: React.Dispatch<React.SetStateAction<any>>;
     currentUser: User | null;
     allStoresData?: Record<string, any>;
-    forceSync?: () => Promise<void>;
+    forceSync?: (customStoreData?: any, customUsers?: any) => Promise<void>;
 }
 
 const CreateOrderPage: React.FC<CreateOrderPageProps> = ({ 
@@ -521,7 +521,29 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         // ----------------------------------
 
         triggerWebhooks(orderWithId, settings);
-        if (forceSync) {
+        
+        // Sync with forceSync using complete updated state to bypass React async delay
+        const currentStoreId = activeStore?.id;
+        if (forceSync && allStoresData && currentStoreId && allStoresData[currentStoreId]) {
+            const storeData = allStoresData[currentStoreId];
+            let updatedOrders = [...(storeData.orders || [])];
+            if (orderWithId.orderType === 'exchange' && orderWithId.originalOrderId) {
+                updatedOrders = updatedOrders.map(o => 
+                    o.id === orderWithId.originalOrderId ? { ...o, status: 'تم_الاستبدال' as OrderStatus } : o
+                );
+            }
+            updatedOrders = [orderWithId, ...updatedOrders];
+
+            const updatedStoreData = {
+                ...storeData,
+                orders: updatedOrders,
+                settings: {
+                    ...(storeData.settings || settings),
+                    cashHandovers: updatedHandovers
+                }
+            };
+            void forceSync(updatedStoreData);
+        } else if (forceSync) {
             void forceSync();
         }
         

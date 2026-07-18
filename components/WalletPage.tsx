@@ -440,7 +440,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     } else if (activeTab === 'manual') {
         base = base.filter(t => !(t.note || '').includes('#') && !t.orderNumber && !t.orderId && t.category !== 'wallet_withdrawal' && t.category !== 'wallet_charge' && !t.category?.startsWith('supply_'));
     } else if (activeTab === 'supply_wallet') {
-        base = base.filter(t => t.category?.startsWith('supply_') || t.category === 'inventory_purchase');
+        base = base.filter(t => t.category?.startsWith('supply_') || t.category === 'inventory_purchase' || t.category === 'supplier_payment');
     } else if (activeTab === 'all') {
         // Show everything
     }
@@ -473,7 +473,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       if (orderKey && (t.type === 'سحب' || t.type === 'إيداع') && t.category !== 'wallet_withdrawal' && t.category !== 'wallet_charge') {
         if (!groups[orderKey]) groups[orderKey] = [];
         groups[orderKey].push(t);
-      } else if (supplyKey && (t.category?.startsWith('supply_') || t.category === 'inventory_purchase')) {
+      } else if (supplyKey && (t.category?.startsWith('supply_') || t.category === 'inventory_purchase' || t.category === 'supplier_payment')) {
         const key = `supply_${supplyKey}`;
         if (!groups[key]) groups[key] = [];
         groups[key].push(t);
@@ -540,7 +540,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           ? cycleOrders.find(o => String(o.orderNumber) === String(item.orderNumber)) || orders.find(o => String(o.orderNumber) === String(item.orderNumber))
           : null;
 
-      if (relevantOrder && (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي'].includes(relevantOrder.status) || (relevantOrder.status === 'ملغي' && (relevantOrder.shippingAndInsuranceDeducted || relevantOrder.flexShipTransactionAdded)))) {
+      if (relevantOrder && ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي'].includes(relevantOrder.status)) {
           if (item.category === 'shipping' || item.category === 'collection' || item.isGroup || baseTitle.includes('مصاريف شحن')) {
               baseTitle += relevantOrder.status === 'ملغي' ? ' (أوردر ملغي)' : ' (أوردر فاشل/مرتجع)';
           }
@@ -570,7 +570,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const cycleFinancials = useMemo(() => {
     return cycleOrders.reduce((acc, o) => {
       // Exclude failed or returned orders from the expected collection and shipping totals for success stats
-      const isFailed = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded));
+      const isFailed = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(o.status);
       const { netRevenue, carrierFees, net } = calculateOrderProfitLoss(o, settings);
       
       if (!isFailed) {
@@ -1161,7 +1161,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                                 ? cycleOrders.find(o => String(o.orderNumber) === String(item.orderNumber)) || orders.find(o => String(o.orderNumber) === String(item.orderNumber))
                                                 : null;
                                           
-                                          const isCancelledWithDeduction = relevantOrder?.status === 'ملغي' && (relevantOrder.shippingAndInsuranceDeducted || relevantOrder.flexShipTransactionAdded);
+                                          const isCancelledWithDeduction = relevantOrder?.status === 'ملغي';
 
                                           return (
                                               <span className={`inline-flex flex-row-reverse items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-black border tracking-wide ${

@@ -78,7 +78,8 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
 
     orders.forEach(o => {
       if (o.status === 'completed') {
-        totalPurchasesAmount += (o.grandTotal || o.totalCost || 0);
+        const orderGrandTotal = Number(o.totalCost || o.grandTotal || 0) - (Number(o.shippingFees) || 0) - (Number(o.otherFees) || 0);
+        totalPurchasesAmount += orderGrandTotal;
       }
     });
 

@@ -124,7 +124,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             }
             // Calculate COGS for successful orders
             totalCogs += getOrderProductCost(order, settings);
-        } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(order.status)) {
+        } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(order.status)) {
             returnsLosses += Math.abs(net);
         }
     });

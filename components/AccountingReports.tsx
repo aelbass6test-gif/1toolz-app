@@ -20,6 +20,7 @@ interface Props {
   activeStore?: Store;
   setSettings?: React.Dispatch<React.SetStateAction<Settings>>;
   setWallet?: React.Dispatch<React.SetStateAction<Wallet>>;
+  supplyOrders?: any[];
 }
 
 // Utility to verify date matching
@@ -59,7 +60,7 @@ const isWithinRange = (dateStr: string, filter: string, customStart?: string, cu
     return true;
 };
 
-export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders, settings, wallet, activeStore, setSettings, setWallet, treasury }) => {
+export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders, settings, wallet, activeStore, setSettings, setWallet, treasury, supplyOrders }) => {
     const [subTab, setSubTab] = useState<'wealth_reconciliation' | 'income' | 'balance_sheet' | 'cash_flow' | 'suppliers' | 'receivables' | 'wallet' | 'product_profitability' | 'partner_equity' | 'marketing_roi' | 'inventory_velocity' | 'custody'>('wealth_reconciliation');
     const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom'>('all');
     const [startDate, setStartDate] = useState('');
@@ -82,6 +83,10 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
             hiddenAmount: hidden // Pass it down if needed
         };
     }, [wallet, timeFilter, startDate, endDate, settings.hiddenWalletAmount]);
+
+    const filteredSupplyOrders = useMemo(() => {
+        return (supplyOrders || []).filter(o => isWithinRange(o.date, timeFilter, startDate, endDate));
+    }, [supplyOrders, timeFilter, startDate, endDate]);
 
     const handleExportPDF = async () => {
         if (!reportRef.current) return;
@@ -177,7 +182,7 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
 
             {/* Sub-Contents with Filtered Data */}
             <div className="p-6 min-h-[500px]">
-                {subTab === 'wealth_reconciliation' && <WealthReconciliation orders={filteredOrders} settings={settings} wallet={filteredWallet} treasury={treasury} setSettings={setSettings} />}
+                {subTab === 'wealth_reconciliation' && <WealthReconciliation orders={filteredOrders} settings={settings} wallet={filteredWallet} treasury={treasury} setSettings={setSettings} supplyOrders={filteredSupplyOrders} />}
                 {subTab === 'income' && <IncomeStatement orders={filteredOrders} settings={settings} wallet={filteredWallet} />}
                 {subTab === 'balance_sheet' && <BalanceSheet orders={filteredOrders} settings={settings} wallet={filteredWallet} />}
                 {subTab === 'cash_flow' && <CashFlowStatement wallet={filteredWallet} />}
@@ -318,7 +323,7 @@ const IncomeStatement = ({ orders, settings, wallet }: Omit<Props, 'activeStore'
 
         // Losses from returns/failures
         const lossFromReturnOrders = orders
-            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)))
+            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(o.status))
             .reduce((sum, o) => sum + calculateOrderProfitLoss(o, settings).loss, 0);
 
         const totalProductRevenue = productRevenuePos + productRevenueShipping;
@@ -1054,6 +1059,7 @@ const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
         'manual_withdrawal': 'سحب نقدي يدوي',
         'profit_withdrawal': 'مسحوبات أرباح الشركاء',
         'inventory_purchase': 'شراء مخزون / بضاعة',
+        'supplier_payment': 'سداد مديونية للموردين',
         'expense_ads': 'مصاريف إعلانات وتسويق',
         'expense_rent': 'إيجار المقر / المخزن',
         'expense_salaries': 'رواتب ومكافآت الموظفين',
@@ -1588,7 +1594,7 @@ const InventoryVelocity = ({ orders, settings }: { orders: Order[], settings: Se
     );
 };
 
-const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings }: { orders: Order[]; settings: Settings; wallet: Wallet; treasury?: any; setSettings?: React.Dispatch<React.SetStateAction<Settings>> }) => {
+const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings, supplyOrders }: { orders: Order[]; settings: Settings; wallet: Wallet; treasury?: any; setSettings?: React.Dispatch<React.SetStateAction<Settings>>; supplyOrders?: any[] }) => {
     const [activeDetailTab, setActiveDetailTab] = useState<'shipping' | 'pos'>('shipping');
     const completedStatuses: OrderStatus[] = ['تم_توصيلها', 'تم_التحصيل', 'مدفوعة'];
 
@@ -1634,7 +1640,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings 
     const computedShippingLosses = useMemo(() => {
         // Sum of shipping losses for returned/failed orders
         return orders
-            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded)))
+            .filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(o.status))
             .reduce((sum, o) => {
                 const { loss } = calculateOrderProfitLoss(o, settings);
                 return sum + loss;
@@ -1823,8 +1829,12 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings 
         const totalAdminExpenses = adminExpenses.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
         // Inventory purchases
-        const stockPurchases = (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase' || t.category === 'supply_purchase');
-        const totalStockPurchases = stockPurchases.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        const totalStockPurchases = supplyOrders 
+            ? supplyOrders.filter(o => o.status !== 'cancelled').reduce((sum, o) => {
+                const orderGrandTotal = Number(o.totalCost || o.grandTotal || 0) - (Number(o.shippingFees) || 0) - (Number(o.otherFees) || 0);
+                return sum + orderGrandTotal;
+            }, 0)
+            : (wallet?.transactions || []).filter(t => t.category === 'inventory_purchase' || t.category === 'supply_purchase' || t.category === 'supplier_payment').reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
         // 5. External balances
         let receivablesPending = orders
@@ -1864,7 +1874,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings 
             supplierPayables,
             totalActivityNetWorth
         };
-    }, [orders, settings, wallet, treasury]);
+    }, [orders, settings, wallet, treasury, supplyOrders]);
 
     return (
         <div className="space-y-8 animate-in fade-in-5 duration-300 text-right" dir="rtl">

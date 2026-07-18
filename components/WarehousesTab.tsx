@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Warehouse, Product, Settings } from '../types';
 import { audioSynth } from '../utils/audioSynth';
+import { getLatestProductCost } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface WarehousesTabProps {
@@ -64,29 +65,42 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
 
     products.forEach(p => {
       warehouses.forEach(w => {
-        let stockInWh = p.warehouseStock?.[w.id] || 0;
-        let hasStock = stockInWh > 0;
+        let whUnits = 0;
+        let whValuation = 0;
+        let hasStock = false;
+
+        const baseStock = p.warehouseStock?.[w.id] || 0;
+        if (baseStock > 0) {
+          const cost = getLatestProductCost(p.id, settings) || p.costPrice || 0;
+          whUnits += baseStock;
+          whValuation += baseStock * cost;
+          hasStock = true;
+        }
 
         if (p.variants && p.variants.length > 0) {
           p.variants.forEach(v => {
             const vStock = v.warehouseStock?.[w.id] || 0;
-            stockInWh += vStock;
-            if (vStock > 0) hasStock = true;
+            if (vStock > 0) {
+              const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || v.costPrice || p.costPrice || 0;
+              whUnits += vStock;
+              whValuation += vStock * cost;
+              hasStock = true;
+            }
           });
         }
 
         if (hasStock && branchStats[w.id]) {
-          branchStats[w.id].units += stockInWh;
-          branchStats[w.id].valuation += stockInWh * (p.costPrice || 0);
+          branchStats[w.id].units += whUnits;
+          branchStats[w.id].valuation += whValuation;
           branchStats[w.id].itemsCount += 1;
-          totalUnits += stockInWh;
-          totalValuation += stockInWh * (p.costPrice || 0);
+          totalUnits += whUnits;
+          totalValuation += whValuation;
         }
       });
     });
 
     return { totalUnits, totalValuation, branchStats, count: warehouses.length };
-  }, [settings.warehouses, settings.products]);
+  }, [settings]);
 
   const handleCreateDefaultBranches = () => {
     const defaultBranches: Warehouse[] = [

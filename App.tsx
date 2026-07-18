@@ -2179,7 +2179,7 @@ export const AppComponent = () => {
         />;
     }
     
-    const forceSync = async () => {
+    const forceSync = async (customStoreData?: any, customUsers?: any) => {
         if (debounceTimer.current) clearTimeout(debounceTimer.current);
         setSaveStatus('saving');
         setSaveMessage('جاري الحفظ والمزامنة...');
@@ -2187,9 +2187,10 @@ export const AppComponent = () => {
             isSavingRef.current = true;
             
             // 1. Sync custom domains up to users
-            let updatedUsers = [...users];
-            if (activeStoreId && allStoresData[activeStoreId]) {
-                const storeSettings = allStoresData[activeStoreId].settings;
+            let updatedUsers = customUsers || [...users];
+            const storeDataToSync = customStoreData || allStoresData[activeStoreId!];
+            if (activeStoreId && storeDataToSync) {
+                const storeSettings = storeDataToSync.settings;
                 updatedUsers = updatedUsers.map(user => {
                     if (user.stores) {
                         return {
@@ -2217,17 +2218,17 @@ export const AppComponent = () => {
             
             // 2. Local backup (Instant)
             await db.saveLocal('global', { users: updatedUsers, loyaltyData: {} });
-            if (activeStoreId && allStoresData[activeStoreId]) {
-                await db.saveLocal(activeStoreId, allStoresData[activeStoreId]);
+            if (activeStoreId && storeDataToSync) {
+                await db.saveLocal(activeStoreId, storeDataToSync);
             }
 
             // 3. Cloud sync (Parallel with Timeout)
             const syncPromises = [];
             syncPromises.push(db.saveGlobalData({ users: updatedUsers, loyaltyData: {} }));
-            if (activeStoreId && allStoresData[activeStoreId] && activeStore) {
+            if (activeStoreId && storeDataToSync && activeStore) {
                 // Must pass updated version of store!
                 const updatedStore = updatedUsers.find(u => u.stores?.some(s => s.id === activeStoreId))?.stores?.find(s => s.id === activeStoreId) || activeStore;
-                syncPromises.push(db.saveStoreData(updatedStore, allStoresData[activeStoreId]));
+                syncPromises.push(db.saveStoreData(updatedStore, storeDataToSync));
             }
 
             const results = await Promise.all(syncPromises);

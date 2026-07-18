@@ -24,6 +24,7 @@ interface ReportsPageProps {
   setSettings?: React.Dispatch<React.SetStateAction<Settings>>;
   setWallet?: React.Dispatch<React.SetStateAction<Wallet>>;
   dateRangeText?: string;
+  supplyOrders?: any[];
 }
 
 const ReportCard: React.FC<{ title: string; value: string; icon: React.ReactNode; subValue?: string; color: 'emerald' | 'red' | 'amber' | 'blue' | 'teal'; tooltip?: string }> = ({ title, value, icon, subValue, color, tooltip }) => {
@@ -139,7 +140,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
 
         // Delivery breakdown for Pie chart
         const deliveredCount = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).length;
-        const returnedCount = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) || (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded))).length;
+        const returnedCount = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)).length;
         const processingCount = orders.length - deliveredCount - returnedCount;
 
         const deliveryBreakdown = [
@@ -182,7 +183,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status)) {
                 totalCogs += getOrderProductCost(order, settings);
             }
-            if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(order.status) || (order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded))) {
+            if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(order.status)) {
                 returnsLoss += loss;
             }
         });
@@ -592,8 +593,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     
     const failedOrders = useMemo(() => {
         return orders.filter(o => 
-            ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) ||
-            (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded))
+            ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)
         )
             .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [orders]);
@@ -634,7 +634,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
             }
             companyStats[company].total += 1;
 
-            const isReturned = ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status);
+            const isReturned = ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status);
             const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);
 
             if (isReturned) {
@@ -985,7 +985,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                             <td className="px-4 py-3 font-mono">{(order.items || []).reduce((sum, item) => sum + (item.cost * item.quantity), 0).toLocaleString()}</td>
                                             <td className="px-4 py-3">
                                                 {(() => {
-                                                    const isCancelledWithLoss = order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded);
+                                                    const isCancelledWithLoss = order.status === 'ملغي';
                                                     if (isCancelledWithLoss) {
                                                         return (
                                                             <span className="inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 rounded-full whitespace-nowrap">
@@ -1054,7 +1054,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     );
 };
 
-const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
+const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, supplyOrders }) => {
     const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
@@ -1085,14 +1085,14 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     useEffect(() => {
         if (previewHtml !== null) {
             const storeName = activeStore?.name || 'متجري';
-            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
+            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, { ...reportSections, supplyOrders });
             setPreviewHtml(html);
         }
-    }, [reportSections, orientation, isContinuous]);
+    }, [reportSections, orientation, isContinuous, supplyOrders]);
     
     const stats = useMemo(() => {
         const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
-        const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
+        const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status));
 
         let totalRevenue = 0;
         let totalProductRevenue = 0;
@@ -1403,7 +1403,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
     const handlePreview = () => {
         const storeName = activeStore?.name || 'متجري';
-        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
+        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, { ...reportSections, supplyOrders });
         setPreviewHtml(html);
     };
 
@@ -1429,7 +1429,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         setIsExporting(true);
         try {
             const storeName = activeStore?.name || 'متجري';
-            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
+            const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, { ...reportSections, supplyOrders });
             await exportHTMLToPDF(html, orientation, `التقرير_الختامي_الشامل_${new Date().toISOString().split('T')[0]}.pdf`, isContinuous);
         } catch (error) {
             console.error('PDF generation failed:', error);
@@ -1441,7 +1441,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
     const handlePrint = () => {
         const storeName = activeStore?.name || 'متجري';
-        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, reportSections);
+        const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, { ...reportSections, supplyOrders });
         printHTMLDirectly(html);
     };
 
@@ -2231,12 +2231,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                         </thead>
                         <tbody>
                             {orders.filter(o => 
-                                ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) ||
-                                (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded))
+                                ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)
                             ).length > 0 ? (
                                 orders.filter(o => 
-                                    ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) ||
-                                    (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded))
+                                    ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)
                                 ).map(order => {
                                     const { loss } = calculateOrderProfitLoss(order, settings);
                                     return (
@@ -2252,7 +2250,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                             </td>
                                             <td className="p-2 border border-slate-100 dark:border-slate-800">
                                                 {(() => {
-                                                    const isCancelledWithLoss = order.status === 'ملغي' && (order.shippingAndInsuranceDeducted || order.flexShipTransactionAdded);
+                                                    const isCancelledWithLoss = order.status === 'ملغي';
                                                     if (isCancelledWithLoss) {
                                                         return (
                                                             <span className="inline-flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 rounded-full whitespace-nowrap">
@@ -2281,8 +2279,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             )}
                         </tbody>
                         {orders.filter(o => 
-                            ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status) ||
-                            (o.status === 'ملغي' && (o.shippingAndInsuranceDeducted || o.flexShipTransactionAdded))
+                            ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)
                         ).length > 0 && (
                             <tfoot className="bg-slate-50 dark:bg-slate-800/50 font-black text-slate-900 dark:text-white">
                                 <tr>
@@ -2422,7 +2419,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                 const totalItemsCost = (order.items || []).reduce((sum, item) => sum + (item.cost * item.quantity), 0);
                 grossMargin += (totalItemsRevenue - totalItemsCost);
                 operationalFees += (totalItemsRevenue - totalItemsCost) - profit;
-            } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام'].includes(order.status)) {
+            } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(order.status)) {
                 returnsLosses += loss;
             }
         });
@@ -2756,7 +2753,8 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
         // Calculate total purchases value
         supplyOrders.forEach(o => {
             if (o.status !== 'cancelled') {
-                totalPurchasesValue += o.totalCost;
+                const orderGrandTotal = Number(o.totalCost || o.grandTotal || 0) - (Number(o.shippingFees) || 0) - (Number(o.otherFees) || 0);
+                totalPurchasesValue += orderGrandTotal;
             }
             
             const supplierName = suppliers.find(s => s.id === o.supplierId)?.name || 'غير معروف';
@@ -3021,12 +3019,12 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
     );
 };
 
-const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
+const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, supplyOrders }) => {
     const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [subTab, setSubTab] = useState<'summary' | 'financials' | 'operations' | 'partners'>('summary');
     const stats = useMemo(() => {
         const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
-        const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status));
+        const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status));
 
         let totalProductRevenue = 0;
         let totalExtraMarkup = 0;
@@ -3885,7 +3883,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
 
     const filteredData = useMemo(() => {
         if (dateRangeType === 'all') {
-            return { orders, wallet };
+            return { orders, wallet, supplyOrders: settings?.supplyOrders || [] };
         }
 
         const now = new Date();
@@ -3947,13 +3945,21 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             return true;
         });
 
+        const filteredSupplyOrders = (settings?.supplyOrders || []).filter(o => {
+            if (!o.date) return false;
+            const itemTime = new Date(o.date).getTime();
+            if (minDate && itemTime < minDate.getTime()) return false;
+            if (maxDate && itemTime > maxDate.getTime()) return false;
+            return true;
+        });
+
         const filteredWallet = wallet ? {
             ...wallet,
             transactions: filteredTransactions
         } : wallet;
 
-        return { orders: filteredOrders, wallet: filteredWallet };
-    }, [orders, wallet, dateRangeType, customStartDate, customEndDate]);
+        return { orders: filteredOrders, wallet: filteredWallet, supplyOrders: filteredSupplyOrders };
+    }, [orders, wallet, settings?.supplyOrders, dateRangeType, customStartDate, customEndDate]);
 
     const dateRangeText = useMemo(() => {
         if (dateRangeType === 'all') return 'كل البيانات';
@@ -4063,12 +4069,12 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                 {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} />}
                 {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={settings} />}
-                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
+                {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
                 {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'custody' && <CustodyLedger settings={settings} />}
                 {activeTab === 'inventory' && <InventoryReport activeStore={activeStore} settings={settings} dateRangeText={dateRangeText} />}
-                {activeTab === 'accounting' && <AccountingReports orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} setSettings={setSettings} setWallet={setWallet} />}
+                {activeTab === 'accounting' && <AccountingReports orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} setSettings={setSettings} setWallet={setWallet} supplyOrders={filteredData.supplyOrders} />}
             </div>
         </div>
     );
