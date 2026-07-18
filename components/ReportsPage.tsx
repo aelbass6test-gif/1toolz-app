@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
-import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon } from 'lucide-react';
+import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check } from 'lucide-react';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
@@ -12,6 +12,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieCha
 import { printHTMLDirectly } from '../utils/printHelper';
 import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { useLocalStorage } from '../src/hooks/useLocalStorage';
+import { shareReport } from '../services/reportShareService';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -1060,6 +1061,9 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [isSharing, setIsSharing] = useState(false);
+    const [shareLink, setShareLink] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
     const [reportSections, setReportSections] = useLocalStorage<ComprehensiveReportSections>('report_sections_prefs', {
         showSummary: true,
         showIncomeStatement: true,
@@ -1406,6 +1410,29 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         const storeName = activeStore?.name || 'متجري';
         const html = generateComprehensiveFinancialReportHTML(orders, settings, wallet, storeName, orientation, isContinuous, dateRangeText, treasury, { ...reportSections, supplyOrders });
         setPreviewHtml(html);
+        setShareLink(null);
+    };
+
+    const handleShare = async () => {
+        if (!previewHtml) return;
+        setIsSharing(true);
+        try {
+            const id = await shareReport(previewHtml);
+            setShareLink(`${window.location.origin}/shared-report/${id}`);
+        } catch (error) {
+            console.error('Share Error:', error);
+            alert('حدث خطأ أثناء إنشاء رابط المشاركة.');
+        } finally {
+            setIsSharing(false);
+        }
+    };
+
+    const handleCopyLink = () => {
+        if (shareLink) {
+            navigator.clipboard.writeText(shareLink);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
     };
 
     const handleActualExportPDF = async () => {
@@ -2319,6 +2346,23 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 معاينة التقرير الختامي الشامل
                             </h3>
                             <div className="flex items-center gap-2">
+                                {shareLink && (
+                                    <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                        <LinkIcon size={14} />
+                                        <span className="text-xs font-bold whitespace-nowrap hidden sm:inline" dir="ltr">{shareLink.slice(0, 35)}...</span>
+                                        <button onClick={handleCopyLink} className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-800 rounded-lg transition-colors text-indigo-600 dark:text-indigo-400" title="نسخ الرابط">
+                                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                )}
+                                <button 
+                                    onClick={handleShare} 
+                                    disabled={isSharing}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-50"
+                                >
+                                    {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>}
+                                    <span className="hidden sm:inline">{isSharing ? 'جاري الإنشاء...' : 'مشاركة أونلاين'}</span>
+                                </button>
                                 <button 
                                     onClick={handleActualExportPDF} 
                                     disabled={isExporting}

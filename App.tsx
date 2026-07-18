@@ -76,6 +76,7 @@ import EditOrderPage from './components/EditOrderPage';
 import ChatBot from './components/ChatBot';
 import CongratsModal from './components/CongratsModal';
 import OrderTrackingPage from './components/OrderTrackingPage';
+import { SharedReportView } from './components/SharedReportView';
 import OtpVerificationPage from './components/OtpVerificationPage';
 import FirebaseActionPage from './components/FirebaseActionPage';
 import IosInstallPrompt from './components/IosInstallPrompt';
@@ -2568,6 +2569,7 @@ export const AppComponent = () => {
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />
                 <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} />} />
+                <Route path="/shared-report/:id" element={<SharedReportView />} />
                 
                 <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
