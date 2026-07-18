@@ -686,11 +686,37 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     }, [orders, settings]);
 
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [isSharing, setIsSharing] = useState(false);
+    const [shareLink, setShareLink] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
     const handlePreview = () => {
         const storeName = activeStore?.name || 'متجري';
         const html = generateLossesReportHTML(failedOrders, settings, storeName, orientation, isContinuous, dateRangeText);
         setPreviewHtml(html);
+        setShareLink(null);
+    };
+
+    const handleShare = async () => {
+        if (!previewHtml) return;
+        setIsSharing(true);
+        try {
+            const id = await shareReport(previewHtml);
+            setShareLink(`${window.location.origin}/shared-report/${id}`);
+        } catch (error) {
+            console.error('Share Error:', error);
+            alert('حدث خطأ أثناء إنشاء رابط المشاركة.');
+        } finally {
+            setIsSharing(false);
+        }
+    };
+
+    const handleCopyLink = () => {
+        if (shareLink) {
+            navigator.clipboard.writeText(shareLink);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
     };
 
     const handleActualExportPDF = async () => {
@@ -1027,6 +1053,23 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                 معاينة تقرير الخسائر
                             </h3>
                             <div className="flex items-center gap-2">
+                                {shareLink && (
+                                    <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                        <LinkIcon size={14} />
+                                        <span className="text-xs font-bold whitespace-nowrap hidden sm:inline" dir="ltr">{shareLink.slice(0, 35)}...</span>
+                                        <button onClick={handleCopyLink} className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-800 rounded-lg transition-colors text-indigo-600 dark:text-indigo-400" title="نسخ الرابط">
+                                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                )}
+                                <button 
+                                    onClick={handleShare} 
+                                    disabled={isSharing}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-50"
+                                >
+                                    {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>}
+                                    <span className="hidden sm:inline">{isSharing ? 'جاري الإنشاء...' : 'مشاركة أونلاين'}</span>
+                                </button>
                                 <button 
                                     onClick={handleActualExportPDF} 
                                     disabled={isExporting}
@@ -2562,10 +2605,36 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
     }, [orders, settings, wallet, transactions, partners]);
 
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [isSharing, setIsSharing] = useState(false);
+    const [shareLink, setShareLink] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
     const handlePreview = () => {
         const html = generatePartnersFinancialReportHTML(stats, activeStore?.name || 'المتجر', orientation, isContinuous, dateRangeText);
         setPreviewHtml(html);
+        setShareLink(null);
+    };
+
+    const handleShare = async () => {
+        if (!previewHtml) return;
+        setIsSharing(true);
+        try {
+            const id = await shareReport(previewHtml);
+            setShareLink(`${window.location.origin}/shared-report/${id}`);
+        } catch (error) {
+            console.error('Share Error:', error);
+            alert('حدث خطأ أثناء إنشاء رابط المشاركة.');
+        } finally {
+            setIsSharing(false);
+        }
+    };
+
+    const handleCopyLink = () => {
+        if (shareLink) {
+            navigator.clipboard.writeText(shareLink);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
     };
 
     const handleActualPrint = () => {
@@ -2742,6 +2811,23 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                 معاينة تقرير الشركاء
                             </h3>
                             <div className="flex items-center gap-2">
+                                {shareLink && (
+                                    <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                        <LinkIcon size={14} />
+                                        <span className="text-xs font-bold whitespace-nowrap hidden sm:inline" dir="ltr">{shareLink.slice(0, 35)}...</span>
+                                        <button onClick={handleCopyLink} className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-800 rounded-lg transition-colors text-indigo-600 dark:text-indigo-400" title="نسخ الرابط">
+                                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                )}
+                                <button 
+                                    onClick={handleShare} 
+                                    disabled={isSharing}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-50"
+                                >
+                                    {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>}
+                                    <span className="hidden sm:inline">{isSharing ? 'جاري الإنشاء...' : 'مشاركة أونلاين'}</span>
+                                </button>
                                  <button 
                                     onClick={handleActualExportPDF} 
                                     disabled={isExporting}
@@ -2776,6 +2862,9 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [isSharing, setIsSharing] = useState(false);
+    const [shareLink, setShareLink] = useState<string | null>(null);
+    const [copied, setCopied] = useState(false);
 
     const products = settings?.products || [];
     const suppliers = settings?.suppliers || [];
@@ -2878,6 +2967,29 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
     const handlePreview = () => {
         const html = generatePurchasesAndInventoryReportHTML(stats, activeStore?.name || 'متجري', orientation, isContinuous, dateRangeText, showInventoryValue);
         setPreviewHtml(html);
+        setShareLink(null);
+    };
+
+    const handleShare = async () => {
+        if (!previewHtml) return;
+        setIsSharing(true);
+        try {
+            const id = await shareReport(previewHtml);
+            setShareLink(`${window.location.origin}/shared-report/${id}`);
+        } catch (error) {
+            console.error('Share Error:', error);
+            alert('حدث خطأ أثناء إنشاء رابط المشاركة.');
+        } finally {
+            setIsSharing(false);
+        }
+    };
+
+    const handleCopyLink = () => {
+        if (shareLink) {
+            navigator.clipboard.writeText(shareLink);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
     };
 
     const handleActualExportPDF = async () => {
@@ -3041,6 +3153,23 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
                                 معاينة تقرير المشتريات والمخزون
                             </h3>
                             <div className="flex flex-wrap items-center gap-2">
+                                {shareLink && (
+                                    <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                        <LinkIcon size={14} />
+                                        <span className="text-xs font-bold whitespace-nowrap hidden sm:inline" dir="ltr">{shareLink.slice(0, 35)}...</span>
+                                        <button onClick={handleCopyLink} className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-800 rounded-lg transition-colors text-indigo-600 dark:text-indigo-400" title="نسخ الرابط">
+                                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                )}
+                                <button 
+                                    onClick={handleShare} 
+                                    disabled={isSharing}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-50"
+                                >
+                                    {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>}
+                                    <span className="hidden sm:inline">{isSharing ? 'جاري الإنشاء...' : 'مشاركة أونلاين'}</span>
+                                </button>
                                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
                                     <button 
                                         onClick={() => setIsContinuous(false)}
