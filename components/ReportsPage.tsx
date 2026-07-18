@@ -1074,7 +1074,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         showRecommendations: true,
         showInventoryValue: showInventoryValue,
         includeMarkupsInProductRevenue: false,
-        showExtraServicesRow: true
+        showExtraServicesRow: true,
+        showFlexShipAmount: true
     });
     const [isControlsExpanded, setIsControlsExpanded] = useState(false);
 
@@ -1511,6 +1512,22 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     : 'بند الخدمات والإضافات: مخفي (مستبعد)'}
                             </span>
                         </button>
+                        <button
+                            onClick={() => setReportSections(prev => ({ ...prev, showFlexShipAmount: prev.showFlexShipAmount === false ? true : false }))}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm ${
+                                reportSections.showFlexShipAmount !== false
+                                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-100 dark:shadow-none'
+                                    : 'bg-slate-500 text-white border-slate-600 shadow-slate-100 dark:shadow-none'
+                            }`}
+                            title="إخفاء أو إظهار مبلغ الفليكس شيب من تقرير المعاينة"
+                        >
+                            <Truck size={14} />
+                            <span>
+                                {reportSections.showFlexShipAmount !== false
+                                    ? 'مبلغ الفليكس شيب: ظاهر'
+                                    : 'مبلغ الفليكس شيب: مخفي'}
+                            </span>
+                        </button>
                         <button 
                             onClick={handlePreview} 
                             disabled={isExporting}
@@ -1591,6 +1608,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 { key: 'showRecommendations', label: 'التوصيات الذكية' },
                                 { key: 'showInventoryValue', label: 'قيمة البضاعة بالمخزن' },
                                 { key: 'showExtraServicesRow', label: 'أرباح الخدمات والإضافات' },
+                                { key: 'showFlexShipAmount', label: 'مبلغ الفليكس شيب' },
                             ].map((sec) => {
                                 const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
                                 return (
@@ -2351,6 +2369,22 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     {reportSections.showExtraServicesRow !== false
                                         ? 'بند الإضافات: ظاهر'
                                         : 'بند الإضافات: مخفي (مستبعد)'}
+                                </span>
+                            </button>
+                            <button
+                                onClick={() => setReportSections(prev => ({ ...prev, showFlexShipAmount: prev.showFlexShipAmount === false ? true : false }))}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
+                                    reportSections.showFlexShipAmount !== false
+                                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-100 dark:shadow-none'
+                                        : 'bg-slate-500 text-white border-slate-600 shadow-slate-100 dark:shadow-none'
+                                }`}
+                                title="إخفاء أو إظهار مبلغ الفليكس شيب"
+                            >
+                                <Truck size={14} />
+                                <span>
+                                    {reportSections.showFlexShipAmount !== false
+                                        ? 'مبلغ الفليكس شيب: ظاهر'
+                                        : 'مبلغ الفليكس شيب: مخفي'}
                                 </span>
                             </button>
                             <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1"></div>

@@ -1421,6 +1421,7 @@ export interface ComprehensiveReportSections {
     showInventoryValue?: boolean;
     includeMarkupsInProductRevenue?: boolean;
     showExtraServicesRow?: boolean;
+    showFlexShipAmount?: boolean;
     supplyOrders?: any[];
 }
 
@@ -1642,7 +1643,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
                     </div>` : (order.flexShipTransactionAdded ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-                      دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                      دفع فليكس شيب${sections?.showFlexShipAmount === false ? '' : `: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م`}
                     </div>` : `
                     <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
                       العميل لم يدفع فليكس شيب
@@ -1840,7 +1841,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
                     </div>` : (order.flexShipTransactionAdded ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #e0f2fe; color: #0369a1; padding: 1px 4px; border-radius: 4px; border: 1px solid #bae6fd; display: inline-block; font-weight: bold;">
-                      دفع فليكس شيب: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م
+                      دفع فليكس شيب${sections?.showFlexShipAmount === false ? '' : `: ${order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))} ج.م`}
                     </div>` : `
                     <div style="margin-top: 3px; font-size: 8px; background: #fff7ed; color: #9a3412; padding: 1px 4px; border-radius: 4px; border: 1px dashed #fcd34d; display: inline-block; font-weight: bold;">
                       العميل لم يدفع فليكس شيب
