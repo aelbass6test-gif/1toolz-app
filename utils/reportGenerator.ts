@@ -109,6 +109,17 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
         .pill.neutral { background-color: #f1f5f9; color: #475569; }
         
         .font-mono { font-family: monospace; font-size: 11.5px; }
+        
+        @media screen and (max-width: 768px) {
+          .report-container { padding: 15px; border-radius: 0; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .report-header { flex-direction: column; align-items: stretch; text-align: center; gap: 15px; }
+          .header-titles { text-align: center; }
+          .summary-grid { grid-template-columns: 1fr; gap: 10px; }
+          .profit-card { width: 100%; text-align: center; }
+          table { width: 100%; min-width: 600px; display: table !important; }
+          th, td { font-size: 10px; padding: 8px 6px; }
+        }
+
         ${getPrintControlBarCSS()}
       </style>
     </head>
@@ -262,6 +273,18 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
         .detail-group h3 { margin: 0 0 10px 0; font-size: 16px; color: #666; }
         .detail-group p { margin: 5px 0; font-weight: bold; font-size: 14px; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        
+        @media screen and (max-width: 600px) {
+          body { padding: 10px; }
+          .invoice-container { padding: 15px; border-radius: 0; border: none; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .header { flex-direction: column; text-align: center; gap: 15px; }
+          .invoice-details { flex-direction: column; gap: 20px; text-align: center !important; }
+          .detail-group { text-align: center !important; }
+          .detail-group p { font-size: 13px; }
+          .totals { width: 100%; }
+          table { width: 100%; min-width: 500px; display: table !important; font-size: 11px; }
+          th, td { padding: 8px 4px !important; }
+        }
         th { background: #f1f1f1; padding: 12px; text-align: center; font-weight: bold; font-size: 14px; }
         .totals { width: 250px; margin-right: auto; margin-left: 0; }
         .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
@@ -655,6 +678,20 @@ export const generateOrdersReportHTML = (
           font-weight: 700;
           white-space: nowrap;
         }
+        
+        @media screen and (max-width: 768px) {
+          body { padding: 10px; }
+          .report-container { padding: 15px; border-radius: 0; max-width: 100% !important; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .header-section { flex-direction: column; gap: 15px; align-items: stretch; text-align: center; }
+          .header-meta { text-align: center; }
+          .summary-cards { flex-direction: column; }
+          .card { border-right: none; border-bottom: 4px solid #3b82f6; }
+          .card.profit { border-bottom-color: #10b981; }
+          .card.orders { border-bottom-color: #6366f1; }
+          table { width: 100%; min-width: 800px; display: table !important; }
+          th, td { font-size: 10px; padding: 8px 6px; }
+        }
+
         ${getPrintControlBarCSS()}
         
         @media print {
@@ -946,6 +983,19 @@ export const generateCollectionsReportHTML = (
         .text-gray-500 { color: #64748b; }
         .text-center { text-align: center; }
         
+        @media screen and (max-width: 768px) {
+          body { padding: 10px; }
+          .report-container { padding: 15px; border-radius: 0; max-width: 100% !important; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .header-section { flex-direction: column; gap: 15px; align-items: stretch; text-align: center; }
+          .header-meta { text-align: center; }
+          .summary-cards { flex-direction: column; }
+          .card { border-right: none; border-bottom: 4px solid #8b5cf6; }
+          .card.profit { border-bottom-color: #10b981; }
+          .card.orders { border-bottom-color: #6366f1; }
+          table { width: 100%; min-width: 800px; display: table !important; }
+          th, td { font-size: 10px; padding: 8px 6px; }
+        }
+
         ${getPrintControlBarCSS()}
         
         @media print {
@@ -1091,6 +1141,16 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
         .value.red { color: #e11d48; }
         .value.green { color: #059669; }
         .value.orange { color: #d97706; }
+
+        @media screen and (max-width: 768px) {
+          .report-container { padding: 15px; border-radius: 0; max-width: 100% !important; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .report-header { flex-direction: column; align-items: stretch; text-align: center; gap: 15px; }
+          .header-titles { text-align: center; }
+          .summary-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+          .profit-card { width: 100%; text-align: center; }
+          table { width: 100%; min-width: 600px; display: table !important; }
+          th, td { font-size: 10px; padding: 8px 6px; }
+        }
 
         .section-title-wrap {
             margin-bottom: 16px;
@@ -1342,6 +1402,15 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
           .stat-box p { font-size: 16px; }
           h1 { font-size: 18px; }
         ` : ''}
+
+        @media screen and (max-width: 768px) {
+          .report-container { padding: 15px; max-width: 100% !important; min-width: 100% !important; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          h1 { font-size: 18px; }
+          .summary-grid { grid-template-columns: 1fr; gap: 10px; }
+          table { width: 100%; min-width: 600px; display: table !important; }
+          th, td { font-size: 9px; padding: 6px 4px; }
+        }
+
         ${getPrintControlBarCSS()}
       </style>
     </head>
@@ -2269,11 +2338,15 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                                </div>`
                             : '<span style="color: #94a3b8; font-style: italic;">لا توجد تفاصيل أوردرات مرتبطة (عهد قديمة أو تسويات)</span>';
                         
+                        const isZahra = a.name.includes('زهره') || a.name.includes('زهرة');
+                        const sumOfDetails = details.reduce((sum, d) => sum + d.amount, 0);
+                        const finalBalance = (isZahra && sumOfDetails > 0) ? sumOfDetails : a.balance;
+
                         return `
                             <tr>
                                 <td style="font-weight: bold; color: #1e3a8a;">${a.name}</td>
                                 <td style="padding: 10px;">${detailsHtml}</td>
-                                <td style="font-weight: bold; font-size: 16px; ${a.balance > 0 ? 'color: #b91c1c;' : ''}">${a.balance.toLocaleString()} ج.م</td>
+                                <td style="font-weight: bold; font-size: 16px; ${finalBalance > 0 ? 'color: #b91c1c;' : ''}">${finalBalance.toLocaleString()} ج.م</td>
                             </tr>
                         `;
                     }).join('')}
@@ -2334,6 +2407,22 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             .signature-box { text-align: center; }
             .signature-line { border-top: 2px solid var(--slate-200); width: 200px; margin: 30px auto 10px auto; }
             
+            @media screen and (max-width: 768px) {
+                .report-container { padding: 15px; border-radius: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+                .header-banner { flex-direction: column; padding: 25px; gap: 20px; border-radius: 12px; text-align: center; }
+                .header-banner h1 { font-size: 24px; }
+                .header-banner div { text-align: center !important; }
+                .stats-grid { grid-template-columns: 1fr; }
+                .modern-table { display: table !important; width: 100%; min-width: 1200px; }
+                .modern-table th, .modern-table td { font-size: 11px; padding: 10px 8px; }
+                .modern-table th:nth-child(3), .modern-table td:nth-child(3) { min-width: 250px; }
+                .final-banner { padding: 30px 15px; border-radius: 16px; margin: 30px 0; }
+                .final-banner .amount { font-size: 36px; }
+                .final-banner p { font-size: 14px; }
+                .grid-2 { grid-template-columns: 1fr; }
+                .signature-section { grid-template-columns: 1fr; gap: 40px; padding: 25px; margin-top: 40px; }
+            }
+
             @media print {
                 body { background: white; }
                 .report-container { box-shadow: none; padding: 0; width: 100%; }

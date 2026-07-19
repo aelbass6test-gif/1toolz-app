@@ -13,13 +13,15 @@ async function run() {
     const docSnap = await getDoc(doc(db, 'stores_data', storeId));
     if (docSnap.exists()) {
       const data = docSnap.data();
-      console.log(`Store keys:`, Object.keys(data));
       if (data.settings) {
-        console.log(`settings keys:`, Object.keys(data.settings));
-        console.log(`supplyOrders inside settings:`, Array.isArray(data.settings.supplyOrders) ? data.settings.supplyOrders.length : typeof data.settings.supplyOrders);
-        if (Array.isArray(data.settings.supplyOrders)) {
-          console.log(JSON.stringify(data.settings.supplyOrders, null, 2));
-        }
+        console.log("CASH HOLDERS:");
+        console.log(JSON.stringify(data.settings.cashHolders || [], null, 2));
+        console.log("PARTNERS:");
+        console.log(JSON.stringify(data.settings.partners || [], null, 2));
+        console.log("PARTNER TRANSACTIONS:");
+        console.log(JSON.stringify(data.settings.partnerTransactions || [], null, 2));
+        console.log("TREASURY:");
+        console.log(JSON.stringify(data.settings.treasury || data.treasury || {}, null, 2));
       } else {
         console.log("No settings key in store data!");
       }
