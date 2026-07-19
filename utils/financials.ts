@@ -140,6 +140,11 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
     const isInsured = order.isInsured ?? true;
     if (!isInsured) return 0;
     
+    // If manual insurance base value is provided, use it directly with the rate
+    if (order.insuranceBaseValue && order.insuranceBaseValue > 0) {
+        return Math.round(((order.insuranceBaseValue * insuranceRate) / 100) * 100) / 100;
+    }
+    
     const compFees = settings?.companySpecificFees?.[order.shippingCompany];
     const useCustom = compFees?.useCustomFees ?? false;
     
@@ -423,13 +428,13 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
   }
   
   return { 
-    profit: Math.round(profit * 1000) / 1000, 
-    loss: Math.round(loss * 1000) / 1000, 
-    net: Math.round((profit - loss) * 1000) / 1000,
-    carrierFees: Math.round(carrierFees * 1000) / 1000,
-    productCost: Math.round(productCostCalculated * 1000) / 1000,
-    netRevenue: Math.round(netRevenue * 1000) / 1000,
-    closingDifference: Math.round(closingDifference * 1000) / 1000
+    profit: Math.round(profit * 100) / 100, 
+    loss: Math.round(loss * 100) / 100, 
+    net: Math.round((profit - loss) * 100) / 100,
+    carrierFees: Math.round(carrierFees * 100) / 100,
+    productCost: Math.round(productCostCalculated * 100) / 100,
+    netRevenue: Math.round(netRevenue * 100) / 100,
+    closingDifference: Math.round(closingDifference * 100) / 100
   };
 }
 
@@ -489,7 +494,7 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
     totalFees += codFee;
   }
   
-  return Math.max(0, Math.round(totalFees * 1000) / 1000);
+  return Math.max(0, Math.round(totalFees * 100) / 100);
 };
 
 export const resolveCashHolderName = (order: Order, settings: Settings): string => {

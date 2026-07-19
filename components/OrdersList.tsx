@@ -5556,7 +5556,7 @@ const OrderCard = ({
               <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums group-hover/total:scale-105 transition-transform origin-right">
                 {displayTotal.toLocaleString(undefined, {
                   minimumFractionDigits: 0,
-                  maximumFractionDigits: 3,
+                  maximumFractionDigits: 2,
                 })}
               </h4>
             </div>
@@ -5567,7 +5567,7 @@ const OrderCard = ({
                   <span className="font-black text-indigo-600 dark:text-indigo-400">
                     {standardRequiredTotal.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })} ج.م
                   </span>
                 </div>
@@ -5576,7 +5576,7 @@ const OrderCard = ({
                   <span className="font-black text-slate-700 dark:text-slate-300">
                     {displayTotal.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })} ج.م
                   </span>
                 </div>
@@ -5899,7 +5899,7 @@ const ProfitBreakdown: React.FC<{
                     +
                     {safeProductPrice.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -5912,7 +5912,7 @@ const ProfitBreakdown: React.FC<{
                     +
                     {safeShippingFee.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -5926,7 +5926,7 @@ const ProfitBreakdown: React.FC<{
                       +
                       {safeAdminFee.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -5941,7 +5941,7 @@ const ProfitBreakdown: React.FC<{
                       {manualDifference > 0 ? "+" : ""}
                       {manualDifference.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -5954,7 +5954,7 @@ const ProfitBreakdown: React.FC<{
                       +
                       {inspectionRevenue.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -5969,7 +5969,7 @@ const ProfitBreakdown: React.FC<{
                       +
                       {safeTax.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -5984,7 +5984,7 @@ const ProfitBreakdown: React.FC<{
                       -
                       {safeDiscount.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -5998,7 +5998,7 @@ const ProfitBreakdown: React.FC<{
                         +
                         {safeAdvance.toLocaleString(undefined, {
                           minimumFractionDigits: 0,
-                          maximumFractionDigits: 3,
+                          maximumFractionDigits: 2,
                         })}{" "}
                         ج.م
                       </span>
@@ -6019,7 +6019,7 @@ const ProfitBreakdown: React.FC<{
                       baseRevenue - safeDiscount + extraAdjustment
                     ).toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6041,7 +6041,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {safeProductCost.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6054,7 +6054,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {standardShippingFee.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6068,7 +6068,7 @@ const ProfitBreakdown: React.FC<{
                       -
                       {insuranceFee.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -6083,7 +6083,7 @@ const ProfitBreakdown: React.FC<{
                       -
                       {bostaVatFee.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -6096,7 +6096,7 @@ const ProfitBreakdown: React.FC<{
                       -
                       {inspectionAdjustment.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -6111,7 +6111,7 @@ const ProfitBreakdown: React.FC<{
                       -
                       {codFee.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -6125,7 +6125,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {totalExpenses.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6155,7 +6155,7 @@ const ProfitBreakdown: React.FC<{
                   -
                   {standardShippingFee.toLocaleString(undefined, {
                     minimumFractionDigits: 0,
-                    maximumFractionDigits: 3,
+                    maximumFractionDigits: 2,
                   })}{" "}
                   ج.م
                 </span>
@@ -6169,7 +6169,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {insuranceFee.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6184,7 +6184,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {bostaVatFee.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6199,7 +6199,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {inspectionAdjustment.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6214,7 +6214,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {returnFeeAmount.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6227,7 +6227,7 @@ const ProfitBreakdown: React.FC<{
                   -
                   {carrierCost.toLocaleString(undefined, {
                     minimumFractionDigits: 0,
-                    maximumFractionDigits: 3,
+                    maximumFractionDigits: 2,
                   })}{" "}
                   ج.م
                 </span>
@@ -6254,7 +6254,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {carrierCost.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6266,7 +6266,7 @@ const ProfitBreakdown: React.FC<{
                       -
                       {flexCompanyFeePaid.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })}{" "}
                       ج.م
                     </span>
@@ -6278,7 +6278,7 @@ const ProfitBreakdown: React.FC<{
                     +
                     {flexPaidAmount.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6293,7 +6293,7 @@ const ProfitBreakdown: React.FC<{
                   >
                     {netProfit.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6316,7 +6316,7 @@ const ProfitBreakdown: React.FC<{
                     خسارة الشحن كاملة بقيمة{" "}
                     {carrierCost.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م.
                   </span>
@@ -6334,7 +6334,7 @@ const ProfitBreakdown: React.FC<{
               <span className="text-slate-700 dark:text-slate-300">
                 {(amountCollectedFromCustomer + safeAdvance + safeCredit + safeReturnCash).toLocaleString(undefined, {
                   minimumFractionDigits: 0,
-                  maximumFractionDigits: 3,
+                  maximumFractionDigits: 2,
                 })}{" "}
                 ج.م
               </span>
@@ -6347,7 +6347,7 @@ const ProfitBreakdown: React.FC<{
                     -
                     {safeAdvance.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
-                      maximumFractionDigits: 3,
+                      maximumFractionDigits: 2,
                     })}{" "}
                     ج.م
                   </span>
@@ -6873,7 +6873,7 @@ const OrderRow = ({
                 <span className={`text-lg font-black tabular-nums drop-shadow-sm ${isPosOrder && displayTotal === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
                   {(isPosOrder && displayTotal === 0 ? orderTotalValue : displayTotal).toLocaleString(undefined, {
                     minimumFractionDigits: 0,
-                    maximumFractionDigits: 3,
+                    maximumFractionDigits: 2,
                   })}
                 </span>
                 <span className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 relative top-[-2px]">
@@ -6920,7 +6920,7 @@ const OrderRow = ({
                     <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
                       {standardRequiredTotal.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })} ج.م
                     </span>
                   </div>
@@ -6929,7 +6929,7 @@ const OrderRow = ({
                     <span className="font-extrabold text-slate-700 dark:text-slate-300">
                       {displayTotal.toLocaleString(undefined, {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 3,
+                        maximumFractionDigits: 2,
                       })} ج.م
                     </span>
                   </div>

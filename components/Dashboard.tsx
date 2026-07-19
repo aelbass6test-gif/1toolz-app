@@ -1073,7 +1073,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
               <span className="text-xs font-black text-slate-400">ج.م / طلب</span>
             </div>
             <p className="text-[9px] text-slate-400 font-bold mt-3.5">
@@ -1314,7 +1314,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>صافي الأرباح (Net Profit)</span>
                 </p>
                 <h4 className={`text-2xl sm:text-3xl font-black tabular-nums ${stats.net >= 0 ? 'text-primary' : 'text-rose-500'}`}>
-                  {stats.net.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.net.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <div className="flex items-center gap-2">
                   <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${stats.revenueGrowth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
@@ -1331,7 +1331,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>مجمل الربح (Gross Profit)</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                  {stats.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">الأرباح قبل خصم المصاريف التشغيلية</p>
               </div>
@@ -1377,7 +1377,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 </div>
                 {showInventoryValue ? (
                   <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                    {stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                    {stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                   </h4>
                 ) : (
                   <h4 className="text-2xl sm:text-3xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
@@ -1394,7 +1394,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>صافي الربح / طلب</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                  {stats.avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {stats.avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">متوسط الربح الصافي المحقق من كل طلب ناجح</p>
               </div>

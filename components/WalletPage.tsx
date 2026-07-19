@@ -933,10 +933,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             <td className="p-5 font-black text-indigo-600 dark:text-indigo-400 text-right">#{o.orderNumber}</td>
                             <td className="p-5 font-bold text-slate-700 dark:text-slate-300 text-right">توصيل بضاعة</td>
                             <td className="p-5 text-slate-500 font-medium text-right">{o.governorate}</td>
-                            <td className="p-5 font-black text-slate-850 dark:text-white text-right">{oTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
-                            <td className="p-5 text-rose-500 font-bold text-right">{actualShippingFee.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                            <td className="p-5 font-black text-slate-850 dark:text-white text-right">{oTotal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
+                            <td className="p-5 text-rose-500 font-bold text-right">{actualShippingFee.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             <td className="p-5 text-slate-400 font-bold text-right">{new Date(o.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' })}</td>
-                            <td className={`p-5 font-extrabold text-right ${net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{net.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                            <td className={`p-5 font-extrabold text-right ${net >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{net.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             <td className="p-1 text-center">
                               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black border ${
                                 o.status === 'تم_التحصيل' || o.status === 'تم_التوصيل' || o.status === 'تم_توصيلها' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10' :
@@ -1433,7 +1433,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     </div>
                     <div className="flex items-baseline gap-1.5 flex-row-reverse">
                       <h4 className="text-2xl font-black text-slate-800 dark:text-white">
-                        {walletStats.liveBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
+                        {walletStats.liveBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </h4>
                       <span className="text-[10px] font-bold text-slate-400">ج.م</span>
                     </div>
@@ -1587,7 +1587,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     </div>
                     <div className="flex items-baseline gap-1.5 flex-row-reverse">
                       <h4 className="text-2xl font-black text-slate-800 dark:text-white">
-                        {walletStats.liveBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
+                        {walletStats.liveBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </h4>
                       <span className="text-[10px] font-bold text-slate-400">ج.م</span>
                     </div>
@@ -1599,7 +1599,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] block text-right">أدخل مبلغ السحب</label>
                       {currentWithdrawFee > 0 && (
                         <div className="flex items-center gap-2 flex-row-reverse">
-                          <span className="text-[10px] font-black text-rose-500 bg-rose-50 dark:bg-rose-500/10 px-2 py-0.5 rounded-lg">سيتم خصم {currentWithdrawFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م رسوم</span>
+                          <span className="text-[10px] font-black text-rose-500 bg-rose-50 dark:bg-rose-500/10 px-2 py-0.5 rounded-lg">سيتم خصم {currentWithdrawFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م رسوم</span>
                         </div>
                       )}
                     </div>
@@ -2172,7 +2172,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   </div>
                   <div className="flex justify-between items-center flex-row-reverse border-b border-slate-200/50 dark:border-slate-700/50 pb-4">
                     <span className="text-xs text-slate-500 font-bold">المبلغ المسحوب</span>
-                    <span className="text-sm font-black text-slate-800 dark:text-white">{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
+                    <span className="text-sm font-black text-slate-800 dark:text-white">{parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                   </div>
                   <div className="flex justify-between items-center flex-row-reverse border-b border-slate-200/50 dark:border-slate-700/50 pb-4">
                     <span className="text-xs text-slate-500 font-bold text-rose-500">رسوم العملية</span>
@@ -2180,7 +2180,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   </div>
                   <div className="flex justify-between items-center flex-row-reverse pt-2">
                     <span className="text-xs text-slate-800 dark:text-slate-200 font-black">إجمالي الخصم من المحفظة</span>
-                    <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">{(parseFloat(amount) + currentWithdrawFee).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</span>
+                    <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">{(parseFloat(amount) + currentWithdrawFee).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span>
                   </div>
                 </div>
 

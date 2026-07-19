@@ -1176,6 +1176,7 @@ export interface Order {
   assignedEmployeeId?: string;
   deliveryNotes?: string;
   isManualShippingOverride?: boolean;
+  insuranceBaseValue?: number;
 }
 
 export interface TreasuryAccount {

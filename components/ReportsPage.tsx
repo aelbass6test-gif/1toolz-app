@@ -345,11 +345,11 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                <ReportCard title="إجمالي الأرباح" value={`${reportData.totalProfit.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<ArrowUp size={24}/>} color='emerald' tooltip="مجموع الأرباح الصافية من جميع الطلبات الناجحة (بعد خصم تكلفة المنتجات ومصاريف الشحن والرسوم)." />
-                <ReportCard title="إجمالي الخسائر" value={`${reportData.totalLoss.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<ArrowDown size={24}/>} color='red' tooltip="مجموع مصاريف الشحن والارتجاع الضائع للطلبات المرتجعة والفاشلة." />
-                <ReportCard title="مبيعات المنتجات" value={`${reportData.totalProductRevenue.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<Package size={24}/>} color='blue' tooltip="إجمالي قيمة المنتجات المباعة في الطلبات الناجحة بدون الشحن." />
-                <ReportCard title="إجمالي المصروفات" value={`${reportData.totalExpenses.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<DollarSign size={24}/>} color='amber' tooltip="مجموع المصروفات الإدارية المسجلة بالخزنة كإعلانات وصيانة ورواتب لتخصم من الأرباح الكلية." />
-                <ReportCard title="الصافي الفعلي الحقيقي" value={`${reportData.netFinancial.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م`} icon={<PieChartIcon size={24}/>} color='blue' tooltip="الربح الباقي النهائي والحقيقي بعد طرح إجمالي الخسائر وإجمالي المصاريف من أصل الربح." />
+                <ReportCard title="إجمالي الأرباح" value={`${reportData.totalProfit.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<ArrowUp size={24}/>} color='emerald' tooltip="مجموع الأرباح الصافية من جميع الطلبات الناجحة (بعد خصم تكلفة المنتجات ومصاريف الشحن والرسوم)." />
+                <ReportCard title="إجمالي الخسائر" value={`${reportData.totalLoss.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<ArrowDown size={24}/>} color='red' tooltip="مجموع مصاريف الشحن والارتجاع الضائع للطلبات المرتجعة والفاشلة." />
+                <ReportCard title="مبيعات المنتجات" value={`${reportData.totalProductRevenue.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<Package size={24}/>} color='blue' tooltip="إجمالي قيمة المنتجات المباعة في الطلبات الناجحة بدون الشحن." />
+                <ReportCard title="إجمالي المصروفات" value={`${reportData.totalExpenses.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<DollarSign size={24}/>} color='amber' tooltip="مجموع المصروفات الإدارية المسجلة بالخزنة كإعلانات وصيانة ورواتب لتخصم من الأرباح الكلية." />
+                <ReportCard title="الصافي الفعلي الحقيقي" value={`${reportData.netFinancial.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<PieChartIcon size={24}/>} color='blue' tooltip="الربح الباقي النهائي والحقيقي بعد طرح إجمالي الخسائر وإجمالي المصاريف من أصل الربح." />
             </div>
 
             {/* Income Statement & Net Profit Margin Board */}
@@ -366,7 +366,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                             <div>
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">إجمالي حجم المبيعات الناجحة (إيرادات المبيعات + التوصيل)</span>
-                                    <span>{incomeStatement.grossSales.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م (100%)</span>
+                                    <span>{incomeStatement.grossSales.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م (100%)</span>
                                 </div>
                                 <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                                     <div className="h-full bg-blue-500" style={{ width: '100%' }}></div>
@@ -377,7 +377,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">تكلفة شراء البضاعة المباعة الأصلية (COGS)</span>
                                     <span className="text-red-500">
-                                        {incomeStatement.totalCogs.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
+                                        {incomeStatement.totalCogs.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.totalCogs / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -390,7 +390,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
                                 <div className="flex justify-between items-center mb-1 text-sm font-bold">
                                     <span className="text-slate-600 dark:text-slate-300">تكاليف التسويق والإعلانات الممولة</span>
                                     <span className="text-orange-500">
-                                        {incomeStatement.marketingAds.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
+                                        {incomeStatement.marketingAds.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                         ({incomeStatement.grossSales > 0 ? ((incomeStatement.marketingAds / incomeStatement.grossSales) * 100).toFixed(1) : 0}%)
                                     </span>
                                 </div>
@@ -1835,12 +1835,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div className="bg-emerald-50 dark:bg-emerald-900/10 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-800">
                         <h4 className="font-bold text-emerald-800 dark:text-emerald-400 mb-1 flex items-center gap-2"><WalletIcon size={18}/> النقدية المحققة</h4>
-                        <p className="text-2xl font-black text-emerald-600">{(stats.totalCogs + (stats.totalProfit - stats.totalLoss)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
+                        <p className="text-2xl font-black text-emerald-600">{(stats.totalCogs + (stats.totalProfit - stats.totalLoss)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                         <p className="text-[10px] text-emerald-500 mt-1">تكلفة البضاعة المباعة + صافي الربح التشغيلي</p>
                     </div>
                     <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-200 dark:border-blue-800">
                         <h4 className="font-bold text-blue-800 dark:text-blue-400 mb-1 flex items-center gap-2"><Truck size={18}/> مستحقات الشحن</h4>
-                        <p className="text-2xl font-black text-blue-600">{stats.pendingCollection.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
+                        <p className="text-2xl font-black text-blue-600">{stats.pendingCollection.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                         <p className="text-[10px] text-blue-400 mt-1">مبالغ تم توصيلها ولم تُحصل بعد</p>
                     </div>
                     <div className="bg-amber-50 dark:bg-amber-900/10 p-6 rounded-2xl border border-amber-200 dark:border-amber-800 relative group">
@@ -1855,7 +1855,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </button>
                         </div>
                         {showInventoryValue ? (
-                            <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</p>
+                            <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                         ) : (
                             <p className="text-2xl font-black text-amber-600/50 tracking-widest">•••••• ج.م</p>
                         )}
@@ -1985,12 +1985,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                         <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                             <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">{p.name}</td>
                                             <td className="px-4 py-3"><span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
-                                            <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
-                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
-                                            <td className="px-4 py-3 font-mono text-red-600">-{p.netLoan.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}</td>
-                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 }) : '0'}</td>
+                                            <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-4 py-3 font-mono text-red-600">-{p.netLoan.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '0'}</td>
                                             <td className={`px-4 py-3 font-black ${p.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م
+                                                {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                             </td>
                                         </tr>
                                     ))
@@ -2019,23 +2019,23 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="إجمالي قيمة المنتجات المباعة بالسعر الأساسي.">إجمالي مبيعات المنتجات (بالسعر الأساسي)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalProductRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalProductRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="الفروقات الإيجابية الناتجة عن تعلية السعر وتعديل السعر اليدوي.">(+) إيرادات الزيادة في السعر</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalProductExtraMarkup.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalProductExtraMarkup.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="الفروقات الإيجابية الناتجة عن زيادة شحن الطلب عن تكلفة الشحن الفعلية.">(+) إيرادات زيادة الشحن (فرق الشحن)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalShippingMarkup.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalShippingMarkup.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="إجمالي رسوم الشحن التي دفعها العملاء.">إجمالي تحصيل الشحن من العملاء</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalShippingRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold">+{stats.totalShippingRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             </tr>
                             <tr className="bg-slate-50 dark:bg-slate-800/50 font-bold">
                                 <td className="p-3 border border-slate-200 dark:border-slate-700" title="مجموع الإيرادات بالكامل.">(=) إجمالي الإيرادات (Total Revenue)</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700">{(stats.totalProductRevenue + stats.totalExtraMarkup + stats.totalShippingRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700">{(stats.totalProductRevenue + stats.totalExtraMarkup + stats.totalShippingRevenue).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
                             </tr>
 
                             <tr className="bg-slate-100 dark:bg-slate-800 font-bold">
