@@ -2536,12 +2536,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const handleStartExchange = (originalOrder: Order) => {
-    const creditAmount =
-      originalOrder.totalAmountOverride ??
-      originalOrder.productPrice +
-        originalOrder.shippingFee -
-        (originalOrder.discount || 0);
-    navigate("/orders/new", {
+    // Under the new logic: original shipping fee is NOT credited because the shipping company already took it.
+    // So the credit amount is the value of the products being returned (original productPrice minus discount).
+    const creditAmount = Math.max(
+      0,
+      (originalOrder.totalAmountOverride !== undefined && originalOrder.totalAmountOverride !== null)
+        ? originalOrder.totalAmountOverride - (originalOrder.shippingFee || 0)
+        : originalOrder.productPrice - (originalOrder.discount || 0)
+    );
+
+    navigate(`${storePrefix}/orders/new`, {
       state: {
         exchangeData: {
           customerName: originalOrder.customerName,
@@ -2549,9 +2553,18 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           customerAddress: originalOrder.customerAddress,
           shippingCompany: originalOrder.shippingCompany,
           shippingArea: originalOrder.shippingArea,
+          governorate: originalOrder.governorate,
+          city: originalOrder.city,
           orderType: "exchange",
-          originalOrderId: originalOrder.id,
+          shipmentType: "exchange",
+          originalOrderId: originalOrder.orderNumber || originalOrder.id,
           creditAmount: creditAmount,
+          originalOrderItems: originalOrder.items || [],
+          // By default, assume they are returning all items from the original order
+          exchangedItems: (originalOrder.items || []).map(item => ({
+            ...item,
+            selected: true, // checked by default
+          })),
         },
       },
     });
@@ -4508,6 +4521,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     }
                     whatsappLink={getWhatsAppLink(order)}
                     settings={settings}
+                    storePrefix={storePrefix}
                   />
                 ))}
               </tbody>
@@ -4564,6 +4578,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 onShowAssignment={() => setShowAssignment(order)}
                 whatsappLink={getWhatsAppLink(order)}
                 settings={settings}
+                storePrefix={storePrefix}
               />
             ))}
           </div>
@@ -5218,6 +5233,7 @@ const OrderCard = ({
   onShowAssignment,
   whatsappLink,
   settings,
+  storePrefix = "",
 }: {
   order: Order;
   isSelected: boolean;
@@ -5236,6 +5252,7 @@ const OrderCard = ({
   onShowAssignment: () => void;
   whatsappLink: string;
   settings: Settings;
+  storePrefix?: string;
   key?: any;
 }) => {
   const navigate = useNavigate();
@@ -5679,7 +5696,7 @@ const OrderCard = ({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate("/orders/new", { state: { exchangeData: order } });
+                onStartExchange();
               }}
               className="w-full text-right px-4 py-3 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors"
             >
@@ -6565,6 +6582,7 @@ const OrderRow = ({
   settings,
   anyFlexShipEnabled,
   treasury,
+  storePrefix = "",
 }: {
   order: Order;
   isSelected: boolean;
@@ -6587,6 +6605,7 @@ const OrderRow = ({
   settings: Settings;
   anyFlexShipEnabled?: boolean;
   treasury?: any;
+  storePrefix?: string;
   key?: any;
 }) => {
   const navigate = useNavigate();
@@ -7215,9 +7234,7 @@ const OrderRow = ({
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowOps(false);
-                          navigate("/orders/new", {
-                            state: { exchangeData: order },
-                          });
+                          onStartExchange();
                         }}
                         className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
                       >
@@ -7876,11 +7893,12 @@ const OrderModal: React.FC<OrderModalProps> = ({
       (o) => o.id === orderData.originalOrderId,
     );
     if (originalOrder) {
-      creditAmount =
-        originalOrder.totalAmountOverride ??
-        originalOrder.productPrice +
-          originalOrder.shippingFee -
-          (originalOrder.discount || 0);
+      creditAmount = Math.max(
+        0,
+        originalOrder.totalAmountOverride !== undefined && originalOrder.totalAmountOverride !== null
+          ? originalOrder.totalAmountOverride - (originalOrder.shippingFee || 0)
+          : originalOrder.productPrice - (originalOrder.discount || 0)
+      );
     }
   }
 

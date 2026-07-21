@@ -209,7 +209,17 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 orderToAdd.paymentStatus = 'بانتظار الدفع';
             }
             
-            orderToAdd.notes = `طلب استبدال للطلب #${orderData.originalOrderId}. تم تطبيق رصيد بقيمة ${creditAmount.toLocaleString()} ج.م.\n${orderToAdd.notes || ''}`.trim();
+            const exchangedItemNames = (orderData.exchangedItems || [])
+                .filter((item: any) => item && item.selected)
+                .map((item: any) => `${item.name} (كمية: ${item.quantity})`)
+                .join('، ');
+            const exchangeDetail = exchangedItemNames ? ` [المرتجع: ${exchangedItemNames}]` : '';
+            orderToAdd.notes = `طلب استبدال للطلب #${orderData.originalOrderId}${exchangeDetail}. تم تطبيق رصيد بقيمة ${creditAmount.toLocaleString()} ج.م.\n${orderToAdd.notes || ''}`.trim();
+            
+            // Persist exchange details in database fields
+            (orderToAdd as any).creditAmount = creditAmount;
+            (orderToAdd as any).originalOrderItems = orderData.originalOrderItems || [];
+            (orderToAdd as any).exchangedItems = orderData.exchangedItems || [];
         }
 
         setOrderToConfirm(orderToAdd);

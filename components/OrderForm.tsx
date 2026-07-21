@@ -104,6 +104,8 @@ export interface NewOrderState extends Partial<Omit<Order, "id">> {
   advancePaymentRecipientPhone?: string;
   advancePaymentSenderDetails?: string;
   recordedAsDebt?: boolean;
+  originalOrderItems?: any[];
+  exchangedItems?: any[];
 }
 
 const OrderFormEditTotalModal: React.FC<{
@@ -979,6 +981,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <h4 className="font-extrabold text-xs text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
               <ArrowRightLeft size={16} /> بيانات الشحنة المستبدلة
             </h4>
+            
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">رقم الطلب الأصلي المراد استبداله</label>
@@ -991,16 +994,114 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">فرق السعر (إن وجد)</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">الرصيد الدائن المستحق للعميل مقابل المرتجع (ج.م) *</label>
                 <input
                   type="number"
                   placeholder="0"
-                  value={orderData.exchangeDifference || ""}
-                  onChange={(e) => handleFieldChange("exchangeDifference", parseFloat(e.target.value) || 0)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white font-mono"
+                  value={orderData.creditAmount || 0}
+                  onChange={(e) => handleFieldChange("creditAmount", parseFloat(e.target.value) || 0)}
+                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-purple-600 dark:text-purple-400 font-mono"
                 />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  هذا هو المبلغ الذي سيتم خصمه من قيمة الفاتورة الجديدة (قيمة المنتج المستبدل الأصلي).
+                </p>
               </div>
             </div>
+
+            {/* If there are items from original order to select from */}
+            {orderData.originalOrderItems && orderData.originalOrderItems.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-purple-100 dark:border-purple-900/40 space-y-3">
+                <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 block">
+                  🎯 اختر المنتج/المنتجات المرتجعة من الطلب الأصلي لخصم قيمتها تلقائياً:
+                </label>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {orderData.originalOrderItems.map((item: any, idx: number) => {
+                    const isSelected = orderData.exchangedItems?.[idx]?.selected ?? false;
+                    const exchangeQty = orderData.exchangedItems?.[idx]?.quantity ?? item.quantity;
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-all ${
+                          isSelected 
+                            ? "bg-purple-100/40 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800" 
+                            : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const newExchanged = [...(orderData.exchangedItems || [])];
+                              if (!newExchanged[idx]) {
+                                newExchanged[idx] = { ...item, selected: e.target.checked, quantity: item.quantity };
+                              } else {
+                                newExchanged[idx].selected = e.target.checked;
+                              }
+                              // Re-calculate the creditAmount!
+                              let sumCredit = 0;
+                              newExchanged.forEach((exItem) => {
+                                if (exItem && exItem.selected) {
+                                  sumCredit += (exItem.price || 0) * (exItem.quantity || 1);
+                                }
+                              });
+                              handleFieldChange("exchangedItems", newExchanged);
+                              handleFieldChange("creditAmount", sumCredit);
+                            }}
+                            className="w-4.5 h-4.5 text-purple-600 rounded cursor-pointer"
+                          />
+                          {item.thumbnail && (
+                            <img 
+                              src={item.thumbnail} 
+                              alt="" 
+                              className="w-8 h-8 rounded-lg object-cover border border-slate-200" 
+                              referrerPolicy="no-referrer"
+                            />
+                          )}
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">{item.name}</span>
+                            <span className="text-[10px] text-slate-400 block">سعر الوحدة: {item.price} ج.م</span>
+                          </div>
+                        </div>
+                        
+                        {/* Exchange Quantity Selector */}
+                        {isSelected && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-slate-500">الكمية المستبدلة:</span>
+                            <select
+                              value={exchangeQty}
+                              onChange={(e) => {
+                                const newExchanged = [...(orderData.exchangedItems || [])];
+                                const qty = parseInt(e.target.value) || 1;
+                                if (!newExchanged[idx]) {
+                                  newExchanged[idx] = { ...item, selected: true, quantity: qty };
+                                } else {
+                                  newExchanged[idx].quantity = qty;
+                                }
+                                // Re-calculate creditAmount
+                                let sumCredit = 0;
+                                newExchanged.forEach((exItem) => {
+                                  if (exItem && exItem.selected) {
+                                    sumCredit += (exItem.price || 0) * (exItem.quantity || 1);
+                                  }
+                                });
+                                handleFieldChange("exchangedItems", newExchanged);
+                                handleFieldChange("creditAmount", sumCredit);
+                              }}
+                              className="p-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                            >
+                              {Array.from({ length: item.quantity }, (_, i) => i + 1).map(q => (
+                                <option key={q} value={q}>{q}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
