@@ -66,7 +66,7 @@ const StatusDistribution = ({ data }: { data: { name: string, value: number, col
 };
 
 const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Settings }) => {
-    const [suggestions, setSuggestions] = useState('اضغط على زر التحديث للحصول على اقتراحات ذكية.');
+    const [suggestions, setSuggestions] = useState('اضغط على زر التحديث للحصول على اقتراحات وتحليلات ذكية لمتجرك.');
     const [isLoading, setIsLoading] = useState(false);
 
     const customers = useMemo(() => {
@@ -95,23 +95,51 @@ const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Set
     };
 
     return (
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="font-black text-slate-800 dark:text-slate-200 flex items-center gap-2"><Lightbulb className="text-amber-500"/> اقتراحات ذكية</h3>
-                <button onClick={fetchSuggestions} disabled={isLoading} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50 disabled:cursor-wait" title="تحديث الاقتراحات">
-                    <RefreshCcw size={16} className={isLoading ? 'animate-spin' : ''} />
-                </button>
+        <div className="relative overflow-hidden rounded-3xl bg-linear-to-r from-amber-500/10 via-purple-500/10 to-indigo-500/10 dark:from-amber-950/20 dark:via-purple-950/20 dark:to-indigo-950/20 p-1 border border-amber-500/20 dark:border-purple-500/20 shadow-xl shadow-indigo-500/5">
+            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-6 sm:p-7 rounded-[22px]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/25">
+                            <Sparkles size={20} className="animate-pulse" />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="font-black text-slate-900 dark:text-white text-base">المستشار الذكي (AI Suggestions)</h3>
+                                <span className="px-2.5 py-0.5 text-[9px] font-black rounded-full bg-gradient-to-r from-amber-500 to-purple-600 text-white shadow-xs">
+                                    Gemini AI ✨
+                                </span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">تحليلات فورية وتوصيات لزيادة المبيعات وكفاءة العمليات</p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={fetchSuggestions} 
+                        disabled={isLoading} 
+                        className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-black rounded-xl shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait cursor-pointer self-start sm:self-auto"
+                    >
+                        <RefreshCcw size={14} className={isLoading ? 'animate-spin' : ''} />
+                        <span>{isLoading ? 'جاري التحليل...' : 'تحديث الاقتراحات الذكية'}</span>
+                    </button>
+                </div>
+
+                {isLoading ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-slate-400 gap-3 bg-slate-50/50 dark:bg-slate-950/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                        <BrainCircuit size={28} className="text-purple-500 animate-bounce" />
+                        <span className="text-xs font-black text-slate-600 dark:text-slate-300">مستشار الذكاء الاصطناعي يقوم بتحليل المبيعات والعملاء والمخزون...</span>
+                    </div>
+                ) : (
+                    <div className="p-4 bg-slate-50/80 dark:bg-slate-950/50 rounded-2xl border border-slate-100 dark:border-slate-800/80 text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+                        {suggestions.split('\n').map((line, i) => (
+                            <p key={i} className="my-1.5 flex items-start gap-2">
+                                {line.startsWith('•') || line.startsWith('-') ? (
+                                    <span className="text-amber-500 font-black">✦</span>
+                                ) : null}
+                                <span>{line.replace(/^[•-]\s*/, '')}</span>
+                            </p>
+                        ))}
+                    </div>
+                )}
             </div>
-            {isLoading ? (
-                <div className="flex items-center justify-center h-24 text-slate-400 gap-2">
-                    <BrainCircuit size={20} className="animate-pulse" />
-                    <span>المساعد الذكي يحلل بياناتك...</span>
-                </div>
-            ) : (
-                <div className="prose prose-sm dark:prose-invert max-w-none space-y-2 text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-                    {suggestions.split('\n').map((line, i) => <p key={i} className="my-1">{line}</p>)}
-                </div>
-            )}
         </div>
     );
 };
@@ -675,10 +703,10 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
     // 💡 Pro KPI Calculations
     const totalOrdersCount = (orders || []).length;
-    const deliveryRate = totalOrdersCount > 0 ? (successfulOrdersCount / totalOrdersCount) * 100 : 0;
-    const aov = successfulOrdersCount > 0 ? (actualCollection / successfulOrdersCount) : 0;
-    const cancellationRate = totalOrdersCount > 0 ? (cancelledCount / totalOrdersCount) * 100 : 0;
-    const returnRate = totalOrdersCount > 0 ? (returnedCount / totalOrdersCount) * 100 : 0;
+    const deliveryRate = totalOrdersCount > 0 ? Math.round((successfulOrdersCount / totalOrdersCount) * 10000) / 100 : 0;
+    const aov = successfulOrdersCount > 0 ? Math.round(actualCollection / successfulOrdersCount) : 0;
+    const cancellationRate = totalOrdersCount > 0 ? Math.round((cancelledCount / totalOrdersCount) * 10000) / 100 : 0;
+    const returnRate = totalOrdersCount > 0 ? Math.round((returnedCount / totalOrdersCount) * 10000) / 100 : 0;
 
     // Calculate Receivables (Credit Sales from POS)
     const posReceivables = (settings?.posSales || [])

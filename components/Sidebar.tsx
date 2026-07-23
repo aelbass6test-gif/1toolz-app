@@ -260,71 +260,72 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
     const hasActiveSearch = searchQuery.trim().length > 0;
 
     const sidebarContentJSX = (
-        <div className="h-full flex flex-col p-4 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-xl border-l border-slate-200/60 dark:border-slate-800/60 font-sans text-right" dir="rtl">
+        <div className="h-full flex flex-col p-3.5 sm:p-4 bg-white/80 dark:bg-[#090d16]/90 backdrop-blur-2xl border-l border-slate-200/70 dark:border-slate-800/80 font-sans text-right select-none" dir="rtl">
             
             {/* Header section */}
-            <div className="py-4 px-2 mb-2 flex justify-between items-center border-b border-slate-200/50 dark:border-slate-800/50 pb-5">
+            <div className="p-3 mb-3 rounded-2xl bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-purple-50/50 dark:from-slate-900/90 dark:via-indigo-950/30 dark:to-purple-950/30 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex justify-between items-center">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-                        <ShoppingCart size={22} />
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
+                        <ShoppingCart size={20} />
                     </div>
-                    <div>
-                        <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate max-w-[150px]" title={activeStore?.name}>
-                            {activeStore?.name || 'منظومة التشغيل'}
-                        </h2>
-                        <div className="flex flex-col gap-0.5">
-                            <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 tracking-widest leading-none">الإدارة المتكاملة</p>
-                            <p className="text-[9px] font-mono text-indigo-500 dark:text-indigo-400 mt-1">كود: {activeStore?.id || 'm-media'}</p>
+                    <div className="overflow-hidden">
+                        <div className="flex items-center gap-1.5">
+                            <h2 className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[130px]" title={activeStore?.name}>
+                                {activeStore?.name || 'منظومة التشغيل'}
+                            </h2>
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" title="المتجر نشط" />
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">الإدارة العامة</span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-white/80 dark:bg-slate-800/80 text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-slate-700/60">
+                                {activeStore?.id ? activeStore.id.slice(-8) : 'm-media'}
+                            </span>
                         </div>
                     </div>
                 </div>
                 {onClose && (
-                    <button onClick={onClose} className="md:hidden text-slate-400 hover:text-slate-600 transition-colors">
-                        <X size={20}/>
+                    <button onClick={onClose} className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
+                        <X size={18}/>
                     </button>
                 )}
             </div>
 
             {/* Smart Search Filter */}
-            <div className="mb-4 px-1.5 relative">
+            <div className="mb-3 relative">
                 <div className="relative">
                     <input 
                         type="text"
-                        placeholder="ابحث عن التبويب أو الخدمة..."
+                        placeholder="بحث سريع في القائمة..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 text-xs border border-slate-200/80 dark:border-slate-800/80 rounded-xl py-2 px-3 pl-8 pr-8 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-slate-800 dark:text-slate-100"
+                        className="w-full bg-slate-100/80 dark:bg-slate-950/80 text-xs border border-slate-200/90 dark:border-slate-800/90 rounded-2xl py-2.5 px-3 pl-8 pr-9 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
                     />
-                    <div className="absolute right-2.5 top-2.5 text-slate-400">
+                    <div className="absolute right-3 top-3 text-slate-400 pointer-events-none">
                         <Search size={14} />
                     </div>
                     {searchQuery ? (
                         <button 
                             onClick={() => setSearchQuery('')}
-                            className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                            className="absolute left-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
                         >
                             <X size={14} />
                         </button>
-                    ) : (
-                        <div className="absolute left-3 top-2 flex items-center gap-1.5 pointer-events-none text-[10px] font-mono text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md">
-                            🔍
-                        </div>
-                    )}
+                    ) : null}
                 </div>
 
                 {/* Collapse / Expand all quick triggers */}
                 {!hasActiveSearch && (
-                    <div className="flex justify-between items-center mt-2.5 px-0.5 text-[10px] text-slate-400 font-bold">
+                    <div className="flex justify-between items-center mt-2 px-1 text-[10px] text-slate-400 font-bold">
                         <button 
                             onClick={expandAll}
-                            className="flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                            className="flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer"
                         >
                             <Maximize2 size={10} />
                             <span>توسيع المجموعات</span>
                         </button>
                         <button 
                             onClick={collapseAll}
-                            className="flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                            className="flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer"
                         >
                             <Minimize2 size={10} />
                             <span>طي المجموعات</span>
@@ -334,32 +335,29 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             </div>
             
             {/* Nav Links & Scrollable Container */}
-            <nav className="flex-1 space-y-3 overflow-y-auto pb-10 no-scrollbar pr-1 pl-1">
+            <nav className="flex-1 space-y-2.5 overflow-y-auto pb-8 no-scrollbar pr-0.5 pl-0.5">
                 {filteredNavItems.length === 0 ? (
-                    <div className="text-center py-8 px-2 text-xs text-slate-400">
-                        😔 عذراً، لا توجد نتائج مطابقة لبحثك.
+                    <div className="text-center py-8 px-2 text-xs font-bold text-slate-400 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                        لا توجد نتائج مطابقة لبحثك
                     </div>
                 ) : (
-                    filteredNavItems.map((item, index) => {
+                    filteredNavItems.map((item) => {
                         if (item.type === 'group') {
                             const isCollapsed = hasActiveSearch ? false : !!collapsedGroups[item.title];
-                            
-                            // Check if this group contains the currently active route
                             const containsActivePath = item.links.some(link => link.to === location.pathname);
 
                             return (
-                                <div key={item.title} className="space-y-1 bg-white/40 dark:bg-slate-900/40 rounded-xl p-1 border border-slate-100/50 dark:border-slate-800/10 shadow-sm/5 hover:border-slate-200/50 dark:hover:border-slate-800/30 transition-all duration-300">
+                                <div key={item.title} className="space-y-1 bg-slate-50/60 dark:bg-slate-950/30 rounded-2xl p-1.5 border border-slate-200/40 dark:border-slate-800/40 transition-all duration-200">
                                     
                                     {/* Actionable Header representing a grouping */}
                                     <button 
                                         onClick={() => toggleGroup(item.title)}
-                                        className="w-full flex items-center justify-between px-3 py-2 text-right hover:bg-slate-100/50 dark:hover:bg-slate-800/20 rounded-lg transition-colors cursor-pointer group"
+                                        className="w-full flex items-center justify-between px-2.5 py-1.5 text-right hover:bg-slate-200/50 dark:hover:bg-slate-800/40 rounded-xl transition-colors cursor-pointer group"
                                     >
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 tracking-wide">
+                                            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 tracking-wider">
                                                 {item.title}
                                             </span>
-                                            {/* Beautiful Dot indicator to show there is an active subpage inside this collapsed category */}
                                             {containsActivePath && isCollapsed && (
                                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" title="الصفحة الحالية داخل هذا القسم" />
                                             )}
@@ -367,7 +365,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                                         
                                         {!hasActiveSearch && (
                                             <ChevronDown 
-                                                size={14} 
+                                                size={13} 
                                                 className={`text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-200 ${
                                                     !isCollapsed ? 'rotate-180 text-indigo-500' : ''
                                                 }`} 
@@ -377,7 +375,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
 
                                     {/* Sub Items under the Category Accordion */}
                                     {!isCollapsed && (
-                                        <div className="space-y-0.5 mt-1 transition-all pl-1">
+                                        <div className="space-y-0.5 mt-1 transition-all">
                                             {item.links.map(link => {
                                                 const isActive = location.pathname === link.to;
                                                 return (
@@ -385,26 +383,28 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                                                         to={link.to} 
                                                         key={link.to + link.label}
                                                         end={link.to === '/'}
-                                                        className={`flex items-center justify-between px-3 py-2 rounded-lg transition-all duration-200 text-xs text-slate-700 dark:text-slate-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 group ${
+                                                        className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 text-xs font-bold ${
                                                             isActive 
-                                                                ? 'bg-indigo-600/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 font-extrabold shadow-sm' 
-                                                                : 'hover:text-indigo-600 dark:hover:text-indigo-400'
+                                                                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-600/20 font-black' 
+                                                                : 'text-slate-700 dark:text-slate-300 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400'
                                                         }`}
                                                     >
-                                                        <div className="flex items-center gap-2.5">
-                                                            <span className={`transition-colors duration-200 ${
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <span className={`shrink-0 transition-colors duration-200 ${
                                                                 isActive 
-                                                                    ? 'text-indigo-600 dark:text-indigo-400 translate-x-[-1px]' 
+                                                                    ? 'text-white' 
                                                                     : 'text-slate-400 group-hover:text-indigo-500'
                                                             }`}>
                                                                 {link.icon}
                                                             </span>
-                                                            <span className="truncate max-w-[160px] pr-0.5">{link.label}</span>
+                                                            <span className="truncate pr-0.5">{link.label}</span>
                                                         </div>
 
                                                         {/* Interactive Status Badge */}
                                                         {link.badge && (
-                                                            <span className={`px-1.5 py-0.5 text-[8px] font-bold rounded-md leading-none ${link.badge.color}`}>
+                                                            <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black rounded-md leading-none ${
+                                                                isActive ? 'bg-white/20 text-white' : link.badge.color
+                                                            }`}>
                                                                 {link.badge.text}
                                                             </span>
                                                         )}
@@ -422,9 +422,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             </nav>
 
             {/* Brand Credit Signature */}
-            <div className="pt-3 border-t border-slate-200/40 dark:border-slate-800/40 text-center text-[10px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-1">
-                <span className="font-bold text-slate-600 dark:text-slate-400">عبدو ميديا لإدارة الأعمال © 2026</span>
-                <span className="text-[9px] opacity-75">المستوى الاحترافي للخدمات التجارية المترابطة</span>
+            <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60 text-center text-[10px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-0.5">
+                <span className="font-black text-slate-700 dark:text-slate-300">عبدو ميديا لإدارة الأعمال © 2026</span>
+                <span className="text-[9px] text-slate-400 dark:text-slate-500">منظومة التشغيل الاحترافية السحابية</span>
             </div>
         </div>
     );

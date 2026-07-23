@@ -1664,7 +1664,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     }
 
     // Handling reversal of collection if it was already processed
-    if (orderToUpdate.collectionProcessed && newStatus !== "تم_التحصيل") {
+    if (orderToUpdate.collectionProcessed && newStatus !== "تم_التحصيل" && newStatus !== "تم_الاستبدال") {
       const orderPrice = Number(orderToUpdate.productPrice) || 0;
       const orderShip = Number(orderToUpdate.shippingFee) || 0;
       const orderDisc = Number(orderToUpdate.discount) || 0;
@@ -1826,7 +1826,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       updatedOrderData.status = "تم_توصيلها" as OrderStatus;
       updatedOrderData.paymentStatus = "بانتظار الدفع";
     } else if (
-      newStatus === "تم_التحصيل" &&
+      (newStatus === "تم_التحصيل" || newStatus === "تم_الاستبدال") &&
       !updatedOrderData.collectionProcessed
     ) {
       // Order payment processed
@@ -1855,7 +1855,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       updatedOrderData.collectionProcessed = true;
       updatedOrderData.paymentStatus = "مدفوع";
-      updatedOrderData.status = "تم_التحصيل" as OrderStatus;
+      updatedOrderData.status = newStatus;
     } else {
       updatedOrderData.status = newStatus;
     }
@@ -1883,120 +1883,123 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     let updatedProducts = [...currentProducts];
     let newStockDeducted = isCurrentlyDeducted;
 
-    if (shouldBeDeducted && !isCurrentlyDeducted) {
-      (order.items || []).forEach((orderItem) => {
-        const pIdx = updatedProducts.findIndex(
-          (p) => p.id === orderItem.productId,
-        );
-        if (pIdx > -1) {
-          const prod = { ...updatedProducts[pIdx] };
-          let newQty = Math.max(
-            0,
-            (prod.stockQuantity || 0) - orderItem.quantity,
-          );
+    const whId =
+      order.warehouseId ||
+      settings.warehouses?.find((w) => w.isDefault)?.id;
 
-          // Deduct from warehouse stock
-          let updatedWhStock = prod.warehouseStock
-            ? { ...prod.warehouseStock }
-            : {};
-          const whId =
-            order.warehouseId ||
-            settings.warehouses?.find((w) => w.isDefault)?.id;
+    const deductItemFromStock = (item: { productId: string; variantId?: string; quantity: number }) => {
+      const pIdx = updatedProducts.findIndex((p) => p.id === item.productId);
+      if (pIdx > -1) {
+        const prod = { ...updatedProducts[pIdx] };
+        let newQty = Math.max(0, (prod.stockQuantity || 0) - item.quantity);
 
-          if (whId) {
-            updatedWhStock[whId] = Math.max(
-              0,
-              (updatedWhStock[whId] || 0) - orderItem.quantity,
-            );
-          }
-
-          // Deduct variant stock if variantId is matched
-          if (orderItem.variantId && prod.variants) {
-            prod.variants = prod.variants.map((v) => {
-              if (v.id === orderItem.variantId) {
-                const vUpdated = { ...v };
-                vUpdated.stockQuantity = Math.max(
-                  0,
-                  (vUpdated.stockQuantity || 0) - orderItem.quantity,
-                );
-                vUpdated.warehouseStock = vUpdated.warehouseStock
-                  ? { ...vUpdated.warehouseStock }
-                  : {};
-                if (whId) {
-                  vUpdated.warehouseStock[whId] = Math.max(
-                    0,
-                    (vUpdated.warehouseStock[whId] || 0) - orderItem.quantity,
-                  );
-                }
-                return vUpdated;
-              }
-              return v;
-            });
-            newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
-          } else {
-            newQty = Math.max(0, (prod.stockQuantity || 0) - orderItem.quantity);
-          }
-
-          updatedProducts[pIdx] = {
-            ...prod,
-            stockQuantity: newQty,
-            warehouseStock: updatedWhStock,
-          };
+        let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
+        if (whId) {
+          updatedWhStock[whId] = Math.max(0, (updatedWhStock[whId] || 0) - item.quantity);
         }
+
+        if (item.variantId && prod.variants) {
+          prod.variants = prod.variants.map((v) => {
+            if (v.id === item.variantId) {
+              const vUpdated = { ...v };
+              vUpdated.stockQuantity = Math.max(0, (vUpdated.stockQuantity || 0) - item.quantity);
+              vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+              if (whId) {
+                vUpdated.warehouseStock[whId] = Math.max(0, (vUpdated.warehouseStock[whId] || 0) - item.quantity);
+              }
+              return vUpdated;
+            }
+            return v;
+          });
+          newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+        } else {
+          newQty = Math.max(0, (prod.stockQuantity || 0) - item.quantity);
+        }
+
+        updatedProducts[pIdx] = {
+          ...prod,
+          stockQuantity: newQty,
+          warehouseStock: updatedWhStock,
+        };
+      }
+    };
+
+    const addItemToStock = (item: { productId: string; variantId?: string; quantity: number }) => {
+      const pIdx = updatedProducts.findIndex((p) => p.id === item.productId);
+      if (pIdx > -1) {
+        const prod = { ...updatedProducts[pIdx] };
+        let newQty = (prod.stockQuantity || 0) + item.quantity;
+
+        let updatedWhStock = prod.warehouseStock ? { ...prod.warehouseStock } : {};
+        if (whId) {
+          updatedWhStock[whId] = (updatedWhStock[whId] || 0) + item.quantity;
+        }
+
+        if (item.variantId && prod.variants) {
+          prod.variants = prod.variants.map((v) => {
+            if (v.id === item.variantId) {
+              const vUpdated = { ...v };
+              vUpdated.stockQuantity = (vUpdated.stockQuantity || 0) + item.quantity;
+              vUpdated.warehouseStock = vUpdated.warehouseStock ? { ...vUpdated.warehouseStock } : {};
+              if (whId) {
+                vUpdated.warehouseStock[whId] = (vUpdated.warehouseStock[whId] || 0) + item.quantity;
+              }
+              return vUpdated;
+            }
+            return v;
+          });
+          newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+        } else {
+          newQty = (prod.stockQuantity || 0) + item.quantity;
+        }
+
+        updatedProducts[pIdx] = {
+          ...prod,
+          stockQuantity: newQty,
+          warehouseStock: updatedWhStock,
+        };
+      }
+    };
+
+    if (shouldBeDeducted && !isCurrentlyDeducted) {
+      // 1. Deduct standard outgoing items of this order from stock
+      (order.items || []).forEach((orderItem) => {
+        deductItemFromStock(orderItem);
       });
+
+      // 2. ADD back the exchanged (returned) items of the original order to stock!
+      const isExchange = order.orderType === "exchange" || (order as any).shipmentType === "exchange";
+      if (isExchange && (order as any).exchangedItems) {
+        const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && item.selected);
+        exchangedItems.forEach((exItem: any) => {
+          addItemToStock({
+            productId: exItem.productId,
+            variantId: exItem.variantId,
+            quantity: exItem.quantity || 1,
+          });
+        });
+      }
+
       newStockDeducted = true;
     } else if (!shouldBeDeducted && isCurrentlyDeducted) {
+      // 1. Return standard outgoing items of this order back to stock
       (order.items || []).forEach((orderItem) => {
-        const pIdx = updatedProducts.findIndex(
-          (p) => p.id === orderItem.productId,
-        );
-        if (pIdx > -1) {
-          const prod = { ...updatedProducts[pIdx] };
-          let newQty = (prod.stockQuantity || 0) + orderItem.quantity;
-
-          // Return to warehouse stock
-          let updatedWhStock = prod.warehouseStock
-            ? { ...prod.warehouseStock }
-            : {};
-          const whId =
-            order.warehouseId ||
-            settings.warehouses?.find((w) => w.isDefault)?.id;
-
-          if (whId) {
-            updatedWhStock[whId] =
-              (updatedWhStock[whId] || 0) + orderItem.quantity;
-          }
-
-          // Return variant stock if variantId is matched
-          if (orderItem.variantId && prod.variants) {
-            prod.variants = prod.variants.map((v) => {
-              if (v.id === orderItem.variantId) {
-                const vUpdated = { ...v };
-                vUpdated.stockQuantity =
-                  (vUpdated.stockQuantity || 0) + orderItem.quantity;
-                vUpdated.warehouseStock = vUpdated.warehouseStock
-                  ? { ...vUpdated.warehouseStock }
-                  : {};
-                if (whId) {
-                  vUpdated.warehouseStock[whId] =
-                    (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
-                }
-                return vUpdated;
-              }
-              return v;
-            });
-            newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
-          } else {
-            newQty = (prod.stockQuantity || 0) + orderItem.quantity;
-          }
-
-          updatedProducts[pIdx] = {
-            ...prod,
-            stockQuantity: newQty,
-            warehouseStock: updatedWhStock,
-          };
-        }
+        addItemToStock(orderItem);
       });
+
+      // 2. Deduct the exchanged (returned) items from stock (since the exchange is no longer processed)
+      const isExchange = order.orderType === "exchange" || (order as any).shipmentType === "exchange";
+      if (isExchange && (order as any).exchangedItems) {
+        const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && item.selected);
+        exchangedItems.forEach((exItem: any) => {
+          deductItemFromStock({
+            productId: exItem.productId,
+            variantId: exItem.variantId,
+            quantity: exItem.quantity || 1,
+          });
+        });
+      }
+
       newStockDeducted = false;
     }
 

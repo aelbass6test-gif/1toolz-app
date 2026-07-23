@@ -493,7 +493,11 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         if (orderWithId.orderType === 'exchange' && orderWithId.originalOrderId) {
             setOrders(prevOrders => {
                 const updated = prevOrders.map(o => 
-                    o.id === orderWithId.originalOrderId ? { ...o, status: 'تم_الاستبدال' as OrderStatus } : o
+                    o.id === orderWithId.originalOrderId ? { 
+                        ...o, 
+                        status: 'تم_الاستبدال' as OrderStatus,
+                        customerPaidOriginalShipping: orderWithId.customerPaidOriginalShipping !== false
+                    } : o
                 );
                 return [orderWithId, ...updated];
             });
@@ -539,7 +543,11 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             let updatedOrders = [...(storeData.orders || [])];
             if (orderWithId.orderType === 'exchange' && orderWithId.originalOrderId) {
                 updatedOrders = updatedOrders.map(o => 
-                    o.id === orderWithId.originalOrderId ? { ...o, status: 'تم_الاستبدال' as OrderStatus } : o
+                    o.id === orderWithId.originalOrderId ? { 
+                        ...o, 
+                        status: 'تم_الاستبدال' as OrderStatus,
+                        customerPaidOriginalShipping: orderWithId.customerPaidOriginalShipping !== false
+                    } : o
                 );
             }
             updatedOrders = [orderWithId, ...updatedOrders];

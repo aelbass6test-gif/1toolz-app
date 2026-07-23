@@ -304,7 +304,12 @@ export const ORDER_STATUSES = [
   'مرتجع', 
   'فشل_التوصيل',
   'ملغي',
-  'مؤرشف'
+  'مؤرشف',
+  'تم_الاستبدال',
+  'مرتجع_بعد_الاستلام',
+  'مرتجع_جزئي',
+  'مؤجل',
+  'مجدول'
 ] as const;
 
 export const ORDER_STATUS_METADATA: Record<string, { label: string, color: string, icon: any }> = {

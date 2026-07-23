@@ -110,13 +110,20 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     }, 0);
 
     orders.forEach(order => {
-        const { net } = calculateOrderProfitLoss(order, settings);
+        const { net, loss } = calculateOrderProfitLoss(order, settings);
         const isPos = order.channel === 'pos' || 
                       order.shippingCompany === 'كاشير - بيع مباشر' || 
                       order.shippingArea === 'نقطة البيع' ||
                       (order.id && order.id.startsWith('POS-'));
         
-        if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || (order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل')) {
+        const isReturnOrFailed = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(order.status);
+        const isExchange = order.status === 'تم_الاستبدال';
+        const hasLoss = loss > 0 || net < 0;
+
+        if (isReturnOrFailed || isExchange || hasLoss) {
+            const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
+            returnsLosses += actualLoss;
+        } else if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة' || order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل') {
             if (isPos) {
                 totalSuccessfulNetPos += net;
             } else {
@@ -124,8 +131,6 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             }
             // Calculate COGS for successful orders
             totalCogs += getOrderProductCost(order, settings);
-        } else if (['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(order.status)) {
-            returnsLosses += Math.abs(net);
         }
     });
     

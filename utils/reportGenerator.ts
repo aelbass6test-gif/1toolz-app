@@ -1278,8 +1278,9 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
         const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee) : 0;
         
         const codFee = !isPosOrder ? calculateCodFee(order, settings) : 0;
-        const { loss, closingDifference } = calculateOrderProfitLoss(order, settings);
-        totalLoss += loss;
+        const { loss, net, closingDifference } = calculateOrderProfitLoss(order, settings);
+        const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
+        totalLoss += actualLoss;
         totalProductPrice += order.productPrice;
         totalShippingFee += order.shippingFee;
         totalInsuranceInspection += (insuranceFee + inspectionCost + bostaVat);
@@ -1349,7 +1350,7 @@ export const generateLossesReportHTML = (orders: Order[], settings: Settings, st
                 </td>
                 <td style="padding: 8px;">${order.paymentStatus}</td>
                 <td style="padding: 8px; font-weight: bold; color: #b91c1c;">
-                    -${loss.toLocaleString()}
+                    -${actualLoss.toLocaleString()}
                     ${codFee > 0 ? `<br/><small style="color: #6b7280; font-weight: normal;">(تحصيل: ${codFee.toLocaleString()})</small>` : ''}
                 </td>
             </tr>
@@ -1511,10 +1512,15 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         includeMarkupsInProductRevenue: sections?.includeMarkupsInProductRevenue === true,
         showExtraServicesRow: sections?.showExtraServicesRow !== false,
     };
-    const collectedOrders = (orders || []).filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
+    const failedOrders = (orders || []).filter(o => {
+        const { loss, net } = calculateOrderProfitLoss(o, settings);
+        return ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي', 'تم_الاستبدال'].includes(o.status) || loss > 0 || net < 0;
+    });
+    const collectedOrders = (orders || []).filter(o => {
+        return ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'تم_الاستبدال'].includes(o.status) && !failedOrders.some(f => f.id === o.id);
+    });
     const shippingCollectedOrders = collectedOrders.filter(o => !(o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر'));
     const posCollectedOrders = collectedOrders.filter(o => o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر');
-    const failedOrders = (orders || []).filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status));
     const adminExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '')));
     const filteredSupplyOrders = sections?.supplyOrders;
     const totalInventoryPurchases = filteredSupplyOrders 
@@ -1874,7 +1880,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalLoss = 0;
 
     const failedRows = failedOrders.map((order, idx) => {
-        const { loss } = calculateOrderProfitLoss(order, settings);
+        const { loss, net } = calculateOrderProfitLoss(order, settings);
+        const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
         
         const compFees = settings.companySpecificFees?.[order.shippingCompany];
         const useCustom = compFees?.useCustomFees ?? false;
@@ -1894,7 +1901,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         totalFailedInsurance += displayInsuranceFee;
         totalFailedInspection += inspectionCost;
         totalReturnFees += returnFeeAmount;
-        totalLoss += loss;
+        totalLoss += actualLoss;
 
         const productDetails = order.items.map(item => `<div style="margin-bottom: 4px; line-height: 1.4;"><strong>${item.name}</strong> (${item.quantity})</div>`).join('');
         return `
@@ -1905,7 +1912,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                   <div style="font-size: 9px; color: #64748b;">م: ${order.orderNumber}</div>
                   <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
                   ${order.enableFlexShip ? (
-                    ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة'].includes(order.status) ? `
+                    ['تم_توصيلها', 'تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'تم_الاستبدال'].includes(order.status) ? `
                     <div style="margin-top: 3px; font-size: 8px; background: #f0fdf4; color: #166534; padding: 2px 5px; border-radius: 4px; border: 1px solid #bbf7d0; display: inline-block; font-weight: bold;">
                       تم تسليم الشحنة بنجاح، ولا ينطبق عليها رسوم فليكس شيب
                     </div>` : (order.flexShipTransactionAdded ? `
@@ -1938,7 +1945,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <td>${displayInsuranceFee.toLocaleString()}</td>
                 <td>${(inspectionCost - inspectionFeeCollected).toLocaleString()}</td>
                 <td>${returnFeeAmount.toLocaleString()}</td>
-                <td style="color: #b91c1c; font-weight: bold;">${loss.toLocaleString()}</td>
+                <td style="color: #b91c1c; font-weight: bold;">-${actualLoss.toLocaleString()}</td>
             </tr>`;
     }).join('');
 
@@ -1974,7 +1981,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
     // Carrier Performance
     const carrierStats: Record<string, { count: number, success: number, shipping: number, profit: number }> = {};
-    orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)).forEach(o => {
+    orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي', 'تم_الاستبدال'].includes(o.status)).forEach(o => {
         const name = o.shippingCompany || 'غير محدد';
         if (!carrierStats[name]) carrierStats[name] = { count: 0, success: 0, shipping: 0, profit: 0 };
         carrierStats[name].count++;
@@ -2010,7 +2017,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 }
                 productStats[item.name].cost += (getLatestProductCost(item.productId, settings) || item.cost || 0) * item.quantity;
                 productStats[item.name].sold += item.quantity;
-            } else if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)) {
+            } else if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن', 'تم_الاستبدال'].includes(o.status)) {
                 productStats[item.name].returns += item.quantity;
             }
         });
@@ -2029,10 +2036,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const area = o.governorate || o.shippingArea || 'غير محدد';
         if (!geoStats[area]) geoStats[area] = { count: 0, success: 0, revenue: 0, net: 0 };
         geoStats[area].count++;
-        const { net } = calculateOrderProfitLoss(o, settings);
-        if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) {
+        const { net, netRevenue } = calculateOrderProfitLoss(o, settings);
+        if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'تم_الاستبدال'].includes(o.status)) {
             geoStats[area].success++;
-            geoStats[area].revenue += (o.productPrice + o.shippingFee);
+            geoStats[area].revenue += netRevenue;
         }
         geoStats[area].net += net;
     });

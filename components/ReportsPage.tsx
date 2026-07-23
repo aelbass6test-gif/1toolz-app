@@ -141,7 +141,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
 
         // Delivery breakdown for Pie chart
         const deliveredCount = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)).length;
-        const returnedCount = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)).length;
+        const returnedCount = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي', 'تم_الاستبدال'].includes(o.status)).length;
         const processingCount = orders.length - deliveredCount - returnedCount;
 
         const deliveryBreakdown = [
@@ -180,12 +180,12 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         let totalCogs = 0;
         let returnsLoss = 0;
         orders.forEach(order => {
-            const { loss } = calculateOrderProfitLoss(order, settings);
+            const { loss, net } = calculateOrderProfitLoss(order, settings);
             if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status)) {
                 totalCogs += getOrderProductCost(order, settings);
             }
-            if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(order.status)) {
-                returnsLoss += loss;
+            if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي', 'تم_الاستبدال'].includes(order.status)) {
+                returnsLoss += (loss || (net < 0 ? Math.abs(net) : 0));
             }
         });
 
@@ -593,17 +593,17 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     const [isExporting, setIsExporting] = useState(false);
     
     const failedOrders = useMemo(() => {
-        return orders.filter(o => 
-            ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status)
-        )
-            .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [orders]);
+        return orders.filter(o => {
+            const { loss, net } = calculateOrderProfitLoss(o, settings);
+            return ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status) || loss > 0 || net < 0;
+        }).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [orders, settings]);
 
     const stats = useMemo(() => {
         let totalLoss = 0;
         failedOrders.forEach(order => {
-            const { loss } = calculateOrderProfitLoss(order, settings);
-            totalLoss += loss;
+            const { loss, net } = calculateOrderProfitLoss(order, settings);
+            totalLoss += (loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0));
         });
         return { totalLoss, count: failedOrders.length };
     }, [failedOrders, settings]);
@@ -760,7 +760,8 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     const handleExportCSV = () => {
         const headers = ['رقم الطلب', 'العميل', 'الهاتف', 'شركة الشحن', 'المنتجات', 'الكمية', 'التكلفة', 'مصاريف الشحن', 'الخسارة ج.م', 'السبب والملاحظات'];
         const rows = failedOrders.map(o => {
-            const { loss } = calculateOrderProfitLoss(o, settings);
+            const { loss, net } = calculateOrderProfitLoss(o, settings);
+            const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
             const itemsText = (o.items || []).map(i => `${i.name} (x${i.quantity})`).join(' + ');
             const qty = (o.items || []).reduce((sum, item) => sum + item.quantity, 0);
             return [
@@ -772,7 +773,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                 qty,
                 (o.items || []).reduce((sum, item) => sum + (item.cost * item.quantity), 0),
                 o.shippingFee,
-                loss,
+                actualLoss,
                 o.cancellationReason || o.notes || ''
             ];
         });
@@ -984,7 +985,8 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                 <tr><td colSpan={10} className="text-center py-12 text-slate-400">لا توجد طلبات فاشلة أو مرتجعة.</td></tr>
                             ) : (
                                 failedOrders.map(order => {
-                                    const { loss } = calculateOrderProfitLoss(order, settings);
+                                    const { loss, net } = calculateOrderProfitLoss(order, settings);
+                                    const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
                                     const codFee = calculateCodFee(order, settings);
                                     
                                     const compFees = settings.companySpecificFees?.[order.shippingCompany];
@@ -1032,7 +1034,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                             </td>
                                             <td className="px-4 py-3 text-[10px] text-slate-500">{order.paymentStatus}</td>
                                             <td className="px-4 py-3 text-center">
-                                                <div className="font-black text-red-600">-{(loss || 0).toLocaleString()}</div>
+                                                <div className="font-black text-red-600">-{(actualLoss || 0).toLocaleString()}</div>
                                                 {codFee > 0 && <div className="text-[9px] text-slate-400">تحصيل: {codFee}</div>}
                                             </td>
                                         </tr>
@@ -1139,8 +1141,13 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     }, [reportSections, orientation, isContinuous, supplyOrders]);
     
     const stats = useMemo(() => {
-        const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
-        const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status));
+        const failedOrders = orders.filter(o => {
+            const { loss, net } = calculateOrderProfitLoss(o, settings);
+            return ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status) || loss > 0 || net < 0;
+        });
+        const collectedOrders = orders.filter(o => {
+            return ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'تم_الاستبدال'].includes(o.status) && !failedOrders.some(f => f.id === o.id);
+        });
 
         let totalRevenue = 0;
         let totalProductRevenue = 0;
@@ -1240,7 +1247,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         let totalReturnFees = 0;
 
         failedOrders.forEach(order => {
-            const { loss } = calculateOrderProfitLoss(order, settings);
+            const { loss, net } = calculateOrderProfitLoss(order, settings);
+            const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
             const compFees = settings.companySpecificFees?.[order.shippingCompany];
             const useCustom = compFees?.useCustomFees ?? false;
             
@@ -1259,7 +1267,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             totalFailedInsurance += insuranceFee;
             totalFailedInspection += (inspectionCost - inspectionFeeCollected);
             totalReturnFees += returnFeeAmount;
-            totalLoss += loss;
+            totalLoss += actualLoss;
         });
 
         const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
@@ -1287,7 +1295,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         const finalNet = totalProfit - totalLoss - totalExpenses;
 
         // --- NEW CALCULATIONS ---
-        const successRate = orders.length > 0 ? (collectedOrders.length / orders.length) * 100 : 0;
+        const successRate = orders.length > 0 ? Math.round((collectedOrders.length / orders.length) * 10000) / 100 : 0;
         const grossProfit = totalPercentageProfit + totalCommissionProfit;
         const lossRatio = grossProfit > 0 ? (totalLoss / grossProfit) * 100 : 0;
         const avgProfitPerOrder = orders.length > 0 ? finalNet / orders.length : 0;
@@ -3230,8 +3238,13 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
     const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [subTab, setSubTab] = useState<'summary' | 'financials' | 'operations' | 'partners'>('summary');
     const stats = useMemo(() => {
-        const collectedOrders = orders.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status));
-        const failedOrders = orders.filter(o => ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status));
+        const failedOrders = orders.filter(o => {
+            const { loss, net } = calculateOrderProfitLoss(o, settings);
+            return ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'تمت_الاعادة_لشركة_الشحن', 'ملغي'].includes(o.status) || loss > 0 || net < 0;
+        });
+        const collectedOrders = orders.filter(o => {
+            return ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'تم_الاستبدال'].includes(o.status) && !failedOrders.some(f => f.id === o.id);
+        });
 
         let totalProductRevenue = 0;
         let totalExtraMarkup = 0;
@@ -3289,8 +3302,9 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
 
         let totalLoss = 0;
         failedOrders.forEach(order => {
-            const { loss } = calculateOrderProfitLoss(order, settings);
-            totalLoss += loss;
+            const { loss, net } = calculateOrderProfitLoss(order, settings);
+            const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
+            totalLoss += actualLoss;
         });
 
         const totalExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''))).reduce((sum, t) => sum + t.amount, 0);

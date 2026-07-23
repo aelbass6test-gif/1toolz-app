@@ -116,6 +116,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     const pMap: Record<string, number> = {};
     const vMap: Record<string, number> = {};
     
+    // 1. Supply Orders (Purchases)
     (settings.supplyOrders || []).forEach(order => {
         if (order.status === 'cancelled') return;
         order.items.forEach(item => {
@@ -128,8 +129,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         });
     });
 
+    // 2. Orders (Sales) - Exclude statuses where product is returned/stayed in warehouse
+    const excludedStatuses = ['ملغي', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن'];
     orders.forEach(order => {
-        if (['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(order.status)) return;
+        if (excludedStatuses.includes(order.status)) return;
         order.items?.forEach(item => {
             const qty = item.quantity || 0;
             if (item.variantId) {
@@ -140,8 +143,38 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         });
     });
 
+    // 3. Order Returns (Add back items that were previously subtracted)
+    (settings.orderReturns || []).forEach(ret => {
+        if (ret.status === 'cancelled' || !ret.restockItems) return;
+        // Only add back if the original order was actually subtracted (not in excluded statuses)
+        const originalOrder = orders.find(o => o.id === ret.orderId);
+        if (originalOrder && !excludedStatuses.includes(originalOrder.status)) {
+            ret.items.forEach(item => {
+                const qty = item.quantity || 0;
+                if (item.variantId) {
+                    vMap[item.variantId] = (vMap[item.variantId] || 0) + qty;
+                } else {
+                    pMap[item.productId] = (pMap[item.productId] || 0) + qty;
+                }
+            });
+        }
+    });
+
+    // 4. Purchase Returns (Subtract items returned to suppliers)
+    (settings.purchaseReturns || []).forEach(ret => {
+        if (ret.status === 'cancelled') return;
+        ret.items.forEach(item => {
+            const qty = item.quantity || 0;
+            if (item.variantId) {
+                vMap[item.variantId] = (vMap[item.variantId] || 0) - qty;
+            } else {
+                pMap[item.productId] = (pMap[item.productId] || 0) - qty;
+            }
+        });
+    });
+
     return { products: pMap, variants: vMap };
-  }, [settings.supplyOrders, orders]);
+  }, [settings.supplyOrders, settings.orderReturns, settings.purchaseReturns, orders]);
 
   const restoreAllStockFromInvoices = () => {
     showConfirm(

@@ -2,10 +2,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
+import { CommandPalette } from './CommandPalette';
 
 const PATH_TITLES: { [key: string]: string } = {
     '/': 'الرئيسية',
@@ -74,6 +75,13 @@ const Header: React.FC<HeaderProps> = ({
     const [isAlertsOpen, setIsAlertsOpen] = useState(false);
     const alertsMenuRef = useRef<HTMLDivElement>(null);
     const syncMenuRef = useRef<HTMLDivElement>(null);
+    const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+    useEffect(() => {
+        const handleOpen = () => setIsCommandPaletteOpen(true);
+        window.addEventListener('open-command-palette', handleOpen);
+        return () => window.removeEventListener('open-command-palette', handleOpen);
+    }, []);
 
     // Audio alarm logic
     useEffect(() => {
@@ -232,17 +240,19 @@ const Header: React.FC<HeaderProps> = ({
 
     return (
         <>
-            <header className="h-20 glass border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-40 flex-shrink-0">
-            <div className="flex items-center gap-3 sm:gap-6">
-    <button onClick={onToggleSidebar} className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-500">
-        <Menu size={24} />
+            <header className="h-16 sm:h-20 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-2xl border-b border-slate-200/70 dark:border-slate-800/80 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 flex-shrink-0 shadow-xs">
+            <div className="flex items-center gap-2 sm:gap-4">
+    <button onClick={onToggleSidebar} className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer">
+        <Menu size={22} />
     </button>
-    <div className="flex items-center gap-2 sm:gap-3 max-w-[150px] sm:max-w-none divide-x divide-slate-100 dark:divide-slate-800">
-        <h1 className="text-base sm:text-lg font-display font-black text-slate-900 dark:text-white tracking-tight truncate">{pageTitle}</h1>
+    <div className="flex items-center gap-2 sm:gap-3 max-w-[160px] sm:max-w-none">
+        <div className="flex items-center gap-2">
+            <h1 className="text-sm sm:text-base md:text-lg font-black text-slate-900 dark:text-white tracking-tight truncate">{pageTitle}</h1>
+        </div>
         {activeStore && (
-            <div className="flex items-center gap-1.5">
-                <span className="hidden lg:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200 dark:border-slate-700">
-                    ID: {activeStore.id}
+            <div className="hidden sm:flex items-center gap-1.5">
+                <span className="hidden lg:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200/80 dark:border-slate-700/80 font-mono">
+                    ID: {activeStore.id.slice(-8)}
                 </span>
                 {isSupabaseActive() && (
                     <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg border border-emerald-200/80 dark:border-emerald-900/30">
@@ -264,7 +274,20 @@ const Header: React.FC<HeaderProps> = ({
     </div>
 </div>
 
-            <div className="flex items-center gap-2 sm:gap-6">
+            <div className="flex items-center gap-1.5 sm:gap-3">
+                {/* Quick Command Search Trigger Button */}
+                <button
+                    onClick={() => setIsCommandPaletteOpen(true)}
+                    className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 transition-all text-xs font-black shadow-2xs hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    title="البحث السريع والتنقل (Ctrl+K)"
+                >
+                    <Search size={14} className="text-indigo-500 animate-pulse" />
+                    <span className="hidden md:inline text-[11px] font-bold">بحث سريع...</span>
+                    <kbd className="hidden sm:inline-block font-mono text-[9px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md text-slate-500 dark:text-slate-400">
+                        Ctrl+K
+                    </kbd>
+                </button>
+
                 {activeStore && (
                     <div className="relative" ref={syncMenuRef}>
                         <div className="flex items-center gap-1 sm:gap-2 bg-slate-150/60 dark:bg-slate-900/40 p-1 rounded-xl sm:p-1.5 sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900 select-none">
@@ -817,6 +840,12 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
             </div>
         )}
+        {/* Command Palette Overlay */}
+        <CommandPalette 
+            isOpen={isCommandPaletteOpen} 
+            onClose={() => setIsCommandPaletteOpen(false)} 
+            activeStore={activeStore}
+        />
     </>
 );
 };

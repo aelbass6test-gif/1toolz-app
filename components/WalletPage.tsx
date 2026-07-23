@@ -530,6 +530,12 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const totalPages = Math.ceil(groupedHistory.length / itemsPerPage);
 
   const getTransactionTitle = (item: any) => {
+      if (item.isGroup) {
+          return item.note || 'تسوية مالية للأوردر';
+      }
+      if (item.note && (item.note.includes('عكس') || item.note.includes('تراجع') || item.id?.startsWith('revert_'))) {
+          return item.note;
+      }
       let baseTitle = item.category === 'collection' ? 'رصيد من الدفع عند الاستلام' 
                     : item.category === 'shipping' ? 'مصاريف شحن' 
                     : (item.note?.replace('إصدار بوليصة شحن', 'مصاريف شحن') || item.type);
@@ -541,7 +547,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           : null;
 
       if (relevantOrder && ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي'].includes(relevantOrder.status)) {
-          if (item.category === 'shipping' || item.category === 'collection' || item.isGroup || baseTitle.includes('مصاريف شحن')) {
+          if (item.category === 'shipping' || item.category === 'collection' || baseTitle.includes('مصاريف شحن')) {
               baseTitle += relevantOrder.status === 'ملغي' ? ' (أوردر ملغي)' : ' (أوردر فاشل/مرتجع)';
           }
       }

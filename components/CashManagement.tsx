@@ -20,7 +20,14 @@ import {
   X,
   AlertTriangle,
   Info,
-  Trash2
+  Trash2,
+  Landmark,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Filter,
+  RefreshCw,
+  Layers,
+  Users
 } from 'lucide-react';
 import { Settings, CashHolder, CashHandover, Treasury, TreasuryTransaction } from '../types';
 
@@ -55,6 +62,7 @@ const normalizeName = (name: string): string => {
 
 const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSettings, currentUser, treasury, setTreasury, wallet, setWallet }) => {
   const [activeTab, setActiveTab] = useState<'balances' | 'handovers'>('balances');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showHandoverModal, setShowHandoverModal] = useState(false);
   const [selectedHandover, setSelectedHandover] = useState<CashHandover | null>(null);
 
@@ -75,7 +83,6 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   const [treasuryNotes, setTreasuryNotes] = useState('');
 
   const [dialog, setDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void, isWarning?: boolean} | null>(null);
-
 
   const holders = useMemo(() => {
     const rawHolders = settings.cashHolders || [];
@@ -103,7 +110,24 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     return Object.values(grouped);
   }, [settings.cashHolders]);
 
+  const filteredHolders = useMemo(() => {
+    if (!searchQuery.trim()) return holders;
+    const query = searchQuery.toLowerCase().trim();
+    return holders.filter(h => h.userName.toLowerCase().includes(query));
+  }, [holders, searchQuery]);
+
   const handovers = useMemo(() => settings.cashHandovers || [], [settings.cashHandovers]);
+  
+  const filteredHandovers = useMemo(() => {
+    if (!searchQuery.trim()) return handovers;
+    const query = searchQuery.toLowerCase().trim();
+    return handovers.filter(h => 
+      h.fromUserName.toLowerCase().includes(query) ||
+      h.toUserName.toLowerCase().includes(query) ||
+      (h.notes && h.notes.toLowerCase().includes(query))
+    );
+  }, [handovers, searchQuery]);
+
   const employees = settings.employees || [];
   
   // Combine currentUser and employees for selection
@@ -113,97 +137,122 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     ...(settings.partners || []).map((p, index) => ({ id: `part_${p.id || index}`, name: p.name, role: 'partner' }))
   ];
 
-  const handleDeleteHandover = (handoverId: string) => {
-    if (!window.confirm('هل أنت متأكد من حذف عملية التسليم المالي هذه وتراجع الأثر على الأرصدة؟')) return;
+  // Stats calculation
+  const totalCustodyBalance = useMemo(() => {
+    return holders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+  }, [holders]);
 
+  const handleDeleteHandover = (handoverId: string) => {
     const handoverToDelete = handovers.find(h => h.id === handoverId);
     if (!handoverToDelete) return;
 
-    const amount = Number(handoverToDelete.amount);
-    const updatedHolders = [...holders];
+    setDialog({
+      isOpen: true,
+      title: 'تأكيد إلغاء وحذف العملية',
+      message: `هل أنت متأكد من حذف عملية التسليم المالي بقيمة ${handoverToDelete.amount.toLocaleString()} ج.م؟ سيتم إلغاء الأثر وإعادة الأرصدة لوضعها السابق تلقائياً.`,
+      isWarning: true,
+      onConfirm: () => {
+        const amount = Number(handoverToDelete.amount);
+        const updatedHolders = [...holders];
 
-    // 1. Revert source holder balance (increase it back)
-    if (handoverToDelete.fromUserId && handoverToDelete.fromUserId !== 'system' && handoverToDelete.fromUserId !== 'customer') {
-      const fromIdx = updatedHolders.findIndex(h => h.userId === handoverToDelete.fromUserId);
-      if (fromIdx > -1) {
-        updatedHolders[fromIdx] = {
-          ...updatedHolders[fromIdx],
-          currentBalance: (updatedHolders[fromIdx].currentBalance || 0) + amount,
-          lastUpdated: new Date().toISOString()
-        };
-      }
-    }
+        // 1. Revert source holder balance (increase it back)
+        if (handoverToDelete.fromUserId && handoverToDelete.fromUserId !== 'system' && handoverToDelete.fromUserId !== 'customer') {
+          const fromIdx = updatedHolders.findIndex(h => h.userId === handoverToDelete.fromUserId);
+          if (fromIdx > -1) {
+            updatedHolders[fromIdx] = {
+              ...updatedHolders[fromIdx],
+              currentBalance: (updatedHolders[fromIdx].currentBalance || 0) + amount,
+              lastUpdated: new Date().toISOString()
+            };
+          }
+        }
 
-    // 2. Revert destination
-    if (handoverToDelete.toUserId?.startsWith('treasury_')) {
-      const targetAccountId = handoverToDelete.toUserId.replace('treasury_', '');
-      if (setTreasury) {
-        setTreasury((prev: any) => {
-          if (!prev) return prev;
-          const currentAccounts = prev.accounts || [];
-          const updatedAccounts = currentAccounts.map((acc: any) => 
-            acc.id === targetAccountId ? { ...acc, balance: Math.max(0, Number(acc.balance || 0) - amount) } : acc
-          );
-          const updatedTransactions = (prev.transactions || []).filter(
-            (tx: any) => tx.reference !== handoverId && !tx.description?.includes(handoverId)
-          );
-          return {
-            ...prev,
-            accounts: updatedAccounts,
-            transactions: updatedTransactions
-          };
+        // 2. Revert destination
+        if (handoverToDelete.toUserId?.startsWith('treasury_')) {
+          const targetAccountId = handoverToDelete.toUserId.replace('treasury_', '');
+          if (setTreasury) {
+            setTreasury((prev: any) => {
+              if (!prev) return prev;
+              const currentAccounts = prev.accounts || [];
+              const updatedAccounts = currentAccounts.map((acc: any) => 
+                acc.id === targetAccountId ? { ...acc, balance: Math.max(0, Number(acc.balance || 0) - amount) } : acc
+              );
+              const updatedTransactions = (prev.transactions || []).filter(
+                (tx: any) => tx.reference !== handoverId && !tx.description?.includes(handoverId)
+              );
+              return {
+                ...prev,
+                accounts: updatedAccounts,
+                transactions: updatedTransactions
+              };
+            });
+          }
+        } else if (handoverToDelete.toUserId === 'supply_wallet') {
+          if (setWallet) {
+            setWallet((prev: any) => {
+              if (!prev) return prev;
+              const updatedTransactions = (prev.transactions || []).filter(
+                 (tx: any) => !tx.id?.includes(handoverId) && !tx.note?.includes(handoverId)
+              );
+              return {
+                ...prev,
+                supplyBalance: Math.max(0, (prev.supplyBalance || 0) - amount),
+                transactions: updatedTransactions
+              };
+            });
+          }
+        } else if (handoverToDelete.toUserId) {
+          // Revert destination holder balance (decrease it)
+          const toIdx = updatedHolders.findIndex(h => h.userId === handoverToDelete.toUserId);
+          if (toIdx > -1) {
+            updatedHolders[toIdx] = {
+              ...updatedHolders[toIdx],
+              currentBalance: (updatedHolders[toIdx].currentBalance || 0) - amount,
+              lastUpdated: new Date().toISOString()
+            };
+          }
+        }
+
+        // 3. Update settings
+        updateSettings({
+          ...settings,
+          cashHolders: updatedHolders,
+          cashHandovers: handovers.filter(h => h.id !== handoverId),
+          activityLogs: [
+            {
+              id: `log-${Date.now()}`,
+              user: currentUser?.fullName || 'المدير',
+              action: 'حذف عملية تسليم مالي',
+              details: `تم حذف عملية تسليم مالي بقيمة ${amount} ج.م من عهدة ${handoverToDelete.fromUserName} إلى ${handoverToDelete.toUserName} وتعديل الأرصدة المرتبطة.`,
+              date: new Date().toLocaleString('ar-EG'),
+              timestamp: Date.now()
+            },
+            ...(settings.activityLogs || [])
+          ]
         });
-      }
-    } else if (handoverToDelete.toUserId === 'supply_wallet') {
-      if (setWallet) {
-        setWallet((prev: any) => {
-          if (!prev) return prev;
-          const updatedTransactions = (prev.transactions || []).filter(
-             (tx: any) => !tx.id?.includes(handoverId) && !tx.note?.includes(handoverId)
-          );
-          return {
-            ...prev,
-            supplyBalance: Math.max(0, (prev.supplyBalance || 0) - amount),
-            transactions: updatedTransactions
-          };
-        });
-      }
-    } else if (handoverToDelete.toUserId) {
-      // Revert destination holder balance (decrease it)
-      const toIdx = updatedHolders.findIndex(h => h.userId === handoverToDelete.toUserId);
-      if (toIdx > -1) {
-        updatedHolders[toIdx] = {
-          ...updatedHolders[toIdx],
-          currentBalance: (updatedHolders[toIdx].currentBalance || 0) - amount,
-          lastUpdated: new Date().toISOString()
-        };
-      }
-    }
 
-    // 3. Update settings
-    updateSettings({
-      ...settings,
-      cashHolders: updatedHolders,
-      cashHandovers: handovers.filter(h => h.id !== handoverId),
-      activityLogs: [
-        {
-          id: `log-${Date.now()}`,
-          user: currentUser?.fullName || 'المدير',
-          action: 'حذف عملية تسليم مالي',
-          details: `تم حذف عملية تسليم مالي بقيمة ${amount} ج.م من عهدة ${handoverToDelete.fromUserName} إلى ${handoverToDelete.toUserName} وتعديل الأرصدة المرتبطة.`,
-          date: new Date().toLocaleString('ar-EG'),
-          timestamp: Date.now()
-        },
-        ...(settings.activityLogs || [])
-      ]
+        setDialog(null);
+      }
     });
   };
 
   const handleExecuteHandover = () => {
     if (handoverType !== 'supply_wallet' && !newHandover.toUserId) {
-      return alert(handoverType === 'treasury' ? 'يرجى اختيار الحساب المستلم (الخزينة)' : 'يرجى اختيار المستلم');
+      return setDialog({
+        isOpen: true,
+        title: 'تنبيه',
+        message: handoverType === 'treasury' ? 'يرجى اختيار الحساب المستلم (الخزينة)' : 'يرجى اختيار المستلم',
+        onConfirm: () => setDialog(null)
+      });
     }
-    if (newHandover.amount <= 0) return alert('يرجى تحديد المبلغ');
+    if (newHandover.amount <= 0) {
+      return setDialog({
+        isOpen: true,
+        title: 'تنبيه',
+        message: 'يرجى تحديد المبلغ المراد تحويله بشكل صحيح',
+        onConfirm: () => setDialog(null)
+      });
+    }
 
     const amount = Number(newHandover.amount);
     
@@ -219,13 +268,13 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       toUserName = 'محفظة التوريد (رأس مال المخزون)';
     } else if (handoverType === 'treasury') {
       const targetAccount = (treasury?.accounts || []).find((acc: any) => acc.id === newHandover.toUserId);
-      if (!targetAccount) return alert('الحساب المالي المحدد غير موجود');
+      if (!targetAccount) return setDialog({ isOpen: true, title: 'تنبيه', message: 'الحساب المالي المحدد غير موجود', onConfirm: () => setDialog(null) });
       toUserName = `الخزينة: ${targetAccount.name}`;
     } else {
       const toUser = allPossibleHolders.find(h => h.id === newHandover.toUserId);
       toUserName = toUser?.name || 'مستخدم غير معروف';
       if (fromUserId === newHandover.toUserId) {
-        return alert('لا يمكن تسليم العهدة لنفس الشخص');
+        return setDialog({ isOpen: true, title: 'تنبيه', message: 'لا يمكن تسليم العهدة لنفس الشخص', onConfirm: () => setDialog(null) });
       }
     }
 
@@ -338,18 +387,12 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
     setShowHandoverModal(false);
     setNewHandover({ fromUserId: '', toUserId: '', amount: 0, notes: '' });
-    alert(
-      handoverType === 'treasury' ? 'تم توريد مبلغ العهدة للخزينة بنجاح وترقية الحساب' :
-      handoverType === 'main_wallet' ? 'تم توريد مبلغ العهدة للمحفظة العامة بنجاح' :
-      handoverType === 'supply_wallet' ? 'تم توريد مبلغ العهدة لمحفظة التوريد بنجاح' :
-      'تم تسجيل عملية التسليم وتحديث العهد بنجاح'
-    );
   };
 
   const handleExecuteTreasuryDeposit = () => {
     if (!selectedHolderForTreasury) return;
-    if (!selectedTreasuryAccountId) return alert('يرجى اختيار خزينة أو محفظة للتوريد والإيداع');
-    if (treasuryAmount <= 0) return alert('يرجى تحديد المبلغ');
+    if (!selectedTreasuryAccountId) return setDialog({ isOpen: true, title: 'تنبيه', message: 'يرجى اختيار خزينة أو محفظة للتوريد والإيداع', onConfirm: () => setDialog(null) });
+    if (treasuryAmount <= 0) return setDialog({ isOpen: true, title: 'تنبيه', message: 'يرجى تحديد المبلغ المراد توريده', onConfirm: () => setDialog(null) });
 
     const amount = Number(treasuryAmount);
     const isSupplyWallet = selectedTreasuryAccountId === 'supply_wallet';
@@ -363,7 +406,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     } else {
       const treasuryAccountsList = treasury?.accounts || [];
       const targetAccount = treasuryAccountsList.find((acc: any) => acc.id === selectedTreasuryAccountId);
-      if (!targetAccount) return alert('الحساب المالي المحدد غير موجود');
+      if (!targetAccount) return setDialog({ isOpen: true, title: 'تنبيه', message: 'الحساب المالي المحدد غير موجود', onConfirm: () => setDialog(null) });
       toUserName = `الخزينة: ${targetAccount.name}`;
     }
 
@@ -462,501 +505,727 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     setSelectedHolderForTreasury(null);
     setTreasuryAmount(0);
     setTreasuryNotes('');
-    alert(isSupplyWallet ? 'تم توريد مبلغ العهدة لمحفظة التوريد بنجاح' : 'تم توريد مبلغ العهدة للخزينة وتحديث المعاملات بنجاح');
   };
 
   return (
-    <div className="space-y-6 pb-20">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto font-sans" dir="rtl">
+      
+      {/* Top Banner Header */}
+      <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-2xl rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
         <div>
-           <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-             <Handshake className="text-indigo-600" />
-             إدارة العهد والمبالغ النقدية
-           </h2>
-           <p className="text-slate-500 dark:text-slate-400 text-sm font-bold mt-1">تتبع الفلوس مع مين؟ (شركاء، مناديب، كاشيرية)</p>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+            <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-800/60">
+              منظومة إدارة العهد والمبالغ النقدية
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+              <Handshake className="w-5 h-5" />
+            </div>
+            العهد والنقدية المحصلة
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-bold mt-1.5 leading-relaxed">
+            متابعة دقيقة وتوثيق شامل للسيولة النقدية بحوزة الشركاء والمناديب والكاشيرية وتحويلها للخزائن والمحافظ
+          </p>
         </div>
-        
-        <div className="flex items-center gap-2">
-           <button 
-             onClick={() => setActiveTab('balances')}
-             className={`px-4 py-2 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${activeTab === 'balances' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-200 dark:border-slate-800'}`}
-           >
-             <UserCheck size={18} />
-             العهد الحالية
-           </button>
-           <button 
-             onClick={() => setActiveTab('handovers')}
-             className={`px-4 py-2 rounded-xl text-sm font-black transition-all flex items-center gap-2 ${activeTab === 'handovers' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'bg-white dark:bg-slate-900 text-slate-500 border border-slate-200 dark:border-slate-800'}`}
-           >
-             <History size={18} />
-             سجل التسليمات
-           </button>
+
+        {/* Tab Switcher & Quick Add Button */}
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="bg-slate-100/80 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 flex items-center gap-1">
+            <button 
+              onClick={() => setActiveTab('balances')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'balances' 
+                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' 
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              <UserCheck size={16} />
+              العهد الحالية
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                activeTab === 'balances' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+              }`}>
+                {holders.length}
+              </span>
+            </button>
+            <button 
+              onClick={() => setActiveTab('handovers')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'handovers' 
+                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' 
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+              }`}
+            >
+              <History size={16} />
+              سجل التسليمات
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                activeTab === 'handovers' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+              }`}>
+                {handovers.length}
+              </span>
+            </button>
+          </div>
+
+          <button 
+            onClick={() => {
+              setNewHandover({
+                fromUserId: currentUser?.id || 'admin',
+                toUserId: '',
+                amount: 0,
+                notes: ''
+              });
+              setHandoverType('holder');
+              setShowHandoverModal(true);
+            }}
+            className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 active:scale-[0.98] text-white rounded-2xl font-black text-xs sm:text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Plus size={18} />
+            تسجيل تسليم مبلغ
+          </button>
         </div>
       </div>
 
+      {/* Modern Glassmorphic Stats Deck */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Stat 1 */}
+        <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500 rounded-r-md"></div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-slate-500 dark:text-slate-400">إجمالي النقدية بالعهد</span>
+            <div className="w-9 h-9 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+              <Banknote className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
+              {totalCustodyBalance.toLocaleString('ar-EG')}
+            </span>
+            <span className="text-xs font-bold text-slate-400">ج.م</span>
+          </div>
+          <p className="text-[11px] font-bold text-slate-400 mt-2 flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-indigo-500" />
+            السيولة المتداولة مع الموظفين والشركاء
+          </p>
+        </div>
+
+        {/* Stat 2 */}
+        <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500 rounded-r-md"></div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-slate-500 dark:text-slate-400">عدد أصحاب العهد</span>
+            <div className="w-9 h-9 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <Users className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
+              {holders.length}
+            </span>
+            <span className="text-xs font-bold text-slate-400">شخص</span>
+          </div>
+          <p className="text-[11px] font-bold text-slate-400 mt-2 flex items-center gap-1">
+            <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
+            حسابات عهد مسجلة ونشطة بالسيستم
+          </p>
+        </div>
+
+        {/* Stat 3 */}
+        <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-2 h-full bg-purple-500 rounded-r-md"></div>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-slate-500 dark:text-slate-400">عمليات التسليم الموثقة</span>
+            <div className="w-9 h-9 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+              <ArrowRightLeft className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
+              {handovers.length}
+            </span>
+            <span className="text-xs font-bold text-slate-400">عملية</span>
+          </div>
+          <p className="text-[11px] font-bold text-slate-400 mt-2 flex items-center gap-1">
+            <History className="w-3.5 h-3.5 text-purple-500" />
+            سجلات تحويل نقدية مدققة ومحفوظة
+          </p>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-2xl p-3 border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+          <input 
+            type="text"
+            placeholder={activeTab === 'balances' ? "ابحث باسم صاحب العهدة..." : "ابحث في سجل التسليمات بالملاحظات أو الأسطر..."}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-slate-100/70 dark:bg-slate-900/70 text-slate-900 dark:text-white pr-10 pl-4 py-2 rounded-xl text-xs font-bold border-0 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-slate-400"
+          />
+          {searchQuery && (
+            <button 
+              onClick={() => setSearchQuery('')}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+            >
+              مسح
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content Sections */}
       <AnimatePresence mode="wait">
         {activeTab === 'balances' ? (
           <motion.div 
             key="balances"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-6"
           >
-             {holders.length === 0 ? (
-                <div className="md:col-span-3 py-20 text-center glass-card rounded-3xl">
-                   <Banknote size={48} className="mx-auto text-slate-200 dark:text-slate-800 mb-4" />
-                   <p className="text-slate-500 font-bold italic">لا يوجد عهد نقدية مسجلة حالياً</p>
-                </div>
-              ) : (
-                holders.map(holder => (
-                  <div key={holder.userId} className="glass-card p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-all group">
-                     <div className="flex items-center justify-between mb-6">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 flex items-center justify-center text-indigo-600 group-hover:scale-110 transition-transform">
-                           <User size={24} />
-                        </div>
-                        <div className="flex items-center gap-2">
-                           {(true) && (
-                             <button 
-                               onClick={() => {
-                                 setDialog({ isOpen: true, title: 'تأكيد الحذف', message: 'هل أنت متأكد؟', isWarning: true, onConfirm: () => { const updatedHolders = holders.filter(h => h.userId !== holder.userId); updateSettings({ ...settings, cashHolders: updatedHolders }); setDialog(null); } });
-                                }}
-                               className="text-rose-500 hover:bg-rose-50 p-2 rounded-xl transition-colors"
-                               title="حذف العهدة"
-                             >
-                               <X size={16} />
-                             </button>
-                           )}
-                           <div className="text-right">
-                              <h4 className="font-black text-slate-800 dark:text-white">
-                                {holder.userName}
-                                {holder.userId === 'admin' || holder.originalIds?.includes('admin') || holder.userName === 'المدير' || holder.userName === 'المدير (أنت)' ? ' (المدير)' : settings?.partners?.find(p => p.id === holder.userId || holder.originalIds?.includes(p.id) || holder.originalIds?.includes(`part_${p.id}`) || holder.originalIds?.includes(`partner_${p.id}`) || normalizeName(p.name) === holder.userName) ? ' (شريك)' : settings?.employees?.find(e => e.id === holder.userId || holder.originalIds?.includes(e.id) || holder.originalIds?.includes(`emp_${e.id}`) || holder.originalIds?.includes(`employee_${e.id}`) || normalizeName(e.name) === holder.userName) ? ' (موظف)' : ''}
-                              </h4>
-                              <span className="text-[10px] font-bold text-slate-400">آخر تحديث: {new Date(holder.lastUpdated).toLocaleDateString('ar-EG')}</span>
-                           </div>
-                        </div>
-                     </div>
-                     
-                     <div className="flex items-end justify-between">
-                        <div className="space-y-1">
-                           <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">إجمالي المبلغ في العهدة</div>
-                           <div className={`text-2xl font-black tabular-nums ${holder.currentBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              {holder.currentBalance.toLocaleString()} <span className="text-xs">ج.م</span>
-                           </div>
-                        </div>
-                        
-                        {(currentUser?.isAdmin || currentUser?.id === holder.userId) && (
-                          <div className="flex items-center gap-1.5">
-                             <button 
-                               onClick={() => {
-                                 setSelectedHolderForTreasury(holder);
-                                 setTreasuryAmount(holder.currentBalance > 0 ? holder.currentBalance : 0);
-                                 setTreasuryNotes('');
-                                 if (treasury?.accounts && treasury.accounts.length > 0) {
-                                   setSelectedTreasuryAccountId(treasury.accounts[0].id);
-                                 } else {
-                                   setSelectedTreasuryAccountId('');
-                                 }
-                                 setShowTreasuryModal(true);
-                               }}
-                               className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/40 p-2.5 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-black flex items-center gap-1 transition-all"
-                               title="تسليم المبلغ للخزينة وتصفية العهدة"
-                             >
-                               <Banknote size={15} />
-                               <span className="hidden sm:inline">تسليم للخزينة</span>
-                             </button>
-                             <button 
-                               onClick={() => {
-                                 setNewHandover({
-                                   fromUserId: holder.userId,
-                                   toUserId: '',
-                                   amount: holder.currentBalance > 0 ? holder.currentBalance : 0,
-                                   notes: ''
-                                 });
-                                 setHandoverType('holder');
-                                 setShowHandoverModal(true);
-                               }}
-                               className="bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/40 p-2.5 rounded-xl text-indigo-600 dark:text-indigo-400 text-xs font-black flex items-center gap-1 transition-all"
-                               title="تحويل العهدة لشخص آخر"
-                             >
-                               <ArrowRightLeft size={15} />
-                               <span className="hidden sm:inline">تحويل لشخص</span>
-                             </button>
-                          </div>
-                        )}
-                     </div>
-                  </div>
-                ))
-              )}
-              
-              {/* Quick Actions */}
-              <div className="md:col-span-3 pt-6 border-t border-slate-200 dark:border-slate-800">
-                 <button 
-                   onClick={() => {
-                     setNewHandover({
-                       fromUserId: currentUser?.id || 'admin',
-                       toUserId: '',
-                       amount: 0,
-                       notes: ''
-                     });
-                     setHandoverType('holder');
-                     setShowHandoverModal(true);
-                   }}
-                   className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl shadow-indigo-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-3"
-                 >
-                   <Plus size={24} />
-                   تسجيل تسليم مبلغ مالي (شريك/مندوب/كاشير)
-                 </button>
+            {filteredHolders.length === 0 ? (
+              <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-12 text-center border border-slate-200/80 dark:border-slate-800/80">
+                <Banknote className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+                <h3 className="text-slate-700 dark:text-slate-300 font-black text-base">لا توجد عهد نقدية مطابقة</h3>
+                <p className="text-slate-400 text-xs font-bold mt-1">
+                  {searchQuery ? 'لم نجد أصحاب عهد بهذا الاسم' : 'يمكنك تسجيل أول عملية تسليم مبلغ نقدية بالضغط على الزر أعلاه'}
+                </p>
               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredHolders.map(holder => {
+                  const isPositive = holder.currentBalance >= 0;
+                  const isManager = holder.userId === 'admin' || holder.originalIds?.includes('admin') || holder.userName === 'المدير' || holder.userName === 'المدير (أنت)';
+                  const isPartner = settings?.partners?.find(p => p.id === holder.userId || holder.originalIds?.includes(p.id) || holder.originalIds?.includes(`part_${p.id}`) || holder.originalIds?.includes(`partner_${p.id}`) || normalizeName(p.name) === holder.userName);
+                  const isEmployee = settings?.employees?.find(e => e.id === holder.userId || holder.originalIds?.includes(e.id) || holder.originalIds?.includes(`emp_${e.id}`) || holder.originalIds?.includes(`employee_${e.id}`) || normalizeName(e.name) === holder.userName);
+
+                  return (
+                    <div 
+                      key={holder.userId} 
+                      className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800/80 hover:border-indigo-500/40 dark:hover:border-indigo-500/40 shadow-xs hover:shadow-lg transition-all duration-300 group flex flex-col justify-between"
+                    >
+                      <div>
+                        {/* Header card info */}
+                        <div className="flex items-start justify-between gap-3 mb-5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500/10 to-purple-500/10 dark:from-indigo-500/20 dark:to-purple-500/20 border border-indigo-200/50 dark:border-indigo-800/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
+                              <User className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-black text-slate-900 dark:text-white text-base">
+                                  {holder.userName}
+                                </h3>
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${
+                                  isManager ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-600 border-purple-200/60 dark:border-purple-800/60' :
+                                  isPartner ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 border-amber-200/60 dark:border-amber-800/60' :
+                                  'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200/60 dark:border-slate-700/60'
+                                }`}>
+                                  {isManager ? 'المدير' : isPartner ? 'شريك' : isEmployee ? 'موظف' : 'عهدة'}
+                                </span>
+                              </div>
+                              <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1 mt-1">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                {new Date(holder.lastUpdated).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                              setDialog({ 
+                                isOpen: true, 
+                                title: 'تأكيد حذف سجّل العهدة', 
+                                message: `هل أنت متأكد من حذف حساب العهدة الخاص بـ (${holder.userName})؟`, 
+                                isWarning: true, 
+                                onConfirm: () => { 
+                                  const updatedHolders = holders.filter(h => h.userId !== holder.userId); 
+                                  updateSettings({ ...settings, cashHolders: updatedHolders }); 
+                                  setDialog(null); 
+                                } 
+                              });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+                            title="حذف العهدة"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+
+                        {/* Balance info */}
+                        <div className="bg-slate-50/80 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-800/60 mb-5">
+                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">إجمالي الرصيد الحالي بحوزته</span>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className={`text-2xl font-black tabular-nums tracking-tight ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                              {holder.currentBalance.toLocaleString('ar-EG')}
+                            </span>
+                            <span className="text-xs font-bold text-slate-400">ج.م</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Action Controls */}
+                      {(currentUser?.isAdmin || currentUser?.id === holder.userId) && (
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                          <button 
+                            onClick={() => {
+                              setSelectedHolderForTreasury(holder);
+                              setTreasuryAmount(holder.currentBalance > 0 ? holder.currentBalance : 0);
+                              setTreasuryNotes('');
+                              if (treasury?.accounts && treasury.accounts.length > 0) {
+                                setSelectedTreasuryAccountId(treasury.accounts[0].id);
+                              } else {
+                                setSelectedTreasuryAccountId('');
+                              }
+                              setShowTreasuryModal(true);
+                            }}
+                            className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-emerald-200/50 dark:border-emerald-800/50 shadow-xs"
+                            title="تسليم المبلغ للخزينة وتصفية العهدة"
+                          >
+                            <Banknote className="w-4 h-4" />
+                            تسليم للخزينة
+                          </button>
+                          
+                          <button 
+                            onClick={() => {
+                              setNewHandover({
+                                fromUserId: holder.userId,
+                                toUserId: '',
+                                amount: holder.currentBalance > 0 ? holder.currentBalance : 0,
+                                notes: ''
+                              });
+                              setHandoverType('holder');
+                              setShowHandoverModal(true);
+                            }}
+                            className="w-full py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-indigo-200/50 dark:border-indigo-800/50 shadow-xs"
+                            title="تحويل العهدة لشخص آخر"
+                          >
+                            <ArrowRightLeft className="w-4 h-4" />
+                            تحويل لشخص
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </motion.div>
         ) : (
+          /* Handovers History List */
           <motion.div 
             key="handovers"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
             className="space-y-3"
           >
-             {handovers.length === 0 ? (
-                  <div className="py-20 text-center glass-card rounded-3xl">
-                     <History size={48} className="mx-auto text-slate-200 dark:text-slate-800 mb-4" />
-                     <p className="text-slate-500 font-bold">لم يتم تسجيل عمليات تسليم نقدية بعد</p>
-                  </div>
-               ) : (
-                 handovers.map(h => (
-                   <div key={h.id} className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-right" dir="rtl">
-                      <div className="flex items-center gap-4">
-                         <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500">
-                            <CheckCircle2 size={18} />
-                         </div>
-                         <div>
-                            <div className="flex items-center gap-2">
-                               <span className="font-black text-slate-800 dark:text-white">{h.fromUserName}</span>
-                               <ArrowRightLeft size={12} className="text-slate-400 rotate-180" />
-                               <span className="font-black text-indigo-600">{h.toUserName}</span>
-                            </div>
-                            <div className="text-[10px] font-bold text-slate-400 mt-0.5">{new Date(h.date).toLocaleString('ar-EG')}</div>
-                         </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-6">
-                         {(h.notes || (h as any).note) && (
-                           <div className="text-[10px] bg-slate-50 dark:bg-slate-800 px-3 py-1 rounded-lg text-slate-500 italic max-w-[200px] truncate">
-                             "{(h.notes || (h as any).note)}"
-                           </div>
-                         )}
-                         <div className="text-lg font-black text-emerald-600 tabular-nums">
-                            {h.amount.toLocaleString()} <span className="text-[10px]">ج.م</span>
+            {filteredHandovers.length === 0 ? (
+              <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-12 text-center border border-slate-200/80 dark:border-slate-800/80">
+                <History className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+                <h3 className="text-slate-700 dark:text-slate-300 font-black text-base">لا توجد عمليات تسليم نقدية مسجلة</h3>
+                <p className="text-slate-400 text-xs font-bold mt-1">تُسجل هنا جميع التحويلات المالية والتسليمات المعتمدة في النظام</p>
+              </div>
+            ) : (
+              <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs overflow-hidden">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                    <History className="w-4 h-4 text-indigo-500" />
+                    سجل حركة العمليات والتحويلات المعتمدة
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    عدد السجلات: {filteredHandovers.length}
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {filteredHandovers.map(h => (
+                    <div 
+                      key={h.id} 
+                      className="p-4 sm:p-5 hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/40">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-black text-slate-900 dark:text-white text-sm">{h.fromUserName}</span>
+                            <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-500 rotate-180 shrink-0" />
+                            <span className="font-black text-indigo-600 dark:text-indigo-400 text-sm">{h.toUserName}</span>
                           </div>
-                          <button
-                            onClick={() => handleDeleteHandover(h.id)}
-                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-550/10 rounded-xl transition-all cursor-pointer flex items-center justify-center shrink-0 mr-2"
-                            title="حذف عملية التسليم المالي"
-                          >
-                             <Trash2 size={16} />
-                          </button>
-                          <div className="hidden">
-                         </div>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {new Date(h.date).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </span>
+                            {(h.notes || (h as any).note) && (
+                              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-md truncate max-w-xs">
+                                "{h.notes || (h as any).note}"
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                   </div>
-                 ))
-               )}
+
+                      <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
+                        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60 px-3 py-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 font-black text-base tabular-nums flex items-baseline gap-1">
+                          {h.amount.toLocaleString('ar-EG')}
+                          <span className="text-[10px] font-bold">ج.م</span>
+                        </div>
+
+                        <button
+                          onClick={() => handleDeleteHandover(h.id)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+                          title="حذف عملية التسليم وإعادة الموازنة"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Handover Modal */}
       {showHandoverModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-           <motion.div 
-             initial={{ scale: 0.9, opacity: 0 }}
-             animate={{ scale: 1, opacity: 1 }}
-             className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl relative"
-           >
-              <button 
-                onClick={() => setShowHandoverModal(false)}
-                className="absolute left-6 top-6 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-              >
-                <X size={24} />
-              </button>
-              
-              <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6 pr-8 text-right">تسليم أو تحويل مالي</h3>
-              
-              <div className="space-y-6 text-right" dir="rtl">
-                  {/* Select Recipient Type */}
-                  <div className="space-y-2">
-                     <label className="text-xs font-black text-slate-500 uppercase mr-1 flex items-center gap-1.5 justify-end">
-                       جهة تسليم المبلغ
-                     </label>
-                     <div className="grid grid-cols-4 gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHandoverType('holder');
-                            setNewHandover({ ...newHandover, toUserId: '' });
-                          }}
-                          className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'holder' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                        >
-                          عهدة
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHandoverType('treasury');
-                            setNewHandover({ ...newHandover, toUserId: treasury?.accounts?.[0]?.id || '' });
-                          }}
-                          className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'treasury' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                        >
-                          خزينة
-                        </button>
-                        <button
-                           type="button"
-                           onClick={() => {
-                             setHandoverType('main_wallet');
-                             setNewHandover({ ...newHandover, toUserId: 'main_wallet' });
-                           }}
-                           className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'main_wallet' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                         >
-                           المحفظة
-                         </button>
-                         <button
-                           type="button"
-                           onClick={() => {
-                             setHandoverType('supply_wallet');
-                             setNewHandover({ ...newHandover, toUserId: 'supply_wallet' });
-                           }}
-                           className={`py-2 px-1 rounded-xl text-[9px] sm:text-[10px] font-black border transition-all ${handoverType === 'supply_wallet' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-750 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                         >
-                           التوريد
-                         </button>
-                     </div>
-                  </div>
-
-                  {currentUser?.isAdmin && (
-                    <div className="space-y-2">
-                       <label className="text-xs font-black text-slate-500 uppercase mr-1">المسلِّم (صاحب العهدة)</label>
-                       <select 
-                         value={newHandover.fromUserId || (currentUser?.id || 'admin')}
-                         onChange={(e) => setNewHandover({...newHandover, fromUserId: e.target.value})}
-                         className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 px-4 rounded-xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 text-right"
-                       >
-                         {allPossibleHolders.map((h, index) => (
-                           <option key={'from_' + h.id + index} value={h.id}>{h.name} ({h.role})</option>
-                         ))}
-                       </select>
-                    </div>
-                  )}
-
-                  {handoverType !== 'supply_wallet' && (
-                    <div className="space-y-2">
-                       <label className="text-xs font-black text-slate-500 uppercase mr-1">
-                          {handoverType === 'treasury' ? 'الخزينة المستلمة' : 'المستلم'}
-                       </label>
-                       <select 
-                         value={newHandover.toUserId}
-                         onChange={(e) => setNewHandover({...newHandover, toUserId: e.target.value})}
-                         className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 px-4 rounded-xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 text-right"
-                       >
-                         {handoverType === 'treasury' ? (
-                           <>
-                             <option value="">-- اختر خزينة الإيداع --</option>
-                             {(treasury?.accounts || []).map((acc: any) => (
-                               <option key={'treasury_acc_' + acc.id} value={acc.id}>
-                                 {acc.name} (الرصيد: {acc.balance.toLocaleString()} ج.م)
-                               </option>
-                             ))}
-                           </>
-                         ) : (
-                           <>
-                             <option value="">-- اختر المستلم --</option>
-                             {allPossibleHolders.map((h, index) => (
-                               <option key={'to_' + h.id + index} value={h.id}>{h.name} ({h.role})</option>
-                             ))}
-                           </>
-                         )}
-                       </select>
-                    </div>
-                  )}
-                  
-                  <div className="space-y-2">
-                     <label className="text-xs font-black text-slate-500 uppercase mr-1">المبلغ المراد تسليمه</label>
-                     <div className="relative">
-                        <input 
-                          type="number"
-                          value={newHandover.amount || ''}
-                          onChange={(e) => setNewHandover({...newHandover, amount: Number(e.target.value)})}
-                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 pl-12 pr-4 rounded-xl font-black text-lg outline-none text-right focus:ring-4 focus:ring-emerald-500/10"
-                        />
-                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
-                     </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                     <label className="text-xs font-black text-slate-500 uppercase mr-1">ملاحظات</label>
-                     <textarea 
-                       placeholder="مثلاً: توريد يومية المخزن، عهدة مصاريف..."
-                       value={newHandover.notes}
-                       onChange={(e) => setNewHandover({...newHandover, notes: e.target.value})}
-                       rows={2}
-                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded-xl font-bold text-sm outline-none text-right focus:ring-4 focus:ring-indigo-500/10 resize-none"
-                     />
-                  </div>
-                  
-                  <div className="pt-4 flex flex-col sm:flex-row items-center gap-3">
-                     <div className="flex-1 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-xl flex gap-3 text-amber-700 dark:text-amber-400">
-                        <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                        <p className="text-[10px] font-bold leading-relaxed text-right">تنبيه: سيتم خصم هذا المبلغ من عهدة الطرف المسلم وتضاف لعهدة الطرف المستلم فور الضغط على تأكيد.</p>
-                     </div>
-                     <button 
-                       onClick={handleExecuteHandover}
-                       className="bg-emerald-600 text-white w-full sm:w-auto px-8 py-4 rounded-2xl font-black shadow-lg shadow-emerald-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all shrink-0"
-                     >
-                       تأكيد التسليم
-                     </button>
-                  </div>
-              </div>
-           </motion.div>
-        </div>
-      )}
-
-      {/* Global Dialog */}
-      {dialog && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-            <motion.div 
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="bg-white dark:bg-slate-900 max-w-sm w-full rounded-3xl p-6 shadow-2xl relative text-center border border-slate-200 dark:border-slate-800"
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white dark:bg-[#090d16] w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border border-slate-200 dark:border-slate-800 text-right" 
+            dir="rtl"
+          >
+            <button 
+              onClick={() => setShowHandoverModal(false)}
+              className="absolute left-6 top-6 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
             >
-                <div className={`w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-4 ${dialog.isWarning ? 'bg-rose-100 text-rose-600' : 'bg-indigo-100 text-indigo-600'}`}>
-                    {dialog.isWarning ? <AlertTriangle size={32} /> : <Info size={32} />}
+              <X size={20} />
+            </button>
+            
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <ArrowRightLeft className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">تسليم أو تحويل مالي</h3>
+                <p className="text-slate-400 text-xs font-bold">توثيق ونقل النقدية بين العهد أو الخزائن المعرفية</p>
+              </div>
+            </div>
+            
+            <div className="space-y-5">
+              {/* Select Destination Type */}
+              <div>
+                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-2">
+                  جهة التسليم / المستلم
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHandoverType('holder');
+                      setNewHandover({ ...newHandover, toUserId: '' });
+                    }}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      handoverType === 'holder' 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
+                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    عهدة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHandoverType('treasury');
+                      setNewHandover({ ...newHandover, toUserId: treasury?.accounts?.[0]?.id || '' });
+                    }}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      handoverType === 'treasury' 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
+                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    خزينة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHandoverType('main_wallet');
+                      setNewHandover({ ...newHandover, toUserId: 'main_wallet' });
+                    }}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      handoverType === 'main_wallet' 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
+                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    المحفظة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHandoverType('supply_wallet');
+                      setNewHandover({ ...newHandover, toUserId: 'supply_wallet' });
+                    }}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                      handoverType === 'supply_wallet' 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
+                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    التوريد
+                  </button>
                 </div>
-                <h3 className="text-xl font-black text-slate-800 dark:text-white mb-2">{dialog.title}</h3>
-                <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">{dialog.message}</p>
-                
-                <div className="flex gap-3">
-                    <button 
-                        onClick={() => setDialog(null)}
-                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold transition-colors"
-                    >
-                        إلغاء
-                    </button>
-                    <button 
-                        onClick={dialog.onConfirm}
-                        className={`flex-1 py-3 text-white rounded-xl font-bold transition-all shadow-lg ${dialog.isWarning ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/30'}`}
-                    >
-                        تأكيد
-                    </button>
+              </div>
+
+              {currentUser?.isAdmin && (
+                <div>
+                  <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
+                    المسلِّم (صاحب العهدة المصدر)
+                  </label>
+                  <select 
+                    value={newHandover.fromUserId || (currentUser?.id || 'admin')}
+                    onChange={(e) => setNewHandover({...newHandover, fromUserId: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 px-4 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
+                  >
+                    {allPossibleHolders.map((h, index) => (
+                      <option key={'from_' + h.id + index} value={h.id}>{h.name} ({h.role})</option>
+                    ))}
+                  </select>
                 </div>
-            </motion.div>
+              )}
+
+              {handoverType !== 'supply_wallet' && (
+                <div>
+                  <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
+                    {handoverType === 'treasury' ? 'الخزينة المستلمة' : 'المستلم'}
+                  </label>
+                  <select 
+                    value={newHandover.toUserId}
+                    onChange={(e) => setNewHandover({...newHandover, toUserId: e.target.value})}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 px-4 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
+                  >
+                    {handoverType === 'treasury' ? (
+                      <>
+                        <option value="">-- اختر خزينة الإيداع --</option>
+                        {(treasury?.accounts || []).map((acc: any) => (
+                          <option key={'treasury_acc_' + acc.id} value={acc.id}>
+                            {acc.name} (الرصيد: {acc.balance.toLocaleString()} ج.م)
+                          </option>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <option value="">-- اختر المستلم --</option>
+                        {allPossibleHolders.map((h, index) => (
+                          <option key={'to_' + h.id + index} value={h.id}>{h.name} ({h.role})</option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                </div>
+              )}
+              
+              <div>
+                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
+                  المبلغ المراد تسليمه
+                </label>
+                <div className="relative">
+                  <input 
+                    type="number"
+                    value={newHandover.amount || ''}
+                    onChange={(e) => setNewHandover({...newHandover, amount: Number(e.target.value)})}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 pl-12 pr-4 rounded-xl font-black text-base outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white"
+                  />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ج.م</span>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
+                  ملاحظات أو بيان
+                </label>
+                <textarea 
+                  placeholder="مثلاً: توريد تحصيل طلبات اليوم، عهدة مصاريف..."
+                  value={newHandover.notes}
+                  onChange={(e) => setNewHandover({...newHandover, notes: e.target.value})}
+                  rows={2}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800/80">
+                <button 
+                  type="button"
+                  onClick={() => setShowHandoverModal(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleExecuteHandover}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  تأكيد التسليم
+                </button>
+              </div>
+            </div>
+          </motion.div>
         </div>
       )}
 
       {/* Treasury Settlement Modal */}
       {showTreasuryModal && selectedHolderForTreasury && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-           <motion.div 
-             initial={{ scale: 0.9, opacity: 0 }}
-             animate={{ scale: 1, opacity: 1 }}
-             className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl p-6 shadow-2xl relative animate-in fade-in-50 zoom-in-95 duration-200"
-           >
-              <button 
-                onClick={() => {
-                  setShowTreasuryModal(false);
-                  setSelectedHolderForTreasury(null);
-                }}
-                className="absolute left-6 top-6 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors"
-              >
-                <X size={24} />
-              </button>
-              
-              <h3 className="text-xl font-black text-slate-900 dark:text-white mb-1 pr-8 text-right">تسليم عهدة للخزينة</h3>
-              <p className="text-slate-400 text-xs font-bold mb-6 text-right">تسوية وتوريد الرصيد النقدي للموظف {selectedHolderForTreasury.userName} إلى حساب مالي</p>
-              
-              <div className="space-y-6 text-right" dir="rtl">
-                 <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-500 uppercase mr-1">الحساب المالي المستلم (الخزينة/البنك/المحفظة)</label>
-                    <select 
-                      value={selectedTreasuryAccountId}
-                      onChange={(e) => setSelectedTreasuryAccountId(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 px-4 rounded-xl font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 text-right"
-                    >
-                      <option value="">-- اختر الحساب المالي --</option>
-                      
-                      <optgroup label="المحافظ الإلكترونية">
-                         <option value="main_wallet">المحفظة العامة (الرصيد: {Number(wallet?.balance || 0).toLocaleString()} ج.م)</option>
-                         <option value="supply_wallet">محفظة التوريد (الرصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م)</option>
-                      </optgroup>
-
-                      <optgroup label="الخزائن والحسابات البنكية">
-                        {(treasury?.accounts || []).map((acc: any) => (
-                          <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
-                        ))}
-                      </optgroup>
-                    </select>
-                 </div>
-                 
-                 <div className="space-y-2">
-                    <div className="flex justify-between items-center px-1">
-                      <button 
-                        type="button" 
-                        onClick={() => setTreasuryAmount(selectedHolderForTreasury.currentBalance)}
-                        className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold hover:underline"
-                      >
-                        توريد كل العهدة ({selectedHolderForTreasury.currentBalance.toLocaleString()} ج.م)
-                      </button>
-                      <label className="text-xs font-black text-slate-500 uppercase">المبلغ المراد توريده</label>
-                    </div>
-                    <div className="relative">
-                       <input 
-                         type="number"
-                         value={treasuryAmount || ''}
-                         onChange={(e) => setTreasuryAmount(Number(e.target.value))}
-                         className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 h-12 pl-12 pr-4 rounded-xl font-black text-lg outline-none text-right focus:ring-4 focus:ring-emerald-500/10"
-                       />
-                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
-                    </div>
-                 </div>
-                 
-                 <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-500 uppercase mr-1">ملاحظات التوريد</label>
-                    <textarea 
-                      placeholder="مثلاً: توريد جزئي للعهدة، تصفية حساب يومية..."
-                      value={treasuryNotes}
-                      onChange={(e) => setTreasuryNotes(e.target.value)}
-                      rows={2}
-                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4 rounded-xl font-bold text-sm outline-none text-right focus:ring-4 focus:ring-indigo-500/10 resize-none"
-                    />
-                 </div>
-                 
-                 <div className="pt-4 flex items-center justify-between gap-3">
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 rounded-xl flex gap-3 text-indigo-700 dark:text-indigo-400 w-full">
-                       <AlertCircle size={18} className="shrink-0 mt-0.5" />
-                       <p className="text-[10px] font-bold leading-relaxed text-right">سيتم خصم المبلغ من عهدة {selectedHolderForTreasury.userName} وإضافته في رصيد حساب الخزينة المختار فور التأكيد.</p>
-                    </div>
-                 </div>
-
-                 <div className="flex gap-3 justify-end pt-2">
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        setShowTreasuryModal(false);
-                        setSelectedHolderForTreasury(null);
-                      }}
-                      className="border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 px-6 py-3 rounded-xl font-bold hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
-                    >
-                      إلغاء
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={handleExecuteTreasuryDeposit}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-black shadow-lg shadow-emerald-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                    >
-                      تأكيد التوريد
-                    </button>
-                 </div>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white dark:bg-[#090d16] w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border border-slate-200 dark:border-slate-800 text-right" 
+            dir="rtl"
+          >
+            <button 
+              onClick={() => {
+                setShowTreasuryModal(false);
+                setSelectedHolderForTreasury(null);
+              }}
+              className="absolute left-6 top-6 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+            
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <Landmark className="w-5 h-5" />
               </div>
-           </motion.div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">تسليم عهدة للخزينة / المحفظة</h3>
+                <p className="text-slate-400 text-xs font-bold">تسوية وتوريد الرصيد النقدي للموظف ({selectedHolderForTreasury.userName})</p>
+              </div>
+            </div>
+            
+            <div className="space-y-5">
+              <div>
+                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
+                  الحساب المالي المستلم (الخزينة / المحفظة)
+                </label>
+                <select 
+                  value={selectedTreasuryAccountId}
+                  onChange={(e) => setSelectedTreasuryAccountId(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 px-4 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
+                >
+                  <option value="">-- اختر الحساب المالي --</option>
+                  <optgroup label="المحافظ الإلكترونية">
+                     <option value="main_wallet">المحفظة العامة (الرصيد: {Number(wallet?.balance || 0).toLocaleString()} ج.م)</option>
+                     <option value="supply_wallet">محفظة التوريد (الرصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م)</option>
+                  </optgroup>
+                  <optgroup label="الخزائن والحسابات البنكية">
+                    {(treasury?.accounts || []).map((acc: any) => (
+                      <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+              
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-xs font-black text-slate-600 dark:text-slate-400">المبلغ المراد توريده</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setTreasuryAmount(selectedHolderForTreasury.currentBalance)}
+                    className="text-[11px] text-indigo-600 dark:text-indigo-400 font-black hover:underline cursor-pointer"
+                  >
+                    تصفية كل العهدة ({selectedHolderForTreasury.currentBalance.toLocaleString()} ج.م)
+                  </button>
+                </div>
+                <div className="relative">
+                  <input 
+                    type="number"
+                    value={treasuryAmount || ''}
+                    onChange={(e) => setTreasuryAmount(Number(e.target.value))}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 pl-12 pr-4 rounded-xl font-black text-base outline-none text-right focus:border-emerald-500 text-slate-900 dark:text-white"
+                  />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ج.م</span>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
+                  ملاحظات التوريد
+                </label>
+                <textarea 
+                  placeholder="مثلاً: توريد جزئي للعهدة، تصفية حساب اليومية..."
+                  value={treasuryNotes}
+                  onChange={(e) => setTreasuryNotes(e.target.value)}
+                  rows={2}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white resize-none"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800/80">
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setShowTreasuryModal(false);
+                    setSelectedHolderForTreasury(null);
+                  }}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleExecuteTreasuryDeposit}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  تأكيد التوريد
+                </button>
+              </div>
+            </div>
+          </motion.div>
         </div>
       )}
+
+      {/* Custom Global Dialog */}
+      {dialog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#090d16] w-full max-w-sm rounded-3xl p-6 shadow-2xl text-right border border-slate-200 dark:border-slate-800" dir="rtl">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${dialog.isWarning ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400'}`}>
+              {dialog.isWarning ? <AlertTriangle className="w-6 h-6" /> : <Info className="w-6 h-6" />}
+            </div>
+            <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">{dialog.title}</h3>
+            <p className="text-slate-500 dark:text-slate-400 font-bold text-xs mb-6 leading-relaxed">{dialog.message}</p>
+            
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setDialog(null)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button 
+                onClick={dialog.onConfirm}
+                className={`flex-1 py-2.5 text-white rounded-xl font-black text-xs transition-all shadow-md cursor-pointer ${
+                  dialog.isWarning ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                }`}
+              >
+                تأكيد
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

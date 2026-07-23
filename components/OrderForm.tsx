@@ -1008,6 +1008,23 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </div>
             </div>
 
+            <div className="p-3 bg-purple-100/30 dark:bg-purple-950/20 border border-purple-200/50 dark:border-purple-800/40 rounded-xl">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={orderData.customerPaidOriginalShipping ?? true}
+                  onChange={(e) => handleFieldChange("customerPaidOriginalShipping", e.target.checked)}
+                  className="mt-0.5 w-4.5 h-4.5 text-purple-600 rounded cursor-pointer focus:ring-purple-500"
+                />
+                <div>
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">هل دفع العميل مصاريف شحن الطلب الأول؟</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5 leading-relaxed">
+                    إذا تم تحديد هذا الخيار، سيتم اعتبار مصاريف شحن الطلب الأول كإيراد للمتجر لكي يعوض تكلفة شحن شركة التوصيل للطلب الأصلي. إذا تم إلغاء التحديد، سيتحمل المتجر خسارة شحن الطلب الأول كاملةً.
+                  </span>
+                </div>
+              </label>
+            </div>
+
             {/* If there are items from original order to select from */}
             {orderData.originalOrderItems && orderData.originalOrderItems.length > 0 && (
               <div className="mt-4 pt-4 border-t border-purple-100 dark:border-purple-900/40 space-y-3">

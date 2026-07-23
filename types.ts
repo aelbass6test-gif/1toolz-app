@@ -1118,6 +1118,9 @@ export interface Order {
   maintenanceTechnicalReport?: string;
   maintenanceStatus?: 'not_started' | 'received' | 'in_repair' | 'ready_to_ship' | 'delivered' | 'cancelled';
   vatOnStandardShipping?: boolean;
+  originalOrderItems?: any[];
+  exchangedItems?: any[];
+  customerPaidOriginalShipping?: boolean;
   returnProductValue?: number;
   returnTrackingNumber?: string;
   payWithBostaPoints?: boolean;
