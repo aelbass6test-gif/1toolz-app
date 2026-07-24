@@ -28,15 +28,19 @@ interface ReportsPageProps {
   supplyOrders?: any[];
 }
 
-const ReportCard: React.FC<{ title: string; value: string; icon: React.ReactNode; subValue?: string; color: 'emerald' | 'red' | 'amber' | 'blue' | 'teal'; tooltip?: string }> = ({ title, value, icon, subValue, color, tooltip }) => {
-    const colorClasses = {
+const ReportCard: React.FC<{ title: string; value: string; icon: React.ReactNode; subValue?: string; color: 'emerald' | 'red' | 'amber' | 'blue' | 'teal' | 'indigo' | 'purple' | 'cyan' | 'slate'; tooltip?: string }> = ({ title, value, icon, subValue, color, tooltip }) => {
+    const colorClasses: Record<string, { bg: string; text: string; border: string }> = {
         emerald: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-600', border: 'border-emerald-200 dark:border-emerald-800' },
         red: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-600', border: 'border-red-200 dark:border-red-800' },
         amber: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600', border: 'border-amber-200 dark:border-amber-800' },
         blue: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600', border: 'border-blue-200 dark:border-blue-800' },
         teal: { bg: 'bg-teal-100 dark:bg-teal-900/30', text: 'text-teal-600', border: 'border-teal-200 dark:border-teal-800' },
+        indigo: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-600', border: 'border-indigo-200 dark:border-indigo-800' },
+        purple: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600', border: 'border-purple-200 dark:border-purple-800' },
+        cyan: { bg: 'bg-cyan-100 dark:bg-cyan-900/30', text: 'text-cyan-600', border: 'border-cyan-200 dark:border-cyan-800' },
+        slate: { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-600', border: 'border-slate-200 dark:border-slate-700' },
     };
-    const currentColors = colorClasses[color];
+    const currentColors = colorClasses[color] || colorClasses.blue;
 
     return (
         <div className={`p-6 rounded-2xl border ${currentColors.border} bg-white dark:bg-slate-900 shadow-sm relative group`} title={tooltip}>
@@ -601,11 +605,20 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
 
     const stats = useMemo(() => {
         let totalLoss = 0;
+        let totalCompensated = 0;
+        let compensatedCount = 0;
         failedOrders.forEach(order => {
             const { loss, net } = calculateOrderProfitLoss(order, settings);
             totalLoss += (loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0));
+            
+            const compStatus = (order as any).compensationStatus;
+            const compAmount = Number((order as any).compensationAmount) || 0;
+            if (compStatus === 'compensated' && compAmount > 0) {
+                totalCompensated += compAmount;
+                compensatedCount++;
+            }
         });
-        return { totalLoss, count: failedOrders.length };
+        return { totalLoss, count: failedOrders.length, totalCompensated, compensatedCount };
     }, [failedOrders, settings]);
 
     // Return Reasons and Company Auditing
@@ -853,9 +866,11 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                 <strong>شرح توضيحي:</strong> يعرض هذا القسم تفاصيل الطلبات التي لم تنجح (مرتجع، فشل توصيل). يوضح تكلفة الشحن المهدرة وأي رسوم أخرى تحملتها بالإضافة إلى تصنيف آلي لأسباب الفشل وتصنيف فاعلية شركات الشحن.
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <ReportCard title="إجمالي الخسائر المقدرة" value={`${stats.totalLoss.toLocaleString('ar-EG')} ج.م`} icon={<ArrowDown size={24}/>} color="red" tooltip="إجمالي المبالغ المهدرة على مصاريف الشحن للطلبات التي لم يتم تسليمها." />
+                <ReportCard title="إجمالي التعويضات المستردة" value={`${stats.totalCompensated.toLocaleString('ar-EG')} ج.م`} icon={<CheckCircle size={24}/>} color="indigo" tooltip="إجمالي المبالغ التي تم استردادها أو تعويضها من شركات الشحن." />
                 <ReportCard title="عدد الطلبات الفاشلة/المرتجعة" value={stats.count.toString()} icon={<AlertTriangle size={24}/>} color="amber" tooltip="إجمالي عدد الطلبات التي حالتها مرتجع أو فشل توصيل." />
+                <ReportCard title="عدد الطلبات المعوضة" value={stats.compensatedCount.toString()} icon={<Package size={24}/>} color="blue" tooltip="إجمالي عدد الطلبات التي تم تعويضك عنها." />
             </div>
 
             {/* RETURN REASONS AUDITING & SHIPPING AUDITING VISUALS */}
@@ -1036,6 +1051,12 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
                                             <td className="px-4 py-3 text-center">
                                                 <div className="font-black text-red-600">-{(actualLoss || 0).toLocaleString()}</div>
                                                 {codFee > 0 && <div className="text-[9px] text-slate-400">تحصيل: {codFee}</div>}
+                                                {order.compensationStatus === 'compensated' && (
+                                                    <div className="mt-1 inline-flex flex-wrap items-center gap-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg text-[9px] font-bold border border-indigo-200 dark:border-indigo-800 text-right w-full justify-center">
+                                                        <CheckCircle size={10} className="flex-shrink-0" />
+                                                        <span>معوض ({order.compensationAmount}) {order.compensationCourierName ? `من ${order.compensationCourierName}` : ''}</span>
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     );
@@ -3350,12 +3371,25 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
              return { ...partner, currentBalance: partner.balance || 0, undistributedShare, distributions };
         });
 
+        const uncompensatedFailedOrders = orders.filter(o => 
+            ['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(o.status) && 
+            (o as any).compensationStatus !== 'compensated'
+        );
+        const uncompensatedLoss = uncompensatedFailedOrders.reduce((sum, o) => {
+            const { loss } = calculateOrderProfitLoss(o, settings);
+            return sum + loss;
+        }, 0);
+
+        const waSentCount = orders.filter(o => (o as any).waMessagesSent?.length > 0).length;
+        const waSuccessCount = orders.filter(o => (o as any).waMessagesSent?.some((m: any) => m.success)).length;
+
         return { 
             totalProductRevenue, totalExtraMarkup, totalShippingRevenue, totalInspectionRevenue, 
             totalManualAdjustments, totalCogs, totalCarrierFees, totalLoss, totalExpenses, 
             finalNet, inventoryValue, inventorySalesValue, partnerPerformance, 
             totalCapital, pendingCollection, totalProfit, totalNetRevenue, totalRequiredCollection,
-            totalShippingMarkup
+            totalShippingMarkup, uncompensatedLoss, uncompensatedCount: uncompensatedFailedOrders.length,
+            waSentCount, waSuccessCount
         };
     }, [orders, settings, wallet]);
 
@@ -3516,8 +3550,28 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                             <p>
                                 عقب خصم خسائر الطرود المرتجعة وغير المسلمة التي بلغت <b className="text-rose-400 font-mono">{stats.totalLoss.toLocaleString('ar-EG')} ج.م</b>، والمصروفات الإدارية بقيمة <b className="text-purple-400 font-mono">{stats.totalExpenses.toLocaleString('ar-EG')} ج.م</b>، استقر <b>صافي الربح النهائي الحقيقي</b> لمتجرك عند <b className="text-emerald-400 text-base font-mono">{stats.finalNet.toLocaleString('ar-EG')} ج.م</b>.
                             </p>
-                            <p className="text-slate-400 text-xs pt-2 border-t border-slate-700/60">
-                                معدل هامش صافي الربح الفعلي يمثل <span className="text-emerald-400 font-bold font-mono">{netProfitMargin.toFixed(1)}%</span> من إجمالي السيولة المحصلة بالكامل، مما يشير إلى وضع مالي <span className="font-bold text-blue-400">{stats.finalNet > 0 ? 'مربح وممتاز تشغيلياً ويمكن التوسع به' : 'يحتاج إلى مراجعة فورية لهيكل أسعار البيع وتكلفة شركات التوصيل'}</span>.
+                            <div className="pt-3 border-t border-slate-700/60 mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/40">
+                                    <div className="flex items-center gap-2 text-amber-400 mb-1">
+                                        <AlertTriangle size={16} />
+                                        <span className="text-xs font-black uppercase">تنبيه الخسائر غير المعوضة</span>
+                                    </div>
+                                    <p className="text-xs text-slate-400">
+                                        يوجد <b className="text-amber-400">{(stats as any).uncompensatedCount || 0}</b> أوردرات مرتجعة لم يتم تسجيل تعويض لها بعد، بقيمة خسارة إجمالية تقدر بـ <b className="text-amber-400">{(stats as any).uncompensatedLoss?.toLocaleString('ar-EG') || 0} ج.م</b>.
+                                    </p>
+                                </div>
+                                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/40">
+                                    <div className="flex items-center gap-2 text-emerald-400 mb-1">
+                                        <Share2 size={16} />
+                                        <span className="text-xs font-black uppercase">مؤشرات التواصل الذكي</span>
+                                    </div>
+                                    <p className="text-xs text-slate-400">
+                                        تم استخدام نظام WhatsApp API للتواصل مع <b className="text-emerald-400">{(stats as any).waSentCount || 0}</b> عميل، بنسبة نجاح في التسليم بلغت <b className="text-emerald-400">{((stats as any).waSuccessCount / ((stats as any).waSentCount || 1) * 100).toFixed(1)}%</b>.
+                                    </p>
+                                </div>
+                            </div>
+                            <p className="text-slate-400 text-[10px] pt-2 border-t border-slate-700/40 opacity-70 italic">
+                                * التنبيهات الذكية تساعدك في تقليل الخسائر عبر متابعة التعويضات وتأكيد الأوردرات آلياً.
                             </p>
                         </div>
                     </div>

@@ -21,7 +21,7 @@ const normalizeName = (name: string): string => {
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2 } from 'lucide-react';
-import { calculateOrderProfitLoss, getOrderProductCost } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface PartnersPageProps {
@@ -36,6 +36,8 @@ interface PartnersPageProps {
 
 const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
   const { storeId } = useParams<{ storeId: string }>();
+  const walletBalance = useMemo(() => calculateWalletLiveBalance(wallet), [wallet]);
+  const effectiveHiddenAmount = settings.enableHiddenWalletAmount ? (settings.hiddenWalletAmount || 0) : 0;
   const [partnerName, setPartnerName] = useState('');
   const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<string | null>(null);
@@ -181,7 +183,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     
     // Calculate Liquidity
     const treasuryTotal = (treasury?.accounts || []).reduce((sum: number, acc: any) => sum + (Number(acc.balance) || 0), 0);
-    const walletBalance = Number(wallet.balance) || 0;
+    const walletBalance = Math.round(calculateWalletLiveBalance(wallet, treasury) * 100) / 100;
     
     const autoClosingDiff = settings.enableAutoClosingDifference 
         ? Math.abs(orders
@@ -1552,7 +1554,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                 >
                                   <option value="">📋 تسجيل دفتري / حساب جاري فقط (بدون سحب أو إيداع من خزائن المحل الفعلية)</option>
                                   <option value="central_wallet" className="text-indigo-600 font-black">
-                                    💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد حالياً: {Math.max(0, wallet.balance - hidden).toLocaleString()} ج.م)
+                                    💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد حالياً: {Math.max(0, walletBalance - hidden).toLocaleString()} ج.م)
                                   </option>
                                   {(Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {})).map((acc: any) => (
                                     <option key={acc.id} value={acc.id}>

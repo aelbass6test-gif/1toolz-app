@@ -83,6 +83,7 @@ import IosInstallPrompt from './components/IosInstallPrompt';
 import ComingSoonPage from './components/ComingSoonPage';
 import AppsPage from './components/AppsPage';
 import UniversalInstallPrompt from './components/UniversalInstallPrompt';
+import { FailedDeliveryCompensationPage } from './components/FailedDeliveryCompensationPage';
 
 interface EmployeeRegisterRequestData {
   fullName: string;
@@ -2187,9 +2188,16 @@ export const AppComponent = () => {
         try {
             isSavingRef.current = true;
             
+            if (activeStoreId && customStoreData) {
+                setAllStoresData(p => ({
+                    ...p,
+                    [activeStoreId]: customStoreData
+                }));
+            }
+
             // 1. Sync custom domains up to users
             let updatedUsers = customUsers || [...users];
-            const storeDataToSync = customStoreData || allStoresData[activeStoreId!];
+            const storeDataToSync = customStoreData || allStoresDataRef.current?.[activeStoreId!] || allStoresData[activeStoreId!];
             if (activeStoreId && storeDataToSync) {
                 const storeSettings = storeDataToSync.settings;
                 updatedUsers = updatedUsers.map(user => {
@@ -2298,7 +2306,21 @@ export const AppComponent = () => {
         products: activeStoreId ? allStoresData[activeStoreId]?.settings?.products || [] : [],
         settings: (() => {
             const rawSettings = activeStoreId ? allStoresData[activeStoreId]?.settings || INITIAL_SETTINGS : INITIAL_SETTINGS;
-            let finalSettings = { ...rawSettings };
+            
+            // Deep merge essential configs from INITIAL_SETTINGS if missing
+            let finalSettings = { 
+                ...rawSettings,
+                whatsappConfig: {
+                    ...INITIAL_SETTINGS.whatsappConfig,
+                    ...(rawSettings.whatsappConfig || {})
+                },
+                whatsappTemplates: rawSettings.whatsappTemplates || INITIAL_SETTINGS.whatsappTemplates,
+                callScripts: rawSettings.callScripts || INITIAL_SETTINGS.callScripts,
+                employeeDashboardSettings: {
+                    ...INITIAL_SETTINGS.employeeDashboardSettings,
+                    ...(rawSettings.employeeDashboardSettings || {})
+                }
+            };
             
             if (rawSettings && rawSettings.cashHolders) {
                 let zahraIds: string[] = [];
@@ -2749,6 +2771,7 @@ export const AppComponent = () => {
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
                     <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
                     <Route path="shipping" element={<ShippingPage {...pageProps} />} />
+                    <Route path="failed-delivery-compensation" element={<FailedDeliveryCompensationPage orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} settings={pageProps.settings} updateSettings={pageProps.setSettings} forceSync={pageProps.forceSync} wallet={pageProps.wallet} setWallet={pageProps.setWallet} customers={pageProps.customers} />} />
                     <Route path="abandoned-carts" element={<AbandonedCartsPage {...pageProps} />} />
                     <Route path="discounts" element={<DiscountsPage {...pageProps} />} />
                     <Route path="reviews" element={<ReviewsPage {...pageProps} />} />

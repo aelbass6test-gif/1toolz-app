@@ -27,7 +27,8 @@ import {
   Filter,
   RefreshCw,
   Layers,
-  Users
+  Users,
+  ShieldAlert
 } from 'lucide-react';
 import { Settings, CashHolder, CashHandover, Treasury, TreasuryTransaction } from '../types';
 
@@ -240,16 +241,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     if (handoverType !== 'supply_wallet' && !newHandover.toUserId) {
       return setDialog({
         isOpen: true,
-        title: 'تنبيه',
-        message: handoverType === 'treasury' ? 'يرجى اختيار الحساب المستلم (الخزينة)' : 'يرجى اختيار المستلم',
+        title: 'تنبيه النطاق',
+        message: handoverType === 'treasury' ? 'يرجى اختيار الحساب المستلم (الخزينة)' : 'يرجى اختيار المستلم المطلوب',
         onConfirm: () => setDialog(null)
       });
     }
     if (newHandover.amount <= 0) {
       return setDialog({
         isOpen: true,
-        title: 'تنبيه',
-        message: 'يرجى تحديد المبلغ المراد تحويله بشكل صحيح',
+        title: 'تنبيه القيمة',
+        message: 'يرجى تحديد المبلغ المراد تسليمه بدقة محاسبية صحيحة',
         onConfirm: () => setDialog(null)
       });
     }
@@ -268,13 +269,13 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       toUserName = 'محفظة التوريد (رأس مال المخزون)';
     } else if (handoverType === 'treasury') {
       const targetAccount = (treasury?.accounts || []).find((acc: any) => acc.id === newHandover.toUserId);
-      if (!targetAccount) return setDialog({ isOpen: true, title: 'تنبيه', message: 'الحساب المالي المحدد غير موجود', onConfirm: () => setDialog(null) });
+      if (!targetAccount) return setDialog({ isOpen: true, title: 'خطأ وعاء', message: 'الحساب المالي المحدد غير موجود في شجرة الحسابات', onConfirm: () => setDialog(null) });
       toUserName = `الخزينة: ${targetAccount.name}`;
     } else {
       const toUser = allPossibleHolders.find(h => h.id === newHandover.toUserId);
       toUserName = toUser?.name || 'مستخدم غير معروف';
       if (fromUserId === newHandover.toUserId) {
-        return setDialog({ isOpen: true, title: 'تنبيه', message: 'لا يمكن تسليم العهدة لنفس الشخص', onConfirm: () => setDialog(null) });
+        return setDialog({ isOpen: true, title: 'منع تحويل', message: 'لا يمكن تسليم العهدة المالية لنفس الشخص والمستفيد', onConfirm: () => setDialog(null) });
       }
     }
 
@@ -372,7 +373,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         {
           id: `log-${Date.now()}`,
           user: fromUserName,
-          action: handoverType === 'treasury' ? 'توريد عهدة للخزينة' : (handoverType === 'main_wallet' || handoverType === 'supply_wallet') ? 'توريد عهدة للمحفظة' : 'تسليم نقدية',
+          action: handoverType === 'treasury' ? 'توريد عهدة للخزينة' : (handoverType === 'main_wallet' || handoverType === 'supply_wallet') ? 'توريد عهدة للمحفظة' : 'تسليم نقدية بالعهدة',
           details: handoverType === 'treasury' 
             ? `توريد مبلغ ${amount} ج.م من عهدة ${fromUserName} إلى حساب ${toUserName}`
             : (handoverType === 'main_wallet' || handoverType === 'supply_wallet')
@@ -391,8 +392,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
   const handleExecuteTreasuryDeposit = () => {
     if (!selectedHolderForTreasury) return;
-    if (!selectedTreasuryAccountId) return setDialog({ isOpen: true, title: 'تنبيه', message: 'يرجى اختيار خزينة أو محفظة للتوريد والإيداع', onConfirm: () => setDialog(null) });
-    if (treasuryAmount <= 0) return setDialog({ isOpen: true, title: 'تنبيه', message: 'يرجى تحديد المبلغ المراد توريده', onConfirm: () => setDialog(null) });
+    if (!selectedTreasuryAccountId) return setDialog({ isOpen: true, title: 'تنبيه وعاء المالي', message: 'يرجى اختيار خزينة أو محفظة للتوريد والإيداع المباشر', onConfirm: () => setDialog(null) });
+    if (treasuryAmount <= 0) return setDialog({ isOpen: true, title: 'مبلغ غير مقبول', message: 'يرجى تحديد المبلغ المراد توريده بشكل صحيح', onConfirm: () => setDialog(null) });
 
     const amount = Number(treasuryAmount);
     const isSupplyWallet = selectedTreasuryAccountId === 'supply_wallet';
@@ -406,7 +407,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     } else {
       const treasuryAccountsList = treasury?.accounts || [];
       const targetAccount = treasuryAccountsList.find((acc: any) => acc.id === selectedTreasuryAccountId);
-      if (!targetAccount) return setDialog({ isOpen: true, title: 'تنبيه', message: 'الحساب المالي المحدد غير موجود', onConfirm: () => setDialog(null) });
+      if (!targetAccount) return setDialog({ isOpen: true, title: 'خطأ وعاء مالي', message: 'الحساب المالي المحدد غير موجود بالخزينة', onConfirm: () => setDialog(null) });
       toUserName = `الخزينة: ${targetAccount.name}`;
     }
 
@@ -508,165 +509,182 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   };
 
   return (
-    <div className="p-3 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto font-sans" dir="rtl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto font-sans text-right" dir="rtl">
       
-      {/* Top Banner Header */}
-      <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-2xl rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-            <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-800/60">
-              منظومة إدارة العهد والمبالغ النقدية
-            </span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-              <Handshake className="w-5 h-5" />
+      {/* Modern High-End Header */}
+      <div id="cashmgmt-header" className="relative bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="space-y-2.5">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 rounded-lg">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-pulse"></span>
+              <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                منظومة إدارة عهد وتحصيل الموظفين والشركاء
+              </span>
             </div>
-            العهد والنقدية المحصلة
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-bold mt-1.5 leading-relaxed">
-            متابعة دقيقة وتوثيق شامل للسيولة النقدية بحوزة الشركاء والمناديب والكاشيرية وتحويلها للخزائن والمحافظ
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-slate-800 text-white flex items-center justify-center shadow-sm">
+                <Handshake className="w-5 h-5" />
+              </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                  العهد والنقدية المحصلة
+                </h1>
+                <p className="text-slate-450 dark:text-slate-500 text-[11px] sm:text-xs font-medium leading-relaxed mt-0.5">
+                  توثيق شامل وتنظيم النقدية المستلمة والموزعة مع المندوبين، الكاشيرية، والشركاء مع ربط فوري بدفاتر الخزينة والمحافظ.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Premium Tab Switcher & Action */}
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center gap-1">
+              <button 
+                id="tab-balances"
+                onClick={() => setActiveTab('balances')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'balances' 
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' 
+                    : 'text-slate-550 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <UserCheck size={13} />
+                <span>العهد الحالية</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                  activeTab === 'balances' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400' : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                }`}>
+                  {holders.length}
+                </span>
+              </button>
+              <button 
+                id="tab-handovers"
+                onClick={() => setActiveTab('handovers')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'handovers' 
+                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' 
+                    : 'text-slate-550 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <History size={13} />
+                <span>سجل التسليمات</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                  activeTab === 'handovers' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400' : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                }`}>
+                  {handovers.length}
+                </span>
+              </button>
+            </div>
+
+            <button 
+              id="btn-register-handover"
+              onClick={() => {
+                setNewHandover({
+                  fromUserId: currentUser?.id || 'admin',
+                  toUserId: '',
+                  amount: 0,
+                  notes: ''
+                });
+                setHandoverType('holder');
+                setShowHandoverModal(true);
+              }}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Plus size={14} />
+              <span>تسجيل تسليم مبلغ</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Corporate Glassmorphic Stats Deck */}
+      <div id="cash-stats-deck" className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        
+        {/* Stat 1: Total custody balance */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[10rem]">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-bl-full pointer-events-none"></div>
+          <div>
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">إجمالي النقدية المتداولة بالعهد</span>
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                <Banknote className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
+                {totalCustodyBalance.toLocaleString('ar-EG')}
+              </span>
+              <span className="text-xs font-bold text-slate-400">ج.م</span>
+            </div>
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 mt-3 flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-indigo-500" />
+            النقدية المتبقية عهدة في ذمة المندوبين والشركاء
           </p>
         </div>
 
-        {/* Tab Switcher & Quick Add Button */}
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          <div className="bg-slate-100/80 dark:bg-slate-900/80 p-1.5 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 flex items-center gap-1">
-            <button 
-              onClick={() => setActiveTab('balances')}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'balances' 
-                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
-            >
-              <UserCheck size={16} />
-              العهد الحالية
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                activeTab === 'balances' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
-              }`}>
+        {/* Stat 2: Active holders */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[10rem]">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-bl-full pointer-events-none"></div>
+          <div>
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">أصحاب حسابات العهد</span>
+              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                <Users className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
                 {holders.length}
               </span>
-            </button>
-            <button 
-              onClick={() => setActiveTab('handovers')}
-              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'handovers' 
-                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' 
-                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-              }`}
-            >
-              <History size={16} />
-              سجل التسليمات
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                activeTab === 'handovers' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
-              }`}>
+              <span className="text-xs font-bold text-slate-400">حسابات نشطة</span>
+            </div>
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 mt-3 flex items-center gap-1">
+            <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
+            أفراد وشركاء لديهم عهد مالية نشطة بالمنظومة
+          </p>
+        </div>
+
+        {/* Stat 3: Total documented handovers */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[10rem]">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-bl-full pointer-events-none"></div>
+          <div>
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">تحويلات نقدية موثقة</span>
+              <div className="p-2 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-xl">
+                <ArrowRightLeft className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
                 {handovers.length}
               </span>
-            </button>
-          </div>
-
-          <button 
-            onClick={() => {
-              setNewHandover({
-                fromUserId: currentUser?.id || 'admin',
-                toUserId: '',
-                amount: 0,
-                notes: ''
-              });
-              setHandoverType('holder');
-              setShowHandoverModal(true);
-            }}
-            className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 active:scale-[0.98] text-white rounded-2xl font-black text-xs sm:text-sm transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Plus size={18} />
-            تسجيل تسليم مبلغ
-          </button>
-        </div>
-      </div>
-
-      {/* Modern Glassmorphic Stats Deck */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Stat 1 */}
-        <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500 rounded-r-md"></div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-slate-500 dark:text-slate-400">إجمالي النقدية بالعهد</span>
-            <div className="w-9 h-9 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-              <Banknote className="w-5 h-5" />
+              <span className="text-xs font-bold text-slate-400">عملية تسليم</span>
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              {totalCustodyBalance.toLocaleString('ar-EG')}
-            </span>
-            <span className="text-xs font-bold text-slate-400">ج.م</span>
-          </div>
-          <p className="text-[11px] font-bold text-slate-400 mt-2 flex items-center gap-1">
-            <Layers className="w-3.5 h-3.5 text-indigo-500" />
-            السيولة المتداولة مع الموظفين والشركاء
-          </p>
-        </div>
-
-        {/* Stat 2 */}
-        <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-2 h-full bg-emerald-500 rounded-r-md"></div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-slate-500 dark:text-slate-400">عدد أصحاب العهد</span>
-            <div className="w-9 h-9 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-              <Users className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              {holders.length}
-            </span>
-            <span className="text-xs font-bold text-slate-400">شخص</span>
-          </div>
-          <p className="text-[11px] font-bold text-slate-400 mt-2 flex items-center gap-1">
-            <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
-            حسابات عهد مسجلة ونشطة بالسيستم
-          </p>
-        </div>
-
-        {/* Stat 3 */}
-        <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-2 h-full bg-purple-500 rounded-r-md"></div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-slate-500 dark:text-slate-400">عمليات التسليم الموثقة</span>
-            <div className="w-9 h-9 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
-              <ArrowRightLeft className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              {handovers.length}
-            </span>
-            <span className="text-xs font-bold text-slate-400">عملية</span>
-          </div>
-          <p className="text-[11px] font-bold text-slate-400 mt-2 flex items-center gap-1">
+          <p className="text-[10px] font-bold text-slate-400 mt-3 flex items-center gap-1">
             <History className="w-3.5 h-3.5 text-purple-500" />
-            سجلات تحويل نقدية مدققة ومحفوظة
+            تحويلات وعمليات تصفية عهد مسجلة وموثقة
           </p>
         </div>
+
       </div>
 
-      {/* Search & Filter Bar */}
-      <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-2xl p-3 border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3">
+      {/* Search Bar */}
+      <div id="search-filter-row" className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
           <input 
             type="text"
-            placeholder={activeTab === 'balances' ? "ابحث باسم صاحب العهدة..." : "ابحث في سجل التسليمات بالملاحظات أو الأسطر..."}
+            placeholder={activeTab === 'balances' ? "البحث برقم الهاتف أو اسم صاحب العهدة..." : "البحث في مذكرات وملاحظات سجل التحويلات..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-100/70 dark:bg-slate-900/70 text-slate-900 dark:text-white pr-10 pl-4 py-2 rounded-xl text-xs font-bold border-0 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-slate-400"
+            className="w-full bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white pr-10 pl-4 py-2.5 rounded-xl text-xs font-bold border-0 outline-none focus:ring-2 focus:ring-indigo-500/10 transition-all placeholder:text-slate-400"
           />
           {searchQuery && (
             <button 
               onClick={() => setSearchQuery('')}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold"
             >
               مسح
             </button>
@@ -674,7 +692,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         </div>
       </div>
 
-      {/* Main Content Sections */}
+      {/* Main Container Pages with AnimatePresence */}
       <AnimatePresence mode="wait">
         {activeTab === 'balances' ? (
           <motion.div 
@@ -686,15 +704,15 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
             className="space-y-6"
           >
             {filteredHolders.length === 0 ? (
-              <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-12 text-center border border-slate-200/80 dark:border-slate-800/80">
-                <Banknote className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
-                <h3 className="text-slate-700 dark:text-slate-300 font-black text-base">لا توجد عهد نقدية مطابقة</h3>
-                <p className="text-slate-400 text-xs font-bold mt-1">
-                  {searchQuery ? 'لم نجد أصحاب عهد بهذا الاسم' : 'يمكنك تسجيل أول عملية تسليم مبلغ نقدية بالضغط على الزر أعلاه'}
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 text-center border border-slate-200 dark:border-slate-800">
+                <Banknote className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+                <h3 className="text-slate-800 dark:text-slate-200 font-black text-base">لا توجد سجلات عهد نقدية مطابقة</h3>
+                <p className="text-slate-400 text-xs font-semibold mt-1">
+                  {searchQuery ? 'لم يتم العثور على صاحب عهدة بهذا الاسم' : 'اضغط على زر "تسجيل تسليم مبلغ" لإنشاء أول عهدة موظف بالمنظومة'}
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div id="holders-cards-grid" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredHolders.map(holder => {
                   const isPositive = holder.currentBalance >= 0;
                   const isManager = holder.userId === 'admin' || holder.originalIds?.includes('admin') || holder.userName === 'المدير' || holder.userName === 'المدير (أنت)';
@@ -704,29 +722,29 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                   return (
                     <div 
                       key={holder.userId} 
-                      className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800/80 hover:border-indigo-500/40 dark:hover:border-indigo-500/40 shadow-xs hover:shadow-lg transition-all duration-300 group flex flex-col justify-between"
+                      className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 hover:border-indigo-500/30 dark:hover:border-indigo-500/30 shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between min-h-[14rem] relative group"
                     >
                       <div>
-                        {/* Header card info */}
-                        <div className="flex items-start justify-between gap-3 mb-5">
+                        {/* Card Header */}
+                        <div className="flex items-start justify-between gap-3 mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500/10 to-purple-500/10 dark:from-indigo-500/20 dark:to-purple-500/20 border border-indigo-200/50 dark:border-indigo-800/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
-                              <User className="w-6 h-6" />
+                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300 group-hover:scale-105 transition-transform shrink-0">
+                              <User className="w-4 h-4" />
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-black text-slate-900 dark:text-white text-base">
+                            <div className="truncate">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm truncate max-w-[120px]">
                                   {holder.userName}
                                 </h3>
-                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${
-                                  isManager ? 'bg-purple-50 dark:bg-purple-950/50 text-purple-600 border-purple-200/60 dark:border-purple-800/60' :
-                                  isPartner ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 border-amber-200/60 dark:border-amber-800/60' :
-                                  'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200/60 dark:border-slate-700/60'
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap shrink-0 ${
+                                  isManager ? 'bg-purple-50 dark:bg-purple-950/30 text-purple-600 border-purple-100 dark:border-purple-900/40' :
+                                  isPartner ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 border-amber-100 dark:border-amber-900/40' :
+                                  'bg-slate-50 dark:bg-slate-950 text-slate-500 border-slate-150 dark:border-slate-800'
                                 }`}>
                                   {isManager ? 'المدير' : isPartner ? 'شريك' : isEmployee ? 'موظف' : 'عهدة'}
                                 </span>
                               </div>
-                              <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1 mt-1">
+                              <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 mt-0.5">
                                 <Clock className="w-3 h-3 text-slate-400" />
                                 {new Date(holder.lastUpdated).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', year: 'numeric' })}
                               </span>
@@ -737,8 +755,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                             onClick={() => {
                               setDialog({ 
                                 isOpen: true, 
-                                title: 'تأكيد حذف سجّل العهدة', 
-                                message: `هل أنت متأكد من حذف حساب العهدة الخاص بـ (${holder.userName})؟`, 
+                                title: 'تأكيد حذف حساب عهدة', 
+                                message: `هل أنت متأكد من تصفية وحذف سجل حساب العهدة المالية التابع للموظف (${holder.userName})؟ سيتم مسح بياناته من لائحة العهد النشطة.`, 
                                 isWarning: true, 
                                 onConfirm: () => { 
                                   const updatedHolders = holders.filter(h => h.userId !== holder.userId); 
@@ -747,28 +765,28 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                                 } 
                               });
                             }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
-                            title="حذف العهدة"
+                            className="p-1 text-slate-450 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-all cursor-pointer shrink-0"
+                            title="إلغاء حساب العهدة"
                           >
-                            <X size={16} />
+                            <X size={14} />
                           </button>
                         </div>
 
-                        {/* Balance info */}
-                        <div className="bg-slate-50/80 dark:bg-slate-900/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-800/60 mb-5">
-                          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">إجمالي الرصيد الحالي بحوزته</span>
-                          <div className="flex items-baseline gap-2 mt-1">
-                            <span className={`text-2xl font-black tabular-nums tracking-tight ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        {/* Balance display */}
+                        <div className="bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/40 rounded-xl p-3.5 mb-4">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide block mb-0.5">الرصيد الجاري بالعهدة</span>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className={`text-xl font-extrabold tabular-nums tracking-tight ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                               {holder.currentBalance.toLocaleString('ar-EG')}
                             </span>
-                            <span className="text-xs font-bold text-slate-400">ج.م</span>
+                            <span className="text-[10px] font-bold text-slate-450">ج.م</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Card Action Controls */}
+                      {/* Premium Card Actions */}
                       {(currentUser?.isAdmin || currentUser?.id === holder.userId) && (
-                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
                           <button 
                             onClick={() => {
                               setSelectedHolderForTreasury(holder);
@@ -781,11 +799,11 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                               }
                               setShowTreasuryModal(true);
                             }}
-                            className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-emerald-200/50 dark:border-emerald-800/50 shadow-xs"
-                            title="تسليم المبلغ للخزينة وتصفية العهدة"
+                            className="py-2 px-2.5 bg-emerald-50 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer border border-emerald-100/50 dark:border-emerald-900/30"
+                            title="تسليم وتصفية النقدية للخزائن"
                           >
-                            <Banknote className="w-4 h-4" />
-                            تسليم للخزينة
+                            <Banknote className="w-3.5 h-3.5" />
+                            <span>تصفية للخزينة</span>
                           </button>
                           
                           <button 
@@ -799,11 +817,11 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                               setHandoverType('holder');
                               setShowHandoverModal(true);
                             }}
-                            className="w-full py-2.5 px-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-indigo-200/50 dark:border-indigo-800/50 shadow-xs"
-                            title="تحويل العهدة لشخص آخر"
+                            className="py-2 px-2.5 bg-indigo-50 hover:bg-indigo-100/60 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer border border-indigo-100/50 dark:border-indigo-900/30"
+                            title="تحويل العهدة النقدية لطرف آخر"
                           >
-                            <ArrowRightLeft className="w-4 h-4" />
-                            تحويل لشخص
+                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                            <span>تحويل عهدة</span>
                           </button>
                         </div>
                       )}
@@ -821,23 +839,23 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="space-y-3"
+            className="space-y-4"
           >
             {filteredHandovers.length === 0 ? (
-              <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl p-12 text-center border border-slate-200/80 dark:border-slate-800/80">
-                <History className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
-                <h3 className="text-slate-700 dark:text-slate-300 font-black text-base">لا توجد عمليات تسليم نقدية مسجلة</h3>
-                <p className="text-slate-400 text-xs font-bold mt-1">تُسجل هنا جميع التحويلات المالية والتسليمات المعتمدة في النظام</p>
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 text-center border border-slate-200 dark:border-slate-800">
+                <History className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+                <h3 className="text-slate-800 dark:text-slate-200 font-black text-base">لا توجد عمليات تحويل مسجلة</h3>
+                <p className="text-slate-400 text-xs font-semibold mt-1">تُسجل وتوثق هنا كافة عمليات نقل النقدية والتسليم المعتمدة</p>
               </div>
             ) : (
-              <div className="bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-xl rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs overflow-hidden">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
                     <History className="w-4 h-4 text-indigo-500" />
-                    سجل حركة العمليات والتحويلات المعتمدة
+                    دفتر قيد ومراجعة عمليات النقدية والتحويل
                   </span>
                   <span className="text-[11px] font-bold text-slate-400">
-                    عدد السجلات: {filteredHandovers.length}
+                    عدد السجلات: {filteredHandovers.length} سجل
                   </span>
                 </div>
 
@@ -845,25 +863,25 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                   {filteredHandovers.map(h => (
                     <div 
                       key={h.id} 
-                      className="p-4 sm:p-5 hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                      className="p-4 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-950/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/40">
-                          <CheckCircle2 className="w-5 h-5" />
+                        <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-800">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-black text-slate-900 dark:text-white text-sm">{h.fromUserName}</span>
+                            <span className="font-extrabold text-slate-900 dark:text-white text-sm">{h.fromUserName}</span>
                             <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-500 rotate-180 shrink-0" />
-                            <span className="font-black text-indigo-600 dark:text-indigo-400 text-sm">{h.toUserName}</span>
+                            <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">{h.toUserName}</span>
                           </div>
                           <div className="flex items-center gap-3 mt-1">
                             <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
+                              <Clock className="w-3 h-3 text-slate-400" />
                               {new Date(h.date).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' })}
                             </span>
                             {(h.notes || (h as any).note) && (
-                              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-md truncate max-w-xs">
+                              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-850 px-2.5 py-0.5 rounded-md truncate max-w-xs">
                                 "{h.notes || (h as any).note}"
                               </span>
                             )}
@@ -871,16 +889,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
-                        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60 px-3 py-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 font-black text-base tabular-nums flex items-baseline gap-1">
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40 px-3.5 py-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 font-black text-sm tabular-nums flex items-baseline gap-1">
                           {h.amount.toLocaleString('ar-EG')}
                           <span className="text-[10px] font-bold">ج.م</span>
                         </div>
 
                         <button
                           onClick={() => handleDeleteHandover(h.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
-                          title="حذف عملية التسليم وإعادة الموازنة"
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-colors cursor-pointer shrink-0"
+                          title="حذف السجل وعكس ميزانية الرصيد"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -896,48 +914,48 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
       {/* Handover Modal */}
       {showHandoverModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-xs z-[100] flex items-center justify-center p-4">
           <motion.div 
-            initial={{ scale: 0.95, opacity: 0 }}
+            initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            className="bg-white dark:bg-[#090d16] w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border border-slate-200 dark:border-slate-800 text-right" 
+            exit={{ scale: 0.98, opacity: 0 }}
+            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-xl relative border border-slate-150 dark:border-slate-800 text-right" 
             dir="rtl"
           >
             <button 
               onClick={() => setShowHandoverModal(false)}
-              className="absolute left-6 top-6 p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
+              className="absolute left-4 top-4 p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg transition-colors cursor-pointer"
             >
-              <X size={20} />
+              <X size={16} />
             </button>
             
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                <ArrowRightLeft className="w-5 h-5" />
+            <div className="flex items-center gap-3 mb-5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                <ArrowRightLeft className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">تسليم أو تحويل مالي</h3>
-                <p className="text-slate-400 text-xs font-bold">توثيق ونقل النقدية بين العهد أو الخزائن المعرفية</p>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">تسجيل تسليم أو تحويل مالي</h3>
+                <p className="text-slate-400 dark:text-slate-500 text-[10px] font-medium">نقل وتدوين الأرصدة والسيولة بين العهد أو الخزائن المعتمدة</p>
               </div>
             </div>
             
-            <div className="space-y-5">
-              {/* Select Destination Type */}
+            <div className="space-y-4">
+              {/* Target Selector Buttons */}
               <div>
-                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-2">
-                  جهة التسليم / المستلم
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
+                  فئة الحساب المالي الجاري تحويله له
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       setHandoverType('holder');
                       setNewHandover({ ...newHandover, toUserId: '' });
                     }}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                    className={`py-1.5 px-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
                       handoverType === 'holder' 
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
-                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                        : 'bg-slate-550 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-150 dark:border-slate-800'
                     }`}
                   >
                     عهدة
@@ -948,10 +966,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       setHandoverType('treasury');
                       setNewHandover({ ...newHandover, toUserId: treasury?.accounts?.[0]?.id || '' });
                     }}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                    className={`py-1.5 px-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
                       handoverType === 'treasury' 
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
-                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                        : 'bg-slate-550 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-150 dark:border-slate-800'
                     }`}
                   >
                     خزينة
@@ -962,10 +980,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       setHandoverType('main_wallet');
                       setNewHandover({ ...newHandover, toUserId: 'main_wallet' });
                     }}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                    className={`py-1.5 px-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
                       handoverType === 'main_wallet' 
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
-                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                        : 'bg-slate-550 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-150 dark:border-slate-800'
                     }`}
                   >
                     المحفظة
@@ -976,10 +994,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       setHandoverType('supply_wallet');
                       setNewHandover({ ...newHandover, toUserId: 'supply_wallet' });
                     }}
-                    className={`py-2.5 px-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                    className={`py-1.5 px-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
                       handoverType === 'supply_wallet' 
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20' 
-                        : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                        : 'bg-slate-550 dark:bg-slate-950 text-slate-600 dark:text-slate-400 border-slate-150 dark:border-slate-800'
                     }`}
                   >
                     التوريد
@@ -989,16 +1007,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
               {currentUser?.isAdmin && (
                 <div>
-                  <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
-                    المسلِّم (صاحب العهدة المصدر)
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+                    المسلِّم (صاحب العهدة المانحة)
                   </label>
                   <select 
                     value={newHandover.fromUserId || (currentUser?.id || 'admin')}
                     onChange={(e) => setNewHandover({...newHandover, fromUserId: e.target.value})}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 px-4 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-800 h-10 px-3 rounded-lg font-bold text-xs outline-none focus:border-indigo-500 transition-colors text-right text-slate-900 dark:text-white"
                   >
                     {allPossibleHolders.map((h, index) => (
-                      <option key={'from_' + h.id + index} value={h.id}>{h.name} ({h.role})</option>
+                      <option key={'from_' + h.id + index} value={h.id}>{h.name} ({h.role === 'admin' ? 'المدير' : h.role === 'partner' ? 'شريك' : 'موظف'})</option>
                     ))}
                   </select>
                 </div>
@@ -1006,28 +1024,28 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
               {handoverType !== 'supply_wallet' && (
                 <div>
-                  <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
-                    {handoverType === 'treasury' ? 'الخزينة المستلمة' : 'المستلم'}
+                  <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+                    {handoverType === 'treasury' ? 'الخزينة أو الحساب المالي المستلم' : 'الطرف المستلم'}
                   </label>
                   <select 
                     value={newHandover.toUserId}
                     onChange={(e) => setNewHandover({...newHandover, toUserId: e.target.value})}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 px-4 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-800 h-10 px-3 rounded-lg font-bold text-xs outline-none focus:border-indigo-500 transition-colors text-right text-slate-900 dark:text-white"
                   >
                     {handoverType === 'treasury' ? (
                       <>
-                        <option value="">-- اختر خزينة الإيداع --</option>
+                        <option value="">-- اختر خزينة الإيداع المالي --</option>
                         {(treasury?.accounts || []).map((acc: any) => (
                           <option key={'treasury_acc_' + acc.id} value={acc.id}>
-                            {acc.name} (الرصيد: {acc.balance.toLocaleString()} ج.م)
+                            {acc.name} (رصيد جاري: {acc.balance.toLocaleString()} ج.م)
                           </option>
                         ))}
                       </>
                     ) : (
                       <>
-                        <option value="">-- اختر المستلم --</option>
+                        <option value="">-- اختر الطرف المالي المستلم --</option>
                         {allPossibleHolders.map((h, index) => (
-                          <option key={'to_' + h.id + index} value={h.id}>{h.name} ({h.role})</option>
+                          <option key={'to_' + h.id + index} value={h.id}>{h.name} ({h.role === 'admin' ? 'المدير' : h.role === 'partner' ? 'شريك' : 'موظف'})</option>
                         ))}
                       </>
                     )}
@@ -1036,47 +1054,48 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               )}
               
               <div>
-                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
-                  المبلغ المراد تسليمه
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+                  المبلغ المراد تسليمه (ج.م)
                 </label>
                 <div className="relative">
                   <input 
                     type="number"
                     value={newHandover.amount || ''}
                     onChange={(e) => setNewHandover({...newHandover, amount: Number(e.target.value)})}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 pl-12 pr-4 rounded-xl font-black text-base outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white"
+                    placeholder="0"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-800 h-10 pl-10 pr-3 rounded-lg font-extrabold text-sm outline-none text-right focus:border-indigo-500 transition-colors text-slate-900 dark:text-white"
                   />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ج.م</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ج.م</span>
                 </div>
               </div>
               
               <div>
-                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
-                  ملاحظات أو بيان
+                <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+                  المذكرة / البيان والملاحظات
                 </label>
                 <textarea 
-                  placeholder="مثلاً: توريد تحصيل طلبات اليوم، عهدة مصاريف..."
+                  placeholder="مثال: توريد تسوية نقدية لليوم، عهدة مصاريف تشغيلية..."
                   value={newHandover.notes}
                   onChange={(e) => setNewHandover({...newHandover, notes: e.target.value})}
                   rows={2}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white resize-none"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-150 dark:border-slate-800 p-2.5 rounded-lg font-bold text-xs outline-none text-right focus:border-indigo-500 transition-colors text-slate-900 dark:text-white resize-none"
                 />
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800/80">
+              <div className="pt-3.5 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
                 <button 
                   type="button"
                   onClick={() => setShowHandoverModal(false)}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-755 dark:text-slate-300 rounded-lg font-bold text-xs transition-colors cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button 
                   type="button"
                   onClick={handleExecuteHandover}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-lg font-bold text-xs shadow-xs transition-all cursor-pointer"
                 >
-                  تأكيد التسليم
+                  تأكيد التسليم المالي
                 </button>
               </div>
             </div>
@@ -1084,14 +1103,15 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         </div>
       )}
 
+
       {/* Treasury Settlement Modal */}
       {showTreasuryModal && selectedHolderForTreasury && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <motion.div 
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            className="bg-white dark:bg-[#090d16] w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border border-slate-200 dark:border-slate-800 text-right" 
+            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border border-slate-200 dark:border-slate-800 text-right" 
             dir="rtl"
           >
             <button 
@@ -1104,34 +1124,34 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               <X size={20} />
             </button>
             
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
                 <Landmark className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-900 dark:text-white">تسليم عهدة للخزينة / المحفظة</h3>
-                <p className="text-slate-400 text-xs font-bold">تسوية وتوريد الرصيد النقدي للموظف ({selectedHolderForTreasury.userName})</p>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">تسوية وتصفية العهد للخزينة</h3>
+                <p className="text-slate-400 text-xs font-semibold">تسوية الرصيد المالي وتوريده للخزائن الرسمية للموظف ({selectedHolderForTreasury.userName})</p>
               </div>
             </div>
             
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
-                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
-                  الحساب المالي المستلم (الخزينة / المحفظة)
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 mb-1.5">
+                  الحساب المالي المستلم (الوعاء المالي النهائي)
                 </label>
                 <select 
                   value={selectedTreasuryAccountId}
                   onChange={(e) => setSelectedTreasuryAccountId(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 px-4 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 h-11 px-3 rounded-xl font-bold text-xs outline-none focus:border-indigo-500 text-right text-slate-900 dark:text-white"
                 >
-                  <option value="">-- اختر الحساب المالي --</option>
-                  <optgroup label="المحافظ الإلكترونية">
+                  <option value="">-- اختر وعاء الاستلام --</option>
+                  <optgroup label="المحافظ والموازنة العامة">
                      <option value="main_wallet">المحفظة العامة (الرصيد: {Number(wallet?.balance || 0).toLocaleString()} ج.م)</option>
                      <option value="supply_wallet">محفظة التوريد (الرصيد: {Number(wallet?.supplyBalance || 0).toLocaleString()} ج.م)</option>
                   </optgroup>
-                  <optgroup label="الخزائن والحسابات البنكية">
+                  <optgroup label="الخزائن البنكية والنقدية">
                     {(treasury?.accounts || []).map((acc: any) => (
-                      <option key={acc.id} value={acc.id}>{acc.name} (رصيد: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
+                      <option key={acc.id} value={acc.id}>{acc.name} (رصيد جاري: {Number(acc.balance || 0).toLocaleString()} ج.م)</option>
                     ))}
                   </optgroup>
                 </select>
@@ -1139,13 +1159,13 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               
               <div>
                 <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-xs font-black text-slate-600 dark:text-slate-400">المبلغ المراد توريده</label>
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-450">المبلغ المراد توريده وتصفيته</label>
                   <button 
                     type="button" 
                     onClick={() => setTreasuryAmount(selectedHolderForTreasury.currentBalance)}
-                    className="text-[11px] text-indigo-600 dark:text-indigo-400 font-black hover:underline cursor-pointer"
+                    className="text-[11px] text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline cursor-pointer"
                   >
-                    تصفية كل العهدة ({selectedHolderForTreasury.currentBalance.toLocaleString()} ج.م)
+                    تصفية كامل العهدة ({selectedHolderForTreasury.currentBalance.toLocaleString()} ج.م)
                   </button>
                 </div>
                 <div className="relative">
@@ -1153,42 +1173,43 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                     type="number"
                     value={treasuryAmount || ''}
                     onChange={(e) => setTreasuryAmount(Number(e.target.value))}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-11 pl-12 pr-4 rounded-xl font-black text-base outline-none text-right focus:border-emerald-500 text-slate-900 dark:text-white"
+                    placeholder="0"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 h-11 pl-12 pr-3 rounded-xl font-black text-base outline-none text-right focus:border-emerald-500 text-slate-900 dark:text-white"
                   />
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">ج.م</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-extrabold text-xs">ج.م</span>
                 </div>
               </div>
               
               <div>
-                <label className="block text-xs font-black text-slate-600 dark:text-slate-400 mb-1.5">
-                  ملاحظات التوريد
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-450 mb-1.5">
+                  بيان وتفاصيل التسوية
                 </label>
                 <textarea 
-                  placeholder="مثلاً: توريد جزئي للعهدة، تصفية حساب اليومية..."
+                  placeholder="مثال: تسوية وتصفية جزئية لعهد اليوم، توريد نقدية..."
                   value={treasuryNotes}
                   onChange={(e) => setTreasuryNotes(e.target.value)}
                   rows={2}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl font-bold text-xs outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white resize-none"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 p-3 rounded-xl font-bold text-xs outline-none text-right focus:border-indigo-500 text-slate-900 dark:text-white resize-none"
                 />
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800/80">
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
                 <button 
                   type="button"
                   onClick={() => {
                     setShowTreasuryModal(false);
                     setSelectedHolderForTreasury(null);
                   }}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-750 dark:text-slate-300 rounded-xl font-bold text-xs transition-colors cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button 
                   type="button"
                   onClick={handleExecuteTreasuryDeposit}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl font-black text-xs transition-all shadow-md shadow-emerald-600/10 cursor-pointer"
                 >
-                  تأكيد التوريد
+                  تأكيد تسوية العهدة
                 </button>
               </div>
             </div>
@@ -1196,15 +1217,15 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         </div>
       )}
 
-      {/* Custom Global Dialog */}
+      {/* Corporate Custom Global Dialog */}
       {dialog && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#090d16] w-full max-w-sm rounded-3xl p-6 shadow-2xl text-right border border-slate-200 dark:border-slate-800" dir="rtl">
-            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${dialog.isWarning ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400'}`}>
-              {dialog.isWarning ? <AlertTriangle className="w-6 h-6" /> : <Info className="w-6 h-6" />}
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl text-right border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150" dir="rtl">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 border ${dialog.isWarning ? 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-950/30 dark:text-rose-450 dark:border-rose-900/40' : 'bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-900/40'}`}>
+              {dialog.isWarning ? <ShieldAlert className="w-6 h-6 animate-pulse" /> : <Info className="w-6 h-6" />}
             </div>
             <h3 className="text-base font-black text-slate-900 dark:text-white mb-2">{dialog.title}</h3>
-            <p className="text-slate-500 dark:text-slate-400 font-bold text-xs mb-6 leading-relaxed">{dialog.message}</p>
+            <p className="text-slate-400 dark:text-slate-400 font-bold text-xs mb-6 leading-relaxed">{dialog.message}</p>
             
             <div className="flex gap-2">
               <button 
@@ -1216,10 +1237,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               <button 
                 onClick={dialog.onConfirm}
                 className={`flex-1 py-2.5 text-white rounded-xl font-black text-xs transition-all shadow-md cursor-pointer ${
-                  dialog.isWarning ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20'
+                  dialog.isWarning ? 'bg-rose-650 hover:bg-rose-600 shadow-rose-650/10' : 'bg-indigo-650 hover:bg-indigo-600 shadow-indigo-650/10'
                 }`}
               >
-                تأكيد
+                تأكيد العملية
               </button>
             </div>
           </div>

@@ -150,10 +150,43 @@ export const generateEgyptShippingOptions = (): ShippingOption[] => {
 };
 
 export const DEFAULT_WHATSAPP_TEMPLATES = [
-    { id: 'no_answer', label: 'لم يرد', text: 'أهلاً [اسم العميل] 👋، حاولنا الاتصال بك من [اسم المتجر] لتأكيد طلبك [اسم المنتج]. يرجى تأكيد الطلب لنتمكن من شحنه لك.' },
-    { id: 'location', label: 'طلب الموقع', text: 'أهلاً [اسم العميل] 👋، من فضلك أرسل لنا الموقع (Location) لتسهيل عملية توصيل طلبك [اسم المنتج] من [اسم المتجر].' },
-    { id: 'offer', label: 'عرض خاص', text: 'أهلاً [اسم العميل] 👋، لدينا عرض خاص لك اليوم على [اسم المنتج] من [اسم المتجر]. لا تفوت الفرصة!' },
-    { id: 'confirm', label: 'تأكيد الطلب', text: 'أهلاً [اسم العميل] 👋، نود تأكيد طلبك [اسم المنتج] من [اسم المتجر]. هل البيانات صحيحة؟' },
+    { 
+      id: 'confirm', 
+      label: 'تأكيد الطلب (أزرار)', 
+      text: 'أهلاً {customerName} 👋 استلمنا طلبك رقم {orderNumber} بنجاح.\nيرجى التأكيد في آخر الرسالة 📦\n\nتفاصيل الشحنة 📦\n\n💰 مبلغ التحصيل: {totalPrice} ج.م\n📄 وصف الشحنة: {products}\n🏠 العنوان: {address}\n\nتقدر دلوقتي تتبع شحنتك بسهولة.',
+      footer: 'نظام إدارة الأوردرات الذكي',
+      buttons: ['تأكيد الأوردر', 'تأجيل التسليم', 'إلغاء الأوردر']
+    },
+    { 
+      id: 'location', 
+      label: 'طلب الموقع', 
+      text: 'أهلاً {customerName} 👋، من فضلك أرسل لنا الموقع (Location) لتسهيل عملية توصيل طلبك رقم {orderNumber}.',
+      buttons: ['إرسال الموقع']
+    },
+    { 
+      id: 'shipping', 
+      label: 'تم الشحن', 
+      text: 'أهلاً {customerName}، تم شحن طلبك رقم {orderNumber} مع شركة {shippingCompany}. رابط التتبع: {trackingUrl}',
+      buttons: ['تتبع الشحنة']
+    },
+    { 
+      id: 'no_answer', 
+      label: 'لم يتم الرد', 
+      text: 'أهلاً {customerName} 👋 حاولنا الاتصال بك لتأكيد طلبك رقم {orderNumber} ولم نتمكن من الوصول إليك.\nيرجى التواصل معنا لتأكيد الطلب قبل إلغاء الحجز.',
+      buttons: ['تأكيد الطلب الآن', 'اتصل بي لاحقاً']
+    },
+    { 
+      id: 'offer', 
+      label: 'عرض خاص (إعادة استهداف)', 
+      text: 'أهلاً {customerName} 👋، لاحظنا أنك مهتم بمنتجاتنا. لدينا عرض خاص لك خصم 10% على طلبك القادم!\n\nكود الخصم: WELCOME10',
+      buttons: ['تسوق الآن', 'مشاهدة العروض']
+    },
+    { 
+      id: 'feedback', 
+      label: 'استطلاع رأي بعد الاستلام', 
+      text: 'أهلاً {customerName} 👋، نأمل أن يكون طلبك رقم {orderNumber} قد نال إعجابك.\nيسعدنا معرفة تقييمك للخدمة والمنتج.',
+      buttons: ['ممتاز ⭐⭐⭐⭐⭐', 'جيد جداً ⭐⭐⭐⭐', 'يحتاج تحسين']
+    }
 ];
 
 export const DEFAULT_CALL_SCRIPTS = [
@@ -236,6 +269,13 @@ export const INITIAL_SETTINGS: Settings = {
   ],
   collections: [],
   whatsappTemplates: DEFAULT_WHATSAPP_TEMPLATES,
+  whatsappConfig: {
+    apiUrl: 'https://api.ultramsg.com/instanceXXXX/messages/chat',
+    instanceId: '',
+    token: '',
+    isActive: false,
+    autoSendOnStatusChange: false
+  },
   callScripts: DEFAULT_CALL_SCRIPTS,
   expenseCategories: ['expense_ads', 'expense_salary', 'expense_hr', 'expense_rent', 'expense_packaging', 'expense_shipping_fees', 'expense_other', 'supply_expense_shipping', 'supply_expense_other', 'vat'],
   employeeDashboardSettings: {

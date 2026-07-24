@@ -4,6 +4,7 @@ import { Order, User, ConfirmationLog, AuditLog, OrderStatus, Settings, OrderIte
 import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft, Wallet, Shield, Banknote, Coins } from 'lucide-react';
 import EditableField from './EditableField';
 import { getAdvancePaymentCustodyName } from '../utils/financials';
+import { whatsappService } from '../utils/whatsappService';
 
 const QUICK_WA_TEMPLATES = [
     { id: 'no_answer', label: 'لم يتم الرد', text: 'حاولنا الاتصال بك لتأكيد طلبك ولم نتمكن من الوصول إليك. برجاء إبلاغنا بالوقت المناسب للاتصال.' },
@@ -801,31 +802,27 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
 
     const getWhatsAppLink = (order: Order, templateId?: string) => {
         let normalizedPhone = (order.customerPhone || '').replace(/\D/g, '');
-        if (normalizedPhone.startsWith('0')) {
+        if (normalizedPhone.startsWith('0') && normalizedPhone.length === 11) {
+            normalizedPhone = '2' + normalizedPhone;
+        } else if (normalizedPhone.startsWith('0')) {
             normalizedPhone = '20' + normalizedPhone.substring(1);
         } else if (normalizedPhone.length === 10 && !normalizedPhone.startsWith('0')) {
             normalizedPhone = '20' + normalizedPhone;
         }
         
-        const customerName = (order.customerName || '').split(' ')[0];
-        const employeeName = currentUser?.fullName || 'مندوب المبيعات';
-        const storeName = activeStore?.name || 'متجرنا';
-        const productName = order.productName;
-    
         const whatsappTemplates = settings.whatsappTemplates || [];
-        let message = '';
-        if (templateId) {
-            const template = whatsappTemplates.find(t => t.id === templateId);
-            if (template) {
-                message = template.text
-                    .replace('[اسم العميل]', customerName)
-                    .replace('[اسم المتجر]', storeName)
-                    .replace('[اسم المنتج]', productName);
-            }
-        } else {
-             message = `أهلاً بك يا ${customerName} 👋، انا ${employeeName} نتصل بك من ${storeName} لتأكيد ${productName}. للتاكيد ارسل كلمة تاكيد او الغاء لالغاء الشحنه`;
+        let template = templateId ? whatsappTemplates.find(t => t.id === templateId) : null;
+        if (!template) {
+            template = whatsappTemplates[0] || {
+                id: 'confirm',
+                label: 'تأكيد الطلب',
+                text: 'أهلاً {customerName} 👋 استلمنا طلبك رقم {orderNumber} من {storeName}.\nتفاصيل الطلب:\n{products}\nالمبلغ الإجمالي: {totalPrice} ج.م',
+                footer: 'نظام إدارة الأوردرات الذكي',
+                buttons: ['تأكيد الأوردر', 'إلغاء الأوردر']
+            };
         }
 
+        const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
         return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
     };
 

@@ -565,7 +565,10 @@ CREATE TABLE IF NOT EXISTS whatsapp_templates (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     label TEXT NOT NULL,
-    text TEXT NOT NULL
+    text TEXT NOT NULL,
+    footer TEXT,
+    buttons JSONB DEFAULT '[]'::jsonb,
+    details JSONB DEFAULT '{}'::jsonb
 );
 
 -- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
@@ -1302,6 +1305,9 @@ ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;

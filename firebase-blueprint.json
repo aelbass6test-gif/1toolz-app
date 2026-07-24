@@ -140,6 +140,18 @@
         "orderId": { "type": "string" }
       }
     },
+    "WhatsAppTemplate": {
+      "title": "WhatsApp Template",
+      "description": "WhatsApp message template",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "text": { "type": "string" },
+        "footer": { "type": "string" },
+        "buttons": { "type": "array" }
+      }
+    },
     "SharedReport": {
       "title": "Shared Report",
       "description": "Compressed HTML report for sharing",
@@ -273,7 +285,7 @@
       "description": "Cash Handovers"
     },
     "/whatsapp_templates/{id}": {
-      "schema": "object",
+      "schema": "WhatsAppTemplate",
       "description": "WhatsApp Templates"
     },
     "/call_scripts/{id}": {

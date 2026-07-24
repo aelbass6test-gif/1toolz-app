@@ -1,10 +1,24 @@
-import { Order, Settings } from '../types';
+import { Order, Settings, Wallet, Treasury } from '../types';
 import { EGYPT_GOVERNORATES } from '../constants';
 
 export const isBosta = (companyName: string): boolean => {
     if (!companyName) return false;
     const norm = companyName.trim().toLowerCase();
     return norm.includes('bosta') || norm.includes('بوسطة') || norm.includes('بوسطه');
+};
+
+export const getCompanySpecificFees = (settings?: Settings, companyName?: string) => {
+    if (!settings?.companySpecificFees || !companyName) return undefined;
+    if (settings.companySpecificFees[companyName]) {
+        return settings.companySpecificFees[companyName];
+    }
+    const norm = (str: string) => str.trim().toLowerCase().replace(/ة/g, 'ه');
+    const targetNorm = norm(companyName);
+    const matchedKey = Object.keys(settings.companySpecificFees).find(k => norm(k) === targetNorm);
+    if (matchedKey) {
+        return settings.companySpecificFees[matchedKey];
+    }
+    return undefined;
 };
 
 export const getOrderProductCost = (order: Order, settings?: Settings): number => {
@@ -96,7 +110,7 @@ export const getStandardShippingFee = (order: Order, settings?: Settings): numbe
         }
     }
     
-    const compFees = settings.companySpecificFees?.[company];
+    const compFees = getCompanySpecificFees(settings, company);
     const baseWeight = compFees?.useCustomFees && compFees.baseWeight !== undefined 
         ? compFees.baseWeight 
         : (settings.baseWeight !== undefined ? settings.baseWeight : 5);
@@ -145,7 +159,7 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
         return Math.round(((order.insuranceBaseValue * insuranceRate) / 100) * 100) / 100;
     }
     
-    const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+    const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
     
     const isCompanyBosta = isBosta(order.shippingCompany);
@@ -191,7 +205,7 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
 
 export const calculateBostaVat = (order: Order, insuranceFee: number, settings?: Settings): number => {
     if (order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر') return 0;
-    const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+    const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
     
     // Check if VAT is completely disabled for this shipping company
@@ -231,7 +245,7 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
 
 export const calculateCodFee = (order: Order, settings: Settings): number => {
     if (!settings || order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر') return 0;
-    const compFees = settings.companySpecificFees?.[order.shippingCompany];
+    const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
     const enabled = useCustom ? (compFees?.enableCodFees ?? true) : settings.enableGlobalCod;
     if (!enabled) return 0;
@@ -327,7 +341,7 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
                 order.shippingArea === 'نقطة البيع' ||
                 (order.id && order.id.startsWith('POS-'));
 
-  const compFees = settings.companySpecificFees?.[order.shippingCompany];
+  const compFees = getCompanySpecificFees(settings, order.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
   
   const insuranceRate = isPos ? 0 : (useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0));
@@ -348,7 +362,7 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
 
   if (isFinanciallySettledSuccess || order.paymentStatus === 'مدفوع') {
     const isPos = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر' || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
-    const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+    const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
     const effectiveInspectionCost = isPos ? 0 : (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? (settings.inspectionFee ?? 0) : 0));
 
@@ -423,7 +437,7 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
       // For failed/returned orders, we assume nothing was collected from the customer 
       // UNLESS the flex ship transaction was actually added/processed.
       const inspectionFeeCollected = 0;
-      const flexShipCollected = (isFlexShipEnabled && order.flexShipFeePaidByCustomer && order.flexShipTransactionAdded) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
+      const flexShipCollected = (isFlexShipEnabled && (order.flexShipFeePaidByCustomer || order.flexShipTransactionAdded)) ? (order.flexShipFee ?? (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0))) : 0;
       
       const codFee = (order.status === 'مرتجع_بعد_الاستلام' && !isPos) ? calculateCodFee(order, settings) : 0;
       
@@ -431,7 +445,20 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
       carrierFees = (insuranceFee + (isPos ? 0 : standardShippingFee) + effectiveInspectionCost + returnFeeAmount + codFee + bostaVat + flexShipCompanyDeduction);
       
       // Net loss is carrier fees reduced by FlexShip fees collected
-      loss = Math.max(0, carrierFees - flexShipCollected);
+      let calculatedLoss = Math.max(0, carrierFees - flexShipCollected);
+      
+      const compStatus = (order as any).compensationStatus;
+      const compAmount = Number((order as any).compensationAmount) || 0;
+      
+      if (compStatus === 'compensated' && compAmount > 0) {
+          calculatedLoss -= compAmount;
+          if (calculatedLoss < 0) {
+              profit = Math.abs(calculatedLoss);
+              calculatedLoss = 0;
+          }
+      }
+      
+      loss = calculatedLoss;
     }
   }
   
@@ -454,7 +481,7 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
                 (o.id && o.id.startsWith('POS-'));
   if (isPos) return 0;
 
-  const compFees = settings.companySpecificFees?.[o.shippingCompany];
+  const compFees = getCompanySpecificFees(settings, o.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
   
   const isExchange = o.status === 'تم_الاستبدال';
@@ -645,3 +672,46 @@ export const getAdvancePaymentCustodyName = (order: any, settings?: any, treasur
   return "⚠️ غير محدد (لم يتم اختيار جهة استلام)";
 };
 
+
+export const calculateWalletLiveBalance = (wallet?: Wallet, treasury?: Treasury): number => {
+    return (wallet?.transactions || []).reduce((sum, t) => {
+        const amount = Number(t.amount) || 0;
+        
+        // Exclude transactions that come from the Supply Wallet (they were already deducted from main during funding or never entered main)
+        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+
+        // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
+        if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+
+        // Deposits: only include when completed
+        if (t.type === 'إيداع') {
+             return t.status === 'completed' ? sum + amount : sum;
+        }
+        
+        // Withdrawals: include both completed AND pending (reserve them)
+        if (t.type === 'سحب') {
+             if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
+             return t.status === 'cancelled' ? sum : sum - amount;
+        }
+        
+        // Handle 'تحويل' (Treasury Transfers) which might be legacy or current
+        if (t.type === 'تحويل') {
+            if (t.category === 'treasury_sync') {
+                const treasuryTxId = t.id.replace('TR-', '');
+                const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
+                if (tTx) {
+                    if (tTx.toAccountId === 'main_wallet') {
+                        return sum + amount;
+                    } else if (tTx.fromAccountId === 'main_wallet') {
+                        return sum - amount;
+                    }
+                } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
+                    return sum + amount;
+                }
+            }
+            return sum;
+        }
+        
+        return sum;
+    }, 0);
+};

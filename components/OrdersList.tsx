@@ -122,6 +122,7 @@ import { triggerWebhooks } from "../utils/webhook";
 import { printHTMLDirectly } from "../utils/printHelper";
 import { exportHTMLToPDF } from "../utils/pdfHelper";
 import { OrderDetailsModal } from "./OrderDetailsModal";
+import { whatsappService } from "../utils/whatsappService";
 import {
   AreaChart,
   Area,
@@ -578,6 +579,40 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     navigate(`${storePrefix}/orders/edit/${order.id}`);
   };
 
+  const handleSendWhatsAppAPI = async (order: Order, templateId: string, silent = false) => {
+    if (!settings.whatsappConfig?.isActive) {
+      if (!silent) alert('نظام الواتساب API غير مفعل. يرجى تفعيله من الإعدادات.');
+      return;
+    }
+
+    const template = (settings.whatsappTemplates || []).find(t => t.id === templateId);
+    if (!template) {
+      if (!silent) alert('القالب غير موجود. يرجى التأكد من ضبط القوالب في صفحة الواتساب.');
+      return;
+    }
+
+    let phone = order.customerPhone || '';
+    // Clean phone number: remove all non-digits
+    const cleanPhone = phone.replace(/\D/g, '');
+    // If it starts with 0 and is 11 digits (Egyptian format), prepend 2
+    if (cleanPhone.startsWith('0') && cleanPhone.length === 11) {
+      phone = '2' + cleanPhone;
+    } else {
+      phone = cleanPhone;
+    }
+
+    const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
+    const result = await whatsappService.sendMessage(phone, message, settings.whatsappConfig, template.buttons, template.footer);
+    
+    if (result.success) {
+      if (!silent) alert('تم إرسال الرسالة بنجاح عبر API الواتساب ✅');
+      addAuditLog(order.id, 'إرسال واتساب API', `تم إرسال قالب: ${template.label}`);
+    } else {
+      if (!silent) alert(`فشل إرسال الرسالة: ${result.error} ❌`);
+      else console.error(`WhatsApp API Auto-send failed for order ${order.orderNumber}:`, result.error);
+    }
+  };
+
   useEffect(() => {
     if (onRefresh && orders.length > 0) {
       // Logic for refresh if needed
@@ -641,6 +676,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       tabFiltered = searched.filter((o) => o.status === "تم_التحصيل");
     } else if (activeTab === "failed_group") {
       tabFiltered = searched.filter((o) => ["مرتجع", "فشل_التوصيل"].includes(o.status));
+    } else if (activeTab === "compensated") {
+      tabFiltered = searched.filter((o) => o.compensationStatus === "compensated" && !(o.flexShipFeePaidByCustomer || (o.enableFlexShip && o.flexShipFeePaidByCustomer)));
+    } else if (activeTab === "pending_compensation") {
+      tabFiltered = searched.filter((o) => o.compensationStatus === "pending" && !(o.flexShipFeePaidByCustomer || (o.enableFlexShip && o.flexShipFeePaidByCustomer)));
     } else if (activeTab === "canceled_group") {
       tabFiltered = searched.filter((o) => ["ملغي", "مؤرشف"].includes(o.status));
     } else if (activeTab === "مؤرشف") {
@@ -2122,6 +2161,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     // Trigger WhatsApp notification prompt
     if (orderToUpdate.customerPhone && orderToUpdate.status !== newStatus) {
       setAutoWhatsappData({ order: updatedOrderData, newStatus });
+      
+      // Auto WhatsApp API send
+      if (settings.whatsappConfig?.isActive && settings.whatsappConfig?.autoSendOnStatusChange) {
+        if (newStatus === 'تم_الارسال') {
+          handleSendWhatsAppAPI(updatedOrderData, 'shipping', true);
+        } else if (newStatus === 'في_انتظار_المكالمة' || newStatus === 'جاري_المراجعة') {
+          handleSendWhatsAppAPI(updatedOrderData, 'confirm', true);
+        }
+      }
     }
 
     // 3. Push to External Platform if Synced (Two-Way Sync)
@@ -3056,31 +3104,25 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const getWhatsAppLink = (order: Order) => {
-    let msg = "";
-    const name = (order.customerName || "").split(" ")[0];
-    switch (order.status) {
-      case "جاري_المراجعة":
-        msg = `أهلاً بك يا ${name} 👋، بنأكد مع حضرتك طلبك (${order.productName}) من متجرنا. العنوان: ${order.customerAddress}. هل البيانات صحيحة؟`;
-        break;
-      case "قيد_التنفيذ":
-        msg = `يا ${name}، طلبك قيد التجهيز حالياً وهيسلم لشركة الشحن قريباً.`;
-        break;
-      case "تم_الارسال":
-        msg = `مرحباً ${name}، تم شحن طلبك ورقم البوليصة هو ${order.waybillNumber || order.orderNumber}.`;
-        break;
-      case "فشل_التوصيل":
-        msg = `يا ${name}، المندوب حاول يوصلك النهاردة وماعرفش. ياريت ترد عليه أو تأكد معانا ميعاد تاني.`;
-        break;
-      default:
-        msg = `أهلاً ${name}، بخصوص طلبك رقم ${order.orderNumber}...`;
+    const templates = settings.whatsappTemplates || [];
+    let template = templates.find(t => t.id === 'confirm') || templates[0];
+    if (!template) {
+      template = {
+        id: 'confirm',
+        label: 'تأكيد الطلب',
+        text: 'أهلاً {customerName} 👋 استلمنا طلبك رقم {orderNumber} من {storeName}.\nتفاصيل الطلب:\n{products}\nالمبلغ الإجمالي: {totalPrice} ج.م',
+        footer: 'نظام إدارة الأوردرات الذكي',
+        buttons: ['تأكيد الأوردر', 'إلغاء الأوردر']
+      };
     }
+    const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
     let phone = (order.customerPhone || "").replace(/\D/g, "");
-    if (phone.startsWith("0")) {
-      phone = "20" + phone.substring(1);
+    if (phone.startsWith("0") && phone.length === 11) {
+      phone = "2" + phone;
     } else if (phone.length === 10 && !phone.startsWith("0")) {
       phone = "20" + phone;
     }
-    return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   };
 
   const quickStats = useMemo(() => {
@@ -3104,6 +3146,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     };
   }, [orders]);
 
+  const uncompensatedFailedOrders = useMemo(() => {
+    return orders.filter(o => 
+      ['مرتجع', 'فشل_التوصيل', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي', 'جاري_الاسترجاع'].includes(o.status) &&
+      (o as any).compensationStatus !== 'compensated'
+    );
+  }, [orders]);
+
   const orderForModal = useMemo(() => {
     if (!orderForWaybill) return null;
     return orders.find((o) => o.id === orderForWaybill.orderId);
@@ -3116,6 +3165,33 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       initial="hidden"
       animate="visible"
     >
+      {uncompensatedFailedOrders.length > 0 && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 rounded-[2rem] p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm"
+        >
+          <div className="flex items-center gap-4 text-right">
+            <div className="p-3 bg-rose-100 dark:bg-rose-900/40 rounded-2xl text-rose-600 dark:text-rose-400">
+              <ShieldAlert size={28} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-rose-900 dark:text-rose-100">تحذير: أوردرات فاشلة بدون تعويض</h3>
+              <p className="text-sm font-bold text-rose-700/80 dark:text-rose-400/80">
+                يوجد <span className="font-black text-rose-600 dark:text-rose-400">{uncompensatedFailedOrders.length}</span> أوردرات مرتجعة أو فشل توصيلها ولم يتم تسجيل تعويض لها بعد.
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={() => navigate(`${storePrefix}/failed-compensation`)}
+            className="flex items-center gap-2 px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-sm transition-all shadow-lg shadow-rose-600/20 active:scale-95"
+          >
+            <span>فتح صفحة التعويضات</span>
+            <ArrowLeft size={18} />
+          </button>
+        </motion.div>
+      )}
+
       {/* Header & Main Actions */}
       <div
         className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100 dark:border-slate-800"
@@ -3308,7 +3384,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               const isSelected = activeTab === cat.id || (
                 cat.id === "processing_group" && ["في_انتظار_المكالمة", "جاري_المراجعة", "قيد_التنفيذ"].includes(activeTab)
               ) || (
-                cat.id === "failed_group" && ["مرتجع", "فشل_التوصيل"].includes(activeTab)
+                cat.id === "failed_group" && ["مرتجع", "فشل_التوصيل", "compensated", "pending_compensation"].includes(activeTab)
               ) || (
                 cat.id === "canceled_group" && ["ملغي", "مؤرشف"].includes(activeTab)
               ) || (
@@ -3391,7 +3467,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             </div>
           )}
 
-          {(activeTab === "failed_group" || ["مرتجع", "فشل_التوصيل"].includes(activeTab)) && (
+          {(activeTab === "failed_group" || ["مرتجع", "فشل_التوصيل", "compensated", "pending_compensation"].includes(activeTab)) && (
             <div className="flex items-center gap-2 p-3 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl overflow-x-auto no-scrollbar text-xs">
               <span className="font-black text-rose-800 dark:text-rose-300 whitespace-nowrap px-2 flex items-center gap-1.5">
                 <XCircle size={14} /> تحديد فرعي للرفض والفشل:
@@ -3400,6 +3476,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 { id: "failed_group", label: "⭐ كل المرتجعات والفشل" },
                 { id: "مرتجع", label: "↩️ مرتجع إلى المخزن" },
                 { id: "فشل_التوصيل", label: "❌ فشل التوصيل مع المندوب" },
+                { id: "compensated", label: "✅ تم التعويض" },
+                { id: "pending_compensation", label: "⏳ بانتظار التعويض" },
               ].map(sub => (
                 <button
                   key={sub.id}
@@ -4519,6 +4597,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     onShowAudit={() => setShowAuditLog(order)}
                     onShowAssignment={() => setShowAssignment(order)}
                     onShowDetails={() => setShowDetailsModal(order)}
+                    onSendWhatsAppAPI={(templateId) => handleSendWhatsAppAPI(order, templateId)}
                     onToggleFlexShipPaid={() =>
                       handleToggleFlexShipPaid(order.id)
                     }
@@ -4579,6 +4658,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 onShowSummary={() => setShowSummaryModal(order)}
                 onShowAudit={() => setShowAuditLog(order)}
                 onShowAssignment={() => setShowAssignment(order)}
+                onSendWhatsAppAPI={(templateId) => handleSendWhatsAppAPI(order, templateId)}
                 whatsappLink={getWhatsAppLink(order)}
                 settings={settings}
                 storePrefix={storePrefix}
@@ -4787,6 +4867,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           settings={settings}
           allOrders={orders}
           onClose={() => setShowDetailsModal(null)}
+          onSendWhatsAppAPI={(templateId) => handleSendWhatsAppAPI(showDetailsModal, templateId)}
           onAddTransaction={(type, amount, note, category) => {
             const newTx: Transaction = {
               id: `adj-${Date.now()}`,
@@ -5234,6 +5315,7 @@ const OrderCard = ({
   onShowSummary,
   onShowAudit,
   onShowAssignment,
+  onSendWhatsAppAPI,
   whatsappLink,
   settings,
   storePrefix = "",
@@ -5253,6 +5335,7 @@ const OrderCard = ({
   onShowSummary: () => void;
   onShowAudit: () => void;
   onShowAssignment: () => void;
+  onSendWhatsAppAPI: (templateId: string) => void;
   whatsappLink: string;
   settings: Settings;
   storePrefix?: string;
@@ -5444,6 +5527,12 @@ const OrderCard = ({
           <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
           {statusInfo.label}
         </div>
+        {order.compensationStatus === 'compensated' && (
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-850 whitespace-nowrap shadow-sm">
+            <CheckCircle2 size={12} />
+            <span>معوّض ({order.compensationAmount} ج.م) {order.compensationCourierName ? `من ${order.compensationCourierName}` : ''}</span>
+          </div>
+        )}
         {order.channel !== "pos" &&
           !order.shippingCompany?.startsWith("كاشير -") && (
             <ShipmentTypeBadge type={order.shipmentType} />
@@ -5490,11 +5579,22 @@ const OrderCard = ({
               اتصال
             </p>
             <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSendWhatsAppAPI('confirm');
+                }}
+                className="p-2 bg-emerald-600 text-white rounded-xl hover:scale-110 transition-transform shadow-md shadow-emerald-600/20"
+                title="تأكيد الطلب آلياً (WhatsApp API)"
+              >
+                <CheckCircle2 size={16} />
+              </button>
               <a
                 href={whatsappLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl hover:scale-110 transition-transform"
+                title="فتح محادثة واتساب يدوية"
               >
                 <MessageCircle size={16} />
               </a>
@@ -5660,6 +5760,13 @@ const OrderCard = ({
       {/* Card Actions Overlay */}
       <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 duration-300">
         <button
+          onClick={() => onSendWhatsAppAPI('confirm')}
+          className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-2xl text-xs font-black hover:bg-emerald-700 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg shadow-emerald-600/20"
+          title="تأكيد الطلب آلياً"
+        >
+          تأكيد <MessageSquare size={14} />
+        </button>
+        <button
           onClick={onEdit}
           className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-900 dark:bg-black text-white rounded-2xl text-xs font-black hover:scale-[1.02] active:scale-[0.98] transition-all"
         >
@@ -5716,6 +5823,19 @@ const OrderCard = ({
               className="w-full text-right px-4 py-3 text-xs font-black text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-end gap-3 transition-colors"
             >
               تعيين موظف <UserIcon size={16} />
+            </button>
+            <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
+            <button
+              onClick={() => onSendWhatsAppAPI('confirm')}
+              className="w-full text-right px-4 py-3 text-xs font-black text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+            >
+              تأكيد عبر واتساب API <CheckCircle2 size={16} />
+            </button>
+            <button
+              onClick={() => onSendWhatsAppAPI('shipping')}
+              className="w-full text-right px-4 py-3 text-xs font-black text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+            >
+              تتبع عبر واتساب API <Truck size={16} />
             </button>
             <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
             <button
@@ -6580,6 +6700,7 @@ const OrderRow = ({
   onShowAudit,
   onShowAssignment,
   onShowDetails,
+  onSendWhatsAppAPI,
   onToggleFlexShipPaid,
   whatsappLink,
   settings,
@@ -6603,6 +6724,7 @@ const OrderRow = ({
   onShowAudit: () => void;
   onShowAssignment: () => void;
   onShowDetails: () => void;
+  onSendWhatsAppAPI: (templateId: string) => void;
   onToggleFlexShipPaid?: () => void;
   whatsappLink: string;
   settings: Settings;
@@ -6780,7 +6902,7 @@ const OrderRow = ({
           </div>
         </td>
         <td className="p-6 cursor-pointer" onClick={onShowDetails}>
-          <div className="flex items-center gap-4 flex-row-reverse">
+          <div className="flex items-center gap-3.5">
             <div
               className="relative group/status"
               onClick={(e) => {
@@ -6812,21 +6934,7 @@ const OrderRow = ({
               )}
             </div>
             <div className="text-right">
-              <div className="flex items-center gap-2 mb-1 justify-end">
-                {order.channel !== "pos" &&
-                  !order.shippingCompany?.startsWith("كاشير -") && (
-                    <ShipmentTypeBadge type={order.shipmentType} />
-                  )}
-                <PosSourceBadge order={order} />
-                <h4
-                  className="text-[13px] font-black text-slate-900 dark:text-white tracking-tighter cursor-pointer hover:text-indigo-600 transition-colors"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onShowDetails();
-                  }}
-                >
-                  #{order.orderNumber}
-                </h4>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <a
                   href={whatsappLink}
                   target="_blank"
@@ -6836,9 +6944,76 @@ const OrderRow = ({
                 >
                   <MessageCircle size={14} />
                 </a>
+                <h4
+                  className="text-[13px] font-black text-slate-900 dark:text-white tracking-tighter cursor-pointer hover:text-indigo-600 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShowDetails();
+                  }}
+                >
+                  #{order.orderNumber}
+                </h4>
+                {order.channel !== "pos" &&
+                  !order.shippingCompany?.startsWith("كاشير -") && (
+                    <ShipmentTypeBadge type={order.shipmentType} />
+                  )}
+                <PosSourceBadge order={order} />
+                {(() => {
+                  const isFlexShip = !!(order.flexShipFeePaidByCustomer || (order.enableFlexShip && order.flexShipFeePaidByCustomer));
+                  const accId = order.compensationTreasuryAccountId;
+                  let accName = '';
+                  if (accId === 'central_wallet') accName = 'المحفظة المركزية';
+                  else if (accId && treasury?.accounts) {
+                    const accList = Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {});
+                    const match = accList.find((a: any) => a.id === accId);
+                    if (match) accName = match.name;
+                  } else if (isFlexShip) {
+                    accName = 'المحفظة المركزية';
+                  }
+
+                  const compAmt = order.compensationAmount || (isFlexShip ? (order.flexShipFee || 0) : 0);
+
+                  if (isFlexShip) {
+                    return (
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-black bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap" title={`تعويض فليكس شيب - المبلغ: ${compAmt} ج.م | الحساب: ${accName}`}>
+                        <ShieldCheck size={10} className="text-indigo-600 dark:text-indigo-400" />
+                        <span>فليكس شيب ({compAmt} ج.م {accName ? `- ${accName}` : ''})</span>
+                      </div>
+                    );
+                  }
+
+                  if (order.compensationStatus === 'compensated') {
+                    return (
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-black bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 whitespace-nowrap" title={`تم التعويض بمبلغ ${order.compensationAmount || 0} ج.م ${accName ? `| الحساب: ${accName}` : ''}`}>
+                        <CheckCircle2 size={10} className="text-emerald-600 dark:text-emerald-400" />
+                        <span>معوّض ({order.compensationAmount || 0} ج.م {accName ? `- ${accName}` : ''})</span>
+                      </div>
+                    );
+                  }
+
+                  if (order.compensationStatus === 'pending') {
+                    return (
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-black bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 whitespace-nowrap">
+                        <Clock size={10} className="text-amber-600 dark:text-amber-400" />
+                        <span>قيد متابعة التعويض</span>
+                      </div>
+                    );
+                  }
+
+                  if (['مرتجع', 'فشل_التوصيل', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي', 'جاري_الاسترجاع'].includes(order.status) && (order as any).compensationStatus !== 'compensated' && !isFlexShip) {
+                    return (
+                      <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-black bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 animate-pulse whitespace-nowrap">
+                        <AlertTriangle size={10} className="text-rose-600 dark:text-rose-400" />
+                        <span>بانتظار التعويض!</span>
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })()}
               </div>
               <div className="group/customer relative inline-block text-right">
-                <div className="flex items-center gap-1.5 justify-end mt-0.5">
+                <div className="flex items-center gap-1.5 mt-0.5">
                   {order.recordedAsDebt && (
                     <div className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black border border-rose-100 dark:border-rose-500/20">
                       <Banknote size={10} />
@@ -6849,7 +7024,7 @@ const OrderRow = ({
                     {order.customerName}
                   </div>
                 </div>
-                <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-2 justify-end mt-1 fade-in opacity-80 group-hover/customer:opacity-100 transition-opacity">
+                <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-1 fade-in opacity-80 group-hover/customer:opacity-100 transition-opacity">
                   <span className="tabular-nums tracking-wide">
                     {order.customerPhone}
                   </span>
@@ -6984,19 +7159,47 @@ const OrderRow = ({
                     {flexFeeValue} ج.م
                   </span>
                 </div>
-                <span
-                  className={`text-[8px] font-bold block ${["مرتجع", "فشل_التوصيل", "مرتجع_بعد_الاستلام", "مرتجع_جزئي", "ملغي"].includes(order.status) ? "text-amber-500" : "text-slate-400"}`}
-                >
-                  {[
+                {(() => {
+                  if (order.compensationStatus === "compensated") {
+                    return (
+                      <span className="text-[8px] font-bold block text-slate-400 dark:text-slate-500">
+                        غير مستحق بعد
+                      </span>
+                    );
+                  }
+                  const isPaid = !!(
+                    order.flexShipFeePaidByCustomer ||
+                    order.flexShipTransactionAdded
+                  );
+                  if (!isPaid) {
+                    return (
+                      <span className="text-[8px] font-bold block text-rose-500 dark:text-rose-400">
+                        غير مدفوع
+                      </span>
+                    );
+                  }
+                  const isFailedOrReturned = [
                     "مرتجع",
                     "فشل_التوصيل",
+                    "فشل_التوصيل_معالجة",
                     "مرتجع_بعد_الاستلام",
                     "مرتجع_جزئي",
                     "ملغي",
-                  ].includes(order.status)
-                    ? (order.flexShipFeePaidByCustomer ? "مدفوعة" : "مستحق للفصل")
-                    : "غير مستحق"}
-                </span>
+                    "جاري_الاسترجاع",
+                  ].includes(order.status);
+                  if (isFailedOrReturned) {
+                    return (
+                      <span className="text-[8px] font-bold block text-emerald-600 dark:text-emerald-400">
+                        مدفوعة
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-[8px] font-bold block text-slate-400 dark:text-slate-500">
+                      غير مستحق
+                    </span>
+                  );
+                })()}
               </div>
             ) : (
               <div className="font-medium text-slate-400 dark:text-slate-500 text-center text-xs">
@@ -7045,6 +7248,49 @@ const OrderRow = ({
                 ))}
               </select>
             </div>
+            {(() => {
+              const isFlexShip = !!(order.flexShipFeePaidByCustomer || (order.enableFlexShip && order.flexShipFeePaidByCustomer));
+              const accId = order.compensationTreasuryAccountId;
+              let accName = '';
+              if (accId === 'central_wallet') accName = 'المحفظة المركزية';
+              else if (accId && treasury?.accounts) {
+                const accList = Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {});
+                const match = accList.find((a: any) => a.id === accId);
+                if (match) accName = match.name;
+              } else if (isFlexShip) {
+                accName = 'المحفظة المركزية';
+              }
+
+              const compAmt = order.compensationAmount || (isFlexShip ? (order.flexShipFee || 0) : 0);
+
+              if (isFlexShip) {
+                return null;
+              }
+
+              if (order.compensationStatus === 'compensated') {
+                return null;
+              }
+
+              if (order.compensationStatus === 'pending') {
+                return (
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-black bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800/80 shadow-xs whitespace-nowrap">
+                    <Clock size={11} className="text-amber-600 dark:text-amber-400 animate-spin-slow" />
+                    <span>قيد متابعة التعويض</span>
+                  </div>
+                );
+              }
+
+              if (order.compensationStatus === 'rejected') {
+                return (
+                  <div className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-black bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/80 shadow-xs whitespace-nowrap">
+                    <AlertCircle size={11} className="text-rose-600 dark:text-rose-400" />
+                    <span>تعويض مرفوض</span>
+                  </div>
+                );
+              }
+
+              return null;
+            })()}
           </div>
         </td>
 
@@ -7071,15 +7317,37 @@ const OrderRow = ({
 
         {/* 8. حالة المبلغ المحصل */}
         <td className="p-6 text-center">
-          <span
-            className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider text-center inline-block cursor-default transition-all duration-300 shadow-xs border ${
-              order.paymentStatus === "مدفوع"
-                ? "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
-                : "bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20"
-            }`}
-          >
-            {order.paymentStatus === "مدفوع" ? "مدفوع" : "غير مدفوع"}
-          </span>
+          {(() => {
+            const isUncollectedStatus = [
+              "مرتجع",
+              "فشل_التوصيل",
+              "فشل_التوصيل_معالجة",
+              "مرتجع_بعد_الاستلام",
+              "مرتجع_جزئي",
+              "ملغي",
+              "جاري_الاسترجاع",
+            ].includes(order.status);
+
+            if (isUncollectedStatus) {
+              return (
+                <span className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider text-center inline-block cursor-default transition-all duration-300 shadow-xs border bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/80 dark:text-slate-400 dark:border-slate-700/80">
+                  بدون تحصيل
+                </span>
+              );
+            }
+
+            return (
+              <span
+                className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-wider text-center inline-block cursor-default transition-all duration-300 shadow-xs border ${
+                  order.paymentStatus === "مدفوع"
+                    ? "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20"
+                    : "bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20"
+                }`}
+              >
+                {order.paymentStatus === "مدفوع" ? "مدفوع" : "غير مدفوع"}
+              </span>
+            );
+          })()}
         </td>
         <td className="p-6">
           <div className="flex items-center gap-2 justify-end">
@@ -7254,6 +7522,57 @@ const OrderRow = ({
                         </div>
                       </button>
                     </div>
+
+                    {/* SECTION 3: WHATSAPP API ACTIONS */}
+                    {settings.whatsappConfig?.isActive && (
+                      <div className="py-2 space-y-0.5 border-t border-slate-100 dark:border-white/5">
+                        <div className="px-3 py-1.5">
+                          <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block text-right">
+                            💬 WhatsApp API
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOps(false);
+                            onSendWhatsAppAPI('confirm');
+                          }}
+                          className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                              تأكيد الطلب تلقائياً
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 block">
+                              إرسال رسالة التأكيد عبر الـ API
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                            <CheckCircle2 size={15} />
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOps(false);
+                            onSendWhatsAppAPI('shipping');
+                          }}
+                          className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                              إرسال بيانات التتبع
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 block">
+                              إرسال رابط التتبع للعميل آلياً
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                            <Truck size={15} />
+                          </div>
+                        </button>
+                      </div>
+                    )}
 
                     {/* SECTION 3: MANAGEMENT & DELETION */}
                     <div className="pt-2 space-y-0.5">

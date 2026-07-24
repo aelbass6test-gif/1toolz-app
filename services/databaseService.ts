@@ -427,7 +427,14 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         notes: ch.notes || '',
                         status: ch.status || ''
                     })),
-                    whatsappTemplates, callScripts
+                    whatsappTemplates: (whatsappTemplates || []).map((t: any) => {
+                        const details = t.details && typeof t.details === 'object' ? t.details : (typeof t.details === 'string' && t.details ? JSON.parse(t.details) : {});
+                        return {
+                            ...t,
+                            ...details
+                        };
+                    }),
+                    callScripts
                 },
                 orders: (orders || []).map((o: any) => {
                     const detailsObj = o.details && typeof o.details === 'object' ? o.details : (typeof o.details === 'string' && o.details ? JSON.parse(o.details) : {});
@@ -1003,6 +1010,22 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             description: cleanItem.description || '',
                             reference: cleanItem.reference || ''
                         };
+                    } else if (table === 'whatsapp_templates') {
+                        const detailsObj: any = {
+                            ...(cleanItem.details || {})
+                        };
+                        Object.keys(cleanItem).forEach(key => {
+                            if (!['id', 'store_id', 'storeId', 'label', 'text', 'details'].includes(key)) {
+                                detailsObj[key] = cleanItem[key];
+                            }
+                        });
+                        mappedItem = {
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            label: cleanItem.label || '',
+                            text: cleanItem.text || '',
+                            details: detailsObj
+                        };
                     } else if (table === 'orders') {
                         const firstClassColumns = [
                             'id', 'store_id', 'storeId',
@@ -1197,7 +1220,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                                 const copy = { ...item };
                                 if (copy.details && typeof copy.details === 'object') {
                                     copy.details = { ...copy.details, [missingCol]: item[missingCol] };
-                                } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data'].includes(table)) {
+                                } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates'].includes(table)) {
                                     copy.details = { [missingCol]: item[missingCol] };
                                 }
                                 delete copy[missingCol];

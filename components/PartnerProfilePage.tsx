@@ -5,7 +5,7 @@ import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, H
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
-import { calculateOrderProfitLoss } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateWalletLiveBalance } from '../utils/financials';
 
 import { Treasury } from '../types';
 
@@ -40,6 +40,7 @@ const normalizeName = (name: string): string => {
 
 const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
   const { storeId, partnerId } = useParams<{ storeId: string; partnerId: string }>();
+  const walletBalance = useMemo(() => calculateWalletLiveBalance(wallet), [wallet]);
   const navigate = useNavigate();
   const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
   
@@ -120,7 +121,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
      }
 
      const isCentralWallet = custodyTreasuryId === 'central_wallet';
-     const isCentralWalletBalance = Math.max(0, (wallet.balance || 0) - effectiveHiddenAmount);
+     const walletBalance = Math.round(calculateWalletLiveBalance(wallet, treasury) * 100) / 100;
+     const isCentralWalletBalance = Math.max(0, walletBalance - effectiveHiddenAmount);
      
      const selectedAccount = isCentralWallet 
         ? { id: 'central_wallet', name: 'المحفظة الماليّة المركزيّة (الرصيد الأساسي)', balance: isCentralWalletBalance }
@@ -952,7 +954,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                           >
                               <option value="">-- اختر حساباً مالياً --</option>
                               <option value="central_wallet" className="text-indigo-600 font-black">
-                                 💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد: {Math.max(0, (wallet.balance || 0) - effectiveHiddenAmount).toLocaleString()} ج.م)
+                                 💳 المحفظة الماليّة المركزيّة (الرصيد الأساسي) — (الرصيد: {Math.max(0, walletBalance - effectiveHiddenAmount).toLocaleString()} ج.م)
                               </option>
                               {treasury?.accounts?.map((acc: any) => (
                                   <option key={acc.id} value={acc.id}>

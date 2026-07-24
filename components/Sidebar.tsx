@@ -3,7 +3,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom';
 import { 
     LayoutDashboard, ShoppingCart, Eye, PhoneForwarded, Plus,
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
-    Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, 
+    Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, ShieldAlert,
     AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake,
     Search, ChevronDown, Minimize2, Maximize2, Wrench
 } from 'lucide-react';
@@ -125,6 +125,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             title: 'قنوات الشحن اللوجستي والتعبئة',
             links: [
                 { to: `${storePrefix}/shipping`, label: 'شركات وقنوات الشحن اللوجستي', icon: <Truck size={18} /> },
+                { 
+                    to: `${storePrefix}/failed-delivery-compensation`, 
+                    label: 'تعويضات أوردر فشل التوصيل', 
+                    icon: <ShieldAlert size={18} />,
+                    badge: { text: "مطالبات 💵", color: "bg-red-500/10 text-red-600 border border-red-500/10 text-[9px] font-bold" }
+                },
                 { to: `${storePrefix}/shipping-wrapping`, label: 'مستلزمات التعبئة والتغليف والشحن', icon: <Package size={18} /> },
             ]
         },

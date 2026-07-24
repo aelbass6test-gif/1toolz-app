@@ -536,6 +536,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       if (item.note && (item.note.includes('عكس') || item.note.includes('تراجع') || item.id?.startsWith('revert_'))) {
           return item.note;
       }
+      if (item.category === 'shipping_compensation' || item.category === 'compensation' || (item.note && item.note.includes('تعويض'))) {
+          return item.note || 'تعويض شركة الشحن';
+      }
       let baseTitle = item.category === 'collection' ? 'رصيد من الدفع عند الاستلام' 
                     : item.category === 'shipping' ? 'مصاريف شحن' 
                     : (item.note?.replace('إصدار بوليصة شحن', 'مصاريف شحن') || item.type);
@@ -1285,7 +1288,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">التصنيف</p>
-                                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">{item.category === 'wallet_charge' ? 'شحن محفظة' : item.category === 'wallet_withdrawal' ? 'سحب رصيد' : item.category === 'cod' ? 'تحصيل COD' : item.category || 'أخرى'}</p>
+                                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">{item.category === 'wallet_charge' ? 'شحن محفظة' : item.category === 'wallet_withdrawal' ? 'سحب رصيد' : item.category === 'cod' ? 'تحصيل COD' : item.category === 'shipping_compensation' || item.category === 'compensation' || (item.note && item.note.includes('تعويض')) ? 'تعويض شركة الشحن' : item.category === 'collection' ? 'تحصيل عند الاستلام' : item.category || 'أخرى'}</p>
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">تاريخ التنفيذ</p>

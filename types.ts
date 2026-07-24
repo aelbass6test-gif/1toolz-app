@@ -125,7 +125,7 @@ export interface Product {
   stockThreshold?: number;
 }
 
-export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_hr' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'pos_cash' | 'vat' | 'treasury_sync';
+export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_hr' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'pos_cash' | 'vat' | 'treasury_sync' | 'shipping_compensation' | 'compensation';
 
 export type WithdrawStatus = 'pending' | 'accepted' | 'rejected' | 'processing';
 
@@ -564,6 +564,24 @@ export interface WhatsAppTemplate {
   id: string;
   label: string;
   text: string;
+  footer?: string;
+  buttons?: string[];
+}
+
+export interface WhatsAppConfig {
+  apiUrl: string;
+  instanceId: string;
+  token: string;
+  isActive: boolean;
+  autoSendOnStatusChange: boolean;
+  providerType?: 'ultramsg' | 'direct_web' | 'local_gateway' | 'meta_cloud';
+  phoneNumberId?: string;
+  accessToken?: string;
+  isConnected?: boolean;
+  sessionPhone?: string;
+  confirmationTemplateId?: string;
+  shippingTemplateId?: string;
+  deliveryTemplateId?: string;
 }
 
 export interface CallScript {
@@ -736,6 +754,7 @@ export interface Settings {
   collections: Collection[];
   connectedPlatforms: string[]; // <-- Added connected platforms (e.g., 'wuilt', 'shopify')
   whatsappTemplates?: WhatsAppTemplate[];
+  whatsappConfig?: WhatsAppConfig;
   callScripts?: CallScript[];
   employeeDashboardSettings?: EmployeeDashboardSettings;
   isPosEnabled?: boolean;
@@ -1128,6 +1147,12 @@ export interface Order {
   confirmationLogs?: ConfirmationLog[];
   cancellationReason?: string;
   followUpReminder?: string;
+  compensationStatus?: 'none' | 'pending' | 'compensated' | 'rejected';
+  compensationAmount?: number;
+  compensationCourierName?: string;
+  compensationNotes?: string;
+  compensationDate?: string;
+  compensationTreasuryAccountId?: string;
   lockedBy?: string;
   lockedByName?: string;
   lockedAt?: string;

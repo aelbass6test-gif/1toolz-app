@@ -22,6 +22,7 @@ interface OrderDetailsModalProps {
   allOrders?: Order[];
   onClose: () => void;
   onAddTransaction?: (type: 'إيداع' | 'سحب', amount: number, note: string, category: any) => void;
+  onSendWhatsAppAPI?: (templateId: string) => void;
 }
 
 export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({ 
@@ -30,7 +31,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   treasury,
   allOrders = [], 
   onClose,
-  onAddTransaction
+  onAddTransaction,
+  onSendWhatsAppAPI
 }) => {
   const [activeTab, setActiveTab] = useState<'details' | 'financials' | 'tracking'>('details');
   const [showAdjustmentForm, setShowAdjustmentForm] = useState(false);
@@ -40,13 +42,32 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
   if (!settings) return null;
 
+  const isFlexShipCovered = !!(order.flexShipFeePaidByCustomer || (order.enableFlexShip && order.flexShipFeePaidByCustomer));
+  
+  const getCompensationAccountName = () => {
+    const accId = order.compensationTreasuryAccountId;
+    if (!accId) {
+      if (isFlexShipCovered) return 'المحفظة الإلكترونية المركزية';
+      return '';
+    }
+    if (accId === 'central_wallet') return 'المحفظة الإلكترونية المركزية';
+    if (treasury?.accounts) {
+      const accList = Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {});
+      const match = accList.find((a: any) => a.id === accId);
+      if (match) return match.name;
+    }
+    return accId;
+  };
+
+  const { profit, loss, carrierFees, productCost: safeProductCost, netRevenue } = calculateOrderProfitLoss(order, settings);
+  const compAccountName = getCompensationAccountName();
+  const effectiveCompAmount = order.compensationAmount || (isFlexShipCovered ? (order.flexShipFee || loss) : 0);
+
   const handleCopy = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
   };
-
-  const { profit, loss, carrierFees, productCost: safeProductCost, netRevenue } = calculateOrderProfitLoss(order, settings);
 
   const safeProductPrice = Number(order.productPrice) || 0;
   const safeShippingFee = Number(order.shippingFee) || 0;
@@ -194,6 +215,33 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             
             <div className="text-right">
               <div className="flex items-center justify-end gap-3 mb-1.5 flex-wrap">
+                {isFlexShipCovered ? (
+                  <span className="px-3.5 py-1 rounded-xl text-xs font-black shadow-xs bg-indigo-500/10 text-indigo-700 border border-indigo-500/20 dark:bg-indigo-500/20 dark:text-indigo-300 flex items-center gap-1.5" title={`مبلغ التعويض: ${effectiveCompAmount} ج.م | الحساب: ${compAccountName || 'المحفظة الإلكترونية المركزية'}`}>
+                    <CheckCircle2 size={13} className="text-indigo-600 dark:text-indigo-400" />
+                    <span>فليكس شيب (مبلغ التعويض: {effectiveCompAmount} ج.م {compAccountName ? `- الحساب: ${compAccountName}` : ''})</span>
+                  </span>
+                ) : (
+                  <>
+                    {order.compensationStatus === 'compensated' && (
+                      <span className="px-3.5 py-1 rounded-xl text-xs font-black shadow-xs bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center gap-1.5" title={`مبلغ التعويض المحصل: ${order.compensationAmount || 0} ج.م ${compAccountName ? `| الحساب المودع فيه: ${compAccountName}` : ''}`}>
+                        <CheckCircle2 size={13} />
+                        <span>تم التعويض من شركة الشحن ({order.compensationAmount || 0} ج.م {compAccountName ? `- ${compAccountName}` : ''})</span>
+                      </span>
+                    )}
+                    {order.compensationStatus === 'pending' && (
+                      <span className="px-3.5 py-1 rounded-xl text-xs font-black shadow-xs bg-amber-500/10 text-amber-600 border border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400 flex items-center gap-1.5">
+                        <Clock size={13} />
+                        <span>قيد متابعة التعويض</span>
+                      </span>
+                    )}
+                    {order.compensationStatus === 'rejected' && (
+                      <span className="px-3.5 py-1 rounded-xl text-xs font-black shadow-xs bg-rose-500/10 text-rose-600 border border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 flex items-center gap-1.5">
+                        <ShieldAlert size={13} />
+                        <span>تعويض مرفوض</span>
+                      </span>
+                    )}
+                  </>
+                )}
                 <span className={`px-3 py-1 rounded-xl text-xs font-black shadow-xs border ${
                   order.paymentStatus === 'مدفوع' 
                     ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400' 
@@ -283,6 +331,64 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               {/* Right Column: Customer & Items */}
               <div className="flex-1 space-y-6 lg:order-2">
                 
+                {/* Compensation Banner if applicable or if Flex Ship is enabled */}
+                {(isFlexShipCovered || (order.compensationStatus && order.compensationStatus !== 'none')) && (
+                  <div className={`p-5 rounded-[2rem] border shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                    isFlexShipCovered 
+                      ? 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800/60'
+                      : order.compensationStatus === 'compensated' 
+                      ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' 
+                      : order.compensationStatus === 'pending'
+                      ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60'
+                      : 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/60'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-3 rounded-2xl ${
+                        isFlexShipCovered
+                          ? 'bg-indigo-500/15 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400'
+                          : order.compensationStatus === 'compensated' 
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                          : order.compensationStatus === 'pending'
+                          ? 'bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400'
+                          : 'bg-rose-500/15 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400'
+                      }`}>
+                        {isFlexShipCovered || order.compensationStatus === 'compensated' ? <CheckCircle2 size={22} /> : <AlertCircle size={22} />}
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-slate-800 dark:text-white">
+                          {isFlexShipCovered 
+                            ? 'الطلب مغطى ببرنامج فليكس شيب (تم سداد الرسوم بواسطة العميل)' 
+                            : order.compensationStatus === 'compensated' 
+                            ? 'تم التعويض من شركة الشحن' 
+                            : order.compensationStatus === 'pending'
+                            ? 'مطالبة التعويض قيد المتابعة مع شركة الشحن'
+                            : 'تم رفض طلب التعويض من شركة الشحن'}
+                        </h4>
+                        <div className="text-xs font-bold text-slate-600 dark:text-slate-300 mt-1 space-y-0.5">
+                          <div>
+                            حالة التعويض: <span className="font-black text-indigo-600 dark:text-indigo-400">{isFlexShipCovered ? 'فليكس شيب (Flex Ship)' : order.compensationStatus === 'compensated' ? 'تم التعويض' : order.compensationStatus === 'pending' ? 'قيد المتابعة' : 'مرفوض'}</span>
+                          </div>
+                          <div>
+                            مبلغ التعويض المستلم/المغطى: <span className="text-emerald-600 dark:text-emerald-400 font-black text-sm">{effectiveCompAmount} ج.م</span>
+                          </div>
+                          {compAccountName && (
+                            <div>
+                              الحساب المودع فيه: <span className="text-slate-900 dark:text-white font-black">{compAccountName}</span>
+                            </div>
+                          )}
+                          {order.compensationCourierName && <div>المندوب/الشركة: {order.compensationCourierName}</div>}
+                          {order.compensationNotes && <div className="text-[11px] font-normal text-slate-500">ملاحظات: {order.compensationNotes}</div>}
+                        </div>
+                      </div>
+                    </div>
+                    {order.compensationDate && (
+                      <span className="text-[11px] font-black text-slate-500 bg-white/80 dark:bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800 shrink-0">
+                        تاريخ التسوية: {order.compensationDate}
+                      </span>
+                    )}
+                  </div>
+                )}
+                
                 {/* Quick Communication Card */}
                 <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-slate-200/80 dark:border-white/10 p-6 shadow-sm flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4">
                   <div className="flex flex-wrap items-center gap-2.5">
@@ -290,11 +396,31 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       href={`https://wa.me/${order.customerPhone.replace(/\D/g, '')}?text=${encodeURIComponent(`مرحباً أستاذ ${order.customerName}، بخصوص طلبك رقم #${order.orderNumber || order.id.slice(0,6)} من متجرنا...`)}`} 
                       target="_blank" 
                       rel="noreferrer"
-                      className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-500/20 transition-all active:scale-95"
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 font-black text-xs rounded-xl border border-emerald-200/50 dark:border-emerald-500/20 transition-all active:scale-95"
                     >
                       <Share2 size={14} />
-                      <span>مراسلة واتساب مباشر</span>
+                      <span>واتساب (يدوي)</span>
                     </a>
+                    
+                    {settings.whatsappConfig?.isActive && (
+                      <>
+                        <button 
+                          onClick={() => onSendWhatsAppAPI?.('confirm')}
+                          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-600/20 transition-all active:scale-95"
+                        >
+                          <CheckCircle2 size={14} />
+                          <span>تأكيد (API)</span>
+                        </button>
+                        <button 
+                          onClick={() => onSendWhatsAppAPI?.('shipping')}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-600/20 transition-all active:scale-95"
+                        >
+                          <Truck size={14} />
+                          <span>تتبع (API)</span>
+                        </button>
+                      </>
+                    )}
+
                     <a 
                       href={`tel:${order.customerPhone}`}
                       className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 font-black text-xs rounded-xl border border-indigo-200/50 dark:border-indigo-500/20 transition-all active:scale-95"

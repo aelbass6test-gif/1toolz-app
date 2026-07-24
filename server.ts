@@ -721,6 +721,132 @@ async function startServer() {
     return c.json({ status: "ok" });
   });
 
+  // WhatsApp Proxy API
+  app.post("/api/whatsapp/send", async (c) => {
+    try {
+      const { to, body, footer, buttons, config } = await c.req.json();
+      
+      if (!config || !config.isActive) {
+        return c.json({ success: false, error: "WhatsApp integration is not active." }, 400);
+      }
+ 
+      // Clean phone number: remove all non-digits
+      let cleanTo = (to || '').toString().replace(/\D/g, '');
+      // If it starts with 0 and is 11 digits (Egyptian format), prepend 2
+      if (cleanTo.startsWith('0') && cleanTo.length === 11) {
+        cleanTo = '2' + cleanTo;
+      }
+
+      // Check if Meta Cloud API is selected
+      if (config.providerType === 'meta_cloud') {
+        const phoneNumberId = config.phoneNumberId || config.instanceId;
+        const accessToken = config.accessToken || config.token;
+
+        if (!phoneNumberId || !accessToken) {
+          return c.json({ success: false, error: "Meta Cloud API requires Phone Number ID and Access Token." }, 400);
+        }
+
+        const metaUrl = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
+        
+        let fullBodyText = body;
+        if (footer) fullBodyText += `\n\n📌 ${footer}`;
+        if (buttons && buttons.length > 0) {
+          fullBodyText += `\n\n🔘 الخيارات:\n` + buttons.map((b: any, idx: number) => `${idx+1}️⃣ ${typeof b === 'string' ? b : b.text}`).join('\n');
+        }
+
+        const metaRes = await fetch(metaUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: cleanTo,
+            type: "text",
+            text: {
+              preview_url: true,
+              body: fullBodyText
+            }
+          })
+        });
+
+        const metaData: any = await metaRes.json();
+        const isSuccess = metaRes.ok && (metaData.messages && metaData.messages.length > 0);
+
+        return c.json({
+          success: isSuccess,
+          error: metaData.error ? (typeof metaData.error === 'string' ? metaData.error : metaData.error.message) : undefined,
+          ...metaData
+        }, metaRes.status as any);
+      }
+ 
+      const { apiUrl, instanceId, token } = config;
+  
+      // Validate and fix URL
+      let finalApiUrl = (apiUrl || '').trim();
+      while (finalApiUrl.startsWith('/')) {
+        finalApiUrl = finalApiUrl.substring(1);
+      }
+      
+      if (finalApiUrl && !finalApiUrl.startsWith('http')) {
+        finalApiUrl = 'https://' + finalApiUrl;
+      }
+
+      if (finalApiUrl && finalApiUrl.includes('api.ultramsg.com')) {
+        if (buttons && buttons.length > 0) {
+          if (!finalApiUrl.includes('/messages/buttons')) {
+             finalApiUrl = finalApiUrl.split('/messages/')[0] + '/messages/buttons';
+          }
+        } else if (!finalApiUrl.includes('/messages/')) {
+          if (!finalApiUrl.endsWith('/')) finalApiUrl += '/';
+          finalApiUrl += 'messages/chat';
+        }
+      }
+
+      if (!finalApiUrl) {
+        return c.json({ success: false, error: "Invalid API URL." }, 400);
+      }
+
+      let formattedButtons = buttons;
+      if (buttons && Array.isArray(buttons) && finalApiUrl.includes('api.ultramsg.com')) {
+        formattedButtons = buttons.map((btn: any) => {
+          if (typeof btn === 'string') return { text: btn };
+          return btn;
+        });
+      }
+
+      const response = await fetch(finalApiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: token,
+          to: cleanTo,
+          body: body,
+          footer: footer || '',
+          buttons: formattedButtons,
+          priority: 10
+        }),
+      });
+ 
+      const data: any = await response.json();
+      
+      // UltraMsg returns { "sent": "true", "id": ... } or { "error": "..." }
+      const isSuccess = data.sent === "true" || data.success === true || !!data.id;
+      
+      return c.json({ 
+        success: isSuccess,
+        ...data 
+      }, response.status as any);
+    } catch (error: any) {
+      console.error("WhatsApp Proxy Error:", error);
+      return c.json({ success: false, error: error.message }, 500);
+    }
+  });
+
   // Temporary Introspection
   app.get("/api/introspect", async (c) => {
     try {
