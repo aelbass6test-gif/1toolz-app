@@ -757,6 +757,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     orderData.vatOnStandardShipping,
     orderData.items,
     orderData.insuranceBaseValue,
+    orderData.insurancePackageId,
   ]);
 
   const activeVatAmount = useMemo(() => {
@@ -1992,20 +1993,44 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               />
             </div>
             {orderData.isInsured !== false && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-1.5 animate-in slide-in-from-top-1 duration-200">
-                <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
-                  قيمة المنتج للتأمين (اختياري)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={orderData.insuranceBaseValue || ""}
-                    onChange={(e) => handleFieldChange("insuranceBaseValue", parseFloat(e.target.value) || 0)}
-                    placeholder="يستخدم سعر المنتج تلقائياً"
-                    className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-[11px] font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-left pl-10"
-                  />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">ج.م</span>
-                </div>
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-3 animate-in slide-in-from-top-1 duration-200">
+                {settings.insurancePackages && settings.insurancePackages.length > 0 && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
+                      باقة التأمين المحددة للطلب
+                    </label>
+                    <select
+                      value={orderData.insurancePackageId || ""}
+                      onChange={(e) => handleFieldChange("insurancePackageId", e.target.value || undefined)}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-[11px] text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    >
+                      <option value="">-- الشحن العادي (حسب نسبة الشحن الافتراضية) --</option>
+                      {settings.insurancePackages.map((pkg) => (
+                        <option key={pkg.id} value={pkg.id}>
+                          {pkg.name} ({pkg.type === "flat" ? `${pkg.value} ج.م` : `${pkg.value}%`})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {(!orderData.insurancePackageId || settings.insurancePackages?.find(p => p.id === orderData.insurancePackageId)?.type === "percent") && (
+                  <div className="space-y-1.5 animate-in fade-in duration-200">
+                    <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
+                      قيمة المنتج للتأمين (اختياري)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={orderData.insuranceBaseValue || ""}
+                        onChange={(e) => handleFieldChange("insuranceBaseValue", parseFloat(e.target.value) || 0)}
+                        placeholder="يستخدم سعر المنتج تلقائياً"
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-[11px] font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-left pl-10"
+                      />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">ج.م</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

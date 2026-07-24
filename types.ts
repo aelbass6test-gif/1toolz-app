@@ -801,6 +801,17 @@ export interface Settings {
     welcomeSoundType?: 'standard' | 'cash' | 'success' | 'trumpet' | 'fireworks' | 'magic' | 'modern_shine' | 'pro_chime' | 'future_ui' | 'soft_welcome' | 'tech_rise';
     enableLoadingSound?: boolean;
   };
+  insurancePackages?: InsurancePackage[];
+}
+
+export interface InsurancePackage {
+  id: string;
+  name: string;
+  type: 'flat' | 'percent';
+  value: number;
+  minAmount?: number;
+  maxAmount?: number;
+  description?: string;
 }
 
 export interface CashHolder {
@@ -1205,6 +1216,7 @@ export interface Order {
   deliveryNotes?: string;
   isManualShippingOverride?: boolean;
   insuranceBaseValue?: number;
+  insurancePackageId?: string;
 }
 
 export interface TreasuryAccount {

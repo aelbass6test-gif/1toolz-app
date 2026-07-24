@@ -7160,7 +7160,7 @@ const OrderRow = ({
                   </span>
                 </div>
                 {(() => {
-                  if (order.compensationStatus === "compensated") {
+                  if (order.compensationStatus === "compensated" || isDelivered || order.status === "تم_الاستبدال") {
                     return (
                       <span className="text-[8px] font-bold block text-slate-400 dark:text-slate-500">
                         غير مستحق بعد

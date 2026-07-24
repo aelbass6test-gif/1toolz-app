@@ -547,6 +547,10 @@ const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompa
                   </div>
               </SectionCard>
             </motion.div>
+
+            <motion.div variants={itemVariants}>
+              <InsurancePackagesManager settings={settings} setSettings={setSettings} />
+            </motion.div>
             
             <motion.div variants={itemVariants}>
               <SectionCard title="الربط الإلكتروني (API)" icon={<Plug size={22} className="text-slate-600 dark:text-slate-400" />}>
@@ -1274,5 +1278,234 @@ const CompanyFinancialsEditor: React.FC<any> = ({ companyName, settings, setSett
 };
 const FinancialCard: React.FC<any> = ({ label, name, value, isActive, onToggle, onChange, icon, desc }) => ( <div className={`p-5 rounded-2xl border transition-all ${isActive ? 'bg-white dark:bg-slate-800/30 border-slate-300 dark:border-slate-700' : 'bg-slate-100 dark:bg-slate-800/30 border-slate-200 dark:border-slate-800 opacity-60'}`}> <div className="flex items-center justify-between mb-4"> <label className="text-sm font-black text-slate-800 dark:text-slate-300 flex items-center gap-2">{icon} {label}</label> <ToggleButton active={isActive} onToggle={onToggle} /> </div> <div className="relative"> <input type="number" name={name} disabled={!isActive} className="w-full px-4 py-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed font-black dark:text-white shadow-inner transition-all" value={value} onChange={onChange} /> </div> <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-3 leading-relaxed font-bold">{desc}</p> </div> );
 const CodInput: React.FC<any> = ({ label, value, onChange, step = "1" }) => ( <div className="space-y-1"> <label className="text-[10px] font-black text-amber-700 dark:text-amber-500 uppercase tracking-tight">{label}</label> <input type="number" step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full px-2 py-2.5 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-900/60 rounded-xl text-sm outline-none font-black dark:text-white" /> </div> );
+
+interface InsurancePackagesManagerProps {
+  settings: Settings;
+  setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+}
+
+const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ settings, setSettings }) => {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [pkgName, setPkgName] = useState('');
+  const [pkgType, setPkgType] = useState<'flat' | 'percent'>('percent');
+  const [pkgValue, setPkgValue] = useState<number | ''>('');
+  const [pkgMin, setPkgMin] = useState<number | ''>('');
+  const [pkgMax, setPkgMax] = useState<number | ''>('');
+  const [pkgDesc, setPkgDesc] = useState('');
+
+  const packages = settings.insurancePackages || [];
+
+  const handleAddPackage = () => {
+    if (!pkgName.trim() || pkgValue === '') return;
+    const newPkg = {
+      id: `pkg_${Date.now()}`,
+      name: pkgName.trim(),
+      type: pkgType,
+      value: Number(pkgValue),
+      minAmount: pkgMin !== '' ? Number(pkgMin) : undefined,
+      maxAmount: pkgMax !== '' ? Number(pkgMax) : undefined,
+      description: pkgDesc.trim() || undefined,
+    };
+
+    setSettings((prev) => ({
+      ...prev,
+      insurancePackages: [...(prev.insurancePackages || []), newPkg],
+    }));
+
+    // Reset fields
+    setPkgName('');
+    setPkgType('percent');
+    setPkgValue('');
+    setPkgMin('');
+    setPkgMax('');
+    setPkgDesc('');
+    setShowAddModal(false);
+  };
+
+  const handleDeletePackage = (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف باقة التأمين هذه؟')) return;
+    setSettings((prev) => ({
+      ...prev,
+      insurancePackages: (prev.insurancePackages || []).filter((p) => p.id !== id),
+    }));
+  };
+
+  return (
+    <SectionCard
+      title="إدارة باقات التأمين"
+      icon={<ShieldCheck size={22} className="text-blue-600 dark:text-blue-400" />}
+      action={
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-blue-700 active:scale-95 transition-all"
+        >
+          <Plus size={16} /> إضافة باقة تأمين
+        </button>
+      }
+    >
+      <div className="space-y-4">
+        {packages.length === 0 ? (
+          <div className="text-center py-8 text-slate-400 dark:text-slate-500">
+            <ShieldCheck size={40} className="mx-auto mb-2 opacity-40 text-blue-500" />
+            <p className="font-bold">لا توجد باقات تأمين مضافة حالياً.</p>
+            <p className="text-xs mt-1">سيتم استخدام نسبة التأمين العامة للشركات بشكل افتراضي.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {packages.map((pkg) => (
+              <div
+                key={pkg.id}
+                className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30 flex flex-col justify-between group hover:border-blue-300 dark:hover:border-blue-700 transition-all shadow-sm"
+              >
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="font-bold text-slate-800 dark:text-white text-base">{pkg.name}</span>
+                    <button
+                      onClick={() => handleDeletePackage(pkg.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors"
+                      title="حذف الباقة"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${pkg.type === 'flat' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400'}`}>
+                      {pkg.type === 'flat' ? 'مبلغ ثابت' : 'نسبة مئوية'}
+                    </span>
+                    <span className="text-sm font-extrabold text-slate-700 dark:text-slate-300">
+                      {pkg.value} {pkg.type === 'flat' ? 'ج.م' : '%'}
+                    </span>
+                  </div>
+                  {pkg.description && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-3 font-medium leading-relaxed">
+                      {pkg.description}
+                    </p>
+                  )}
+                </div>
+                {(pkg.minAmount !== undefined || pkg.maxAmount !== undefined) && (
+                  <div className="mt-4 pt-3 border-t border-slate-200/50 dark:border-slate-800/50 flex gap-4 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    {pkg.minAmount !== undefined && (
+                      <div>الحد الأدنى: <span className="text-slate-700 dark:text-slate-300">{pkg.minAmount} ج.م</span></div>
+                    )}
+                    {pkg.maxAmount !== undefined && (
+                      <div>الحد الأقصى: <span className="text-slate-700 dark:text-slate-300">{pkg.maxAmount} ج.م</span></div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 dark:bg-black/90 backdrop-blur-sm animate-in fade-in duration-200 text-right">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-300 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <ShieldCheck className="text-blue-600" /> إضافة باقة تأمين جديدة
+              </h3>
+              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500">
+                <XCircle size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-400">اسم الباقة</label>
+                <input
+                  type="text"
+                  placeholder="مثال: الباقة الفضية، تأمين ممتاز"
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold dark:text-white"
+                  value={pkgName}
+                  onChange={(e) => setPkgName(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-400">نوع التأمين</label>
+                  <select
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold dark:text-white"
+                    value={pkgType}
+                    onChange={(e) => setPkgType(e.target.value as any)}
+                  >
+                    <option value="percent">نسبة مئوية (%)</option>
+                    <option value="flat">مبلغ ثابت (ج.م)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-400">القيمة</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder={pkgType === 'percent' ? '%' : 'ج.م'}
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold dark:text-white"
+                    value={pkgValue}
+                    onChange={(e) => setPkgValue(e.target.value === '' ? '' : Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              {pkgType === 'percent' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-400">الحد الأدنى (ج.م) (اختياري)</label>
+                    <input
+                      type="number"
+                      placeholder="بلا حد أدنى"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold dark:text-white"
+                      value={pkgMin}
+                      onChange={(e) => setPkgMin(e.target.value === '' ? '' : Number(e.target.value))}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-400">الحد الأقصى (ج.م) (اختياري)</label>
+                    <input
+                      type="number"
+                      placeholder="بلا حد أقصى"
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold dark:text-white"
+                      value={pkgMax}
+                      onChange={(e) => setPkgMax(e.target.value === '' ? '' : Number(e.target.value))}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-400">الوصف (اختياري)</label>
+                <textarea
+                  rows={2}
+                  placeholder="وصف مختصر لباقة التأمين شروطها..."
+                  className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold dark:text-white text-xs resize-none"
+                  value={pkgDesc}
+                  onChange={(e) => setPkgDesc(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={handleAddPackage}
+                  disabled={!pkgName.trim() || pkgValue === ''}
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all active:scale-95 text-center"
+                >
+                  إضافة الباقة
+                </button>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all text-center"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+};
 
 export default ShippingPage;

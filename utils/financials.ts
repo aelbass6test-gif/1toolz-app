@@ -154,49 +154,101 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
     const isInsured = order.isInsured ?? true;
     if (!isInsured) return 0;
     
-    // If manual insurance base value is provided, use it directly with the rate
-    if (order.insuranceBaseValue && order.insuranceBaseValue > 0) {
-        return Math.round(((order.insuranceBaseValue * insuranceRate) / 100) * 100) / 100;
-    }
-    
     const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
     
-    const isCompanyBosta = isBosta(order.shippingCompany);
-    // For Bosta, default to 'cost' if no basis is specified, otherwise use global default or 'total'
-    const defaultBasis = isCompanyBosta ? 'cost' : (settings?.insuranceBasis || 'total');
-    const basis = useCustom ? (compFees?.insuranceBasis ?? defaultBasis) : (settings?.insuranceBasis ?? defaultBasis);
+    // Check if a custom insurance package is selected
+    const selectedPkg = order.insurancePackageId && settings?.insurancePackages?.find(p => p.id === order.insurancePackageId);
     
     let result = 0;
-    const shippingFeeForInsurance = settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
     
-    if (basis === 'cost') {
-        const productCost = getOrderProductCost(order, settings);
-        result = (productCost * insuranceRate) / 100;
-    } else if (basis === 'price') {
-        result = (order.productPrice * insuranceRate) / 100;
-    } else if (basis === 'base') {
-        const basePrice = getOrderBasePrice(order, settings);
-        result = (basePrice * insuranceRate) / 100;
-    } else {
-        // total basis: (Price + Shipping - Discount)
-        const discountAmount = (order.discountAffectsInsurance ?? true) ? (Number(order.discount) || 0) : 0;
-        const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - discountAmount;
-        result = (Math.max(0, totalAmount) * insuranceRate) / 100;
-    }
-    
-    // Apply min/max boundaries if configured
-    const minAmount = useCustom ? compFees?.insuranceMinAmount : settings?.insuranceMinAmount;
-    const maxAmount = useCustom ? compFees?.insuranceMaxAmount : settings?.insuranceMaxAmount;
-    
-    if (typeof minAmount === 'number' && minAmount > 0) {
-        if (result < minAmount) {
-            result = minAmount;
+    if (selectedPkg) {
+        if (selectedPkg.type === 'flat') {
+            result = selectedPkg.value;
+        } else {
+            const pkgRate = selectedPkg.value;
+            if (order.insuranceBaseValue && order.insuranceBaseValue > 0) {
+                result = (order.insuranceBaseValue * pkgRate) / 100;
+            } else {
+                const isCompanyBosta = isBosta(order.shippingCompany);
+                const defaultBasis = isCompanyBosta ? 'cost' : (settings?.insuranceBasis || 'total');
+                const basis = useCustom ? (compFees?.insuranceBasis ?? defaultBasis) : (settings?.insuranceBasis ?? defaultBasis);
+                
+                if (basis === 'cost') {
+                    const productCost = getOrderProductCost(order, settings);
+                    result = (productCost * pkgRate) / 100;
+                } else if (basis === 'price') {
+                    result = (order.productPrice * pkgRate) / 100;
+                } else if (basis === 'base') {
+                    const basePrice = getOrderBasePrice(order, settings);
+                    result = (basePrice * pkgRate) / 100;
+                } else {
+                    // total basis: (Price + Shipping - Discount)
+                    const shippingFeeForInsurance = settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
+                    const discountAmount = (order.discountAffectsInsurance ?? true) ? (Number(order.discount) || 0) : 0;
+                    const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - discountAmount;
+                    result = (Math.max(0, totalAmount) * pkgRate) / 100;
+                }
+            }
         }
-    }
-    if (typeof maxAmount === 'number' && maxAmount > 0) {
-        if (result > maxAmount) {
-            result = maxAmount;
+        
+        // Apply package min/max boundaries, with fallback to company specific/global settings if not specified on the package
+        const minAmount = selectedPkg.minAmount !== undefined && selectedPkg.minAmount !== null 
+            ? selectedPkg.minAmount 
+            : (useCustom ? compFees?.insuranceMinAmount : settings?.insuranceMinAmount);
+        const maxAmount = selectedPkg.maxAmount !== undefined && selectedPkg.maxAmount !== null 
+            ? selectedPkg.maxAmount 
+            : (useCustom ? compFees?.insuranceMaxAmount : settings?.insuranceMaxAmount);
+            
+        if (typeof minAmount === 'number' && minAmount > 0) {
+            if (result < minAmount) {
+                result = minAmount;
+            }
+        }
+        if (typeof maxAmount === 'number' && maxAmount > 0) {
+            if (result > maxAmount) {
+                result = maxAmount;
+            }
+        }
+    } else {
+        // Standard insurance rate calculation
+        if (order.insuranceBaseValue && order.insuranceBaseValue > 0) {
+            result = (order.insuranceBaseValue * insuranceRate) / 100;
+        } else {
+            const isCompanyBosta = isBosta(order.shippingCompany);
+            const defaultBasis = isCompanyBosta ? 'cost' : (settings?.insuranceBasis || 'total');
+            const basis = useCustom ? (compFees?.insuranceBasis ?? defaultBasis) : (settings?.insuranceBasis ?? defaultBasis);
+            
+            if (basis === 'cost') {
+                const productCost = getOrderProductCost(order, settings);
+                result = (productCost * insuranceRate) / 100;
+            } else if (basis === 'price') {
+                result = (order.productPrice * insuranceRate) / 100;
+            } else if (basis === 'base') {
+                const basePrice = getOrderBasePrice(order, settings);
+                result = (basePrice * insuranceRate) / 100;
+            } else {
+                // total basis: (Price + Shipping - Discount)
+                const shippingFeeForInsurance = settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
+                const discountAmount = (order.discountAffectsInsurance ?? true) ? (Number(order.discount) || 0) : 0;
+                const totalAmount = (Number(order.productPrice) || 0) + (Number(shippingFeeForInsurance) || 0) - discountAmount;
+                result = (Math.max(0, totalAmount) * insuranceRate) / 100;
+            }
+        }
+        
+        // Apply min/max boundaries if configured
+        const minAmount = useCustom ? compFees?.insuranceMinAmount : settings?.insuranceMinAmount;
+        const maxAmount = useCustom ? compFees?.insuranceMaxAmount : settings?.insuranceMaxAmount;
+        
+        if (typeof minAmount === 'number' && minAmount > 0) {
+            if (result < minAmount) {
+                result = minAmount;
+            }
+        }
+        if (typeof maxAmount === 'number' && maxAmount > 0) {
+            if (result > maxAmount) {
+                result = maxAmount;
+            }
         }
     }
     
