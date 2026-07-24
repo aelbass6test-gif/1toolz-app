@@ -16,7 +16,7 @@ interface WhatsAppPageProps {
 }
 
 const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettings, onSave }) => {
-  const [activeTab, setActiveTab] = useState<'chats' | 'templates' | 'devices' | 'settings'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'templates' | 'devices' | 'settings' | 'interactive'>('interactive');
   const [searchTerm, setSearchTerm] = useState('');
   const [testPhone, setTestPhone] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
@@ -54,6 +54,66 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
   }, [settings.whatsappTemplates]);
 
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>(settings.whatsappTemplates || DEFAULT_WHATSAPP_TEMPLATES);
+
+  // --- Interactive Webhook Simulator State & Handler ---
+  const [selectedSimOrderId, setSelectedSimOrderId] = useState<string>(orders[0]?.id || '');
+  const [isSimulatingBtn, setIsSimulatingBtn] = useState<string | null>(null);
+  
+  const selectedSimOrder = useMemo(() => {
+    return orders.find(o => o.id === selectedSimOrderId) || orders[0];
+  }, [orders, selectedSimOrderId]);
+
+  // Interactive buttons settings
+  const [interactiveButtons, setInteractiveButtons] = useState([
+    { id: 'btn_confirm', text: 'تأكيد الطلب 👍', action: 'confirmed', label: 'تأكيد وشحن تلقائي' },
+    { id: 'btn_edit', text: 'تعديل العنوان ✍️', action: 'pending_address', label: 'تعديل العنوان والمحافظة' },
+    { id: 'btn_cancel', text: 'إلغاء الطلب ❌', action: 'cancelled', label: 'إلغاء وتفادي الشحن' }
+  ]);
+
+  const handleSimulateWebhook = async (btnId: string, actionType: string) => {
+    if (!selectedSimOrder) {
+      alert("يرجى اختيار أوردر للمحاكاة أولاً");
+      return;
+    }
+    
+    setIsSimulatingBtn(btnId);
+    try {
+      const response = await fetch('/api/whatsapp/simulate-callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: selectedSimOrder.id,
+          buttonId: btnId,
+          buttonText: interactiveButtons.find(b => b.id === btnId)?.text || '',
+          action: actionType
+        })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        // Play success audio synth
+        import('../utils/audioSynth').then(({ audioSynth }) => {
+          audioSynth.announce("تم استقبال رد العميل على الواتساب وتحديث الأوردر تلقائياً", "success");
+        });
+        
+        setStatusMsg({
+          type: 'success',
+          text: `⚡ محاكاة ناجحة! نقر العميل على زر "${interactiveButtons.find(b => b.id === btnId)?.text}". تم تحديث حالة الأوردر #${selectedSimOrder.id} إلى [${actionType}] تلقائياً وبدون تدخل بشري.`
+        });
+        
+        // Force state refresh
+        setSettings(prev => ({ ...prev }));
+
+        setTimeout(() => setStatusMsg(null), 8000);
+      } else {
+        setStatusMsg({ type: 'error', text: result.message || 'فشلت عملية المحاكاة' });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: `خطأ في الاتصال بالسيرفر: ${err.message}` });
+    } finally {
+      setIsSimulatingBtn(null);
+    }
+  };
 
   const filteredCustomers = useMemo(() => {
     const customerMap = new Map();
@@ -147,33 +207,40 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
       </div>
 
       {/* Tabs Control */}
-      <div className="flex bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 w-fit">
+      <div className="flex bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 w-fit flex-wrap gap-1">
+        <button 
+          onClick={() => setActiveTab('interactive')}
+          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'interactive' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+        >
+          <Smartphone size={16} className="text-indigo-500" />
+          🤖 أتمتة الأزرار التفاعلية والمحاكي
+        </button>
         <button 
           onClick={() => setActiveTab('chats')}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'chats' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'chats' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
         >
-          <Smartphone size={18} />
+          <MessageSquare size={16} />
           دردشات سريعة
         </button>
         <button 
           onClick={() => setActiveTab('templates')}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'templates' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'templates' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
         >
-          <FileText size={18} />
+          <FileText size={16} />
           قوالب الرسائل
         </button>
         <button 
           onClick={() => setActiveTab('devices')}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'devices' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'devices' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
         >
-          <Smartphone size={18} />
+          <Smartphone size={16} />
           ربط الأجهزة والـ QR
         </button>
         <button 
           onClick={() => setActiveTab('settings')}
-          className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all ${activeTab === 'settings' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'settings' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
         >
-          <SettingsIcon size={18} />
+          <SettingsIcon size={16} />
           إعدادات الـ API
         </button>
       </div>
@@ -187,6 +254,190 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
       {/* Tab Content */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] shadow-sm overflow-hidden min-h-[500px]">
+        {activeTab === 'interactive' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x lg:divide-x-reverse divide-slate-100 dark:divide-slate-800 min-h-[600px]" dir="rtl">
+            {/* Right: Flow Configurator */}
+            <div className="lg:col-span-7 p-6 sm:p-8 space-y-6">
+              <div>
+                <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                  <span>⚙️ مهندس أتمتة وتدفقات الأزرار التفاعلية</span>
+                </h3>
+                <p className="text-xs font-bold text-slate-400 mt-1">قم بضبط قنوات الرد الآلي وتعيين الحالة التي يتم الانتقال إليها تلقائياً بمجرد نقر العميل على زر الواتساب.</p>
+              </div>
+
+              {/* Step 1: Select Simulation Order */}
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-2xl space-y-3">
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+                  Step 1: اختر أوردر تجريبي للمحاكاة الفورية 🎯
+                </label>
+                <select
+                  value={selectedSimOrderId}
+                  onChange={(e) => setSelectedSimOrderId(e.target.value)}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-indigo-500"
+                >
+                  <option value="">-- اختر أوردر نشط للمحاكاة --</option>
+                  {orders.map(o => (
+                    <option key={o.id} value={o.id}>
+                      أوردر #{o.id} - العميل: {o.customerName} ({o.customerPhone}) | الإجمالي: {o.totalPrice || o.productPrice || 0} ج.م | الحالة الحالية: [{o.status}]
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
+                  💡 سيقوم المحاكي بتعبئة بيانات هذا العميل والمنتج تلقائياً داخل قالب رسالة الواتساب التفاعلية التي تظهر على شاشة الهاتف باليسار.
+                </p>
+              </div>
+
+              {/* Step 2: Buttons Actions Mapping */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                  <span>Step 2: تخصيص الأزرار وربطها بالسيستم 🔗</span>
+                </h4>
+
+                <div className="space-y-3">
+                  {interactiveButtons.map((btn, index) => (
+                    <div key={btn.id} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
+                      <div className="flex-1 space-y-1">
+                        <span className="text-[10px] font-black text-indigo-500 block">الزر التفاعلي #{index + 1} ({btn.label})</span>
+                        <input
+                          type="text"
+                          value={btn.text}
+                          onChange={(e) => {
+                            const updated = [...interactiveButtons];
+                            updated[index].text = e.target.value;
+                            setInteractiveButtons(updated);
+                          }}
+                          className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-extrabold text-slate-800 dark:text-white outline-none"
+                        />
+                      </div>
+
+                      <div className="w-full sm:w-48 space-y-1">
+                        <span className="text-[10px] font-black text-emerald-500 block">الحالة المستهدفة في السيستم</span>
+                        <select
+                          value={btn.action}
+                          onChange={(e) => {
+                            const updated = [...interactiveButtons];
+                            updated[index].action = e.target.value;
+                            setInteractiveButtons(updated);
+                          }}
+                          className="w-full p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none"
+                        >
+                          <option value="confirmed">تم التأكيد (confirmed)</option>
+                          <option value="pending_address">بانتظار تحديث العنوان (pending_address)</option>
+                          <option value="cancelled">ملغي من العميل (cancelled)</option>
+                          <option value="shipped">تم الشحن (shipped)</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status Log & Webhook Info */}
+              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100/30 dark:border-indigo-900/40 rounded-2xl space-y-2">
+                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 block">📡 رابط استقبال الويب-هوك الفعلي (WhatsApp Webhook URL):</span>
+                <code className="text-[10px] font-mono text-slate-600 dark:text-slate-400 block bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-800 text-left" dir="ltr">
+                  POST http://[YOUR-DOMAIN]/api/webhook/whatsapp
+                </code>
+                <p className="text-[10px] text-indigo-500/80 font-bold leading-relaxed">
+                  💡 عند استخدام مزودي الخدمة الرسميين (مثل Meta API أو UltraMsg)، قم بوضع هذا الرابط في لوحة تحكم حسابك وسيتم تفعيل الأتمتة التفاعلية الفورية لجميع عملائك تلقائياً!
+                </p>
+              </div>
+            </div>
+
+            {/* Left: Customer Phone Simulator */}
+            <div className="lg:col-span-5 p-6 bg-slate-50 dark:bg-slate-900/40 flex flex-col items-center justify-center">
+              <div className="text-center mb-4">
+                <span className="text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 px-3 py-1 rounded-full inline-block mb-1">
+                  🔴 محاكي فوري حي للعميل
+                </span>
+                <p className="text-[10px] text-slate-400 font-bold">اضغط على الأزرار لاختبار تحديث حالة الأوردر بالسيستم مباشرة</p>
+              </div>
+
+              {/* Mobile Frame */}
+              <div className="w-[300px] h-[580px] bg-slate-900 border-4 border-slate-800 rounded-[3rem] shadow-2xl overflow-hidden relative flex flex-col">
+                {/* Speaker/Camera notch */}
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-4 bg-slate-800 rounded-full z-20 flex items-center justify-center">
+                  <div className="w-2 h-2 rounded-full bg-slate-900 mr-2"></div>
+                  <div className="w-12 h-1 bg-slate-900 rounded-full"></div>
+                </div>
+
+                {/* Mobile Screen Header */}
+                <div className="bg-[#075e54] text-white pt-7 pb-3 px-4 flex items-center gap-2 shadow-md shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100/20 flex items-center justify-center font-black text-sm text-white shrink-0">
+                    🏪
+                  </div>
+                  <div>
+                    <h5 className="text-[11px] font-black">خدمة العملاء الآلية (متجرنا)</h5>
+                    <p className="text-[8px] text-emerald-200 font-bold">متصل الآن 🟢</p>
+                  </div>
+                </div>
+
+                {/* Mobile Screen Body (WhatsApp Chat Background) */}
+                <div className="flex-1 p-3 overflow-y-auto space-y-3 bg-[#efeae2] dark:bg-slate-950 relative flex flex-col justify-end pb-4">
+                  {/* Message Bubble */}
+                  {selectedSimOrder ? (
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl rounded-tr-none p-3 shadow-sm text-right space-y-2 max-w-[240px] self-end animate-in fade-in duration-200">
+                      {/* Header Title */}
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-1.5">
+                        <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">
+                          <span>📦 تأكيد أوردر الشراء</span>
+                        </span>
+                      </div>
+
+                      {/* Message Body */}
+                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                        مرحباً <span className="text-indigo-600 dark:text-indigo-400 font-black">{selectedSimOrder.customerName}</span>، تم استلام طلبك رقم <span className="font-black text-emerald-600">#{selectedSimOrder.id}</span> بنجاح!
+                      </p>
+                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                        💰 الإجمالي: <span className="font-black text-slate-900 dark:text-white">{selectedSimOrder.totalPrice || selectedSimOrder.productPrice || 0} ج.م</span>
+                      </p>
+                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                        📍 العنوان: <span className="text-slate-500 font-bold">{selectedSimOrder.customerAddress} ({selectedSimOrder.governorate})</span>
+                      </p>
+
+                      <p className="text-[9px] text-slate-400 font-bold border-t border-slate-50 dark:border-slate-800 pt-1.5 mt-2">
+                        يرجى تأكيد رغبتك بالضغط على أحد الأزرار التفاعلية أدناه:
+                      </p>
+
+                      {/* Footer Text */}
+                      <span className="text-[8px] text-slate-400 block font-bold mt-1">نظام فليكس شيب الذكي لمتابعة الشحن</span>
+
+                      {/* Interactive Buttons Stack */}
+                      <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800 mt-2">
+                        {interactiveButtons.map(btn => {
+                          const isSimulating = isSimulatingBtn === btn.id;
+                          return (
+                            <button
+                              key={btn.id}
+                              disabled={isSimulatingBtn !== null}
+                              onClick={() => handleSimulateWebhook(btn.id, btn.action)}
+                              className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl text-[9px] font-black text-indigo-600 dark:text-indigo-400 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-sm"
+                            >
+                              {isSimulating ? (
+                                <RefreshCw size={10} className="animate-spin text-indigo-500" />
+                              ) : null}
+                              <span>{btn.text}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 text-center text-[10px] text-slate-400 font-bold shadow-sm">
+                      يرجى اختيار أو إنشاء أوردر بالسيستم أولاً لتعبئة بيانات المحاكي التفاعلي!
+                    </div>
+                  )}
+                </div>
+
+                {/* Screen Footer */}
+                <div className="bg-slate-100 dark:bg-slate-900 p-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-center shrink-0">
+                  <div className="w-16 h-1 bg-slate-400 dark:bg-slate-700 rounded-full"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'chats' && (
           <div className="grid grid-cols-1 md:grid-cols-3 h-full divide-x divide-x-reverse divide-slate-100 dark:divide-slate-800">
             <div className="p-6 border-l border-slate-100 dark:border-slate-800">

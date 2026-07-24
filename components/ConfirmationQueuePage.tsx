@@ -615,7 +615,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
             filtered = filtered.filter(o => o.shippingCompany === filterShippingCompany);
         }
 
-        if (filterStatus) {
+        if (filterStatus && filterStatus !== 'all') {
             filtered = filtered.filter(o => o.status === filterStatus);
         }
 
@@ -1575,8 +1575,8 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                             طلباتي فقط
                         </button>
                     </div>
-                    <div className="flex flex-wrap items-center justify-center gap-2 p-2 bg-slate-100/50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
-                        {[{value: 'في_انتظار_المكالمة', label: 'في انتظار المكالمة'}, {value: 'جاري_المراجعة', label: 'جاري المراجعة'}, {value: 'ملغي', label: 'ملغي'}].map((tab) => (
+                    <div className="flex flex-wrap items-center justify-center gap-1.5 p-2 bg-slate-100/50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                        {[{value: 'all', label: 'الكل'}, {value: 'في_انتظار_المكالمة', label: 'في انتظار المكالمة'}, {value: 'جاري_المراجعة', label: 'جاري المراجعة'}, {value: 'ملغي', label: 'ملغي'}].map((tab) => (
                             <button
                                 key={tab.value}
                                 onClick={() => setFilterStatus(tab.value)}

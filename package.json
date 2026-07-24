@@ -15,6 +15,7 @@
     "@hono/node-server": "^2.0.4",
     "@supabase/supabase-js": "^2.45.4",
     "@tailwindcss/vite": "^4.2.1",
+    "@vis.gl/react-google-maps": "^1.9.0",
     "canvas-confetti": "^1.9.4",
     "date-fns": "^4.4.0",
     "dexie": "^4.4.2",

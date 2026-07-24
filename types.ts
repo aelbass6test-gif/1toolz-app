@@ -76,6 +76,7 @@ export interface Warehouse {
   phone?: string; // رقم هاتف الفرع
   capacity?: number; // السعة التخزينية القصوى
   notes?: string;
+  coveredGovernorates?: string[]; // المحافظات المغطاة للتوجيه الجغرافي الذكي
 }
 
 export interface ProductVariant {

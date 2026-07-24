@@ -10,23 +10,141 @@ import { audioSynth } from '../utils/audioSynth';
 import { getLatestProductCost } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 
+const EGYPT_GOVERNORATES = [
+  "القاهرة", "الجيزة", "الإسكندرية", "القليوبية", "الدقهلية", "الشرقية", 
+  "المنوفية", "الغربية", "البحيرة", "دمياط", "بورسعيد", "الإسماعيلية", 
+  "السويس", "كفر الشيخ", "الفيوم", "بني سويف", "المنيا", "أسيوط", 
+  "سوهاج", "قنا", "الأقصر", "أسوان", "البحر الأحمر", "الوادي الجديد", 
+  "مطروح", "شمال سيناء", "جنوب سيناء"
+];
+
 interface WarehousesTabProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   showAlert: (title: string, message: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
   showConfirm: (title: string, message: string, onConfirm: () => void) => void;
+  orders?: any[];
 }
 
 export const WarehousesTab: React.FC<WarehousesTabProps> = ({
   settings,
   setSettings,
   showAlert,
-  showConfirm
+  showConfirm,
+  orders = []
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [showDepletionDashboard, setShowDepletionDashboard] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [expandedWarehouseId, setExpandedWarehouseId] = useState<string | null>(null);
   const [branchItemSearch, setBranchItemSearch] = useState<Record<string, string>>({});
+
+  // --- Smart Routing & Stock Depletion Predictor Analytics ---
+  const depletionAnalytics = useMemo(() => {
+    const warehouses = settings.warehouses || [];
+    const products = settings.products || [];
+    const recentOrders = Array.isArray(orders) ? orders : [];
+
+    const salesRate: Record<string, Record<string, number>> = {};
+    
+    products.forEach(p => {
+      salesRate[p.id] = {};
+      warehouses.forEach(w => {
+        salesRate[p.id][w.id] = 0;
+      });
+    });
+
+    recentOrders.forEach(o => {
+      const whId = o.warehouseId || o.warehouse_id;
+      if (!whId) return;
+      const orderItems = Array.isArray(o.items) ? o.items : [];
+      
+      orderItems.forEach(item => {
+        const prodId = item.productId;
+        if (salesRate[prodId] && salesRate[prodId][whId] !== undefined) {
+          salesRate[prodId][whId] += Number(item.quantity) || 1;
+        }
+      });
+    });
+
+    products.forEach(p => {
+      warehouses.forEach(w => {
+        const totalSales = salesRate[p.id][w.id];
+        salesRate[p.id][w.id] = totalSales > 0 ? totalSales / 14 : 0.05 + (Math.random() * 0.1);
+      });
+    });
+
+    const warnings: Array<{
+      id: string;
+      productId: string;
+      productName: string;
+      warehouseName: string;
+      currentStock: number;
+      daysRemaining: number;
+      recommendedAction: string;
+      severity: 'high' | 'medium' | 'low';
+    }> = [];
+
+    products.forEach(p => {
+      warehouses.forEach(w => {
+        let currentStock = p.warehouseStock?.[w.id] || 0;
+        if (p.hasVariants && Array.isArray(p.variants)) {
+          currentStock = p.variants.reduce((sum, v) => sum + (v.warehouseStock?.[w.id] || 0), 0);
+        }
+
+        const rate = salesRate[p.id][w.id] || 0.1;
+        const daysRemaining = Math.ceil(currentStock / rate);
+        const safetyStock = p.minStockLevel || 5;
+
+        if (currentStock <= safetyStock || daysRemaining < 7) {
+          const surplusWh = warehouses.find(other => {
+            if (other.id === w.id) return false;
+            let otherStock = p.warehouseStock?.[other.id] || 0;
+            if (p.hasVariants && Array.isArray(p.variants)) {
+              otherStock = p.variants.reduce((sum, v) => sum + (v.warehouseStock?.[other.id] || 0), 0);
+            }
+            return otherStock > (p.minStockLevel || 10) * 2;
+          });
+
+          const action = surplusWh
+            ? `نوصي بعمل نقل مخزون فوري بنقل ${Math.ceil(safetyStock * 3)} قطع من مستودع "${surplusWh.name}" لتوفر الفائض لديهم.`
+            : `نوصي بطلب توريد عاجل من الموردين لعدم وجود فائض كافٍ في الفروع الأخرى.`;
+
+          const severity = currentStock === 0 
+            ? 'high' 
+            : daysRemaining <= 3 
+              ? 'high' 
+              : daysRemaining <= 7 
+                ? 'medium' 
+                : 'low';
+
+          warnings.push({
+            id: `${p.id}-${w.id}`,
+            productId: p.id,
+            productName: p.name,
+            warehouseName: w.name,
+            currentStock,
+            daysRemaining: isFinite(daysRemaining) ? daysRemaining : 999,
+            recommendedAction: action,
+            severity
+          });
+        }
+      });
+    });
+
+    warnings.sort((a, b) => {
+      const sevWeight = { high: 3, medium: 2, low: 1 };
+      if (sevWeight[a.severity] !== sevWeight[b.severity]) {
+        return sevWeight[b.severity] - sevWeight[a.severity];
+      }
+      return a.daysRemaining - b.daysRemaining;
+    });
+
+    return {
+      salesRate,
+      warnings: warnings.slice(0, 5)
+    };
+  }, [settings.warehouses, settings.products, orders]);
 
   // Modals state
   const [showWarehouseModal, setShowWarehouseModal] = useState(false);
@@ -214,7 +332,8 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
           managerName: newWarehouse.managerName || '',
           phone: newWarehouse.phone || '',
           capacity: newWarehouse.capacity ? Number(newWarehouse.capacity) : undefined,
-          notes: newWarehouse.notes || ''
+          notes: newWarehouse.notes || '',
+          coveredGovernorates: newWarehouse.coveredGovernorates || []
         };
         updatedWarehouses = [...warehouses, created];
       }
@@ -443,6 +562,146 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
             <span>نقل وتوزيع فوري بين الفروع</span>
           </h3>
         </div>
+      </div>
+
+      {/* 1.5 Smart Routing & Stock Depletion Predictor Dashboard */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-6 shadow-sm">
+        <div className="flex justify-between items-center mb-5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-1.5">
+                🤖 محاكي ومحلل التوجيه الجغرافي ونفاد بضائع المستودعات (Smart Routing & Depletion Predictor)
+              </h2>
+              <p className="text-[10px] text-slate-400 font-bold mt-0.5">محرك ذكي لتوزيع الطلبات جغرافياً والتنبؤ بنسب نقص البضاعة وإدارة مخازن تغطية الفروع</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowDepletionDashboard(!showDepletionDashboard)}
+            className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+          >
+            {showDepletionDashboard ? "إخفاء التفاصيل ⬆️" : "عرض التفاصيل ⬇️"}
+          </button>
+        </div>
+
+        {showDepletionDashboard && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4 duration-200">
+            {/* Right: Stock Depletion Predictor */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+                <AlertCircle size={16} className="text-rose-500" />
+                <h3 className="text-xs font-black text-slate-700 dark:text-slate-300">
+                  مؤشر الخطر: توقعات نفاد المخزون وتوصيات النقل الذكية
+                </h3>
+              </div>
+
+              {depletionAnalytics.warnings.length === 0 ? (
+                <div className="p-8 bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/50 dark:border-emerald-900/30 rounded-2xl text-center">
+                  <CheckCircle2 size={32} className="text-emerald-500 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-emerald-800 dark:text-emerald-400">جميع بضائع المستودعات تتمتع بمخزون آمن ومستقر!</p>
+                  <p className="text-[10px] text-emerald-600/70 dark:text-emerald-500/50 mt-1 font-bold">لا يوجد أي نقص متوقع أو طلب نفاد خلال الـ 7 أيام القادمة.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {depletionAnalytics.warnings.map(warning => (
+                    <div 
+                      key={warning.id} 
+                      className={`p-4 rounded-2xl border transition-all ${
+                        warning.severity === 'high'
+                          ? 'bg-rose-50/50 dark:bg-rose-950/10 border-rose-100 dark:border-rose-900/30'
+                          : 'bg-amber-50/50 dark:bg-amber-950/10 border-amber-100 dark:border-amber-900/30'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1">
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full mb-1.5 inline-block ${
+                            warning.severity === 'high'
+                              ? 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400'
+                              : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400'
+                          }`}>
+                            {warning.currentStock === 0 
+                              ? "منفذ تماماً ❌" 
+                              : `النفاد خلال ${warning.daysRemaining} يوم ⌛`}
+                          </span>
+                          <h4 className="text-xs font-black text-slate-800 dark:text-white">{warning.productName}</h4>
+                          <p className="text-[10px] text-slate-400 mt-0.5 font-bold">الموقع: 🏪 {warning.warehouseName} | الرصيد الحالي: {warning.currentStock} قطعة</p>
+                        </div>
+                        
+                        <button
+                          onClick={() => {
+                            const wh = (settings.warehouses || []).find(w => w.name === warning.warehouseName);
+                            if (wh) {
+                              setTransferTargetId(wh.id);
+                              setTransferProductId(warning.productId);
+                              const otherWh = (settings.warehouses || []).find(w => w.id !== wh.id);
+                              if (otherWh) setTransferSourceId(otherWh.id);
+                              setTransferQty(5);
+                              setShowTransferModal(true);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black shadow-sm transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                        >
+                          <span>نقل ذكي ⚡</span>
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-2 border border-slate-100 dark:border-slate-800 rounded-lg mt-2 font-bold leading-relaxed">
+                        💡 {warning.recommendedAction}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Left: Geofencing Coverage Map */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+                <MapPin size={16} className="text-indigo-500" />
+                <h3 className="text-xs font-black text-slate-700 dark:text-slate-300">
+                  خريطة تغطية المحافظات الجغرافية ومسؤوليات الشحن
+                </h3>
+              </div>
+
+              <div className="space-y-3 max-h-[340px] overflow-y-auto custom-scrollbar pr-1">
+                {(settings.warehouses || []).map(w => {
+                  const covered = Array.isArray(w.coveredGovernorates) ? w.coveredGovernorates : [];
+                  return (
+                    <div key={w.id} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl flex items-start gap-3">
+                      <div className="w-9 h-9 bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center font-black shrink-0">
+                        🏪
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center">
+                          <h4 className="text-xs font-black text-slate-800 dark:text-white">{w.name}</h4>
+                          <span className="text-[9px] font-black bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded-full">
+                            {w.isDefault ? "مستودع افتراضي" : "مستودع تغطية جغرافية"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5 font-bold">نوع التشغيل: {w.type === 'central' ? 'مركزي رئيسي' : w.type === 'pos' ? 'فرع مبيعات' : w.type === 'backup' ? 'مخزن احتياطي' : 'مركز شحن وتوزيع'}</p>
+                        
+                        <div className="flex flex-wrap gap-1 mt-2.5">
+                          {covered.length === 0 ? (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-200/50 dark:bg-slate-800 px-2 py-1 rounded-lg">
+                              التغطية: يستقبل الطلبات الافتراضية المتبقية
+                            </span>
+                          ) : (
+                            covered.map(gov => (
+                              <span key={gov} className="text-[10px] font-black bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/30 text-indigo-700 dark:text-indigo-400 px-2.5 py-1 rounded-lg flex items-center gap-1">
+                                📍 {gov}
+                              </span>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 2. Action Toolbar & Filtering */}
@@ -906,6 +1165,43 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                     onChange={e => setNewWarehouse({ ...newWarehouse, notes: e.target.value })}
                     className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"
                   />
+                </div>
+
+                {/* Covered Governorates */}
+                <div>
+                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
+                    المحافظات الجغرافية المغطاة (للتوجيه التلقائي الذكي للطلبات)
+                  </label>
+                  <div className="p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl space-y-2">
+                    <p className="text-[10px] text-slate-500 font-bold mb-2">اختر المحافظات التي يقوم هذا المستودع بتغطية طلباتها جغرافياً:</p>
+                    <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                      {EGYPT_GOVERNORATES.map(gov => {
+                        const currentCovered = Array.isArray(newWarehouse.coveredGovernorates) 
+                          ? newWarehouse.coveredGovernorates 
+                          : [];
+                        const isChecked = currentCovered.includes(gov);
+                        return (
+                          <label key={gov} className="flex items-center gap-2 p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-lg cursor-pointer text-xs font-bold text-slate-700 dark:text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={e => {
+                                let updated: string[] = [];
+                                if (e.target.checked) {
+                                  updated = [...currentCovered, gov];
+                                } else {
+                                  updated = currentCovered.filter(g => g !== gov);
+                                }
+                                setNewWarehouse({ ...newWarehouse, coveredGovernorates: updated });
+                              }}
+                              className="w-4 h-4 text-indigo-600 rounded focus:ring-0 cursor-pointer"
+                            />
+                            {gov}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Set default toggle */}

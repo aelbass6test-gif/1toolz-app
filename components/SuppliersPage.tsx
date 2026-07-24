@@ -3403,6 +3403,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             setSettings={setSettings}
             showAlert={showAlert}
             showConfirm={showConfirm}
+            orders={orders}
           />
         </motion.div>
       )}

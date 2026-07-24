@@ -160,9 +160,11 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     setEmployeeToDelete(null);
   };
   
-  const handleAddEmployee = async (data: { name: string; phone: string; email: string; password: string; }) => {
+  const handleAddEmployee = async (data: { name: string; phone: string; email: string; password: string; roleKey: string; }) => {
     setAddEmployeeError('');
     setNewEmployeeCredentials(null);
+
+    const initialPermissions = ROLES[data.roleKey]?.permissions || [];
 
     if (settings.employees.some(e => e.id === data.phone)) {
         setAddEmployeeError('هذا الموظف مضاف بالفعل في هذا المتجر.');
@@ -172,8 +174,8 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     const userByPhone = users.find(u => u.phone === data.phone);
 
     if (userByPhone) {
-        alert(`تم العثور على حساب للمستخدم "${userByPhone.fullName}". سيتم إضافته كموظف في هذا المتجر.`);
-        const newEmployee: Employee = { id: userByPhone.phone, phone: userByPhone.phone, name: userByPhone.fullName, email: userByPhone.email, permissions: [], status: 'active' };
+        alert(`تم العثور على حساب للمستخدم "${userByPhone.fullName}". سيتم إضافته كموظف في هذا المتجر بالدور المحدد.`);
+        const newEmployee: Employee = { id: userByPhone.phone, phone: userByPhone.phone, name: userByPhone.fullName, email: userByPhone.email, permissions: initialPermissions, status: 'active' };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
         setIsAddEmployeeModalOpen(false);
     } else {
@@ -205,7 +207,7 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
         }
 
         setUsers(prev => [...prev, newUser]);
-        const newEmployee: Employee = { id: data.phone, phone: data.phone, name: data.name, email: data.email, permissions: [], status: 'active' };
+        const newEmployee: Employee = { id: data.phone, phone: data.phone, name: data.name, email: data.email, permissions: initialPermissions, status: 'active' };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
         setNewEmployeeCredentials({ phone: data.phone, pass: data.password });
         setIsAddEmployeeModalOpen(false);
@@ -370,7 +372,7 @@ const PermissionsCard: React.FC<{
           </div>
         </div>
         <button onClick={onAdd} className="flex items-center gap-2 bg-purple-600 text-white px-6 py-2.5 rounded-xl font-black shadow-lg shadow-purple-100 dark:shadow-none hover:bg-purple-700 active:scale-95 transition-all">
-          <UserPlus size={20} /> إضافة موظف
+          <UserPlus size={20} /> إضافة موظف / مندوب جديد
         </button>
       </div>
 
@@ -634,12 +636,13 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
   );
 };
 
-interface AddEmployeeModalProps { onClose: () => void; onAdd: (data: { name: string, phone: string, email: string, password: string }) => void; error: string; }
+interface AddEmployeeModalProps { onClose: () => void; onAdd: (data: { name: string, phone: string, email: string, password: string, roleKey: string }) => void; error: string; }
 const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, error }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [roleKey, setRoleKey] = useState('COURIER');
   
   const generateRandomPassword = () => Math.random().toString(36).slice(-8);
 
@@ -649,8 +652,8 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, err
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim() && phone.trim() && email.trim() && password.trim()) {
-      onAdd({ name, phone, email, password });
+    if (name.trim() && phone.trim() && email.trim() && password.trim() && roleKey) {
+      onAdd({ name, phone, email, password, roleKey });
     }
   };
 
@@ -658,16 +661,40 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, err
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/70 dark:bg-black/90 backdrop-blur-sm">
       <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-8 text-right border border-slate-300 dark:border-slate-800">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">
-          <h3 className="text-xl font-black dark:text-white">إضافة موظف جديد</h3>
+          <h3 className="text-xl font-black dark:text-white">إضافة موظف / مندوب جديد</h3>
           <button onClick={onClose}><XCircle className="text-slate-400 hover:text-red-500"/></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-            <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="الاسم الكامل" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none"/>
-            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} required placeholder="رقم الهاتف (لتسجيل الدخول)" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none"/>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="البريد الإلكتروني" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none"/>
-            <div className="relative">
-                <input type="text" value={password} onChange={e => setPassword(e.target.value)} required placeholder="كلمة المرور المؤقتة" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none font-mono"/>
-                <button type="button" onClick={() => setPassword(generateRandomPassword())} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-purple-500"><RefreshCw size={16}/></button>
+            <div>
+              <label className="text-xs font-bold text-slate-500 block mb-1">الاسم الكامل</label>
+              <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="اسم المندوب أو الموظف" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none text-xs font-bold"/>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 block mb-1">رقم الهاتف (يستخدم لتسجيل الدخول)</label>
+              <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} required placeholder="مثال: 010xxxxxxxx" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none text-xs font-bold font-mono"/>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 block mb-1">البريد الإلكتروني</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="mail@example.com" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none text-xs font-bold font-mono"/>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 block mb-1">تعيين دور الموظف / صلاحياته</label>
+              <select 
+                  value={roleKey} 
+                  onChange={e => setRoleKey(e.target.value)} 
+                  className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none font-bold text-xs"
+              >
+                  {Object.entries(ROLES).map(([key, role]) => (
+                      <option key={key} value={key}>{role.icon} {role.name}</option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 block mb-1">تعيين كلمة المرور</label>
+              <div className="relative">
+                  <input type="text" value={password} onChange={e => setPassword(e.target.value)} required placeholder="كلمة المرور لتسجيل الدخول" className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none font-mono text-xs font-bold"/>
+                  <button type="button" onClick={() => setPassword(generateRandomPassword())} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-purple-500" title="توليد كلمة مرور عشوائية"><RefreshCw size={16}/></button>
+              </div>
             </div>
             {error && <p className="text-sm text-red-500 text-center">{error}</p>}
             <div className="flex justify-end gap-3 pt-4">

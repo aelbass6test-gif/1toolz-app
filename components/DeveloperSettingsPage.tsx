@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
 import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square } from 'lucide-react';
-import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, getLocal, saveStoreData } from '../services/databaseService';
+import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, getLocal, saveLocal, saveStoreData } from '../services/databaseService';
 
 const SupabaseIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3ECF8E]">
@@ -725,44 +725,247 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
 
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "productId" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_id TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
+
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
+
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
+
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS treasury_account_id TEXT;
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS action TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS details TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS date TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS timestamp NUMERIC;
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "productId" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_id TEXT;
+
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
 
 -- تأمين أعمدة العربون والديون
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePayment" NUMERIC DEFAULT 0;
@@ -1280,46 +1483,248 @@ ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "balance" NUMERIC DEFAULT 0;
 
--- 9. حركات الشركاء والخزائن والشركاء وسجل النشاط
+-- 9. حركات الشركاء والخزائن والشركاء وسجل النشاط والأعمدة والتواريخ
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
+
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
+
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
+
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS store_id TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "action" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "details" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "date" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "timestamp" NUMERIC;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE global_options ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE reviews ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_id TEXT;
+
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
 `;
     navigator.clipboard.writeText(instructions);
     triggerAlarm("✅ تم نسخ كود التحديث الشامل لجميع الأعمدة المفقودة! قم بلصقه وتشغيله في Supabase SQL Editor لإصلاح جميع الجداول ومنع اختفاء أي بيانات.", 'success', 'إصلاح شامل لقاعدة البيانات');
@@ -1330,6 +1735,22 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
   const [customCloudAnonKey, setCustomCloudAnonKey] = useState(localStorage.getItem('custom_cloud_anon_key') || '');
   const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
   const [showSqlSchema, setShowSqlSchema] = useState(false);
+
+  useEffect(() => {
+    const storedUrl = localStorage.getItem('custom_cloud_url');
+    const storedKey = localStorage.getItem('custom_cloud_anon_key');
+    if (storedUrl) {
+      setCustomCloudUrl(storedUrl);
+    } else if (settings.supabaseUrl !== undefined) {
+      setCustomCloudUrl(settings.supabaseUrl || '');
+    }
+
+    if (storedKey) {
+      setCustomCloudAnonKey(storedKey);
+    } else if (settings.supabaseAnonKey !== undefined) {
+      setCustomCloudAnonKey(settings.supabaseAnonKey || '');
+    }
+  }, [settings.supabaseUrl, settings.supabaseAnonKey]);
 
   // Sync Conflict Strategy State
   const [syncConflictStrategy, setSyncConflictStrategy] = useState(
@@ -1436,16 +1857,58 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 
   const [isVerifying, setIsVerifying] = useState(false);
 
+  const performSaveDatabaseCredentials = async (url: string, key: string) => {
+    localStorage.setItem('custom_cloud_url', url);
+    localStorage.setItem('custom_cloud_anon_key', key);
+    
+    setSettings(prev => ({
+        ...prev,
+        supabaseUrl: url,
+        supabaseAnonKey: key
+    }));
+    setSupabaseRestricted(false);
+    setIsRestricted(false);
+
+    if (activeStore?.id) {
+      const localData = await getLocal(activeStore.id);
+      const updatedStoreData = localData ? {
+        ...localData,
+        settings: {
+          ...(localData.settings || {}),
+          supabaseUrl: url,
+          supabaseAnonKey: key
+        }
+      } : {
+        settings: {
+          ...settings,
+          supabaseUrl: url,
+          supabaseAnonKey: key
+        }
+      };
+      await saveLocal(activeStore.id, updatedStoreData);
+      if (forceSync) {
+        await forceSync();
+      }
+    } else if (forceSync) {
+      await forceSync();
+    }
+
+    window.location.reload();
+  };
+
   const handleSaveDatabaseCredentials = async () => {
-    if (customCloudUrl.trim() && !customCloudUrl.startsWith('http')) {
+    const url = customCloudUrl.trim();
+    const key = customCloudAnonKey.trim();
+
+    if (url && !url.startsWith('http')) {
       triggerAlarm("يرجى إدخال رابط Cloud URL صحيح يبدأ بـ http:// أو https://", 'warning', 'رابط غير صالح');
       return;
     }
 
-    if (customCloudUrl.trim() && customCloudAnonKey.trim()) {
+    if (url && key) {
       setIsVerifying(true);
       try {
-        const verification = await verifySupabaseConnection(customCloudUrl.trim(), customCloudAnonKey.trim());
+        const verification = await verifySupabaseConnection(url, key);
         
         if (!verification.success) {
           triggerAlarm(
@@ -1456,43 +1919,17 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
               showCancel: true,
               confirmText: 'حفظ على أي حال',
               cancelText: 'إلغاء',
-              onConfirm: () => {
-                localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
-                localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
-                setSettings(prev => ({
-                    ...prev,
-                    supabaseUrl: customCloudUrl.trim(),
-                    supabaseAnonKey: customCloudAnonKey.trim()
-                }));
-                setSupabaseRestricted(false);
-                setIsRestricted(false);
-                triggerAlarm("✅ تم حفظ إعدادات قاعدة البيانات! سيتم إعادة تحميل الصفحة الآن للتطبيق.", 'success', 'تم الحفظ', {
-                  onConfirm: async () => { 
-                      if (forceSync) await forceSync();
-                      window.location.reload(); 
-                  }
-                });
+              onConfirm: async () => {
+                await performSaveDatabaseCredentials(url, key);
               }
             }
           );
           return;
         }
 
-        localStorage.setItem('custom_cloud_url', customCloudUrl.trim());
-        localStorage.setItem('custom_cloud_anon_key', customCloudAnonKey.trim());
-        setSettings(prev => ({
-            ...prev,
-            supabaseUrl: customCloudUrl.trim(),
-            supabaseAnonKey: customCloudAnonKey.trim()
-        }));
-        
-        // Since they supplied a new fresh DB, let's auto-reactivate cloud connection
-        setSupabaseRestricted(false);
-        setIsRestricted(false);
         triggerAlarm("✅ تم التحقق وحفظ إعدادات قاعدة البيانات المخصصة بنجاح! سيتم إعادة تحميل التطبيق للاتصال بالخادم المخصص.", 'success', 'ربط ناجح', {
           onConfirm: async () => { 
-              if (forceSync) await forceSync();
-              window.location.reload(); 
+            await performSaveDatabaseCredentials(url, key);
           }
         });
       } catch (e: any) {
@@ -1500,7 +1937,7 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
       } finally {
         setIsVerifying(false);
       }
-    } else if (!customCloudUrl.trim() && !customCloudAnonKey.trim()) {
+    } else if (!url && !key) {
       handleRestoreDefaultDatabase();
     } else {
       triggerAlarm("يرجى ملء كلا الحقلين (الرابط ومفتاح Api Key) أو تركهما فارغين لاستعادة الافتراضي.", 'warning', 'حقول ناقصة');

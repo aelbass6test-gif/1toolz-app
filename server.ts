@@ -847,6 +847,176 @@ async function startServer() {
     }
   });
 
+  // Webhook for Simulated WhatsApp Callback
+  app.post("/api/whatsapp/simulate-callback", async (c) => {
+    try {
+      const { phone, buttonText, orderId, updatedAddress, updatedGovernorate } = await c.req.json();
+      console.log(`[SIMULATION-WEBHOOK] Received callback for Order #${orderId}, Phone: ${phone}, Action: ${buttonText}`);
+
+      if (!orderId) {
+        return c.json({ success: false, error: "Order ID is required." }, 400);
+      }
+
+      const orderDocRef = doc(db, "orders", orderId);
+      const orderSnap = await getDoc(orderDocRef);
+
+      if (!orderSnap.exists()) {
+        const ordersRef = collection(db, "orders");
+        const q = query(ordersRef, where("id", "==", orderId));
+        const qSnap = await getDocs(q);
+        if (qSnap.empty) {
+          return c.json({ success: false, error: "Order not found." }, 404);
+        }
+        const orderDoc = qSnap.docs[0];
+        const orderData = orderDoc.data();
+        let updatedStatus = orderData.status;
+        let notes = orderData.notes || "";
+        let address = orderData.customerAddress;
+        let gov = orderData.governorate;
+
+        if (buttonText.includes("تأكيد") || buttonText.includes("Confirm")) {
+          updatedStatus = "قيد_التنفيذ";
+          notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+        } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel")) {
+          updatedStatus = "ملغي";
+          notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+        } else if (buttonText.includes("تعديل") || buttonText.includes("Edit")) {
+          updatedStatus = "مؤجل";
+          if (updatedAddress) {
+            address = updatedAddress;
+            notes += `\n[واتساب] قام العميل بتحديث العنوان إلى: ${updatedAddress}`;
+          }
+          if (updatedGovernorate) {
+            gov = updatedGovernorate;
+          }
+        }
+
+        await setDoc(doc(db, "orders", orderDoc.id), {
+          ...orderData,
+          status: updatedStatus,
+          customerAddress: address,
+          governorate: gov,
+          notes,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        return c.json({ success: true, updatedStatus, updatedAddress: address, updatedGovernorate: gov });
+      }
+
+      const orderData = orderSnap.data();
+      let updatedStatus = orderData.status;
+      let notes = orderData.notes || "";
+      let address = orderData.customerAddress;
+      let gov = orderData.governorate;
+
+      if (buttonText.includes("تأكيد") || buttonText.includes("Confirm")) {
+        updatedStatus = "قيد_التنفيذ";
+        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+      } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel")) {
+        updatedStatus = "ملغي";
+        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+      } else if (buttonText.includes("تعديل") || buttonText.includes("Edit")) {
+        updatedStatus = "مؤجل";
+        if (updatedAddress) {
+          address = updatedAddress;
+          notes += `\n[واتساب] قام العميل بتحديث العنوان إلى: ${updatedAddress}`;
+        }
+        if (updatedGovernorate) {
+          gov = updatedGovernorate;
+        }
+      }
+
+      await setDoc(orderDocRef, {
+        ...orderData,
+        status: updatedStatus,
+        customerAddress: address,
+        governorate: gov,
+        notes,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      return c.json({ success: true, updatedStatus, updatedAddress: address, updatedGovernorate: gov });
+    } catch (err: any) {
+      console.error("[SIMULATION-WEBHOOK] Error:", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Public webhook for UltraMsg & Meta callback integration
+  app.post("/api/webhook/whatsapp", async (c) => {
+    try {
+      const body = await c.req.json();
+      console.log("[WHATSAPP-PUBLIC-WEBHOOK] Received payload:", JSON.stringify(body));
+
+      let phone = "";
+      let buttonText = "";
+
+      if (body.data && body.event_type === "message_received") {
+        const msg = body.data;
+        phone = msg.from;
+        if (msg.type === "button_reply") {
+          buttonText = msg.body || msg.payload || "";
+        } else {
+          buttonText = msg.body || "";
+        }
+      } else if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
+        const msg = body.entry[0].changes[0].value.messages[0];
+        phone = msg.from;
+        if (msg.type === "button") {
+          buttonText = msg.button?.text || "";
+        } else if (msg.type === "interactive" && msg.interactive?.button_reply) {
+          buttonText = msg.interactive.button_reply.title || msg.interactive.button_reply.id || "";
+        } else {
+          buttonText = msg.text?.body || "";
+        }
+      }
+
+      if (!phone || !buttonText) {
+        return c.json({ success: false, reason: "No interactive action or phone parsed." });
+      }
+
+      const cleanPhone = phone.replace(/\D/g, "");
+      const egyptianPhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
+
+      const ordersRef = collection(db, "orders");
+      const q = query(ordersRef, where("customerPhone", "==", egyptianPhone));
+      const qSnap = await getDocs(q);
+
+      if (qSnap.empty) {
+        console.log(`[WHATSAPP-PUBLIC-WEBHOOK] No orders found for parsed phone: ${egyptianPhone}`);
+        return c.json({ success: false, reason: "No associated order found." });
+      }
+
+      const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      orderDocs.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      
+      const latestOrder = orderDocs[0];
+      let updatedStatus = latestOrder.status;
+      let notes = latestOrder.notes || "";
+
+      if (buttonText.includes("تأكيد") || buttonText.includes("Confirm")) {
+        updatedStatus = "قيد_التنفيذ";
+        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+      } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel")) {
+        updatedStatus = "ملغي";
+        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+      } else {
+        return c.json({ success: false, reason: "Text did not match confirmation keywords." });
+      }
+
+      await setDoc(doc(db, "orders", latestOrder.id), {
+        status: updatedStatus,
+        notes,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      return c.json({ success: true, updatedStatus, orderId: latestOrder.id });
+    } catch (err: any) {
+      console.error("[WHATSAPP-PUBLIC-WEBHOOK] Error:", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
   // Temporary Introspection
   app.get("/api/introspect", async (c) => {
     try {

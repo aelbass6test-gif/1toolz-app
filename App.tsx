@@ -128,6 +128,21 @@ const MainLayout = ({
     isShippingCalculatorOpen,
     setIsShippingCalculatorOpen
 }: any) => {
+    const location = useLocation();
+
+    const isStoreManagementOrCreationPage = useMemo(() => {
+        const path = location.pathname;
+        return (
+            path === '/manage-stores' ||
+            path === '/create-store' ||
+            path === '/admin/manage-stores' ||
+            path.endsWith('/manage-stores') ||
+            path.endsWith('/create-store')
+        );
+    }, [location.pathname]);
+
+    const effectiveActiveStore = isStoreManagementOrCreationPage ? undefined : activeStore;
+
     const inventoryAlerts = useMemo(() => {
         if (!settings) return [];
         
@@ -331,7 +346,7 @@ const MainLayout = ({
                         onToggleSidebar={() => setSidebarOpen(true)} 
                         theme={theme} 
                         setTheme={setTheme} 
-                        activeStore={activeStore} 
+                        activeStore={effectiveActiveStore} 
                         dbSyncMode={dbSyncMode}
                         setDbSyncMode={setDbSyncMode}
                         forceSync={forceSync}
@@ -339,23 +354,27 @@ const MainLayout = ({
                         saveStatus={saveStatus}
                         saveMessage={saveMessage}
                         unsavedChanges={unsavedChanges}
-                        inventoryAlerts={inventoryAlerts}
+                        inventoryAlerts={isStoreManagementOrCreationPage ? [] : inventoryAlerts}
                         onOpenShippingCalculator={() => setIsShippingCalculatorOpen(true)}
                     />
                 </div>
                 <div className="flex flex-1 overflow-hidden relative">
-                    <div className="no-print">
-                        <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
-                    </div>
+                    {!isStoreManagementOrCreationPage && (
+                        <div className="no-print">
+                            <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+                        </div>
+                    )}
                     <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative print:overflow-visible print:h-auto print:static">
                         <Outlet />
                     </main>
-                    <div className="no-print">
-                        <MobileNavigation activeStoreId={activeStore?.id} />
-                    </div>
+                    {!isStoreManagementOrCreationPage && (
+                        <div className="no-print">
+                            <MobileNavigation activeStoreId={activeStore?.id} />
+                        </div>
+                    )}
                 </div>
             </div>
-            {settings && (
+            {settings && !isStoreManagementOrCreationPage && (
                 <ShippingCalculatorWidget 
                     settings={settings} 
                     isOpen={isShippingCalculatorOpen} 

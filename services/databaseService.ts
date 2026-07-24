@@ -56,6 +56,30 @@ const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 // --- Supabase Custom Connection ---
 let supabaseSingleton: any = null;
 
+export const syncSupabaseCredentials = (storeId: string, settings: any) => {
+    if (typeof window === 'undefined') return;
+    const activeStoreId = localStorage.getItem('lastActiveStoreId');
+    if (!activeStoreId || activeStoreId === storeId) {
+        const localUrl = localStorage.getItem('custom_cloud_url');
+        const localKey = localStorage.getItem('custom_cloud_anon_key');
+        
+        if (settings) {
+            if (settings.supabaseUrl && settings.supabaseAnonKey) {
+                if (localUrl !== settings.supabaseUrl || localKey !== settings.supabaseAnonKey) {
+                    console.log(`[SUPABASE-SYNC] Syncing custom cloud credentials for store ${storeId} to localStorage...`);
+                    localStorage.setItem('custom_cloud_url', settings.supabaseUrl);
+                    localStorage.setItem('custom_cloud_anon_key', settings.supabaseAnonKey);
+                }
+            } else if (localUrl && localKey) {
+                // If localStorage already has credentials, attach them to settings object so it persists
+                console.log(`[SUPABASE-SYNC] Attaching stored custom cloud credentials to store settings...`);
+                settings.supabaseUrl = localUrl;
+                settings.supabaseAnonKey = localKey;
+            }
+        }
+    }
+};
+
 export const getSupabaseClient = () => {
     if (typeof window === 'undefined') return null;
     const url = localStorage.getItem('custom_cloud_url');
@@ -224,6 +248,8 @@ export const getLocal = async (key: string): Promise<any> => {
         // Safe fetch settings, fallback to INITIAL_SETTINGS if store was created but settings lost
         const settings = settingsRecord?.data || { ...INITIAL_SETTINGS };
 
+        syncSupabaseCredentials(key, settings);
+
         const result = {
             orders: orders || [],
             settings: settings,
@@ -260,6 +286,7 @@ export const saveLocal = async (key: string, data: any) => {
 
         if (data.settings) {
             await localDb.settings.put({ id: storeId, data: data.settings } as any);
+            syncSupabaseCredentials(storeId, data.settings);
         }
 
         if (data.wallet) {
@@ -328,6 +355,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     
     // 2. If it's not a forced refresh, and local exists, return it immediately
     if (!forceRemote && local) {
+        if (local.settings) {
+            syncSupabaseCredentials(storeId, local.settings);
+        }
         return local;
     }
 
@@ -740,10 +770,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     // Re-fetch now that localStorage has the custom connection
                     return getStoreData(storeId, forceRemote);
                 }
-            } else if (!fullData.settings.supabaseUrl && localUrl) {
-                console.log('[SUPABASE] Detected owner disconnected global SUPABASE connection. Reverting to Firebase...');
-                localStorage.removeItem('custom_cloud_url');
-                localStorage.removeItem('custom_cloud_anon_key');
+            } else if (localUrl && localKey) {
+                // Ensure fullData.settings retains the custom connection credentials
+                fullData.settings.supabaseUrl = localUrl;
+                fullData.settings.supabaseAnonKey = localKey;
             }
         }
 

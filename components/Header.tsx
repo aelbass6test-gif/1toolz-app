@@ -10,6 +10,9 @@ import { CommandPalette } from './CommandPalette';
 
 const PATH_TITLES: { [key: string]: string } = {
     '/': 'الرئيسية',
+    '/manage-stores': 'تغيير وإدارة المتاجر',
+    '/create-store': 'إنشاء متجر جديد',
+    '/admin/manage-stores': 'تغيير وإدارة المتاجر',
     '/confirmation-queue': 'تأكيد الطلبات',
     '/orders': 'الطلبات',
     '/abandoned-carts': 'السلات المتروكة',
@@ -189,6 +192,17 @@ const Header: React.FC<HeaderProps> = ({
     const navigate = useNavigate();
     const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
 
+    const isStoreManagementOrCreationPage = useMemo(() => {
+        const path = location.pathname;
+        return (
+            path === '/manage-stores' ||
+            path === '/create-store' ||
+            path === '/admin/manage-stores' ||
+            path.endsWith('/manage-stores') ||
+            path.endsWith('/create-store')
+        );
+    }, [location.pathname]);
+
     const handleManageStoresClick = () => {
         if (currentUser?.isAdmin) {
             navigate('/admin/manage-stores');
@@ -242,14 +256,16 @@ const Header: React.FC<HeaderProps> = ({
         <>
             <header className="h-16 sm:h-20 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-2xl border-b border-slate-200/70 dark:border-slate-800/80 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 flex-shrink-0 shadow-xs">
             <div className="flex items-center gap-2 sm:gap-4">
-    <button onClick={onToggleSidebar} className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer">
-        <Menu size={22} />
-    </button>
+    {!isStoreManagementOrCreationPage && (
+        <button onClick={onToggleSidebar} className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer">
+            <Menu size={22} />
+        </button>
+    )}
     <div className="flex items-center gap-2 sm:gap-3 max-w-[160px] sm:max-w-none">
         <div className="flex items-center gap-2">
             <h1 className="text-sm sm:text-base md:text-lg font-black text-slate-900 dark:text-white tracking-tight truncate">{pageTitle}</h1>
         </div>
-        {activeStore && (
+        {activeStore && !isStoreManagementOrCreationPage && (
             <div className="hidden sm:flex items-center gap-1.5">
                 <span className="hidden lg:inline-block px-2 py-0.5 bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 text-[10px] font-black rounded-lg border border-slate-200/80 dark:border-slate-700/80 font-mono">
                     ID: {activeStore.id.slice(-8)}
@@ -275,399 +291,405 @@ const Header: React.FC<HeaderProps> = ({
 </div>
 
             <div className="flex items-center gap-1.5 sm:gap-3">
-                {/* Quick Command Search Trigger Button */}
-                <button
-                    onClick={() => setIsCommandPaletteOpen(true)}
-                    className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 transition-all text-xs font-black shadow-2xs hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                    title="البحث السريع والتنقل (Ctrl+K)"
-                >
-                    <Search size={14} className="text-indigo-500 animate-pulse" />
-                    <span className="hidden md:inline text-[11px] font-bold">بحث سريع...</span>
-                    <kbd className="hidden sm:inline-block font-mono text-[9px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md text-slate-500 dark:text-slate-400">
-                        Ctrl+K
-                    </kbd>
-                </button>
+                {!isStoreManagementOrCreationPage && (
+                    <>
+                        {/* Quick Command Search Trigger Button */}
+                        <button
+                            onClick={() => setIsCommandPaletteOpen(true)}
+                            className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/80 dark:border-slate-700/80 text-slate-700 dark:text-slate-200 transition-all text-xs font-black shadow-2xs hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                            title="البحث السريع والتنقل (Ctrl+K)"
+                        >
+                            <Search size={14} className="text-indigo-500 animate-pulse" />
+                            <span className="hidden md:inline text-[11px] font-bold">بحث سريع...</span>
+                            <kbd className="hidden sm:inline-block font-mono text-[9px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded-md text-slate-500 dark:text-slate-400">
+                                Ctrl+K
+                            </kbd>
+                        </button>
 
-                {activeStore && (
-                    <div className="relative" ref={syncMenuRef}>
-                        <div className="flex items-center gap-1 sm:gap-2 bg-slate-150/60 dark:bg-slate-900/40 p-1 rounded-xl sm:p-1.5 sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900 select-none">
-                            {/* Unsaved changes or saving status */}
-                            {saveStatus !== 'idle' && (
-                                <button
-                                    onClick={() => {
-                                        if (unsavedChanges && unsavedChanges.length > 0) {
-                                            setIsUnsavedModalOpen(true);
-                                        }
-                                    }}
-                                    disabled={!unsavedChanges || unsavedChanges.length === 0}
-                                    className={`flex items-center gap-1 px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black transition-all ${
-                                        unsavedChanges && unsavedChanges.length > 0
-                                            ? 'cursor-pointer animate-pulse text-amber-800 dark:text-amber-400 bg-amber-50/80 dark:bg-amber-950/20'
-                                            : saveStatus === 'success'
-                                            ? 'text-emerald-700 bg-emerald-50 dark:text-emerald-400'
-                                            : 'text-amber-700 bg-amber-50 dark:text-amber-500'
-                                    }`}
-                                >
-                                    <span className={`h-1.5 w-1.5 rounded-full ${
-                                        unsavedChanges && unsavedChanges.length > 0 ? 'bg-amber-500 animate-pulse' :
-                                        saveStatus === 'success' ? 'bg-emerald-500' : 'bg-amber-500'
-                                    }`}></span>
-                                    <span className="hidden sm:inline">{saveMessage || (saveStatus === 'saving' ? 'جاري...' : 'محلي')}</span>
-                                    {unsavedChanges && unsavedChanges.length > 0 && (
-                                        <span className="flex items-center justify-center bg-amber-600 dark:bg-amber-500 text-white rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 text-[8px] sm:text-[9px] font-black mr-0.5 shadow-sm">
-                                            {unsavedChanges.length}
-                                        </span>
-                                    )}
-                                </button>
-                            )}
-
-                            {/* Mode Toggle Button */}
-                            <button
-                                onClick={() => setDbSyncMode?.(dbSyncMode === 'manual' ? 'auto' : 'manual')}
-                                className={`flex items-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-1.5 rounded-xl font-bold text-[9px] sm:text-[11px] transition-all duration-300 hover:bg-white dark:hover:bg-slate-800 cursor-pointer ${
-                                    dbSyncMode === 'manual' 
-                                        ? 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200' 
-                                        : 'text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/30'
-                                }`}
-                            >
-                                {dbSyncMode === 'manual' ? (
-                                    <HardDrive size={12} />
-                                ) : (
-                                    <Cloud size={12} />
-                                )}
-                                <span className="hidden sm:inline">{dbSyncMode === 'manual' ? 'ديسك توب' : 'سحابي'}</span>
-                            </button>
-
-                            {/* Main Sync action trigger button */}
-                            <button
-                                onClick={async () => {
-                                    if (forceSync) {
-                                        await forceSync();
-                                    }
-                                }}
-                                disabled={saveStatus === 'saving'}
-                                className={`flex items-center gap-1 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[11px] font-black transition-all cursor-pointer ${
-                                    saveStatus === 'saving'
-                                        ? 'bg-indigo-550 text-white opacity-90'
-                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                                }`}
-                            >
-                                {saveStatus === 'saving' ? (
-                                    <Loader2 size={12} className="animate-spin text-white" />
-                                ) : (
-                                    <RefreshCw size={12} className="group-hover:rotate-180 transition-transform duration-500" />
-                                )}
-                                <span className="hidden sm:inline">مزامنة</span>
-                                {!unsavedChanges?.length && <span className="sm:hidden text-[8px]">تحديث</span>}
-                            </button>
-
-                            {/* Expansion Details trigger */}
-                            <button
-                                onClick={() => setIsSyncMenuOpen(!isSyncMenuOpen)}
-                                className={`p-1.5 rounded-lg sm:rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer ${isSyncMenuOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : ''}`}
-                            >
-                                <ChevronDown size={14} className={`transition-transform duration-300 ${isSyncMenuOpen ? 'rotate-180' : ''}`} />
-                            </button>
-                        </div>
-
-                        {/* Interactive Dropdown / Control Panel */}
-                        {isSyncMenuOpen && (
-                            <div className="absolute left-0 mt-2.5 w-85 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200 p-1 z-50 overflow-hidden text-right font-sans" dir="rtl" style={{ minWidth: '340px' }}>
-                                {/* Header of Control Panel */}
-                                <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
-                                    <div className="flex items-center gap-2">
-                                        <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                                            <Cloud size={14} className={dbSyncMode === 'auto' ? "animate-pulse" : ""} />
-                                        </div>
-                                        <div>
-                                            <span className="font-black text-xs block text-slate-850 dark:text-slate-200">
-                                                {dbSyncMode === 'auto' ? "حالة الربط والذكاء الاصطناعي" : "العمل بدون اتصال (محلي)"}
-                                            </span>
-                                            <span className="text-[9px] font-bold text-slate-400 block mt-0.5">
-                                                {isOnline ? "متصل بالإنترنت 🟢" : "أوفلاين (حفظ محلي آمن) 📡"}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-lg border ${
-                                        dbSyncMode === 'auto' 
-                                            ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border-emerald-100/50 dark:border-emerald-900/30"
-                                            : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-amber-100/50 dark:border-amber-900/30"
-                                    }`}>
-                                        {dbSyncMode === 'auto' ? <CheckCircle size={10} /> : <Database size={10} />}
-                                        <span>{dbSyncMode === 'auto' ? "مزامنة سحابية نشطة" : "تخزين محلي فقط"}</span>
-                                    </div>
-                                </div>
-
-                                {/* Body / Telemetry details */}
-                                <div className="p-4 space-y-3.5">
-                                    {/* Connection status line */}
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">بوابة المزامنة:</span>
-                                        <span className="text-xs font-black text-slate-800 dark:text-slate-250 flex items-center gap-1.5">
-                                            <Cloud size={13} className="text-indigo-500" />
-                                            {isSupabaseActive() ? (
-                                                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                                    Supabase Cloud CRM ⚡
-                                                </span>
-                                            ) : (
-                                                <span>Google Firebase Firestore</span>
-                                            )}
-                                        </span>
-                                    </div>
-
-                                    {/* Network status line (New Addition!) */}
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">اتصال الإنترنت:</span>
-                                        <span className={`text-[11px] font-black flex items-center gap-1.5 ${isOnline ? 'text-emerald-600 dark:text-emerald-350' : 'text-rose-500'}`}>
-                                            {isOnline ? <Wifi size={13} className="text-emerald-500 animate-pulse" /> : <WifiOff size={13} className="text-rose-500" />}
-                                            {isOnline ? 'متصل بالشبكة (مستقر)' : 'لا يوجد اتصال إنترنت'}
-                                        </span>
-                                    </div>
-
-                                    {/* Local DB Status */}
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">مخزن البيانات المحلي:</span>
-                                        <div className="text-left flex flex-col items-end">
-                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                                <Database size={13} className="text-emerald-500" />
-                                                IndexedDB (أمان الهاردوير)
-                                            </span>
-                                            <span className="text-[10px] text-slate-400 font-medium">
-                                                ({localCounts.products} منتجات • {localCounts.orders} طلب • {localCounts.customers} عميل) محفوظ محلياً
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    {/* Last Sync Tracking */}
-                                    <div className="flex justify-between items-center pt-2.5 border-t border-slate-100 dark:border-slate-800">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">آخر مزامنة ناجحة:</span>
-                                        <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                                            {lastSyncTime}
-                                        </span>
-                                    </div>
-
-                                    {/* Work Mode Toggle (New Interactive Control Addition!) */}
-                                    <div className="bg-slate-50/70 dark:bg-slate-950/20 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2">
-                                        <div className="text-[10px] font-bold text-slate-400">نمط العمل والربط الفعلي:</div>
-                                        <div className="grid grid-cols-2 gap-1 bg-slate-100/75 dark:bg-slate-800 p-1 rounded-xl">
-                                             <button
-                                                 onClick={() => setDbSyncMode?.('auto')}
-                                                 className={`py-1.5 px-2 text-center rounded-lg text-[10px] font-black transition-all cursor-pointer ${dbSyncMode === 'auto' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
-                                             >
-                                                 سحابي (تلقائي) ☁️
-                                             </button>
-                                             <button
-                                                 onClick={() => setDbSyncMode?.('manual')}
-                                                 className={`py-1.5 px-2 text-center rounded-lg text-[10px] font-black transition-all cursor-pointer ${dbSyncMode === 'manual' ? 'bg-indigo-600 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
-                                             >
-                                                 ديسك توب (يدوي) 💾
-                                             </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Connection speed simulator */}
-                                    <div className="bg-slate-50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-105 dark:border-slate-800/60">
-                                        <div className="flex flex-col gap-1 mb-2">
-                                            <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 flex-wrap">
-                                                <Wifi size={11} className="text-indigo-500" />
-                                                سرعة الاتصال والـ Server Ping:
-                                            </span>
-                                            <span className={`text-[11px] font-black tracking-tight ${
-                                                !isOnline 
-                                                    ? 'text-rose-500' 
-                                                    : isTestingPing
-                                                    ? 'text-indigo-500 animate-pulse'
-                                                    : pingMs !== null && pingMs < 100
-                                                    ? 'text-emerald-600 dark:text-emerald-400'
-                                                    : pingMs !== null && pingMs < 250
-                                                    ? 'text-teal-600 dark:text-teal-400'
-                                                    : 'text-amber-600 dark:text-amber-450'
-                                            }`}>{pingText}</span>
-                                        </div>
-                                        {/* Dynamic Bar */}
-                                        <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                                            <div 
-                                                className={`h-full rounded-full transition-all duration-500`}
-                                                style={{
-                                                    width: `${
-                                                        !isOnline ? 0 :
-                                                        isTestingPing ? 35 :
-                                                        pingMs === null ? 0 :
-                                                        pingMs < 45 ? 96 :
-                                                        pingMs < 120 ? 84 :
-                                                        pingMs < 255 ? 60 : 30
-                                                    }%`,
-                                                    backgroundColor: `${
-                                                        !isOnline ? '#ef4444' :
-                                                        isTestingPing ? '#6366f1' :
-                                                        pingMs === null ? '#94a3b8' :
-                                                        pingMs < 45 ? '#10b981' :
-                                                        pingMs < 140 ? '#14b8a6' :
-                                                        pingMs < 255 ? '#f59e0b' : '#ef4444'
-                                                    }`
-                                                }}
-                                            ></div>
-                                        </div>
-                                        <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-100/50 dark:border-slate-800/50">
-                                            <span className="text-[9px] text-slate-400 leading-none">تأمين محلي فوري والعمل المباشر مدعوم</span>
-                                            <button 
-                                                onClick={executePingTest}
-                                                disabled={isTestingPing || !isOnline}
-                                                className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50"
-                                            >
-                                                تحديث القياس ⚡
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Footer Quick Info and toggle */}
-                                <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-100 dark:border-slate-850 flex flex-col gap-2 rounded-b-3xl">
-                                    <div className="flex gap-2">
+                        {activeStore && (
+                            <div className="relative" ref={syncMenuRef}>
+                                <div className="flex items-center gap-1 sm:gap-2 bg-slate-150/60 dark:bg-slate-900/40 p-1 rounded-xl sm:p-1.5 sm:rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900 select-none">
+                                    {/* Unsaved changes or saving status */}
+                                    {saveStatus !== 'idle' && (
                                         <button
-                                            onClick={async () => {
-                                                if (forceSync) {
-                                                    setIsSyncMenuOpen(false);
-                                                    await forceSync();
+                                            onClick={() => {
+                                                if (unsavedChanges && unsavedChanges.length > 0) {
+                                                    setIsUnsavedModalOpen(true);
                                                 }
                                             }}
-                                            disabled={saveStatus === 'saving'}
-                                            className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors text-center"
-                                        >
-                                            <RefreshCw size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
-                                            رفع ومزامنة الآن ⬆️
-                                        </button>
-                                        
-                                        {forcePullFromCloud && (
-                                            <button
-                                                onClick={async () => {
-                                                    setIsSyncMenuOpen(false);
-                                                    await forcePullFromCloud();
-                                                }}
-                                                disabled={saveStatus === 'saving'}
-                                                className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors text-center"
-                                            >
-                                                <Cloud size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
-                                                سحب وتحديث محلي ⬇️
-                                            </button>
-                                        )}
-                                    </div>
-                                    
-                                    <button
-                                        onClick={() => {
-                                            setIsSyncMenuOpen(false);
-                                            navigate('/settings/developer');
-                                        }}
-                                        className="w-full py-2 bg-white dark:bg-slate-850 hover:bg-slate-105 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer transition-colors"
-                                    >
-                                        تفاصيل النسخ لقاعدة البيانات
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                <div className="relative" ref={alertsMenuRef}>
-                    <button 
-                        onClick={onOpenShippingCalculator}
-                        title="حاسبة الشحن"
-                        className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-                    >
-                        <Calculator size={20} />
-                    </button>
-                </div>
-
-                <div className="relative" ref={alertsMenuRef}>
-                    <button 
-                        onClick={() => setIsAlertsOpen(!isAlertsOpen)}
-                        className={`p-2 rounded-xl transition-all relative ${isAlertsOpen ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                    >
-                        <Bell size={20} className={inventoryAlerts.length > 0 ? "animate-swing" : ""} />
-                        {inventoryAlerts.length > 0 && (
-                            <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
-                                {inventoryAlerts.length}
-                            </span>
-                        )}
-                    </button>
-                    {isAlertsOpen && (
-                        <div className="absolute left-0 top-14 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 z-[60] overflow-hidden">
-                            <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
-                                <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
-                                    <Bell size={16} className="text-amber-500" />
-                                    تنبيهات المخزون والجرد
-                                </h3>
-                                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full">
-                                    {inventoryAlerts.length} تنبيه
-                                </span>
-                            </div>
-                            <div className="max-h-96 overflow-y-auto p-2 space-y-2">
-                                {inventoryAlerts.length === 0 ? (
-                                    <div className="py-8 text-center space-y-2">
-                                        <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
-                                            <CheckCircle size={24} />
-                                        </div>
-                                        <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد تنبيهات حالياً</p>
-                                        <p className="text-[10px] text-slate-400">كل شيء يبدو على ما يرام في المخزن!</p>
-                                    </div>
-                                ) : (
-                                    inventoryAlerts.map(alert => (
-                                        <div 
-                                            key={alert.id} 
-                                            className={`p-3 rounded-xl border flex gap-3 transition-all ${
-                                                alert.severity === 'critical' 
-                                                    ? 'bg-rose-50 border-rose-100 dark:bg-rose-900/10 dark:border-rose-900/30' 
-                                                    : alert.type === 'audit_overdue' || alert.type === 'pending_order'
-                                                        ? 'bg-blue-50 border-blue-100 dark:bg-blue-900/10 dark:border-blue-900/30'
-                                                        : 'bg-amber-50 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900/30'
+                                            disabled={!unsavedChanges || unsavedChanges.length === 0}
+                                            className={`flex items-center gap-1 px-1 sm:px-2.5 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[10px] font-black transition-all ${
+                                                unsavedChanges && unsavedChanges.length > 0
+                                                    ? 'cursor-pointer animate-pulse text-amber-800 dark:text-amber-400 bg-amber-50/80 dark:bg-amber-950/20'
+                                                    : saveStatus === 'success'
+                                                    ? 'text-emerald-700 bg-emerald-50 dark:text-emerald-400'
+                                                    : 'text-amber-700 bg-amber-50 dark:text-amber-500'
                                             }`}
                                         >
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                                                alert.severity === 'critical' ? 'bg-rose-500 text-white shadow-lg shadow-rose-200 dark:shadow-none' :
-                                                alert.type === 'audit_overdue' || alert.type === 'abandoned_cart' ? 'bg-blue-500 text-white shadow-lg shadow-blue-200 dark:shadow-none' :
-                                                alert.type === 'pending_order' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 dark:shadow-none' :
-                                                alert.type === 'expiry' || alert.type === 'expiry_expired' ? 'bg-rose-600 text-white shadow-lg shadow-rose-200' :
-                                                alert.type === 'cash_balance' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' :
-                                                'bg-amber-500 text-white shadow-lg shadow-amber-200 dark:shadow-none'
-                                            }`}>
-                                                {alert.type === 'low_stock' ? <Package size={16} /> : 
-                                                 alert.type === 'pending_order' ? <Activity size={16} /> :
-                                                 alert.type === 'supplier_debt' ? <Database size={16} /> :
-                                                 alert.type === 'expiry' || alert.type === 'expiry_expired' ? <Calendar size={16} /> :
-                                                 alert.type === 'cash_balance' ? <HandCoins size={16} /> :
-                                                 alert.type === 'abandoned_cart' ? <ShoppingCart size={16} /> :
-                                                 <Clock size={16} />}
+                                            <span className={`h-1.5 w-1.5 rounded-full ${
+                                                unsavedChanges && unsavedChanges.length > 0 ? 'bg-amber-500 animate-pulse' :
+                                                saveStatus === 'success' ? 'bg-emerald-500' : 'bg-amber-500'
+                                            }`}></span>
+                                            <span className="hidden sm:inline">{saveMessage || (saveStatus === 'saving' ? 'جاري...' : 'محلي')}</span>
+                                            {unsavedChanges && unsavedChanges.length > 0 && (
+                                                <span className="flex items-center justify-center bg-amber-600 dark:bg-amber-500 text-white rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 text-[8px] sm:text-[9px] font-black mr-0.5 shadow-sm">
+                                                    {unsavedChanges.length}
+                                                </span>
+                                            )}
+                                        </button>
+                                    )}
+
+                                    {/* Mode Toggle Button */}
+                                    <button
+                                        onClick={() => setDbSyncMode?.(dbSyncMode === 'manual' ? 'auto' : 'manual')}
+                                        className={`flex items-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-1.5 rounded-xl font-bold text-[9px] sm:text-[11px] transition-all duration-300 hover:bg-white dark:hover:bg-slate-800 cursor-pointer ${
+                                            dbSyncMode === 'manual' 
+                                                ? 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200' 
+                                                : 'text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/30'
+                                        }`}
+                                    >
+                                        {dbSyncMode === 'manual' ? (
+                                            <HardDrive size={12} />
+                                        ) : (
+                                            <Cloud size={12} />
+                                        )}
+                                        <span className="hidden sm:inline">{dbSyncMode === 'manual' ? 'ديسك توب' : 'سحابي'}</span>
+                                    </button>
+
+                                    {/* Main Sync action trigger button */}
+                                    <button
+                                        onClick={async () => {
+                                            if (forceSync) {
+                                                await forceSync();
+                                            }
+                                        }}
+                                        disabled={saveStatus === 'saving'}
+                                        className={`flex items-center gap-1 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[9px] sm:text-[11px] font-black transition-all cursor-pointer ${
+                                            saveStatus === 'saving'
+                                                ? 'bg-indigo-550 text-white opacity-90'
+                                                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                        }`}
+                                    >
+                                        {saveStatus === 'saving' ? (
+                                            <Loader2 size={12} className="animate-spin text-white" />
+                                        ) : (
+                                            <RefreshCw size={12} className="group-hover:rotate-180 transition-transform duration-500" />
+                                        )}
+                                        <span className="hidden sm:inline">مزامنة</span>
+                                        {!unsavedChanges?.length && <span className="sm:hidden text-[8px]">تحديث</span>}
+                                    </button>
+
+                                    {/* Expansion Details trigger */}
+                                    <button
+                                        onClick={() => setIsSyncMenuOpen(!isSyncMenuOpen)}
+                                        className={`p-1.5 rounded-lg sm:rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer ${isSyncMenuOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-100' : ''}`}
+                                    >
+                                        <ChevronDown size={14} className={`transition-transform duration-300 ${isSyncMenuOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+                                </div>
+
+                                {/* Interactive Dropdown / Control Panel */}
+                                {isSyncMenuOpen && (
+                                    <div className="absolute left-0 mt-2.5 w-85 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200 p-1 z-50 overflow-hidden text-right font-sans" dir="rtl" style={{ minWidth: '340px' }}>
+                                        {/* Header of Control Panel */}
+                                        <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
+                                            <div className="flex items-center gap-2">
+                                                <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                                                    <Cloud size={14} className={dbSyncMode === 'auto' ? "animate-pulse" : ""} />
+                                                </div>
+                                                <div>
+                                                    <span className="font-black text-xs block text-slate-850 dark:text-slate-200">
+                                                        {dbSyncMode === 'auto' ? "حالة الربط والذكاء الاصطناعي" : "العمل بدون اتصال (محلي)"}
+                                                    </span>
+                                                    <span className="text-[9px] font-bold text-slate-400 block mt-0.5">
+                                                        {isOnline ? "متصل بالإنترنت 🟢" : "أوفلاين (حفظ محلي آمن) 📡"}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div className="flex-1 text-right">
-                                                <h4 className="text-xs font-black text-slate-800 dark:text-white mb-0.5">{alert.title}</h4>
-                                                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{alert.message}</p>
+                                            <div className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-lg border ${
+                                                dbSyncMode === 'auto' 
+                                                    ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border-emerald-100/50 dark:border-emerald-900/30"
+                                                    : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-amber-100/50 dark:border-amber-900/30"
+                                            }`}>
+                                                {dbSyncMode === 'auto' ? <CheckCircle size={10} /> : <Database size={10} />}
+                                                <span>{dbSyncMode === 'auto' ? "مزامنة سحابية نشطة" : "تخزين محلي فقط"}</span>
                                             </div>
                                         </div>
-                                    ))
+
+                                        {/* Body / Telemetry details */}
+                                        <div className="p-4 space-y-3.5">
+                                            {/* Connection status line */}
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">بوابة المزامنة:</span>
+                                                <span className="text-xs font-black text-slate-800 dark:text-slate-250 flex items-center gap-1.5">
+                                                    <Cloud size={13} className="text-indigo-500" />
+                                                    {isSupabaseActive() ? (
+                                                        <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                                            Supabase Cloud CRM ⚡
+                                                        </span>
+                                                    ) : (
+                                                        <span>Google Firebase Firestore</span>
+                                                    )}
+                                                </span>
+                                            </div>
+
+                                            {/* Network status line */}
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">اتصال الإنترنت:</span>
+                                                <span className={`text-[11px] font-black flex items-center gap-1.5 ${isOnline ? 'text-emerald-600 dark:text-emerald-350' : 'text-rose-500'}`}>
+                                                    {isOnline ? <Wifi size={13} className="text-emerald-500 animate-pulse" /> : <WifiOff size={13} className="text-rose-500" />}
+                                                    {isOnline ? 'متصل بالشبكة (مستقر)' : 'لا يوجد اتصال إنترنت'}
+                                                </span>
+                                            </div>
+
+                                            {/* Local DB Status */}
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">مخزن البيانات المحلي:</span>
+                                                <div className="text-left flex flex-col items-end">
+                                                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                                        <Database size={13} className="text-emerald-500" />
+                                                        IndexedDB (أمان الهاردوير)
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 font-medium">
+                                                        ({localCounts.products} منتجات • {localCounts.orders} طلب • {localCounts.customers} عميل) محفوظ محلياً
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Last Sync Tracking */}
+                                            <div className="flex justify-between items-center pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">آخر مزامنة ناجحة:</span>
+                                                <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                                    {lastSyncTime}
+                                                </span>
+                                            </div>
+
+                                            {/* Work Mode Toggle */}
+                                            <div className="bg-slate-50/70 dark:bg-slate-950/20 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+                                                <div className="text-[10px] font-bold text-slate-400">نمط العمل والربط الفعلي:</div>
+                                                <div className="grid grid-cols-2 gap-1 bg-slate-100/75 dark:bg-slate-800 p-1 rounded-xl">
+                                                     <button
+                                                         onClick={() => setDbSyncMode?.('auto')}
+                                                         className={`py-1.5 px-2 text-center rounded-lg text-[10px] font-black transition-all cursor-pointer ${dbSyncMode === 'auto' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                                                     >
+                                                         سحابي (تلقائي) ☁️
+                                                     </button>
+                                                     <button
+                                                         onClick={() => setDbSyncMode?.('manual')}
+                                                         className={`py-1.5 px-2 text-center rounded-lg text-[10px] font-black transition-all cursor-pointer ${dbSyncMode === 'manual' ? 'bg-indigo-600 dark:bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}`}
+                                                     >
+                                                         ديسك توب (يدوي) 💾
+                                                     </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Connection speed simulator */}
+                                            <div className="bg-slate-50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-105 dark:border-slate-800/60">
+                                                <div className="flex flex-col gap-1 mb-2">
+                                                    <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 flex-wrap">
+                                                        <Wifi size={11} className="text-indigo-500" />
+                                                        سرعة الاتصال والـ Server Ping:
+                                                    </span>
+                                                    <span className={`text-[11px] font-black tracking-tight ${
+                                                        !isOnline 
+                                                            ? 'text-rose-500' 
+                                                            : isTestingPing
+                                                            ? 'text-indigo-500 animate-pulse'
+                                                            : pingMs !== null && pingMs < 100
+                                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                                            : pingMs !== null && pingMs < 250
+                                                            ? 'text-teal-600 dark:text-teal-400'
+                                                            : 'text-amber-600 dark:text-amber-450'
+                                                    }`}>{pingText}</span>
+                                                </div>
+                                                {/* Dynamic Bar */}
+                                                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                                    <div 
+                                                        className={`h-full rounded-full transition-all duration-500`}
+                                                        style={{
+                                                            width: `${
+                                                                !isOnline ? 0 :
+                                                                isTestingPing ? 35 :
+                                                                pingMs === null ? 0 :
+                                                                pingMs < 45 ? 96 :
+                                                                pingMs < 120 ? 84 :
+                                                                pingMs < 255 ? 60 : 30
+                                                            }%`,
+                                                            backgroundColor: `${
+                                                                !isOnline ? '#ef4444' :
+                                                                isTestingPing ? '#6366f1' :
+                                                                pingMs === null ? '#94a3b8' :
+                                                                pingMs < 45 ? '#10b981' :
+                                                                pingMs < 140 ? '#14b8a6' :
+                                                                pingMs < 255 ? '#f59e0b' : '#ef4444'
+                                                            }`
+                                                        }}
+                                                    ></div>
+                                                </div>
+                                                <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-100/50 dark:border-slate-800/50">
+                                                    <span className="text-[9px] text-slate-400 leading-none">تأمين محلي فوري والعمل المباشر مدعوم</span>
+                                                    <button 
+                                                        onClick={executePingTest}
+                                                        disabled={isTestingPing || !isOnline}
+                                                        className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50"
+                                                    >
+                                                        تحديث القياس ⚡
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Footer Quick Info and toggle */}
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-100 dark:border-slate-850 flex flex-col gap-2 rounded-b-3xl">
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={async () => {
+                                                        if (forceSync) {
+                                                            setIsSyncMenuOpen(false);
+                                                            await forceSync();
+                                                        }
+                                                    }}
+                                                    disabled={saveStatus === 'saving'}
+                                                    className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors text-center"
+                                                >
+                                                    <RefreshCw size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
+                                                    رفع ومزامنة الآن ⬆️
+                                                </button>
+                                                
+                                                {forcePullFromCloud && (
+                                                    <button
+                                                        onClick={async () => {
+                                                            setIsSyncMenuOpen(false);
+                                                            await forcePullFromCloud();
+                                                        }}
+                                                        disabled={saveStatus === 'saving'}
+                                                        className="flex-1 flex justify-center items-center gap-1.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors text-center"
+                                                    >
+                                                        <Cloud size={11} className={saveStatus === 'saving' ? 'animate-spin' : ''} />
+                                                        سحب وتحديث محلي ⬇️
+                                                    </button>
+                                                )}
+                                            </div>
+                                            
+                                            <button
+                                                onClick={() => {
+                                                    setIsSyncMenuOpen(false);
+                                                    navigate('/settings/developer');
+                                                }}
+                                                className="w-full py-2 bg-white dark:bg-slate-850 hover:bg-slate-105 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs rounded-xl cursor-pointer transition-colors"
+                                            >
+                                                تفاصيل النسخ لقاعدة البيانات
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
-                            {inventoryAlerts.length > 0 && (
-                                <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800">
-                                    <Link 
-                                        to="inventory-audit" 
-                                        onClick={() => setIsAlertsOpen(false)}
-                                        className="w-full py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center block hover:bg-slate-100 transition-colors"
-                                    >
-                                        انتقل لصفحة الجرد والمخزن
-                                    </Link>
+                        )}
+
+                        <div className="relative" ref={alertsMenuRef}>
+                            <button 
+                                onClick={onOpenShippingCalculator}
+                                title="حاسبة الشحن"
+                                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                            >
+                                <Calculator size={20} />
+                            </button>
+                        </div>
+
+                        <div className="relative" ref={alertsMenuRef}>
+                            <button 
+                                onClick={() => setIsAlertsOpen(!isAlertsOpen)}
+                                className={`p-2 rounded-xl transition-all relative ${isAlertsOpen ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                            >
+                                <Bell size={20} className={inventoryAlerts.length > 0 ? "animate-swing" : ""} />
+                                {inventoryAlerts.length > 0 && (
+                                    <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
+                                        {inventoryAlerts.length}
+                                    </span>
+                                )}
+                            </button>
+                            {isAlertsOpen && (
+                                <div className="absolute left-0 top-14 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 z-[60] overflow-hidden">
+                                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
+                                        <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
+                                            <Bell size={16} className="text-amber-500" />
+                                            تنبيهات المخزون والجرد
+                                        </h3>
+                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full">
+                                            {inventoryAlerts.length} تنبيه
+                                        </span>
+                                    </div>
+                                    <div className="max-h-96 overflow-y-auto p-2 space-y-2">
+                                        {inventoryAlerts.length === 0 ? (
+                                            <div className="py-8 text-center space-y-2">
+                                                <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
+                                                    <CheckCircle size={24} />
+                                                </div>
+                                                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد تنبيهات حالياً</p>
+                                                <p className="text-[10px] text-slate-400">كل شيء يبدو على ما يرام في المخزن!</p>
+                                            </div>
+                                        ) : (
+                                            inventoryAlerts.map(alert => (
+                                                <div 
+                                                    key={alert.id} 
+                                                    className={`p-3 rounded-xl border flex gap-3 transition-all ${
+                                                        alert.severity === 'critical' 
+                                                            ? 'bg-rose-50 border-rose-100 dark:bg-rose-900/10 dark:border-rose-900/30' 
+                                                            : alert.type === 'audit_overdue' || alert.type === 'pending_order'
+                                                                ? 'bg-blue-50 border-blue-100 dark:bg-blue-900/10 dark:border-blue-900/30'
+                                                                : 'bg-amber-50 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900/30'
+                                                    }`}
+                                                >
+                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                                                        alert.severity === 'critical' ? 'bg-rose-500 text-white shadow-lg shadow-rose-200 dark:shadow-none' :
+                                                        alert.type === 'audit_overdue' || alert.type === 'abandoned_cart' ? 'bg-blue-500 text-white shadow-lg shadow-blue-200 dark:shadow-none' :
+                                                        alert.type === 'pending_order' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 dark:shadow-none' :
+                                                        alert.type === 'expiry' || alert.type === 'expiry_expired' ? 'bg-rose-600 text-white shadow-lg shadow-rose-200' :
+                                                        alert.type === 'cash_balance' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' :
+                                                        'bg-amber-500 text-white shadow-lg shadow-amber-200 dark:shadow-none'
+                                                    }`}>
+                                                        {alert.type === 'low_stock' ? <Package size={16} /> : 
+                                                         alert.type === 'pending_order' ? <Activity size={16} /> :
+                                                         alert.type === 'supplier_debt' ? <Database size={16} /> :
+                                                         alert.type === 'expiry' || alert.type === 'expiry_expired' ? <Calendar size={16} /> :
+                                                         alert.type === 'cash_balance' ? <HandCoins size={16} /> :
+                                                         alert.type === 'abandoned_cart' ? <ShoppingCart size={16} /> :
+                                                         <Clock size={16} />}
+                                                    </div>
+                                                    <div className="flex-1 text-right">
+                                                        <h4 className="text-xs font-black text-slate-800 dark:text-white mb-0.5">{alert.title}</h4>
+                                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{alert.message}</p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                    {inventoryAlerts.length > 0 && (
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800">
+                                            <Link 
+                                                to="inventory-audit" 
+                                                onClick={() => setIsAlertsOpen(false)}
+                                                className="w-full py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center block hover:bg-slate-100 transition-colors"
+                                            >
+                                                انتقل لصفحة الجرد والمخزن
+                                            </Link>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
-                    )}
-                </div>
+                    </>
+                )}
 
-                <button 
-                    onClick={handleManageStoresClick}
-                    className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black text-sm text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
-                >
-                    <Replace size={16} />
-                    <span>تغيير المتجر</span>
-                </button>
+                {!isStoreManagementOrCreationPage && (
+                    <button 
+                        onClick={handleManageStoresClick}
+                        className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-black text-sm text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
+                    >
+                        <Replace size={16} />
+                        <span>تغيير المتجر</span>
+                    </button>
+                )}
                 
                 <div className="relative" ref={userMenuRef}>
                     <button onClick={() => setIsUserMenuOpen(prev => !prev)} className="flex items-center gap-3 p-1 pr-3 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">

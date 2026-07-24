@@ -755,12 +755,14 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
 
   // Custom database state and actions
   const [hasCustomDb, setHasCustomDb] = useState(
-    typeof window !== 'undefined' ? !!localStorage.getItem('custom_supabase_url') : false
+    typeof window !== 'undefined' ? (!!localStorage.getItem('custom_cloud_url') || !!localStorage.getItem('custom_supabase_url')) : false
   );
   const [copiedSql, setCopiedSql] = useState(false);
   const [showSqlDetails, setShowSqlDetails] = useState(false);
 
   const handleRestoreDefaultDb = () => {
+    localStorage.removeItem('custom_cloud_url');
+    localStorage.removeItem('custom_cloud_anon_key');
     localStorage.removeItem('custom_supabase_url');
     localStorage.removeItem('custom_supabase_anon_key');
     alert("تمت استعادة قاعدة البيانات الافتراضية بنجاح! سيتم إعادة تشغيل ومزامنة حسابك القديم.");

@@ -687,14 +687,107 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     return !!settings.enableFlexShip;
   }, [orderData.shippingCompany, settings.companySpecificFees, settings.enableFlexShip]);
 
-  useEffect(() => {
-    if (!orderData.warehouseId && settings?.warehouses && getArray(settings.warehouses).length > 0) {
-      const defaultWh = getArray(settings.warehouses).find((w: any) => w.isDefault)?.id || getArray(settings.warehouses)[0]?.id;
-      if (defaultWh && defaultWh !== orderData.warehouseId) {
-        handleFieldChange("warehouseId", defaultWh);
+  // --- Smart Geographical Routing & Inventory Allocator Hook ---
+  const [isWarehouseOverridden, setIsWarehouseOverridden] = useState(false);
+  const isFirstLoad = useRef(true);
+
+  const smartWarehouseResult = useMemo(() => {
+    const warehouses = getArray(settings.warehouses);
+    if (warehouses.length === 0) return null;
+
+    const gov = orderData.governorate || orderData.shippingArea || "";
+    if (!gov) {
+      const defaultWh = warehouses.find((w: any) => w.isDefault) || warehouses[0];
+      return {
+        warehouse: defaultWh,
+        reason: "الرجاء تحديد محافظة العميل لتفعيل محرك التوجيه الجغرافي الذكي.",
+        hasStock: true,
+      };
+    }
+
+    // Find warehouses covering this governorate
+    const coveringWhs = warehouses.filter((w: any) => {
+      const covered = getArray(w.coveredGovernorates || []);
+      return covered.some(
+        (g: string) =>
+          g.trim().toLowerCase() === gov.trim().toLowerCase() ||
+          gov.trim().toLowerCase().includes(g.trim().toLowerCase())
+      );
+    });
+
+    const selectedItems = getArray(orderData.items);
+    
+    // Check if warehouse has enough stock for all selected items
+    const checkStockForWarehouse = (whId: string) => {
+      const productsList = getArray(settings.products);
+      for (const item of selectedItems) {
+        const prod = productsList.find(p => p.id === item.productId);
+        if (!prod) continue;
+        
+        let availableStock = 0;
+        if (item.variantId) {
+          const variant = prod.variants?.find((v: any) => v.id === item.variantId);
+          availableStock = variant?.warehouseStock?.[whId] ?? 0;
+        } else {
+          availableStock = prod.warehouseStock?.[whId] ?? 0;
+        }
+        
+        if (availableStock < (item.quantity || 1)) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    if (coveringWhs.length > 0) {
+      const withStock = coveringWhs.find(w => checkStockForWarehouse(w.id));
+      if (withStock) {
+        return {
+          warehouse: withStock,
+          reason: `توجيه جغرافي ذكي: مستودع "${withStock.name}" يغطي محافظة "${gov}" ومخزونه كافٍ!`,
+          hasStock: true,
+        };
+      } else {
+        const otherWhWithStock = warehouses.find(w => checkStockForWarehouse(w.id));
+        if (otherWhWithStock) {
+          return {
+            warehouse: otherWhWithStock,
+            reason: `تنبيه التوجيه الذكي: المستودع الأقرب جغرافياً لـ "${gov}" ليس لديه مخزون كافٍ! تم تحويل الطلب تلقائياً لمستودع "${otherWhWithStock.name}" لتوفر البضاعة فيه.`,
+            hasStock: true,
+          };
+        } else {
+          return {
+            warehouse: coveringWhs[0],
+            reason: `تحذير: المستودع الأقرب يغطي "${gov}" ولكن مخزونه الحالي غير كافٍ لتغطية كامل المنتجات المطلوبة!`,
+            hasStock: false,
+          };
+        }
       }
     }
-  }, [settings?.warehouses, orderData.warehouseId]);
+
+    const defaultWh = warehouses.find((w: any) => w.isDefault) || warehouses[0];
+    const hasStock = checkStockForWarehouse(defaultWh.id);
+    
+    return {
+      warehouse: defaultWh,
+      reason: `توجيه افتراضي: لم يتم تحديد مستودع مخصص لتغطية محافظة "${gov}". تم التوجيه للمستودع الافتراضي.`,
+      hasStock,
+    };
+  }, [orderData.governorate, orderData.shippingArea, orderData.items, settings.warehouses, settings.products]);
+
+  useEffect(() => {
+    if (isEditing && isFirstLoad.current) {
+      isFirstLoad.current = false;
+      setIsWarehouseOverridden(true);
+      return;
+    }
+
+    if (smartWarehouseResult && !isWarehouseOverridden) {
+      if (orderData.warehouseId !== smartWarehouseResult.warehouse.id) {
+        handleFieldChange("warehouseId", smartWarehouseResult.warehouse.id);
+      }
+    }
+  }, [smartWarehouseResult, isWarehouseOverridden, isEditing, orderData.warehouseId]);
 
   const inspectionFee = useMemo(() => {
     if (orderData.includeInspectionFee === false || orderData.allowOpenShipment === false) return 0;
@@ -1429,7 +1522,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </label>
               <select
                 value={orderData.warehouseId || ""}
-                onChange={(e) => handleFieldChange("warehouseId", e.target.value || undefined)}
+                onChange={(e) => {
+                  setIsWarehouseOverridden(true);
+                  handleFieldChange("warehouseId", e.target.value || undefined);
+                }}
                 className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
               >
                 <option value="">-- اختر المخزن / المستودع --</option>
@@ -1439,6 +1535,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   </option>
                 ))}
               </select>
+
+              {smartWarehouseResult && (
+                <div className={`mt-2 p-3 rounded-xl border text-xs leading-relaxed font-medium transition-all ${
+                  isWarehouseOverridden 
+                    ? "bg-amber-50 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900 text-amber-700 dark:text-amber-400"
+                    : smartWarehouseResult.hasStock
+                      ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400"
+                      : "bg-rose-50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900 text-rose-700 dark:text-rose-400"
+                }`}>
+                  <div className="flex items-center gap-1.5 font-bold mb-1">
+                    {isWarehouseOverridden ? "⚠️ تم تعديل التوجيه يدوياً" : "🤖 نظام التوجيه الذكي للمخزون"}
+                    {isWarehouseOverridden && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setIsWarehouseOverridden(false);
+                          if (orderData.warehouseId !== smartWarehouseResult.warehouse.id) {
+                            handleFieldChange("warehouseId", smartWarehouseResult.warehouse.id);
+                          }
+                        }}
+                        className="mr-auto text-[10px] px-2 py-0.5 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-md hover:bg-amber-100 transition-all text-amber-600 dark:text-amber-400 cursor-pointer"
+                      >
+                        إعادة تعيين للتلقائي
+                      </button>
+                    )}
+                  </div>
+                  <p>{isWarehouseOverridden ? `لقد قمت باختيار المستودع يدوياً. التوجيه التلقائي المقترح كان إلى "${smartWarehouseResult.warehouse.name}"` : smartWarehouseResult.reason}</p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">

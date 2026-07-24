@@ -8,6 +8,8 @@ export const ROLES: Record<string, { name: string; icon: string; permissions: Pe
   STOCK_MANAGER: { name: 'مدير مخزون', icon: '📦', permissions: ['PRODUCTS_VIEW', 'PRODUCTS_MANAGE', 'INVENTORY_MANAGE', 'COLLECTIONS_MANAGE', 'ORDERS_VIEW', 'RETURNS_MANAGE'] },
   MARKETER: { name: 'مسوق', icon: '🚀', permissions: ['DASHBOARD_VIEW', 'REPORTS_VIEW', 'CUSTOMERS_VIEW', 'MARKETING_MANAGE', 'DISCOUNTS_MANAGE', 'PRODUCTS_VIEW', 'APPS_MANAGE'] },
   CASHIER: { name: 'كاشير (POS)', icon: '🏪', permissions: ['POS_VIEW', 'POS_MANAGE', 'PRODUCTS_VIEW', 'ORDERS_VIEW'] },
+  DELIVERY_EMPLOYEE: { name: 'موظف توصيل', icon: '🚴', permissions: ['ORDERS_VIEW', 'CASH_MANAGE'] },
+  COURIER: { name: 'مندوب', icon: '👤', permissions: ['ORDERS_VIEW', 'CASH_MANAGE'] },
 };
 
 export const getRoleName = (permissions: Permission[]): string => {

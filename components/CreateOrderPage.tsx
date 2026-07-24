@@ -10,6 +10,7 @@ import { triggerWebhooks } from '../utils/webhook';
 import { db } from '../services/firebaseClient';
 import { collection, addDoc } from 'firebase/firestore';
 import { triggerCelebration } from '../utils/celebration';
+import { whatsappService } from '../utils/whatsappService';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -503,6 +504,77 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             });
         } else {
             setOrders(prev => [orderWithId, ...prev]);
+        }
+
+        // --- 1. Intelligent Stock Allocation & Deduction ---
+        const orderWarehouseId = orderWithId.warehouseId || '';
+        if (orderWarehouseId && Array.isArray(settings.products)) {
+            setSettings(prev => {
+                const updatedProducts = (prev.products || []).map(p => {
+                    const orderedItems = (orderWithId.items || []).filter(item => item.productId === p.id) || [];
+                    if (orderedItems.length === 0) return p;
+
+                    const newProd = { ...p };
+
+                    if (p.hasVariants && Array.isArray(p.variants)) {
+                        newProd.variants = p.variants.map(v => {
+                            const matchItem = orderedItems.find(item => item.variantId === v.id);
+                            if (!matchItem) return v;
+
+                            const currentStock = { ...(v.warehouseStock || {}) };
+                            const oldQty = Number(currentStock[orderWarehouseId]) || 0;
+                            currentStock[orderWarehouseId] = Math.max(0, oldQty - (matchItem.quantity || 1));
+
+                            const newDist = Object.values(currentStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                            return {
+                                ...v,
+                                warehouseStock: currentStock,
+                                stockQuantity: newDist,
+                                stock: newDist
+                            };
+                        });
+
+                        const totalFromVariants = newProd.variants.reduce((t, v) => t + (v.stockQuantity || 0), 0);
+                        newProd.stockQuantity = totalFromVariants;
+                        newProd.stock = totalFromVariants;
+                        newProd.inStock = totalFromVariants > 0;
+                    } else {
+                        const matchItem = orderedItems.find(item => !item.variantId);
+                        if (matchItem) {
+                            const currentStock = { ...(p.warehouseStock || {}) };
+                            const oldQty = Number(currentStock[orderWarehouseId]) || 0;
+                            currentStock[orderWarehouseId] = Math.max(0, oldQty - (matchItem.quantity || 1));
+
+                            const newDist = Object.values(currentStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                            newProd.warehouseStock = currentStock;
+                            newProd.stockQuantity = newDist;
+                            newProd.stock = newDist;
+                            newProd.inStock = newDist > 0;
+                        }
+                    }
+
+                    return newProd;
+                });
+
+                return {
+                    ...prev,
+                    products: updatedProducts
+                };
+            });
+        }
+
+        // --- 2. Interactive WhatsApp Automation Message ---
+        if (settings.whatsappConfig?.isActive) {
+            const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
+            const textToUse = template?.text || "مرحباً {customerName}، لقد تلقينا طلبك رقم #{orderNumber} بنجاح! 🎉\nإجمالي المبلغ المتوقع تحصيله: {totalPrice} ج.م.\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فورا.";
+            const buttonsToUse = template?.buttons && template.buttons.length > 0 
+                ? template.buttons 
+                : ['تأكيد الطلب ✅', 'تعديل العنوان 📍', 'إلغاء الطلب ❌'];
+            const footerToUse = template?.footer || "مدير الأوردرات الذكي";
+
+            const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse);
+            whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse)
+                .catch(err => console.error("Failed to send automatic WhatsApp message:", err));
         }
 
         // --- LINK TO MAINTENANCE CENTER ---

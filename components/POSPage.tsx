@@ -1,5 +1,3 @@
-
-// Testing edit ability
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { CustomerSelectModal } from './CustomerSelectModal';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,7 +20,21 @@ import {
   Receipt,
   Printer,
   ChevronLeft,
-  SearchCode
+  SearchCode,
+  PauseCircle,
+  PlayCircle,
+  Calculator,
+  Sparkles,
+  Tag,
+  FileText,
+  Clock,
+  RefreshCw,
+  Zap,
+  HelpCircle,
+  Check,
+  Copy,
+  ArrowLeft,
+  DollarSign
 } from 'lucide-react';
 import { Settings, Product, ProductVariant, POSSale, POSSaleItem, Order, Wallet as WalletType, Transaction, Treasury } from '../types';
 
@@ -61,6 +73,15 @@ interface POSPageProps {
   customers?: any[];
 }
 
+interface ParkedOrder {
+  id: string;
+  timestamp: string;
+  items: POSSaleItem[];
+  customerInfo: { name: string; phone: string; address: string; debtBalance: number };
+  warehouseId: string;
+  notes?: string;
+}
+
 const POSPage: React.FC<POSPageProps> = (props) => {
   const { settings, updateSettings, orders, wallet, treasury, updateStoreData, currentUser, activeStore, customers } = props;
   
@@ -87,6 +108,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
   }
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [cart, setCart] = useState<POSSaleItem[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState(settings.warehouses?.find(w => w.isDefault)?.id || settings.warehouses?.[0]?.id || '');
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
@@ -96,13 +118,36 @@ const POSPage: React.FC<POSPageProps> = (props) => {
   const [activeTab, setActiveTab] = useState<'checkout' | 'history'>('checkout');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
-  // Registered Customers Integrations for POS
+  // Cashier Calculator (الباقي والدفع)
+  const [paidCashAmount, setPaidCashAmount] = useState<number | ''>('');
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+
+  // Parked Carts System
+  const [parkedOrders, setParkedOrders] = useState<ParkedOrder[]>([]);
+  const [showParkedModal, setShowParkedModal] = useState(false);
+
+  // Keyboard Shortcuts Drawer & Receipt Preview
+  const [showHotkeysModal, setShowHotkeysModal] = useState(false);
+  const [lastReceiptSale, setLastReceiptSale] = useState<POSSale | null>(null);
+
+  // Search Input Ref for Shortcuts
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Registered Customers Integration
   const customersList = customers || [];
   const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
 
   const products = settings.products || [];
   const warehouses = settings.warehouses || [];
-  const cashHolders = settings.cashHolders || [];
+
+  // Extract Categories
+  const categoriesList = useMemo(() => {
+    const cats = new Set<string>();
+    products.forEach(p => {
+      if ((p as any).category) cats.add((p as any).category);
+    });
+    return Array.from(cats);
+  }, [products]);
   
   const treasuryAccountsList = useMemo(() => {
     if (treasury) {
@@ -126,13 +171,43 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     ...(treasuryAccountsList).map((a: any) => ({ id: `treas_${a.id}`, name: normalizeName(a.name) }))
   ], [employeesList, partnersList, treasuryAccountsList]);
 
-  const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [
-    { id: 'cash', name: 'كاش', logoUrl: '' },
-    { id: 'card', name: 'فيزا', logoUrl: '' },
-    { id: 'wallet', name: 'محفظة', logoUrl: '' }
-  ];
+  // Today's POS Stats
+  const todayStats = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const posSales = settings.posSales || [];
+    const todaySales = posSales.filter(s => s.date && s.date.startsWith(today));
+    const totalAmount = todaySales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
+    return {
+      count: todaySales.length,
+      revenue: totalAmount
+    };
+  }, [settings.posSales]);
 
-  // Set the default cash holder with exact prefixed ID on load
+  // Keyboard Shortcuts Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        if (e.key === 'Escape') {
+          (e.target as HTMLElement).blur();
+        }
+        return;
+      }
+      if (e.key === '/' || e.key === 'F2') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        if (cart.length > 0) handleParkOrder();
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        if (cart.length > 0 && confirm('هل تريد إفراغ السلة الحالية؟')) setCart([]);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart]);
+
+  // Set default cash holder
   useEffect(() => {
     if (allPossibleHolders.length > 0) {
       const match = allPossibleHolders.find(h => 
@@ -149,14 +224,47 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     }
   }, [allPossibleHolders, currentUser]);
 
+  // Filtered Products
   const filteredProducts = useMemo(() => {
-    if (!searchTerm) return products.slice(0, 12);
-    const term = searchTerm.toLowerCase();
-    return products.filter(p => 
-      p.name.toLowerCase().includes(term) || 
-      (p.sku && p.sku.toLowerCase().includes(term))
-    ).slice(0, 20);
-  }, [products, searchTerm]);
+    let list = products;
+
+    if (selectedCategory !== 'all') {
+      if (selectedCategory === 'low_stock') {
+        list = list.filter(p => (p.stockQuantity || 0) <= ((p as any).minStockThreshold || (p as any).stockThreshold || 5));
+      } else {
+        list = list.filter(p => (p as any).category === selectedCategory);
+      }
+    }
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase().trim();
+      list = list.filter(p => 
+        p.name.toLowerCase().includes(term) || 
+        (p.sku && p.sku.toLowerCase().includes(term)) ||
+        ((p as any).barcode && (p as any).barcode.toLowerCase().includes(term))
+      );
+    }
+
+    return list.slice(0, 30);
+  }, [products, searchTerm, selectedCategory]);
+
+  // Handle direct barcode scanner enter key
+  const handleBarcodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchTerm.trim()) return;
+
+    const term = searchTerm.trim().toLowerCase();
+    const foundProduct = products.find(p => 
+      ((p as any).barcode && (p as any).barcode.toLowerCase() === term) ||
+      (p.sku && p.sku.toLowerCase() === term) ||
+      p.name.toLowerCase() === term
+    );
+
+    if (foundProduct) {
+      addToCart(foundProduct);
+      setSearchTerm('');
+    }
+  };
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
     const existingIdx = cart.findIndex(item => 
@@ -198,9 +306,39 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     setCart(newCart);
   };
 
+  // Park current order
+  const handleParkOrder = () => {
+    if (cart.length === 0) return;
+    const newParked: ParkedOrder = {
+      id: `parked-${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      items: cart,
+      customerInfo,
+      warehouseId: selectedWarehouse
+    };
+    setParkedOrders([newParked, ...parkedOrders]);
+    setCart([]);
+    setDiscountAmount(0);
+    setCustomerInfo({ name: 'عميل نقدي', phone: '', address: '', debtBalance: 0 });
+    alert('⏸️ تم تعليق الطلب بنجاح! يمكنك استرجاعه في أي وقت من زر الطلبات المعلقة.');
+  };
+
+  // Restore parked order
+  const handleRestoreParkedOrder = (parked: ParkedOrder) => {
+    setCart(parked.items);
+    setCustomerInfo(parked.customerInfo);
+    if (parked.warehouseId) setSelectedWarehouse(parked.warehouseId);
+    setParkedOrders(parkedOrders.filter(p => p.id !== parked.id));
+    setShowParkedModal(false);
+  };
+
   const [isProcessing, setIsProcessing] = useState(false);
   const totalAmountBeforeDiscount = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const totalAmount = Math.max(0, totalAmountBeforeDiscount - discountAmount);
+
+  // Cash change calculations
+  const numericPaidCash = typeof paidCashAmount === 'number' ? paidCashAmount : 0;
+  const cashChangeAmount = Math.max(0, numericPaidCash - totalAmount);
 
   const handleCheckout = async () => {
     if (isProcessing) return;
@@ -301,7 +439,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
             });
           }
 
-          // Add to Cash Handovers log (سجل العهد)
+          // Add to Cash Handovers log
           updatedHandovers.unshift({
             id: `pos-handover-${Date.now()}`,
             fromUserId: 'system',
@@ -313,7 +451,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
             notes: `مبيعات كاشير - طلب #${saleNumber}`,
             type: 'handover',
             status: 'completed',
-            orderId: saleId // Explicitly link handover to this sale order
+            orderId: saleId
           });
         }
       }
@@ -367,7 +505,6 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         inspectionFee: 0,
         isInsured: false,
         insuranceFee: 0,
-        // Set custody fields for better tracking in reports
         cashHolderId: isCredit ? 'credit' : (settings.disableCustodySelling ? 'wallet' : finalCashHolder),
         cashHolderName: isCredit ? 'حساب أجل' : (settings.disableCustodySelling ? 'المحفظة العامة' : (normalizeName(receiver?.name || '') || 'نقطة البيع')),
         advancePayment: isCredit ? 0 : totalAmount,
@@ -376,7 +513,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         advancePaymentTreasuryId: !isCredit && !settings.disableCustodySelling && finalCashHolder.startsWith('treas_') ? finalCashHolder.substring(6) : undefined,
       };
 
-      // Create wallet transaction if not credit and (not cash OR custody is disabled)
+      // Wallet transaction
       let updatedWallet: WalletType = { ...wallet };
       if (!isCredit && (paymentMethod !== 'cash' || settings.disableCustodySelling)) {
         const isDigital = paymentMethod !== 'cash';
@@ -401,7 +538,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         };
       }
 
-      // Update Customers (Debt handling)
+      // Update Debt
       let updatedCustomers = [...(customers || [])];
       if (isCredit && customerInfo.phone) {
         const cIdx = updatedCustomers.findIndex(c => c.phone === customerInfo.phone);
@@ -420,7 +557,6 @@ const POSPage: React.FC<POSPageProps> = (props) => {
             debtHistory: [debtEntry, ...(updatedCustomers[cIdx].debtHistory || [])]
           };
         } else {
-          // Create customer if they don't exist
           updatedCustomers.push({
             id: customerInfo.phone,
             name: customerInfo.name || 'عميل آجل',
@@ -439,7 +575,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         }
       }
 
-      // Perform a single atomic update to the store data
+      // Update store data atomic
       updateStoreData({ 
         settings: newSettings, 
         orders: [newOrder, ...orders],
@@ -448,12 +584,16 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         customers: updatedCustomers
       });
 
-      // تشغيل الاحتفالات والسمعيات السحابية لبيع الكاشير
+      // Celebration
       triggerCelebration('pos_sale', settings);
 
-      alert(isCredit ? 'تم تسجيل العملية كطلب أجل بنجاح!' : 'تم إتمام البيع وتحديث المخزن بنجاح!');
+      // Open Last Receipt modal for thermal print
+      setLastReceiptSale(newSale);
+
+      // Reset Form
       setCart([]);
       setDiscountAmount(0);
+      setPaidCashAmount('');
       setCustomerInfo({ name: 'عميل نقدي', phone: '', address: '', debtBalance: 0 });
       setPaymentStatusType('paid');
     } catch (err) {
@@ -466,18 +606,77 @@ const POSPage: React.FC<POSPageProps> = (props) => {
 
   return (
     <div className="flex flex-col h-full space-y-4" dir="rtl">
-      {/* Header & Tab Navigation */}
+      {/* Top Banner & Quick Metrics Header */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-5 border border-indigo-500/20 shadow-xl relative overflow-hidden">
+        <div className="absolute -left-10 -bottom-10 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-600/30 border border-indigo-400/30 flex items-center justify-center text-indigo-400 font-bold shadow-inner">
+              <Monitor size={26} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-black text-white">كاشير نقطة البيع الذكية (POS)</h1>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  نشط ومعتمد
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 font-medium mt-0.5">إدارة المبيعات المباشرة والفواتير مع مزامنة فورية للمخزن والعهدة المالية</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Today's Sales Metric */}
+            <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
+              <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
+                <Sparkles size={18} />
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-300 block font-bold">مبيعات اليوم ({todayStats.count})</span>
+                <span className="text-sm font-black text-emerald-400 tabular-nums">{todayStats.revenue.toLocaleString()} ج.م</span>
+              </div>
+            </div>
+
+            {/* Parked Carts Trigger */}
+            <button
+              onClick={() => setShowParkedModal(true)}
+              className="relative bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-2xl border border-white/10 font-bold text-xs flex items-center gap-2 transition-all active:scale-95"
+            >
+              <PauseCircle size={18} className="text-amber-400" />
+              <span>الطلبات المعلقة</span>
+              {parkedOrders.length > 0 && (
+                <span className="bg-amber-500 text-slate-950 font-black text-[10px] w-5 h-5 rounded-full flex items-center justify-center">
+                  {parkedOrders.length}
+                </span>
+              )}
+            </button>
+
+            {/* Shortcuts Guide Trigger */}
+            <button
+              onClick={() => setShowHotkeysModal(true)}
+              className="p-2.5 bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white rounded-2xl border border-white/10 transition-all"
+              title="اختصارات لوحة المفاتيح"
+            >
+              <HelpCircle size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs & Controls Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-2">
         <div className="flex bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800">
           <button
             onClick={() => setActiveTab('checkout')}
-            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'checkout' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'checkout' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
           >
             {warehouses.find(w => w.id === selectedWarehouse)?.name || 'نقطة البيع (كاشير)'}
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+            className={`px-6 py-2 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
           >
             سجل الحركات (POS Log)
           </button>
@@ -504,19 +703,60 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         <div className="flex flex-col lg:flex-row flex-1 gap-6 p-1 lg:p-0 pb-32 lg:pb-0 overflow-hidden">
           {/* Products Catalog - Left Side */}
           <div className="flex-1 flex flex-col min-w-0 bg-slate-50/50 dark:bg-slate-900/50 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden backdrop-blur-xl">
-            <div className="p-5 border-b border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50">
-               <div className="relative max-w-2xl mx-auto">
-                  <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={22} />
-                  <input 
-                    type="text"
-                    placeholder="ابحث بالاسم أو الباركود..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-14 pr-12 pl-6 rounded-2xl text-sm font-black outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
-                  />
+            {/* Search & Barcode Bar */}
+            <div className="p-5 border-b border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 space-y-3">
+               <form onSubmit={handleBarcodeSubmit} className="relative max-w-2xl mx-auto flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={22} />
+                    <input 
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="ابحث بالاسم، SKU أو امسح الباركود (اضغط / للتركيز)..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-14 pr-12 pl-12 rounded-2xl text-sm font-black outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all shadow-sm"
+                    />
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
+                      /
+                    </span>
+                  </div>
+                  <button
+                    type="submit"
+                    className="h-14 px-5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs flex items-center gap-2 shadow-md transition-all active:scale-95"
+                    title="إضافة بالباركود"
+                  >
+                    <Zap size={18} />
+                    <span>مسح</span>
+                  </button>
+               </form>
+
+               {/* Categories Filters Chips */}
+               <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-2xl mx-auto hide-scrollbar">
+                  <button
+                    onClick={() => setSelectedCategory('all')}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all whitespace-nowrap ${selectedCategory === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'}`}
+                  >
+                    الكل ({products.length})
+                  </button>
+                  <button
+                    onClick={() => setSelectedCategory('low_stock')}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all whitespace-nowrap ${selectedCategory === 'low_stock' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-700 hover:bg-amber-50'}`}
+                  >
+                    مخزون منخفض ⚠️
+                  </button>
+                  {categoriesList.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all whitespace-nowrap ${selectedCategory === cat ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'}`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
                </div>
             </div>
 
+            {/* Products Grid */}
             <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
                   {filteredProducts.map(product => (
@@ -578,36 +818,61 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                        )}
                     </div>
                   ))}
+                  {filteredProducts.length === 0 && (
+                    <div className="col-span-full py-16 text-center text-slate-400">
+                      <Package size={48} className="mx-auto opacity-30 mb-2" />
+                      <p className="font-bold text-sm">لا توجد منتجات تطابق البحث</p>
+                    </div>
+                  )}
                </div>
             </div>
           </div>
 
           {/* Cart & Checkout - Right Side */}
           <div className="w-full lg:w-[420px] flex flex-col bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-2xl shadow-indigo-500/5 overflow-y-auto shrink-0 relative z-10 no-scrollbar">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
-               <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center justify-between">
-                 <div className="flex items-center gap-3">
-                   <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
-                     <ShoppingCart size={20} />
-                   </div>
-                   السلة الفاتورة
+            {/* Header with Quick Actions */}
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 flex items-center justify-between">
+               <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-3">
+                 <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
+                   <ShoppingCart size={18} />
                  </div>
-                 {cart.length > 0 && (
-                   <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs px-3 py-1.5 rounded-lg font-bold">
-                     {cart.length} منتج
-                   </span>
-                 )}
+                 السلة الفاتورة
                </h2>
+
+               <div className="flex items-center gap-2">
+                  {cart.length > 0 && (
+                    <>
+                      <button
+                        onClick={handleParkOrder}
+                        className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 hover:bg-amber-100 rounded-xl font-bold text-xs flex items-center gap-1 transition-all"
+                        title="تعليق الطلب (F4)"
+                      >
+                        <PauseCircle size={14} /> تعليق
+                      </button>
+                      <button
+                        onClick={() => setCart([])}
+                        className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 hover:bg-rose-100 rounded-xl font-bold text-xs transition-all"
+                        title="مسح السلة (F8)"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                  <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs px-3 py-1 rounded-lg font-bold">
+                    {cart.length} أصناف
+                  </span>
+               </div>
             </div>
 
-            <div className="flex-1 px-6 py-4 space-y-3 shrink-0 min-h-[250px]">
+            {/* Cart Items List */}
+            <div className="flex-1 px-5 py-4 space-y-3 shrink-0 min-h-[220px]">
                <AnimatePresence>
                  {cart.length === 0 ? (
-                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full min-h-[200px] flex flex-col items-center justify-center text-slate-400 gap-4">
-                     <div className="w-24 h-24 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
-                       <ShoppingCart size={40} className="opacity-20" />
+                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="h-full min-h-[180px] flex flex-col items-center justify-center text-slate-400 gap-3">
+                     <div className="w-20 h-20 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
+                       <ShoppingCart size={32} className="opacity-20" />
                      </div>
-                     <p className="text-sm font-bold tracking-tight">ابدأ بإضافة المنتجات إلى الفاتورة</p>
+                     <p className="text-xs font-bold tracking-tight text-slate-400">امسح الباركود أو انقر على المنتج للإضافة</p>
                    </motion.div>
                  ) : (
                    cart.map((item, idx) => (
@@ -616,29 +881,29 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                         animate={{ opacity: 1, y: 0, scale: 1 }} 
                         exit={{ opacity: 0, scale: 0.95, height: 0 }}
                         key={idx} 
-                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-4 flex flex-col gap-3 group transition-all hover:border-indigo-200 dark:hover:border-indigo-900/40"
+                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-3.5 flex flex-col gap-2.5 group transition-all hover:border-indigo-200 dark:hover:border-indigo-900/40"
                       >
                         <div className="flex items-start justify-between">
-                          <h4 className="text-sm font-bold text-slate-800 dark:text-white leading-tight flex-1 pl-4">{item.name}</h4>
-                          <button onClick={() => removeFromCart(idx)} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                          <h4 className="text-xs font-bold text-slate-800 dark:text-white leading-tight flex-1 pl-3">{item.name}</h4>
+                          <button onClick={() => removeFromCart(idx)} className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"><Trash2 size={14}/></button>
                         </div>
                         
-                        <div className="flex items-center justify-between mt-1 pt-3 border-t border-slate-200/50 dark:border-slate-700/50">
-                           <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-1 rounded-xl">
-                              <button onClick={() => updateQuantity(idx, 1)} className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 hover:text-indigo-600 transition-colors"><Plus size={14}/></button>
-                              <span className="w-8 text-center text-sm font-black tabular-nums">{item.quantity}</span>
-                              <button onClick={() => updateQuantity(idx, -1)} className="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 hover:text-rose-500 transition-colors"><Minus size={14}/></button>
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-200/50 dark:border-slate-700/50">
+                           <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-0.5 rounded-xl">
+                              <button onClick={() => updateQuantity(idx, 1)} className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 hover:text-indigo-600 transition-colors"><Plus size={12}/></button>
+                              <span className="w-7 text-center text-xs font-black tabular-nums">{item.quantity}</span>
+                              <button onClick={() => updateQuantity(idx, -1)} className="w-7 h-7 rounded-lg bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-600 hover:text-rose-500 transition-colors"><Minus size={12}/></button>
                            </div>
 
-                           <div className="flex items-center justify-end gap-1.5 text-left">
+                           <div className="flex items-center justify-end gap-1 text-left">
                               <input 
                                  type="number"
                                  value={item.price || ''}
                                  onChange={(e) => updatePrice(idx, parseFloat(e.target.value) || 0)}
-                                 className="w-20 h-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-center text-sm font-black text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all tabular-nums"
+                                 className="w-20 h-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-center text-xs font-black text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all tabular-nums"
                                  min="0"
                               />
-                              <span className="text-xs font-bold text-slate-500">ج.م</span>
+                              <span className="text-[10px] font-bold text-slate-500">ج.م</span>
                            </div>
                         </div>
                      </motion.div>
@@ -647,52 +912,53 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                </AnimatePresence>
             </div>
 
-            <div className="p-6 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800 space-y-5 pb-24 lg:pb-6 relative z-20 shrink-0">
-               {/* Store/Warehouse Select */}
-               <div className="space-y-1.5 text-right">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">خصم من مستودع</label>
+            {/* Checkout Form & Calculations */}
+            <div className="p-5 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800 space-y-4 relative z-20 shrink-0">
+               {/* Warehouse Select */}
+               <div className="space-y-1 text-right">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">خصم الكمية من مستودع</label>
                   <select 
                     value={selectedWarehouse}
                     onChange={(e) => setSelectedWarehouse(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-10 px-3 rounded-xl text-xs font-black outline-none"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 h-9 px-3 rounded-xl text-xs font-black outline-none"
                   >
                     {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                </div>
 
-               {/* Payment Status (Cash/Credit) */}
-               <div className="grid grid-cols-2 gap-3">
+               {/* Sale Type (Paid vs Credit) */}
+               <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => setPaymentStatusType('paid')}
-                    className={`p-3 rounded-2xl font-black text-sm transition-all border-2 ${paymentStatusType === 'paid' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/20' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
+                    className={`p-2.5 rounded-xl font-black text-xs transition-all border-2 ${paymentStatusType === 'paid' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
                   >
                     بيع نقدي
                   </button>
                   <button
                     onClick={() => setPaymentStatusType('credit')}
-                    className={`p-3 rounded-2xl font-black text-sm transition-all border-2 ${paymentStatusType === 'credit' ? 'bg-amber-500 text-white border-amber-500 shadow-md shadow-amber-500/20' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
+                    className={`p-2.5 rounded-xl font-black text-xs transition-all border-2 ${paymentStatusType === 'credit' ? 'bg-amber-500 text-white border-amber-500 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
                   >
-                    بيع أجل
+                    بيع أجل (دين)
                   </button>
                </div>
 
-               {/* Cash Holder Select */}
+               {/* Custody / Cash Receiver */}
                <AnimatePresence>
                  {paymentStatusType === 'paid' && !settings.disableCustodySelling && (
                    <motion.div 
-                     initial={{ opacity: 0, height: 0, scale: 0.98 }}
-                     animate={{ opacity: 1, height: 'auto', scale: 1 }}
-                     exit={{ opacity: 0, height: 0, scale: 0.98 }}
-                     className="space-y-2 text-right overflow-hidden"
+                     initial={{ opacity: 0, height: 0 }}
+                     animate={{ opacity: 1, height: 'auto' }}
+                     exit={{ opacity: 0, height: 0 }}
+                     className="space-y-1 text-right overflow-hidden"
                    >
-                      <label className="text-xs font-black text-slate-500 uppercase flex items-center justify-between">
+                      <label className="text-[10px] font-black text-slate-500 uppercase flex items-center justify-between">
                          <span>المستلم (في العهدة)</span>
-                         <User size={14} />
+                         <User size={12} />
                       </label>
                       <select 
                         value={selectedCashHolder || (allPossibleHolders[0]?.id || '')}
                         onChange={(e) => setSelectedCashHolder(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-12 px-4 rounded-xl text-sm font-black outline-none focus:border-indigo-500 cursor-pointer"
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-black outline-none focus:border-indigo-500 cursor-pointer"
                       >
                          <option value="">-- اختر جهة الاستلام --</option>
                          {treasuryAccountsList.length > 0 && (
@@ -724,18 +990,18 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                  )}
                </AnimatePresence>
 
-               {/* Payment Method */}
+               {/* Payment Methods */}
                {paymentStatusType === 'paid' && (
-                 <div className="grid grid-cols-3 gap-3">
+                 <div className="grid grid-cols-3 gap-2">
                    {[
-                     { id: 'cash', icon: <Banknote size={18}/>, label: 'كاش' },
-                     { id: 'card', icon: <CreditCard size={18}/>, label: 'فيزا' },
-                     { id: 'wallet', icon: <Wallet size={18}/>, label: 'محفظة' }
+                     { id: 'cash', icon: <Banknote size={16}/>, label: 'كاش' },
+                     { id: 'card', icon: <CreditCard size={16}/>, label: 'فيزا' },
+                     { id: 'wallet', icon: <Wallet size={16}/>, label: 'محفظة' }
                    ].map(method => (
                      <button
                        key={method.id}
                        onClick={() => setPaymentMethod(method.id as any)}
-                       className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border-2 transition-all ${paymentMethod === method.id ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 border-indigo-500 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'}`}
+                       className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border-2 transition-all ${paymentMethod === method.id ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 border-indigo-500 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'}`}
                      >
                        {method.icon}
                        <span className="text-xs font-black">{method.label}</span>
@@ -744,94 +1010,139 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                  </div>
                )}
 
-               {/* Customer Quick Info with Registered Customers dropdown */}
-               <div className="space-y-2 w-full bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 p-4 rounded-2xl relative">
-                  <div className="flex items-center justify-between px-1 mb-2">
-                    <span className="text-xs font-black text-slate-500 uppercase flex items-center gap-1.5"><User size={14}/> العميل</span>
-                     <>
-                       <button 
-                         type="button"
-                         onClick={() => setIsCustomerListOpen(true)}
-                         className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/20 px-2 py-1 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1"
-                       >
-                         <SearchCode size={12}/> اختيار من المسجلين
-                       </button>
-                       <CustomerSelectModal 
-                         isOpen={isCustomerListOpen}
-                         onClose={() => setIsCustomerListOpen(false)}
-                         customers={customersList}
-                         onSelect={(c) => {
-                            setCustomerInfo({ name: c.name || '', phone: c.phone || '', address: c.address || '', debtBalance: c.debtBalance || 0 });
-                            setIsCustomerListOpen(false);
-                         }}
+               {/* Customer Quick Info */}
+               <div className="space-y-2 w-full bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 p-3 rounded-2xl relative">
+                  <div className="flex items-center justify-between px-1">
+                     <span className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-1"><User size={12}/> بيانات العميل</span>
+                     <button 
+                       type="button"
+                       onClick={() => setIsCustomerListOpen(true)}
+                       className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/20 px-2 py-0.5 rounded-md hover:bg-indigo-100 flex items-center gap-1"
+                     >
+                       <SearchCode size={11}/> المسجلين
+                     </button>
+                     <CustomerSelectModal 
+                       isOpen={isCustomerListOpen}
+                       onClose={() => setIsCustomerListOpen(false)}
+                       customers={customersList}
+                       onSelect={(c) => {
+                          setCustomerInfo({ name: c.name || '', phone: c.phone || '', address: c.address || '', debtBalance: c.debtBalance || 0 });
+                          setIsCustomerListOpen(false);
+                       }}
+                     />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                     <input 
+                        type="text" 
+                        placeholder="اسم العميل"
+                        value={customerInfo.name}
+                        onChange={(e) => setCustomerInfo({...customerInfo, name: e.target.value})}
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-9 px-2.5 rounded-xl text-xs font-bold outline-none focus:border-indigo-500" 
+                     />
+                     <div className="relative">
+                       <input 
+                          type="text" 
+                          placeholder="الموبايل"
+                          value={customerInfo.phone}
+                          onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-9 px-2.5 rounded-xl text-xs font-bold outline-none focus:border-indigo-500" 
                        />
-                     </>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 relative">
-                     <div className="relative">
-                        <input 
-                           type="text" 
-                           placeholder="اسم العميل"
-                           value={customerInfo.name}
-                           onChange={(e) => setCustomerInfo({...customerInfo, name: e.target.value})}
-                           className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-500" 
-                        />
-                     </div>
-                     <div className="relative">
-                        <input 
-                           type="text" 
-                           placeholder="رقم الموبايل"
-                           value={customerInfo.phone}
-                           onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
-                           className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-500" 
-                        />
-                        {(customerInfo as any).debtBalance > 0 && (
-                           <div className="absolute -top-6 left-0 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse flex items-center gap-1 shadow-sm">
-                              <span className="w-1.5 h-1.5 bg-red-600 rounded-full"></span>
-                              مديونية: {(customerInfo as any).debtBalance} ج.م
-                           </div>
-                        )}
+                       {(customerInfo as any).debtBalance > 0 && (
+                          <div className="absolute -top-5 left-0 bg-red-100 dark:bg-red-500/20 text-red-600 text-[9px] font-black px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                             مديونية: {(customerInfo as any).debtBalance} ج.م
+                          </div>
+                       )}
                      </div>
                   </div>
-                  <input 
-                     type="text" 
-                     placeholder="العنوان وملاحظات التوصيل"
-                     value={customerInfo.address}
-                     onChange={(e) => setCustomerInfo({...customerInfo, address: e.target.value})}
-                     className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-500 mt-2" 
-                  />
                </div>
 
-               <div className="pt-4 border-t-2 border-slate-200 border-dashed dark:border-slate-700/50 space-y-4">
+               {/* Quick Cash Calculator (الباقي والدفع) */}
+               {paymentMethod === 'cash' && paymentStatusType === 'paid' && (
+                 <div className="bg-slate-100 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-2">
+                   <div className="flex items-center justify-between">
+                     <span className="text-xs font-black text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                       <Calculator size={14} className="text-indigo-500" />
+                       حاسبة النقدية والباقي
+                     </span>
+                     {numericPaidCash > 0 && (
+                       <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                         الباقي: {cashChangeAmount.toLocaleString()} ج.م
+                       </span>
+                     )}
+                   </div>
+
+                   <div className="flex items-center gap-2">
+                     <input
+                       type="number"
+                       placeholder="المبلغ المدفوع كاش..."
+                       value={paidCashAmount}
+                       onChange={(e) => setPaidCashAmount(e.target.value ? Number(e.target.value) : '')}
+                       className="flex-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 h-9 px-3 rounded-xl text-xs font-black outline-none focus:border-indigo-500 tabular-nums"
+                     />
+                     <div className="flex gap-1">
+                       {[totalAmount, 100, 200, 500, 1000].map(val => (
+                         <button
+                           key={val}
+                           type="button"
+                           onClick={() => setPaidCashAmount(val)}
+                           className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[10px] font-black rounded-lg hover:bg-slate-200 text-slate-700 dark:text-slate-300"
+                         >
+                           {val}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                 </div>
+               )}
+
+               {/* Discount Chips & Total */}
+               <div className="pt-3 border-t-2 border-slate-200 border-dashed dark:border-slate-700/50 space-y-3">
                   <div className="flex items-center justify-between">
-                     <span className="text-sm font-black text-slate-500">خصم إضافي</span>
+                     <div className="flex items-center gap-1">
+                       <span className="text-xs font-black text-slate-500">خصم إضافي</span>
+                       <div className="flex gap-1 ml-2">
+                          {[0, 5, 10, 15].map(pct => {
+                            const val = Math.round((totalAmountBeforeDiscount * pct) / 100);
+                            return (
+                              <button
+                                key={pct}
+                                type="button"
+                                onClick={() => setDiscountAmount(val)}
+                                className={`px-2 py-0.5 text-[9px] font-black rounded-md border ${discountAmount === val ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 text-slate-600 border-slate-200'}`}
+                              >
+                                {pct}%
+                              </button>
+                            );
+                          })}
+                       </div>
+                     </div>
                      <div className="relative">
                         <input
                            type="number"
                            value={discountAmount || ''}
                            onChange={(e) => setDiscountAmount(Math.max(0, Number(e.target.value)))}
-                           className="w-24 text-left pr-8 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-sm font-black outline-none focus:border-indigo-500 transition-all tabular-nums"
+                           className="w-20 text-left pr-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-8 px-2 rounded-xl text-xs font-black outline-none focus:border-indigo-500 tabular-nums"
                            placeholder="0"
                         />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">ج.م</span>
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">ج.م</span>
                      </div>
                   </div>
                   
-                  <div className="flex items-end justify-between mb-5">
-                     <span className="text-base font-black text-slate-500">الإجمالي النهائي</span>
+                  <div className="flex items-end justify-between my-2">
+                     <span className="text-sm font-black text-slate-500">الإجمالي النهائي</span>
                      <div className="text-left">
-                        <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{totalAmount.toLocaleString()}</span>
-                        <span className="text-sm font-bold text-slate-400 ml-1">ج.م</span>
+                        <span className="text-2xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{totalAmount.toLocaleString()}</span>
+                        <span className="text-xs font-bold text-slate-400 ml-1">ج.م</span>
                      </div>
                   </div>
                   
                   <button 
                     onClick={handleCheckout}
-                    disabled={cart.length === 0}
-                    className={`w-full h-16 rounded-2xl font-black text-lg shadow-xl flex items-center justify-center gap-3 transition-all active:scale-[0.98] disabled:grayscale disabled:opacity-50 ${paymentStatusType === 'credit' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20 text-white' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30 text-white'}`}
+                    disabled={cart.length === 0 || isProcessing}
+                    className={`w-full h-14 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:grayscale disabled:opacity-50 ${paymentStatusType === 'credit' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20 text-white' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30 text-white'}`}
                   >
-                     <CheckCircle2 size={24} />
-                     {paymentStatusType === 'credit' ? 'حفظ كطلب أجل (غير مدفوع)' : 'تأكيد الدفع والاستلام'}
+                     <CheckCircle2 size={22} />
+                     {paymentStatusType === 'credit' ? 'حفظ كطلب أجل (غير مدفوع)' : 'تأكيد البيع وطباعة الفاتورة'}
                   </button>
                </div>
             </div>
@@ -849,8 +1160,210 @@ const POSPage: React.FC<POSPageProps> = (props) => {
           treasury={treasury}
           selectedWarehouse={selectedWarehouse}
           customers={customersList}
+          onSelectReceipt={(sale) => setLastReceiptSale(sale)}
         />
       )}
+
+      {/* Parked Orders Modal */}
+      {showParkedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <PauseCircle className="text-amber-500" size={22} />
+                الطلبات المعلقة ({parkedOrders.length})
+              </h3>
+              <button onClick={() => setShowParkedModal(false)} className="p-1 text-slate-400 hover:text-slate-600"><X size={20}/></button>
+            </div>
+
+            <div className="py-4 space-y-3 max-h-[60vh] overflow-y-auto">
+              {parkedOrders.length === 0 ? (
+                <p className="text-center text-slate-400 py-8 font-bold text-xs">لا توجد طلبات معلقة حالياً</p>
+              ) : (
+                parkedOrders.map((parked) => {
+                  const total = parked.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                  return (
+                    <div key={parked.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-4">
+                      <div className="space-y-1 text-right">
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-xs text-slate-800 dark:text-white">{parked.customerInfo.name || 'عميل نقدي'}</span>
+                          <span className="text-[10px] text-slate-400 bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-md">{parked.timestamp}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">{parked.items.length} أصناف • إجمالي {total.toLocaleString()} ج.م</p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleRestoreParkedOrder(parked)}
+                          className="px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition-all"
+                        >
+                          استرجاع 📂
+                        </button>
+                        <button
+                          onClick={() => setParkedOrders(parkedOrders.filter(p => p.id !== parked.id))}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-xl"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Drawer */}
+      {showHotkeysModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <HelpCircle className="text-indigo-500" size={22} />
+                اختصارات لوحة المفاتيح
+              </h3>
+              <button onClick={() => setShowHotkeysModal(false)} className="p-1 text-slate-400"><X size={20}/></button>
+            </div>
+
+            <div className="py-4 space-y-3">
+              {[
+                { key: '/ أو F2', desc: 'التركيز المباشر على مربع البحث والباركود' },
+                { key: 'Enter', desc: 'إضافة سريعة بالباركود' },
+                { key: 'F4', desc: 'تعليق السلة الحالية' },
+                { key: 'F8', desc: 'تفريع وتأكيد مسح السلة' },
+                { key: 'Esc', desc: 'إلغاء التركيز أو إغلاق النوافذ' }
+              ].map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{item.desc}</span>
+                  <span className="px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-xs font-black text-indigo-600 rounded-lg">{item.key}</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Thermal Receipt Preview Modal */}
+      {lastReceiptSale && (
+        <ThermalReceiptModal
+          sale={lastReceiptSale}
+          settings={settings}
+          onClose={() => setLastReceiptSale(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+// Thermal Receipt Modal Component
+const ThermalReceiptModal: React.FC<{
+  sale: POSSale;
+  settings: Settings;
+  onClose: () => void;
+}> = ({ sale, settings, onClose }) => {
+  const storeName = (settings as any).storeName || (settings as any).name || 'متجر الكاشير المباشر';
+
+  const handlePrint = () => {
+    const receiptHtml = `
+      <div dir="rtl" style="font-family: 'Courier New', Courier, monospace; width: 80mm; padding: 10px; margin: 0 auto; color: #000; background: #fff;">
+        <div style="text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px;">
+          <h2 style="font-size: 16px; font-weight: bold; margin: 0;">${storeName}</h2>
+          <p style="font-size: 11px; margin: 4px 0 0 0;">فاتورة بيع مباشر #${sale.saleNumber}</p>
+          <p style="font-size: 10px; margin: 2px 0 0 0;">التاريخ: ${new Date(sale.date).toLocaleString('ar-EG')}</p>
+        </div>
+
+        <div style="font-size: 11px; margin-bottom: 8px;">
+          <p style="margin: 2px 0;">العميل: ${sale.customerName || 'عميل نقدي'}</p>
+          <p style="margin: 2px 0;">الكاشير: ${sale.performedBy}</p>
+        </div>
+
+        <table style="width: 100%; font-size: 11px; border-collapse: collapse; border-bottom: 1px dashed #000; margin-bottom: 8px;">
+          <thead>
+            <tr style="border-bottom: 1px solid #000; text-align: right;">
+              <th style="padding: 4px 0;">الصنف</th>
+              <th style="padding: 4px 0; text-align: center;">العدد</th>
+              <th style="padding: 4px 0; text-align: left;">السعر</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sale.items.map(item => `
+              <tr>
+                <td style="padding: 4px 0;">${item.name}</td>
+                <td style="padding: 4px 0; text-align: center;">${item.quantity}</td>
+                <td style="padding: 4px 0; text-align: left;">${(item.price * item.quantity).toLocaleString()}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div style="font-size: 12px; font-weight: bold; text-align: right; space-y: 2px;">
+          <p style="margin: 4px 0; font-size: 14px;">الإجمالي: ${sale.totalAmount.toLocaleString()} ج.م</p>
+          <p style="margin: 2px 0; font-size: 10px; font-weight: normal;">طريقة الدفع: ${sale.paymentMethod === 'cash' ? 'نقداً (كاش)' : sale.paymentMethod === 'card' ? 'فيزا' : 'محفظة'}</p>
+        </div>
+
+        <div style="text-align: center; margin-top: 15px; border-top: 1px dashed #000; padding-top: 8px; font-size: 10px;">
+          <p style="margin: 0;">شكراً لزيارتكم! نعتز بخدمتكم دائماً</p>
+        </div>
+      </div>
+    `;
+    printHTMLDirectly(receiptHtml);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" dir="rtl">
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
+            <Printer size={18} className="text-indigo-600" /> معاينة الإيصال الحراري
+          </h3>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600"><X size={18}/></button>
+        </div>
+
+        {/* Paper Thermal Effect Receipt */}
+        <div className="my-4 bg-amber-50/60 dark:bg-slate-950 p-4 rounded-2xl border border-amber-200/60 dark:border-slate-800 font-mono text-slate-900 dark:text-slate-100 text-xs space-y-3 shadow-inner">
+          <div className="text-center border-b border-dashed border-slate-300 dark:border-slate-700 pb-3">
+            <h4 className="font-black text-sm">{storeName}</h4>
+            <p className="text-[10px] text-slate-500 mt-0.5">فاتورة بيع مباشر #{sale.saleNumber}</p>
+            <p className="text-[9px] text-slate-400">{new Date(sale.date).toLocaleString('ar-EG')}</p>
+          </div>
+
+          <div className="space-y-1 text-[11px]">
+            <div className="flex justify-between"><span className="text-slate-500">العميل:</span><span>{sale.customerName || 'عميل نقدي'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">الكاشير:</span><span>{sale.performedBy}</span></div>
+          </div>
+
+          <div className="border-t border-b border-dashed border-slate-300 dark:border-slate-700 py-2 space-y-1.5">
+            {sale.items.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-[11px]">
+                <span className="truncate max-w-[160px]">{item.name} ×{item.quantity}</span>
+                <span className="font-bold">{(item.price * item.quantity).toLocaleString()} ج.م</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-1 flex items-center justify-between font-black text-sm">
+            <span>المبلغ الإجمالي:</span>
+            <span className="text-indigo-600 dark:text-indigo-400">{sale.totalAmount.toLocaleString()} ج.م</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 pt-2">
+          <button
+            onClick={handlePrint}
+            className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
+          >
+            <Printer size={16} /> طباعة حرارية فورية
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold text-xs"
+          >
+            إغلاق
+          </button>
+        </div>
+      </motion.div>
     </div>
   );
 };
@@ -866,9 +1379,10 @@ interface POSSalesLogProps {
   treasury?: Treasury;
   selectedWarehouse: string;
   customers?: any[];
+  onSelectReceipt?: (sale: POSSale) => void;
 }
 
-const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, treasury, selectedWarehouse, customers }) => {
+const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettings, updateStoreData, allHolders, orders, wallet, treasury, selectedWarehouse, customers, onSelectReceipt }) => {
   const warehouses = settings.warehouses || [];
   const [filter, setFilter] = useState({
     startDate: '',
@@ -903,10 +1417,8 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
   const [deleteConfirmSale, setDeleteConfirmSale] = useState<POSSale | null>(null);
 
   const handleUpdateSale = (updated: POSSale) => {
-     // Find the sale and update it
      const newSales = sales.map(s => s.id === updated.id ? updated : s);
      
-     // Update relevant Order as well if it exists
      const newOrders = orders.map(o => {
        if (o.id === updated.id) {
          return {
@@ -928,8 +1440,6 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
   };
 
   const handleDeleteSale = (saleId: string) => {
-
-
     const sale = sales.find(s => s.id === saleId);
     if (!sale) return;
 
@@ -959,7 +1469,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
       }
     });
 
-    // 2. Remove Transaction from Wallet if it was a digital payment method (not cash and not credit)
+    // 2. Remove Wallet Transaction if applicable
     let updatedWallet = { ...wallet || { balance: 0, transactions: [] } };
     const affectedWallet = sale.paymentMethod !== 'cash' && sale.cashHolderId !== 'credit';
     if (affectedWallet) {
@@ -967,7 +1477,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
       updatedWallet.transactions = (updatedWallet.transactions || []).filter(t => t.orderId !== sale.id);
     }
 
-    // Revert the cash holder balance if it's not credit and not wallet
+    // Revert Cash Holder Balance
     let updatedHolders = [...(settings.cashHolders || [])];
     let updatedTreasury = treasury ? { ...treasury, accounts: [...treasury.accounts], transactions: [...(treasury.transactions || [])] } : null;
 
@@ -998,7 +1508,6 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
       }
     }
     
-    // Remove associated cash handover
     const updatedHandovers = (settings.cashHandovers || []).filter(h => {
       const notes = h.notes || "";
       const matchOrderId = h.orderId === saleId || notes.includes(saleId);
@@ -1006,13 +1515,9 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
       return !(matchOrderId || matchOrderNum);
     });
 
-    // 3. Remove from POS Sales
     const newSales = sales.filter(s => s.id !== saleId);
-
-    // 4. Remove equivalent Order
     const newOrders = orders.filter(o => o.id !== saleId);
 
-    // 5. Revert Customer Debt if it was a credit sale
     let updatedCustomers = [...(customers || [])];
     if (sale.cashHolderId === 'credit' && sale.customerPhone) {
       const cIdx = updatedCustomers.findIndex(c => c.phone === sale.customerPhone);
@@ -1108,7 +1613,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
         </table>
         
         <div style="margin-top: 50px; border-top: 1px dashed #e2e8f0; padding-top: 20px; font-size: 10px; color: #94a3b8; text-align: center;">
-          هذا المستند يعتبر تقرير داخلي ولا يعتد به كفاتورة ضريبية • تم الاستخراج بنجاح بواسطة النظام الذكي لعام ${new Date().getFullYear()}
+          هذا المستند يعتبر تقرير داخلي ولا يعتد به كفاتورة ضريبية • تم الاستخراج بنجاح بواسطة النظام الذكي
         </div>
       </div>
     `;
@@ -1217,7 +1722,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                    <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">بواسطة</th>
                    <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">المستلم</th>
                    <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">الإجمالي</th>
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 text-center">الإجراءات</th>
+                   <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">الإجراءات</th>
                 </tr>
              </thead>
              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1259,7 +1764,14 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                          <span className="text-sm font-black text-slate-900 dark:text-white tabular-nums">{sale.totalAmount.toLocaleString()} ج.م</span>
                       </td>
                       <td className="p-4">
-                         <div className="flex items-center justify-center gap-2">
+                         <div className="flex items-center justify-center gap-1.5">
+                            <button 
+                               onClick={() => onSelectReceipt && onSelectReceipt(sale)}
+                               className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-xl transition-all"
+                               title="طباعة الإيصال الحراري"
+                            >
+                               <Printer size={16} />
+                            </button>
                             <button 
                                onClick={() => setEditingSale(sale)}
                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-xl transition-all"
@@ -1292,7 +1804,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
           </table>
        </div>
 
-        {/* Custom Delete Confirmation Modal */}
+        {/* Delete Modal */}
         {deleteConfirmSale && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
              <motion.div 
@@ -1328,14 +1840,6 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                       <div className="flex justify-between items-center text-xs font-bold font-sans">
                          <span className="text-slate-400">قيمة المعاملة:</span>
                          <span className="font-extrabold text-slate-900 dark:text-white">{deleteConfirmSale.totalAmount.toLocaleString()} ج.م</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs font-bold font-sans">
-                         <span className="text-slate-400 font-sans">العميل:</span>
-                         <span className="font-extrabold text-slate-700 dark:text-slate-300">{deleteConfirmSale.customerName || 'عميل نقدي'}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs font-bold font-sans">
-                         <span className="text-slate-400">طريقة الدفع:</span>
-                         <span className="font-extrabold text-indigo-500">{deleteConfirmSale.paymentMethod === 'cash' ? 'نقداً (كاش)' : deleteConfirmSale.paymentMethod === 'card' ? 'بطاقة ائتمان' : 'محفظة مالية'}</span>
                       </div>
                    </div>
                 </div>
@@ -1378,42 +1882,31 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                <div className="p-8 space-y-6">
                   <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 mr-2 uppercase tracking-widest italic">اسم العميل</label>
+                        <label className="text-[10px] font-black text-slate-400 mr-2 uppercase italic">اسم العميل</label>
                         <input 
                            type="text" 
                            value={editingSale.customerName || ''}
                            onChange={(e) => setEditingSale({...editingSale, customerName: e.target.value})}
-                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 transition-all outline-none" 
+                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 outline-none" 
                         />
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 mr-2 uppercase tracking-widest italic">رقم الموبايل</label>
+                        <label className="text-[10px] font-black text-slate-400 mr-2 uppercase italic">رقم الموبايل</label>
                         <input 
                            type="text" 
                            value={editingSale.customerPhone || ''}
                            onChange={(e) => setEditingSale({...editingSale, customerPhone: e.target.value})}
-                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 transition-all outline-none" 
+                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 outline-none" 
                         />
                      </div>
                   </div>
                   <div className="space-y-1.5">
-                     <label className="text-[10px] font-black text-slate-400 mr-2 uppercase tracking-widest italic">العنوان / ملاحظات البيع</label>
+                     <label className="text-[10px] font-black text-slate-400 mr-2 uppercase italic">العنوان / ملاحظات البيع</label>
                      <textarea 
                         value={editingSale.notes || ''}
                         onChange={(e) => setEditingSale({...editingSale, notes: e.target.value})}
-                        className="w-full h-24 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl p-5 text-sm font-black focus:border-indigo-500 transition-all outline-none resize-none" 
+                        className="w-full h-24 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl p-5 text-sm font-black focus:border-indigo-500 outline-none resize-none" 
                      />
-                  </div>
-                  <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/30">
-                     <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-3">تفاصيل الأصناف (للعرض فقط)</h4>
-                     <div className="space-y-2">
-                        {editingSale.items.map((item, idx) => (
-                           <div key={idx} className="flex items-center justify-between text-xs font-black text-slate-600 dark:text-slate-300">
-                              <span>{item.name} × {item.quantity}</span>
-                              <span className="tabular-nums">{(item.price * item.quantity).toLocaleString()} ج.م</span>
-                           </div>
-                        ))}
-                     </div>
                   </div>
                </div>
                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-3">
