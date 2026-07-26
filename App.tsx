@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
-import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn } from './types';
+import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb, auth } from './services/firebaseClient';
@@ -2125,12 +2125,14 @@ export const AppComponent = () => {
                     console.log('[REALTIME] Purchase Returns change detected via Firestore snapshot');
                     isRefreshing.current = true;
                     const newPurchaseReturns = snap.docs.map(doc => ({ 
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
+                        id: doc.id.split('_').pop() || doc.id, 
                         ...doc.data() 
                     } as PurchaseReturn));
                     setAllStoresData(prev => {
                         const store = prev[activeStoreId];
                         if (!store) return prev;
+                        // Avoid updating if data is identical to prevent loops
+                        if (JSON.stringify(store.settings.purchaseReturns) === JSON.stringify(newPurchaseReturns)) return prev;
                         return {
                             ...prev,
                             [activeStoreId]: { 
@@ -2142,6 +2144,59 @@ export const AppComponent = () => {
                 }
             });
             unsubscribers.push(unsubPurchaseReturns);
+
+            // Listen for changes on order returns
+            const qOrderReturns = query(collection(firebaseDb, 'order_returns'), where('storeId', '==', activeStoreId));
+            const unsubOrderReturns = onSnapshot(qOrderReturns, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    isRefreshing.current = true;
+                    const newOrderReturns = snap.docs.map(doc => ({ 
+                        id: doc.id.split('_').pop() || doc.id, 
+                        ...doc.data() 
+                    } as OrderReturn));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        if (JSON.stringify(store.settings.orderReturns) === JSON.stringify(newOrderReturns)) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: { 
+                                ...store, 
+                                settings: { ...store.settings, orderReturns: newOrderReturns } 
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubOrderReturns);
+
+            // Listen for changes on cash holders (Custody balances)
+            const qCashHolders = query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', activeStoreId));
+            const unsubCashHolders = onSnapshot(qCashHolders, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    isRefreshing.current = true;
+                    const newCashHolders = snap.docs.map(doc => {
+                        const data = doc.data();
+                        return { 
+                            ...data,
+                            userId: data.userId || data.user_id || doc.id.split('_').pop() || doc.id,
+                        } as any;
+                    });
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        if (JSON.stringify(store.settings.cashHolders) === JSON.stringify(newCashHolders)) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: { 
+                                ...store, 
+                                settings: { ...store.settings, cashHolders: newCashHolders } 
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubCashHolders);
         }
 
         // Listen for user collections change (Admin only)

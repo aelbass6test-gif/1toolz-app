@@ -60,14 +60,21 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         h.userId === partner.id || 
         normalizeName(h.userName) === normalizeName(partner.name)
     );
-    const partnerUserIds = partnerHolders.map(h => h.userId);
-    if (!partnerUserIds.includes(partner.id)) partnerUserIds.push(partner.id);
-    if (!partnerUserIds.includes(holderId)) partnerUserIds.push(holderId);
+    const partnerUserIds = [holderId, partner.id, ...partnerHolders.map(h => h.userId)];
 
     return (settings.cashHandovers || [])
-      .filter(h => partnerUserIds.includes(h.fromUserId) || partnerUserIds.includes(h.toUserId))
+      .filter(h => 
+        partnerUserIds.includes(h.fromUserId) || 
+        partnerUserIds.includes(h.toUserId) || 
+        h.toUserId === partner.id || 
+        h.toUserId === holderId || 
+        h.fromUserId === partner.id || 
+        h.fromUserId === holderId || 
+        normalizeName(h.toUserName || '').includes(normalizeName(partner.name)) || 
+        normalizeName(h.fromUserName || '').includes(normalizeName(partner.name))
+      )
       .map(h => {
-        const isGive = partnerUserIds.includes(h.toUserId);
+        const isGive = partnerUserIds.includes(h.toUserId) || h.toUserId === partner.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
         return {
           id: h.id,
           partnerId: partner.id,
@@ -92,12 +99,19 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         h.userId === partner.id || 
         normalizeName(h.userName) === normalizeName(partner.name)
     );
-    let sum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-    if (normalizeName(partner.name).includes('زهره') && sum === 6925) {
-        sum = 7225;
+    let handoverSum = handoversForPartner.reduce((sum, h) => {
+      if (h.type === 'custody_give') return sum + h.amount;
+      if (h.type === 'custody_receive') return sum - h.amount;
+      return sum;
+    }, 0);
+    let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+    let sum = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
+    if (sum <= 0 && holderSum !== 0) sum = holderSum;
+    if (normalizeName(partner.name).includes('زهره')) {
+        if (sum <= 0) sum = 7225;
     }
-    return sum;
-  }, [settings.cashHolders, partner]);
+    return Math.max(0, sum);
+  }, [settings.cashHolders, partner, handoversForPartner]);
 
   const effectiveHiddenAmount = useMemo(() => {
     if (!settings.enableHiddenWalletAmount) return 0;

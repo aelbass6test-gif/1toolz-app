@@ -726,19 +726,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 partners: partners,
                 partnerTransactions: partnerTransactions,
                 warehouses: warehouses,
-                inventoryAudits: inventoryAudits,
-                stockTransfers: stockTransfers,
-                orderReturns: orderReturns,
-                purchaseReturns: purchaseReturns,
-                posSales: posSales,
-                cashHolders: (cashHolders || []).map((ch: any) => ({
+                inventoryAudits: inventoryAudits.length > 0 ? inventoryAudits : (storeSettings.inventoryAudits || []),
+                stockTransfers: stockTransfers.length > 0 ? stockTransfers : (storeSettings.stockTransfers || []),
+                orderReturns: orderReturns.length > 0 ? orderReturns : (storeSettings.orderReturns || []),
+                purchaseReturns: purchaseReturns.length > 0 ? purchaseReturns : (storeSettings.purchaseReturns || []),
+                posSales: posSales.length > 0 ? posSales : (storeSettings.posSales || []),
+                cashHolders: (cashHolders.length > 0 ? cashHolders : (storeSettings.cashHolders || [])).map((ch: any) => ({
                     ...ch,
-                    userId: ch.userId || ch.id || '',
+                    userId: ch.userId || ch.user_id || ch.id || '',
                     userName: ch.userName || ch.user_name || '',
                     currentBalance: Number(ch.currentBalance ?? ch.current_balance ?? 0),
                     lastUpdated: ch.lastUpdated || ch.last_updated || new Date().toISOString()
                 })),
-                cashHandovers: cashHandovers,
+                cashHandovers: cashHandovers.length > 0 ? cashHandovers : (storeSettings.cashHandovers || []),
                 whatsappTemplates: whatsappTemplates,
                 callScripts: callScripts
             },
@@ -1548,7 +1548,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     }
                 });
 
-                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1 && ['products', 'orders', 'customers', 'users', 'transactions', 'suppliers', 'purchase_returns', 'order_returns', 'stock_transfers', 'inventory_audits', 'pos_sales', 'employees'].includes(collectionName));
+                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1 && ['products', 'orders', 'customers', 'users', 'transactions', 'suppliers', 'purchase_returns', 'order_returns', 'stock_transfers', 'inventory_audits', 'pos_sales', 'employees', 'cash_holders', 'cash_handovers', 'partners', 'partner_transactions', 'warehouses', 'treasury_accounts', 'treasury_transactions', 'whatsapp_templates', 'call_scripts'].includes(collectionName));
                 if (isMassDeletionRisk) {
                     console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records. This prevents accidental database wipes during initialization.`);
                 }
