@@ -268,6 +268,13 @@ export const INITIAL_SETTINGS: Settings = {
       { id: 'opt2', name: 'اللون', values: ['أحمر', 'أزرق', 'أسود', 'أبيض'] }
   ],
   collections: [],
+  purchaseReturns: [],
+  orderReturns: [],
+  inventoryAudits: [],
+  stockTransfers: [],
+  posSales: [],
+  cashHolders: [],
+  cashHandovers: [],
   whatsappTemplates: DEFAULT_WHATSAPP_TEMPLATES,
   whatsappConfig: {
     apiUrl: 'https://api.ultramsg.com/instanceXXXX/messages/chat',

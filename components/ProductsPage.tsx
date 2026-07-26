@@ -8,6 +8,7 @@ import { getLatestProductCost } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { SmartInventoryHubNav, SmartInventoryHubContent, InventoryHubTab } from './inventory/SmartInventoryHub';
+import { ProductSalesLogModal } from './ProductSalesLogModal';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -47,6 +48,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   
   // Custom states for warehouse tracking & modern enhancements
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
+  const [selectedProductForSalesLog, setSelectedProductForSalesLog] = useState<Product | null>(null);
   const [filterWarehouseId, setFilterWarehouseId] = useState<string>('');
 
   // Audio synthezier alarm / notify system
@@ -113,18 +115,70 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const [isGenerating, setIsGenerating] = useState(false);
   
   const invoicesStockMap = useMemo(() => {
-    const pMap: Record<string, number> = {};
-    const vMap: Record<string, number> = {};
+    // Basic maps to hold standard calculations
+    const rawPMap: Record<string, number> = {};
+    const rawVMap: Record<string, number> = {};
     
-    // 1. Supply Orders (Purchases)
+    // Track supply order returns
+    const soReturnedPMap: Record<string, number> = {};
+    const soReturnedVMap: Record<string, number> = {};
+
+    // Helper maps to resolve variant IDs to product IDs and check existence
+    const variantToProductMap: Record<string, string> = {};
+    const productHasVariantsMap: Record<string, boolean> = {};
+    const productVariantsListMap: Record<string, string[]> = {};
+
+    (settings.products || []).forEach(p => {
+        const pId = String(p.id).trim();
+        productHasVariantsMap[pId] = !!p.hasVariants;
+        if (p.hasVariants && p.variants) {
+            productVariantsListMap[pId] = p.variants.map(v => {
+                const vId = String(v.id).trim();
+                variantToProductMap[vId] = pId;
+                return vId;
+            });
+        }
+    });
+
+    // Normalize IDs to handle any spacing, string null/undefined issues
+    const normalizeId = (id: any): string | null => {
+        if (id === undefined || id === null) return null;
+        const s = String(id).trim();
+        if (s === '' || s === 'null' || s === 'undefined') return null;
+        return s;
+    };
+
+    // 1. Supply Orders (Purchases) - Only count 'completed' status!
     (settings.supplyOrders || []).forEach(order => {
-        if (order.status === 'cancelled') return;
+        if (order.status !== 'completed') return;
         order.items.forEach(item => {
-            const qty = (item.receivedQuantity ?? item.quantity ?? 0) + (item.bonusQuantity || 0);
-            if (item.variantId) {
-                vMap[item.variantId] = (vMap[item.variantId] || 0) + qty;
-            } else {
-                pMap[item.productId] = (pMap[item.productId] || 0) + qty;
+            const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null) 
+                ? Number(item.receivedQuantity) 
+                : (Number(item.quantity) || 0);
+            const totalQty = qty + (Number(item.bonusQuantity) || 0);
+            const pId = normalizeId(item.productId);
+            const vId = normalizeId(item.variantId);
+
+            if (pId) {
+                if (vId) {
+                    if (item.isReturn) {
+                        rawVMap[vId] = (rawVMap[vId] || 0) - totalQty;
+                    } else {
+                        rawVMap[vId] = (rawVMap[vId] || 0) + totalQty;
+                        if (item.returnedQuantity && item.returnedQuantity > 0) {
+                            soReturnedVMap[vId] = (soReturnedVMap[vId] || 0) + Number(item.returnedQuantity);
+                        }
+                    }
+                } else {
+                    if (item.isReturn) {
+                        rawPMap[pId] = (rawPMap[pId] || 0) - totalQty;
+                    } else {
+                        rawPMap[pId] = (rawPMap[pId] || 0) + totalQty;
+                        if (item.returnedQuantity && item.returnedQuantity > 0) {
+                            soReturnedPMap[pId] = (soReturnedPMap[pId] || 0) + Number(item.returnedQuantity);
+                        }
+                    }
+                }
             }
         });
     });
@@ -134,13 +188,37 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     orders.forEach(order => {
         if (excludedStatuses.includes(order.status)) return;
         order.items?.forEach(item => {
-            const qty = item.quantity || 0;
-            if (item.variantId) {
-                vMap[item.variantId] = (vMap[item.variantId] || 0) - qty;
-            } else {
-                pMap[item.productId] = (pMap[item.productId] || 0) - qty;
+            const qty = Number(item.quantity) || 0;
+            const pId = normalizeId(item.productId);
+            const vId = normalizeId(item.variantId);
+
+            if (pId) {
+                if (vId) {
+                    rawVMap[vId] = (rawVMap[vId] || 0) - qty;
+                } else {
+                    rawPMap[pId] = (rawPMap[pId] || 0) - qty;
+                }
             }
         });
+
+        // Add back incoming items for exchange orders
+        const isExchange = (order as any).orderType === 'exchange' || (order as any).shipmentType === 'exchange';
+        if (isExchange && (order as any).exchangedItems) {
+            const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && (item.selected === true || item.selected === undefined));
+            exchangedItems.forEach((exItem: any) => {
+                const qty = Number(exItem.quantity) || 1;
+                const pId = normalizeId(exItem.productId);
+                const vId = normalizeId(exItem.variantId);
+
+                if (pId) {
+                    if (vId) {
+                        rawVMap[vId] = (rawVMap[vId] || 0) + qty;
+                    } else {
+                        rawPMap[pId] = (rawPMap[pId] || 0) + qty;
+                    }
+                }
+            });
+        }
     });
 
     // 3. Order Returns (Add back items that were previously subtracted)
@@ -150,36 +228,128 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         const originalOrder = orders.find(o => o.id === ret.orderId);
         if (originalOrder && !excludedStatuses.includes(originalOrder.status)) {
             ret.items.forEach(item => {
-                const qty = item.quantity || 0;
-                if (item.variantId) {
-                    vMap[item.variantId] = (vMap[item.variantId] || 0) + qty;
-                } else {
-                    pMap[item.productId] = (pMap[item.productId] || 0) + qty;
+                const qty = Number(item.quantity) || 0;
+                const pId = normalizeId(item.productId);
+                const vId = normalizeId(item.variantId);
+
+                if (pId) {
+                    if (vId) {
+                        rawVMap[vId] = (rawVMap[vId] || 0) + qty;
+                    } else {
+                        rawPMap[pId] = (rawPMap[pId] || 0) + qty;
+                    }
                 }
             });
         }
     });
 
     // 4. Purchase Returns (Subtract items returned to suppliers)
+    const prPMap: Record<string, number> = {};
+    const prVMap: Record<string, number> = {};
+
     (settings.purchaseReturns || []).forEach(ret => {
         if (ret.status === 'cancelled') return;
         ret.items.forEach(item => {
-            const qty = item.quantity || 0;
-            if (item.variantId) {
-                vMap[item.variantId] = (vMap[item.variantId] || 0) - qty;
-            } else {
-                pMap[item.productId] = (pMap[item.productId] || 0) - qty;
+            const qty = Number(item.quantity) || 0;
+            const pId = normalizeId(item.productId);
+            const vId = normalizeId(item.variantId);
+
+            if (pId) {
+                if (vId) {
+                    prVMap[vId] = (prVMap[vId] || 0) + qty;
+                } else {
+                    prPMap[pId] = (prPMap[pId] || 0) + qty;
+                }
             }
         });
     });
 
-    return { products: pMap, variants: vMap };
-  }, [settings.supplyOrders, settings.orderReturns, settings.purchaseReturns, orders]);
+    // Subtract supplier returns taking whichever is higher between purchaseReturns array and supplyOrder line item returns
+    const finalPMap: Record<string, number> = {};
+    const finalVMap: Record<string, number> = {};
+
+    Object.keys(rawPMap).forEach(pId => {
+        const prQty = prPMap[pId] || 0;
+        const soRetQty = soReturnedPMap[pId] || 0;
+        const totalReturnToSupplier = Math.max(prQty, soRetQty);
+        finalPMap[pId] = rawPMap[pId] - totalReturnToSupplier;
+    });
+
+    Object.keys(prPMap).forEach(pId => {
+        if (finalPMap[pId] === undefined) {
+            const prQty = prPMap[pId] || 0;
+            const soRetQty = soReturnedPMap[pId] || 0;
+            const totalReturnToSupplier = Math.max(prQty, soRetQty);
+            finalPMap[pId] = -totalReturnToSupplier;
+        }
+    });
+
+    Object.keys(rawVMap).forEach(vId => {
+        const prQty = prVMap[vId] || 0;
+        const soRetQty = soReturnedVMap[vId] || 0;
+        const totalReturnToSupplier = Math.max(prQty, soRetQty);
+        finalVMap[vId] = rawVMap[vId] - totalReturnToSupplier;
+    });
+
+    Object.keys(prVMap).forEach(vId => {
+        if (finalVMap[vId] === undefined) {
+            const prQty = prVMap[vId] || 0;
+            const soRetQty = soReturnedVMap[vId] || 0;
+            const totalReturnToSupplier = Math.max(prQty, soRetQty);
+            finalVMap[vId] = -totalReturnToSupplier;
+        }
+    });
+
+    // --- Double-Entry Stock Reconciliation & Variant Mismatch Correction ---
+    (settings.products || []).forEach(p => {
+        const pId = String(p.id).trim();
+        if (p.hasVariants && p.variants && p.variants.length > 0) {
+            const vIds = p.variants.map(v => String(v.id).trim());
+            let parentStock = finalPMap[pId] || 0;
+
+            if (parentStock > 0) {
+                // Scenario A: We have positive unassigned parent stock.
+                // Step 1: Feed variants that have negative calculated stock (due to sales/returns logged on variants, but purchases logged on parent)
+                vIds.forEach(vId => {
+                    const vStock = finalVMap[vId] || 0;
+                    if (vStock < 0 && parentStock > 0) {
+                        const draw = Math.min(parentStock, -vStock);
+                        finalVMap[vId] = vStock + draw;
+                        parentStock -= draw;
+                    }
+                });
+
+                // Step 2: If we still have positive parent stock left, distribute it to the first variant
+                if (parentStock > 0 && vIds.length > 0) {
+                    const firstVId = vIds[0];
+                    finalVMap[firstVId] = (finalVMap[firstVId] || 0) + parentStock;
+                    parentStock = 0;
+                }
+            } else if (parentStock < 0) {
+                // Scenario B: We have negative unassigned parent stock (due to sales/returns logged on parent, but purchases logged on variants).
+                // Draw from positive variants to offset the negative parent stock
+                vIds.forEach(vId => {
+                    const vStock = finalVMap[vId] || 0;
+                    if (vStock > 0 && parentStock < 0) {
+                        const draw = Math.min(vStock, -parentStock);
+                        finalVMap[vId] = vStock - draw;
+                        parentStock += draw;
+                    }
+                });
+            }
+
+            // Always zero out finalPMap[pId] for variant products since it's fully distributed/reconciled into the variants
+            finalPMap[pId] = 0;
+        }
+    });
+
+    return { products: finalPMap, variants: finalVMap };
+  }, [settings.supplyOrders, settings.orderReturns, settings.purchaseReturns, orders, settings.products]);
 
   const restoreAllStockFromInvoices = () => {
     showConfirm(
         "استعادة المخزون من الفواتير",
-        "سيقوم هذا الإجراء بإعادة حساب الكميات بناءً على فواتير المشتريات المسجلة مطروحاً منها المبيعات. هل أنت متأكد؟",
+        "سيقوم هذا الإجراء بإعادة حساب الكميات بناءً على فواتير المشتريات مطروحاً منها المبيعات ومرتجعات المشتريات للموردين. هل أنت متأكد؟",
         () => {
             const warehouseIds = (settings.warehouses || []).map(w => w.id);
             const defaultWhId = warehouseIds[0];
@@ -187,21 +357,87 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             const updatedProducts = (settings.products || []).map(product => {
                 let updated = { ...product };
                 if (updated.hasVariants && updated.variants) {
-                    updated.variants = updated.variants.map(v => {
-                        const invStock = invoicesStockMap.variants[v.id] ?? 0;
+                    const newVariants = updated.variants.map(v => {
+                        const invStock = Math.max(0, invoicesStockMap.variants[v.id] ?? 0);
                         let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
-                        if (defaultWhId && (vCopy.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
-                            vCopy.warehouseStock = { ...(vCopy.warehouseStock || {}), [defaultWhId]: invStock };
+                        
+                        // Update warehouse stock to match restored stock exactly
+                        const currentWh = vCopy.warehouseStock || {};
+                        const currentWhTotal = Object.values(currentWh).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                        
+                        if (currentWhTotal > 0 && invStock > 0) {
+                            const ratio = invStock / currentWhTotal;
+                            const newWhStock: Record<string, number> = {};
+                            let sumWh = 0;
+                            const keys = Object.keys(currentWh);
+                            
+                            keys.forEach((whId) => {
+                                const val = currentWh[whId];
+                                const newVal = Math.round((Number(val) || 0) * ratio);
+                                newWhStock[whId] = newVal;
+                                sumWh += newVal;
+                            });
+
+                            const diff = invStock - sumWh;
+                            if (diff !== 0 && keys.length > 0) {
+                                const firstKey = keys[0];
+                                newWhStock[firstKey] = Math.max(0, newWhStock[firstKey] + diff);
+                            }
+                            vCopy.warehouseStock = newWhStock;
+                        } else if (defaultWhId && invStock > 0) {
+                            vCopy.warehouseStock = { [defaultWhId]: invStock };
+                        } else {
+                            vCopy.warehouseStock = {};
                         }
                         return vCopy;
                     });
-                    updated.stockQuantity = updated.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                    
+                    const totalFromVariants = newVariants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+                    updated.variants = newVariants;
+                    updated.stockQuantity = totalFromVariants;
+                    updated.stock = totalFromVariants;
+                    
+                    // Combine variant warehouse stock for the parent product
+                    const combinedWhStock: Record<string, number> = {};
+                    newVariants.forEach(v => {
+                        if (v.warehouseStock) {
+                            Object.entries(v.warehouseStock).forEach(([whId, qty]) => {
+                                combinedWhStock[whId] = (combinedWhStock[whId] || 0) + (Number(qty) || 0);
+                            });
+                        }
+                    });
+                    updated.warehouseStock = combinedWhStock;
                 } else {
-                    const invStock = invoicesStockMap.products[product.id] ?? 0;
+                    const invStock = Math.max(0, invoicesStockMap.products[product.id] ?? 0);
                     updated.stockQuantity = invStock;
                     updated.stock = invStock;
-                    if (defaultWhId && (updated.warehouseStock?.[defaultWhId] ?? 0) === 0 && invStock > 0) {
-                        updated.warehouseStock = { ...(updated.warehouseStock || {}), [defaultWhId]: invStock };
+                    
+                    const currentWh = updated.warehouseStock || {};
+                    const currentWhTotal = Object.values(currentWh).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                    
+                    if (currentWhTotal > 0 && invStock > 0) {
+                        const ratio = invStock / currentWhTotal;
+                        const newWhStock: Record<string, number> = {};
+                        let sumWh = 0;
+                        const keys = Object.keys(currentWh);
+                        
+                        keys.forEach((whId) => {
+                            const val = currentWh[whId];
+                            const newVal = Math.round((Number(val) || 0) * ratio);
+                            newWhStock[whId] = newVal;
+                            sumWh += newVal;
+                        });
+
+                        const diff = invStock - sumWh;
+                        if (diff !== 0 && keys.length > 0) {
+                            const firstKey = keys[0];
+                            newWhStock[firstKey] = Math.max(0, newWhStock[firstKey] + diff);
+                        }
+                        updated.warehouseStock = newWhStock;
+                    } else if (defaultWhId && invStock > 0) {
+                        updated.warehouseStock = { [defaultWhId]: invStock };
+                    } else {
+                        updated.warehouseStock = {};
                     }
                 }
                 updated.inStock = (updated.stockQuantity || 0) > 0;
@@ -209,7 +445,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             });
 
             setSettings(prev => ({ ...prev, products: updatedProducts }));
-            showAlert("تمت الاستعادة", "تمت إعادة بناء المخزون من واقع الفواتير بنجاح.", "success");
+            showAlert("تمت الاستعادة بنجاح", "تمت إعادة بناء المخزون وتوزيع المستودعات بدقة من واقع الفواتير ومرتجعات المشتريات.", "success");
         }
     );
   };
@@ -389,7 +625,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     (settings.products || []).forEach(p => {
       if (p.hasVariants && p.variants && p.variants.length > 0) {
         p.variants.forEach(v => {
-          const qty = v.stockQuantity ?? v.stock ?? 0;
+          let qty = v.stockQuantity ?? v.stock ?? 0;
+          if (filterWarehouseId) {
+            qty = v.warehouseStock?.[filterWarehouseId] ?? 0;
+          }
           const cost = getLatestProductCost(v.id, settings) || getLatestProductCost(p.id, settings) || (v.costPrice ?? p.costPrice ?? 0);
           const price = v.price ?? p.price ?? 0;
           
@@ -398,7 +637,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
           totalSaleValue += qty * price;
         });
       } else {
-        const qty = p.stockQuantity ?? p.stock ?? 0;
+        let qty = p.stockQuantity ?? p.stock ?? 0;
+        if (filterWarehouseId) {
+          qty = p.warehouseStock?.[filterWarehouseId] ?? 0;
+        }
         const cost = getLatestProductCost(p.id, settings) || (p.costPrice || 0);
         const price = p.price ?? 0;
 
@@ -418,7 +660,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       potentialProfit,
       marginPercent
     };
-  }, [settings.products, settings.supplyOrders]);
+  }, [settings.products, settings.supplyOrders, filterWarehouseId]);
 
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -993,8 +1235,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               <Layers size={14} className="text-indigo-500" />
               رأس المال المستثمر (بالتكلفة)
             </p>
-            <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-              {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+              {showInventoryValue ? <Eye size={16} className="text-indigo-600 dark:text-indigo-400" /> : <EyeOff size={16} className="text-slate-400" />}
             </button>
           </div>
           {showInventoryValue ? (
@@ -1016,8 +1258,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               <DollarSign size={14} className="text-emerald-500" />
               القيمة البيعية المتوقعة
             </p>
-            <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-              {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+              {showInventoryValue ? <Eye size={16} className="text-emerald-600 dark:text-emerald-400" /> : <EyeOff size={16} className="text-slate-400" />}
             </button>
           </div>
           {showInventoryValue ? (
@@ -1039,8 +1281,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               <Wand2 size={14} className="text-amber-500" />
               الأرباح المتوقعة عند التصفية
             </p>
-            <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-              {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+              {showInventoryValue ? <Eye size={16} className="text-amber-500 dark:text-amber-400" /> : <EyeOff size={16} className="text-slate-400" />}
             </button>
           </div>
           {showInventoryValue ? (
@@ -1126,15 +1368,22 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <th className="px-6 py-4">المنتج</th>
                 <th className="px-6 py-4">القسم</th>
                 <th className="px-6 py-4">SKU</th>
-                <th className="px-6 py-4">المخزون (الإجمالي)</th>
+                <th className="px-6 py-4">
+                  {filterWarehouseId 
+                    ? `المخزون (${settings.warehouses.find(w => w.id === filterWarehouseId)?.name || ''})` 
+                    : 'المخزون (الإجمالي)'
+                  }
+                </th>
+                <th className="px-6 py-4">سعر التكلفة</th>
                 <th className="px-6 py-4">سعر البيع</th>
+                <th className="px-6 py-4">هامش الربح</th>
                 <th className="px-6 py-4 text-left">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 dark:text-slate-600">
+                  <td colSpan={9} className="px-6 py-12 text-center text-slate-400 dark:text-slate-600">
                     <div className="flex flex-col items-center gap-2">
                       <Package size={40} className="text-slate-205 dark:text-slate-700" />
                       <p>لا توجد منتجات تطابق شروط التصفية الحالية.</p>
@@ -1173,6 +1422,23 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
                   const hasStockInconsistency = Number(product.stockQuantity || 0) !== distributedStock;
                   
+                  const displayStock = (() => {
+                    if (product.stockQuantity === null || product.stockQuantity === undefined) return null;
+                    if (filterWarehouseId) {
+                      if (product.hasVariants && product.variants) {
+                        return product.variants.reduce((total, v) => total + (v.warehouseStock?.[filterWarehouseId] || 0), 0);
+                      } else {
+                        return product.warehouseStock?.[filterWarehouseId] ?? 0;
+                      }
+                    }
+                    return product.stockQuantity;
+                  })();
+                  
+                  const costVal = Number(product.costPrice ?? 0);
+                  const priceVal = Number(product.price ?? 0);
+                  const profitVal = priceVal - costVal;
+                  const marginPct = priceVal > 0 ? ((profitVal / priceVal) * 100).toFixed(1) : '0';
+
                   return (
                   <React.Fragment key={product.id}>
                     <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${isExpanded ? 'bg-indigo-50/20 dark:bg-indigo-900/10' : ''} ${isDuplicate ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
@@ -1232,13 +1498,13 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        {product.stockQuantity === null || product.stockQuantity === undefined ? (
+                        {displayStock === null ? (
                            <span className="px-2 py-1 text-xs font-bold text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/50 rounded-full border border-emerald-200 dark:border-emerald-800">متاح دائماً</span>
-                        ) : product.stockQuantity > 0 ? (
+                        ) : displayStock > 0 ? (
                            <div className="flex flex-col gap-1">
                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{product.stockQuantity}</span>
-                                  {product.stockQuantity < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
+                                  <span className="font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg border border-slate-200 dark:border-slate-700 min-w-[32px] text-center">{displayStock}</span>
+                                  {displayStock < 5 && <span className="text-[10px] text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full font-bold">منخفض</span>}
                                </div>
                            </div>
                         ) : (
@@ -1248,7 +1514,17 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-indigo-600 dark:text-indigo-400 font-bold">{product.price.toLocaleString()} ج.م</div>
+                        <div className="text-slate-700 dark:text-slate-300 font-mono font-bold text-xs">
+                          {costVal > 0 ? `${costVal.toLocaleString()} ج.م` : '-'}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-indigo-600 dark:text-indigo-400 font-bold text-sm">{priceVal.toLocaleString()} ج.م</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-emerald-600 dark:text-emerald-400 font-extrabold text-xs">
+                          {profitVal > 0 ? `+${profitVal.toLocaleString()} ج.م (${marginPct}%)` : '-'}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className={`flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity`}>
@@ -1274,7 +1550,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     {/* Warehouse detail expansion */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={7} className="px-6 py-4 bg-slate-50/70 dark:bg-slate-900/30 border-t border-b border-slate-100 dark:border-slate-800 text-right">
+                        <td colSpan={9} className="px-6 py-4 bg-slate-50/70 dark:bg-slate-900/30 border-t border-b border-slate-100 dark:border-slate-800 text-right">
                           <motion.div 
                             initial={{ opacity: 0, y: -10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -1286,13 +1562,23 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                 <span className="bg-indigo-600 w-1.5 h-3 rounded"></span>
                                 <span>توزيع مخزون المنتج: {product.name} ({product.sku})</span>
                               </div>
-                              <button 
-                                type="button"
-                                onClick={() => openEditModal(product)}
-                                className="text-xs bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-400 px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 border border-indigo-100/50 dark:border-indigo-900/50"
-                              >
-                                ✏️ تعديل تفصيلي في المستودعات
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  type="button"
+                                  onClick={() => setSelectedProductForSalesLog(product)}
+                                  className="text-xs bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 border border-emerald-100/50 dark:border-emerald-800/50"
+                                >
+                                  <FileText size={14} />
+                                  سجل المبيعات
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => openEditModal(product)}
+                                  className="text-xs bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-400 px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 border border-indigo-100/50 dark:border-indigo-900/50"
+                                >
+                                  ✏️ تعديل تفصيلي في المستودعات
+                                </button>
+                              </div>
                             </div>
 
                             {(!settings.warehouses || settings.warehouses.length === 0) ? (
@@ -1412,6 +1698,18 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
               }
               const hasStockInconsistencyForMobile = Number(product.stockQuantity || 0) !== distributedStockForMobile;
 
+              const displayStockForMobile = (() => {
+                if (product.stockQuantity === null || product.stockQuantity === undefined) return null;
+                if (filterWarehouseId) {
+                  if (product.hasVariants && product.variants) {
+                    return product.variants.reduce((total, v) => total + (v.warehouseStock?.[filterWarehouseId] || 0), 0);
+                  } else {
+                    return product.warehouseStock?.[filterWarehouseId] ?? 0;
+                  }
+                }
+                return product.stockQuantity;
+              })();
+
               return (
                 <div key={product.id} className={`bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right ${isDuplicate ? 'border-amber-400 bg-amber-50/10 dark:border-amber-900/50 dark:bg-amber-900/10' : ''}`} dir="rtl">
                   <div className="flex gap-3">
@@ -1449,21 +1747,40 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/50">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/50">
                     <div className="bg-slate-50 dark:bg-slate-800/30 p-2 rounded-lg">
                       <p className="text-[10px] font-bold text-slate-500 mb-0.5">سعر البيع</p>
-                      <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{product.price.toLocaleString()} ج.م</p>
+                      <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{(product.price || 0).toLocaleString()} ج.م</p>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/30 p-2 rounded-lg">
-                      <p className="text-[10px] font-bold text-slate-500 mb-0.5">المخزون</p>
-                      {product.stockQuantity === null || product.stockQuantity === undefined ? (
-                         <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">متاح دائماً</p>
+                      <p className="text-[10px] font-bold text-slate-500 mb-0.5">سعر التكلفة</p>
+                      <p className="text-sm font-black text-slate-700 dark:text-slate-300">{(product.costPrice ?? 0).toLocaleString()} ج.م</p>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/30 p-2 rounded-lg">
+                      <p className="text-[10px] font-bold text-slate-500 mb-0.5">هامش الربح</p>
+                      <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                        {(() => {
+                          const c = Number(product.costPrice ?? 0);
+                          const p = Number(product.price ?? 0);
+                          const profit = p - c;
+                          const m = p > 0 ? ((profit / p) * 100).toFixed(0) : '0';
+                          return profit > 0 ? `+${profit.toLocaleString()} ج.م (${m}%)` : '-';
+                        })()}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/30 p-2 rounded-lg">
+                      <p className="text-[10px] font-bold text-slate-500 mb-0.5">
+                        {filterWarehouseId 
+                          ? `المخزون (${settings.warehouses.find(w => w.id === filterWarehouseId)?.name || ''})` 
+                          : 'المخزون'
+                        }
+                      </p>
+                      {displayStockForMobile === null ? (
+                         <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">متاح دائماً</p>
                       ) : (
-                         <div className="flex flex-col gap-1 items-start">
-                            <div className="flex items-center gap-1.5">
-                               <p className={`text-sm font-black ${product.stockQuantity > 0 ? 'text-slate-900 dark:text-slate-100' : 'text-red-600 dark:text-red-400'}`}>{product.stockQuantity}</p>
-                               {product.stockQuantity < 5 && product.stockQuantity > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
-                            </div>
+                         <div className="flex items-center gap-1.5">
+                            <p className={`text-sm font-black ${displayStockForMobile > 0 ? 'text-slate-900 dark:text-slate-100' : 'text-red-600 dark:text-red-400'}`}>{displayStockForMobile} قطعة</p>
+                            {displayStockForMobile < 5 && displayStockForMobile > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>}
                          </div>
                       )}
                     </div>
@@ -1478,7 +1795,17 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         exit={{ opacity: 0, height: 0 }}
                         className="pt-2 border-t border-slate-100 dark:border-slate-800/50 space-y-2 text-right overflow-hidden"
                       >
-                        <div className="text-xs font-bold text-slate-700 dark:text-slate-300">مخزون المستودعات ({distributedStockForMobile}):</div>
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-bold text-slate-700 dark:text-slate-300">مخزون المستودعات ({distributedStockForMobile}):</div>
+                          <button 
+                            type="button"
+                            onClick={() => setSelectedProductForSalesLog(product)}
+                            className="text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-2 py-1 rounded font-bold transition-all flex items-center gap-1 border border-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800/50"
+                          >
+                            <FileText size={12} />
+                            سجل المبيعات
+                          </button>
+                        </div>
                         {(!settings.warehouses || settings.warehouses.length === 0) ? (
                           <p className="text-[10px] text-slate-400">⚠️ لم يتم إضافة مستودعات إضافية بعد.</p>
                         ) : (
@@ -1611,6 +1938,15 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             isEditing={!!editingProduct}
             onGenerateDescription={handleGenerateDescription}
             isGenerating={isGenerating}
+        />
+      )}
+      
+      {selectedProductForSalesLog && (
+        <ProductSalesLogModal
+          product={selectedProductForSalesLog}
+          orders={orders}
+          settings={settings}
+          onClose={() => setSelectedProductForSalesLog(null)}
         />
       )}
       

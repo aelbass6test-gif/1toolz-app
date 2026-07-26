@@ -1915,6 +1915,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       "تم_التحصيل",
       "مدفوعة",
       "مؤرشف",
+      "تم_الاستبدال",
     ];
     // All other statuses are considered "returnable" to stock if they were deducted
     const shouldBeDeducted = deductStatuses.includes(newStatus);
@@ -2009,7 +2010,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       // 2. ADD back the exchanged (returned) items of the original order to stock!
       const isExchange = order.orderType === "exchange" || (order as any).shipmentType === "exchange";
       if (isExchange && (order as any).exchangedItems) {
-        const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && item.selected);
+        const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && (item.selected === true || item.selected === undefined));
         exchangedItems.forEach((exItem: any) => {
           addItemToStock({
             productId: exItem.productId,
@@ -2029,7 +2030,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       // 2. Deduct the exchanged (returned) items from stock (since the exchange is no longer processed)
       const isExchange = order.orderType === "exchange" || (order as any).shipmentType === "exchange";
       if (isExchange && (order as any).exchangedItems) {
-        const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && item.selected);
+        const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && (item.selected === true || item.selected === undefined));
         exchangedItems.forEach((exItem: any) => {
           deductItemFromStock({
             productId: exItem.productId,

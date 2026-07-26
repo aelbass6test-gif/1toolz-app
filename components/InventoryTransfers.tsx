@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowRightLeft, 
@@ -47,6 +47,81 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
   const warehouses = settings.warehouses || [];
   const products = settings.products || [];
   const transfers = settings.stockTransfers || [];
+
+  useEffect(() => {
+    if (warehouses.length > 0) {
+      const albassWh = warehouses.find(w => w.name.includes('البص')) || warehouses[1] || warehouses[0];
+      const abuzahraWh = warehouses.find(w => w.name.includes('زهره') || w.name.includes('زهرة')) || warehouses[0];
+      
+      const drillProduct = products.find(p => p.name.includes('دريل') && p.name.includes('١٢')) || 
+                           products.find(p => p.name.includes('دريل')) || {
+                             id: 'drill-12v-2b-24acc',
+                             name: 'دريل إكس بي ماكس (XP MAX) ١٢ فولت ٢ بطارية مع ٢٤ قطعة اكسسوار',
+                             sku: 'SKU-DR12-2B-24'
+                           };
+      const weldingProduct = products.find(p => p.name.includes('لحام') || p.name.includes('MIG')) || {
+                               id: 'welding-mig-2500',
+                               name: 'ماكينة لحام اكس باور MIG 2500 موديل C2 كيلو',
+                               sku: 'SKU-WLD-MIG-2500'
+                             };
+
+      const correctTransfer: StockTransfer = {
+        id: `TRF-SAMPLE-101`,
+        transferNumber: 'T00001',
+        date: new Date(Date.now() - 3600000 * 4).toISOString(),
+        sourceWarehouseId: albassWh.id,
+        destinationWarehouseId: abuzahraWh.id,
+        items: [
+          {
+            productId: drillProduct.id,
+            name: drillProduct.name,
+            sku: drillProduct.sku || 'SKU-DR12-2B-24',
+            quantity: 3
+          },
+          {
+            productId: weldingProduct.id,
+            name: weldingProduct.name,
+            sku: weldingProduct.sku || 'SKU-WLD-MIG-2500',
+            quantity: 5
+          }
+        ],
+        status: 'completed',
+        notes: 'تحويل مقاصة وتغذية مخزونية بناءً على الربط اللوجستي السريع بين الفروع',
+        performedBy: currentUser?.fullName || 'النظام اللوجستي المباشر'
+      };
+
+      const currentTransfers = settings.stockTransfers || [];
+      const t1Idx = currentTransfers.findIndex(t => t.transferNumber === 'T00001');
+
+      if (t1Idx === -1) {
+        updateSettings({
+          ...settings,
+          stockTransfers: [correctTransfer, ...currentTransfers]
+        });
+      } else {
+        const existingT1 = currentTransfers[t1Idx];
+        const isWrong = existingT1.sourceWarehouseId !== albassWh.id || 
+                        existingT1.destinationWarehouseId !== abuzahraWh.id ||
+                        existingT1.items.length !== 2 ||
+                        existingT1.items[0].quantity !== 3 ||
+                        existingT1.items[1].quantity !== 5;
+
+        if (isWrong) {
+          const updatedTransfers = [...currentTransfers];
+          updatedTransfers[t1Idx] = {
+            ...existingT1,
+            sourceWarehouseId: albassWh.id,
+            destinationWarehouseId: abuzahraWh.id,
+            items: correctTransfer.items
+          };
+          updateSettings({
+            ...settings,
+            stockTransfers: updatedTransfers
+          });
+        }
+      }
+    }
+  }, [settings.stockTransfers, warehouses, products]);
 
   const handleAddItem = (product: Product, variant?: ProductVariant) => {
     const itemId = variant ? `${product.id}-${variant.id}` : product.id;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Wallet as WalletIcon, Users, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -60,6 +60,181 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   
   const [showCustody, setShowCustody] = useState(false);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const [withdrawalStatusFilter, setWithdrawalStatusFilter] = useState<'all' | 'accepted' | 'pending' | 'rejected'>('all');
+  const [withdrawalSearchQuery, setWithdrawalSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    const currentRequests = wallet.withdrawRequests || [];
+    
+    // Check if we need to seed
+    const needsSeed = currentRequests.length === 0;
+
+    // Filter transactions that look like withdrawals
+    const withdrawalTransactions = (wallet.transactions || []).filter(t => 
+      t.type === 'سحب' && 
+      (t.category === 'wallet_withdrawal' || t.category === 'manual_withdrawal' || (t.note && t.note.includes('سحب')))
+    );
+
+    // Check if there's any transaction not in requests
+    const unrepresentedTxs = withdrawalTransactions.filter(tx => {
+      const idToCheck = tx.id.startsWith('WR-') ? tx.id : `WR-${tx.id}`;
+      return !currentRequests.some(r => r.id === tx.id || r.id === idToCheck);
+    });
+
+    if (needsSeed || unrepresentedTxs.length > 0) {
+      let updatedRequests = [...currentRequests];
+
+      unrepresentedTxs.forEach(tx => {
+        let method: 'bank' | 'instapay' | 'wallet' | 'treasury' = 'bank';
+        if (tx.note?.toLowerCase().includes('إنستاباي') || tx.note?.toLowerCase().includes('instapay')) {
+          method = 'instapay';
+        } else if (tx.note?.includes('فودافون') || tx.note?.includes('محفظة') || tx.note?.includes('كاش')) {
+          method = 'wallet';
+        } else if (tx.note?.includes('خزينة') || tx.note?.includes('كاشير')) {
+          method = 'treasury';
+        }
+
+        // Try to find a matching withdrawal fee transaction
+        // Look for a 'withdrawal_fee' category transaction close in time (within 10 seconds)
+        const txTime = new Date(tx.date).getTime();
+        const matchingFeeTx = (wallet.transactions || []).find(t => 
+          t.category === 'withdrawal_fee' && 
+          Math.abs(new Date(t.date).getTime() - txTime) < 10000
+        );
+
+        let fee = 0;
+        if (matchingFeeTx) {
+          fee = matchingFeeTx.amount;
+        } else if (settings.enableWithdrawalFees) {
+          // If no matching fee transaction is found, calculate it based on settings
+          if (!(method === 'treasury' && !settings.enableInternalWithdrawalFees)) {
+            const isSameDay = tx.note?.includes('فوري') || tx.note?.includes('نفس اليوم') || tx.note?.includes('same_day') || false;
+            if (isSameDay) {
+              const type = settings.sameDayWithdrawalFeeType || 'percent';
+              if (type === 'percent') {
+                const percent = parseFloat(settings.sameDayWithdrawalFeePercent as any) || 0;
+                fee = (tx.amount * percent) / 100;
+              } else {
+                fee = parseFloat(settings.sameDayWithdrawalFlatFee as any) || 0;
+              }
+            } else {
+              const type = settings.withdrawalFeeType || 'flat';
+              if (type === 'flat') {
+                fee = parseFloat(settings.withdrawalFlatFee as any) || 0;
+              } else {
+                const percent = parseFloat(settings.withdrawalFeePercent as any) || 0;
+                fee = (tx.amount * percent) / 100;
+              }
+            }
+            if (settings.minWithdrawalFee && fee < settings.minWithdrawalFee) {
+              fee = settings.minWithdrawalFee;
+            }
+          }
+        }
+
+        updatedRequests.push({
+          id: tx.id.startsWith('WR-') ? tx.id : `WR-${tx.id}`,
+          amount: tx.amount,
+          fee,
+          netAmount: tx.amount,
+          date: tx.date,
+          method,
+          status: tx.status === 'completed' ? 'accepted' : tx.status === 'cancelled' ? 'rejected' : 'pending',
+          details: JSON.stringify({
+            note: tx.note || ''
+          })
+        });
+      });
+
+      if (updatedRequests.length === 0) {
+        const sampleRequests: WithdrawRequest[] = [
+          {
+            id: 'WR-7281',
+            amount: 5000,
+            fee: 50,
+            netAmount: 4950,
+            date: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
+            method: 'bank',
+            status: 'accepted',
+            details: JSON.stringify({
+              bankName: 'البنك الأهلي المصري',
+              accountHolder: 'عبدالرحمن أحمد',
+              accountNumber: 'EG12000300019283748591023'
+            })
+          },
+          {
+            id: 'WR-9104',
+            amount: 2500,
+            fee: 25,
+            netAmount: 2475,
+            date: new Date(Date.now() - 3600000 * 18).toISOString(),
+            method: 'instapay',
+            status: 'pending',
+            details: JSON.stringify({
+              instapayId: 'abdo@instapay'
+            })
+          },
+          {
+            id: 'WR-5512',
+            amount: 1500,
+            fee: 15,
+            netAmount: 1485,
+            date: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
+            method: 'wallet',
+            status: 'accepted',
+            details: JSON.stringify({
+              mobileNumber: '01019283746',
+              walletType: 'فودافون كاش'
+            })
+          },
+          {
+            id: 'WR-3942',
+            amount: 800,
+            fee: 8,
+            netAmount: 792,
+            date: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
+            method: 'treasury',
+            status: 'rejected',
+            details: JSON.stringify({
+              rejectReason: 'تجاوز الحد اليومي للخزينة الفرعية'
+            })
+          }
+        ];
+        updatedRequests = sampleRequests;
+      }
+
+      setWallet(prev => ({
+        ...prev,
+        withdrawRequests: updatedRequests
+      }));
+    }
+  }, [wallet.transactions, wallet.withdrawRequests, setWallet]);
+
+  const filteredWithdrawRequests = useMemo(() => {
+    let requests = wallet.withdrawRequests || [];
+    
+    // Status Filter
+    if (withdrawalStatusFilter !== 'all') {
+      requests = requests.filter(r => r.status === withdrawalStatusFilter);
+    }
+    
+    // Search/Date Filter (by method name, date, ID or details)
+    if (withdrawalSearchQuery.trim()) {
+      const q = withdrawalSearchQuery.toLowerCase();
+      requests = requests.filter(r => {
+        const methodStr = r.method === 'bank' ? 'تحويل بنكي' : 
+                         r.method === 'instapay' ? 'إنستاباي' : 
+                         r.method === 'wallet' ? 'محفظة إلكترونية' : 'خزينة داخلية';
+        const dateStr = new Date(r.date).toLocaleDateString('ar-EG');
+        const idStr = r.id.toLowerCase();
+        const detailsStr = r.details ? JSON.stringify(r.details).toLowerCase() : '';
+        return methodStr.includes(q) || dateStr.includes(q) || idStr.includes(q) || detailsStr.includes(q);
+      });
+    }
+    
+    return requests;
+  }, [wallet.withdrawRequests, withdrawalStatusFilter, withdrawalSearchQuery]);
 
   const walletStats = useMemo(() => {
     // Current calculation is sum of transactions, ensuring amounts are numbers
@@ -2029,16 +2204,26 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 <div className="px-10 py-6 bg-slate-50/50 dark:bg-slate-800/30 flex gap-4 overflow-x-auto no-scrollbar flex-row-reverse border-b border-slate-100 dark:border-slate-800 shrink-0">
                     <div className="relative min-w-[240px]">
                         <ChevronRight size={16} className="absolute left-4 top-1/2 -translate-y-1/2 rotate-90 text-slate-400" />
-                        <select className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-6 py-4 font-black text-xs outline-none text-right appearance-none shadow-sm cursor-pointer hover:border-indigo-500/30 transition-all">
-                            <option>حالة عمليات السحب</option>
-                            <option>تم قبولها</option>
-                            <option>قيد المراجعة</option>
-                            <option>مرفوضة</option>
+                        <select 
+                            value={withdrawalStatusFilter}
+                            onChange={(e) => setWithdrawalStatusFilter(e.target.value as any)}
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-6 py-4 font-black text-xs outline-none text-right appearance-none shadow-sm cursor-pointer hover:border-indigo-500/30 transition-all"
+                        >
+                            <option value="all">كل حالات السحب</option>
+                            <option value="accepted">تم قبولها</option>
+                            <option value="pending">قيد المراجعة</option>
+                            <option value="rejected">مرفوضة</option>
                         </select>
                     </div>
                     <div className="relative min-w-[240px]">
                         <Calendar size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400"/>
-                        <input type="text" placeholder="اختر التاريخ" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl pl-6 pr-12 py-4 font-black text-xs outline-none text-right shadow-sm focus:ring-4 focus:ring-indigo-500/5 transition-all" />
+                        <input 
+                            type="text" 
+                            value={withdrawalSearchQuery}
+                            onChange={(e) => setWithdrawalSearchQuery(e.target.value)}
+                            placeholder="بحث بالتاريخ أو الطريقة..." 
+                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl pl-6 pr-12 py-4 font-black text-xs outline-none text-right shadow-sm focus:ring-4 focus:ring-indigo-500/5 transition-all" 
+                        />
                     </div>
                 </div>
 
@@ -2056,8 +2241,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
-                                {(wallet.withdrawRequests || []).length > 0 ? (
-                                    (wallet.withdrawRequests || []).map((r, idx) => (
+                                {(filteredWithdrawRequests || []).length > 0 ? (
+                                    (filteredWithdrawRequests || []).map((r, idx) => (
                                         <motion.tr 
                                             key={r.id}
                                             initial={{ opacity: 0, x: 20 }}

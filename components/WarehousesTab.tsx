@@ -3,9 +3,9 @@ import {
   Layers, Plus, Edit2, Trash2, ArrowRightLeft, Search, Filter, 
   MapPin, Phone, User, CheckCircle2, AlertCircle, Package, 
   Building2, Store, Box, Truck, HelpCircle, Star, X, Check,
-  ArrowRight, ShieldCheck, Sparkles, BarChart3
+  ArrowRight, ShieldCheck, Sparkles, BarChart3, Clock
 } from 'lucide-react';
-import { Warehouse, Product, Settings } from '../types';
+import { Warehouse, Product, Settings, StockTransfer } from '../types';
 import { audioSynth } from '../utils/audioSynth';
 import { getLatestProductCost } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
@@ -479,7 +479,39 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
         };
       });
 
-      return { ...prev, products: updatedProducts };
+      const newTransferRecord: StockTransfer = {
+        id: `TRF-${Date.now()}`,
+        transferNumber: `T${String(((prev.stockTransfers || []).length + 1)).padStart(5, '0')}`,
+        date: new Date().toISOString(),
+        sourceWarehouseId: transferSourceId,
+        destinationWarehouseId: transferTargetId,
+        items: [{
+          productId: prod?.id || transferProductId,
+          name: prod?.name || 'منتج غير محدد',
+          sku: prod?.sku || '',
+          quantity: transferQty
+        }],
+        status: 'completed',
+        notes: transferNotes || 'تحويل فوري من شاشة إدارة الفروع والربط اللوجستي السريع',
+        performedBy: 'مسؤول الفروع واللوجستيات'
+      };
+
+      return {
+        ...prev,
+        products: updatedProducts,
+        stockTransfers: [newTransferRecord, ...(prev.stockTransfers || [])],
+        activityLogs: [
+          {
+            id: `log-${Date.now()}`,
+            user: 'مسؤول الفروع واللوجستيات',
+            action: 'نقل مخزون',
+            details: `تحويل ${transferQty} قطعة من "${prod?.name || 'المنتج'}" من ${sourceWh?.name} إلى ${targetWh?.name}`,
+            date: new Date().toLocaleString('ar-EG'),
+            timestamp: Date.now()
+          },
+          ...(prev.activityLogs || [])
+        ]
+      };
     });
 
     audioSynth.announce(`تم نقل ${transferQty} قطعة من ${prod?.name} بنجاح إلى ${targetWh?.name}`, "success");
@@ -549,17 +581,22 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
             <div className="p-3 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-2xl">
               <ArrowRightLeft size={24} />
             </div>
-            <button 
-              onClick={() => handleOpenTransferModal()}
-              className="text-[11px] font-black bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1 rounded-full shadow-sm transition-all cursor-pointer flex items-center gap-1"
-            >
-              <span>نقل مخزون</span>
-              <ArrowRightLeft size={12}/>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button 
+                onClick={() => handleOpenTransferModal()}
+                className="text-[11px] font-black bg-cyan-600 hover:bg-cyan-500 text-white px-3.5 py-1.5 rounded-full shadow-sm transition-all cursor-pointer flex items-center gap-1"
+              >
+                <span>نقل فوري</span>
+                <ArrowRightLeft size={12}/>
+              </button>
+            </div>
           </div>
           <p className="text-xs font-bold text-slate-400">الربط اللوجستي السريع</p>
-          <h3 className="text-base font-black text-slate-800 dark:text-white mt-2 flex items-center gap-2">
+          <h3 className="text-base font-black text-slate-800 dark:text-white mt-2 flex items-center justify-between">
             <span>نقل وتوزيع فوري بين الفروع</span>
+            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-1 rounded-lg">
+              {(settings.stockTransfers || []).length} عملية
+            </span>
           </h3>
         </div>
       </div>
@@ -1035,6 +1072,128 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
           })}
         </div>
       )}
+
+      {/* 3.5 Live Inventory Transfer History Section */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 dark:text-cyan-400 rounded-2xl flex items-center justify-center shrink-0">
+              <ArrowRightLeft size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <span>سجل عمليات نقل وتوزيع المخزون بين الفروع</span>
+                <span className="text-xs font-black bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-400 px-2.5 py-0.5 rounded-full">
+                  {(settings.stockTransfers || []).length} تحويل مسجل
+                </span>
+              </h3>
+              <p className="text-xs font-bold text-slate-400 mt-0.5">سجل كامل بجميع عمليات التحويل المقاصة والنقل اللوجستي الفوري بين الفروع والمستودعات</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleOpenTransferModal()}
+              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-black shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus size={14} />
+              <span>إجراء نقل فوري</span>
+            </button>
+            <button
+              onClick={() => window.location.hash = '#/inventory-transfers'}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>عرض إدارة النقل الكاملة</span>
+              <ArrowRight size={14} className="rotate-180" />
+            </button>
+          </div>
+        </div>
+
+        {(!settings.stockTransfers || settings.stockTransfers.length === 0) ? (
+          <div className="p-8 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-center space-y-2">
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">لا توجد عمليات نقل مخزون مسجلة حالياً.</p>
+            <p className="text-[11px] text-slate-400 font-medium">اضغط على زر "إجراء نقل فوري" لنقل بضائع وتوزيعها مباشرة بين فرعين.</p>
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-[420px] overflow-y-auto custom-scrollbar pr-1">
+            {(settings.stockTransfers || []).map(trf => {
+              const srcWh = (settings.warehouses || []).find(w => w.id === trf.sourceWarehouseId);
+              const dstWh = (settings.warehouses || []).find(w => w.id === trf.destinationWarehouseId);
+              const dateFormatted = trf.date ? new Date(trf.date).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }) : 'غير محدد';
+
+              return (
+                <div key={trf.id} className="p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/60 rounded-2xl transition-all hover:border-cyan-500/40 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/60 dark:border-slate-700/50 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-black bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-lg">
+                        {trf.transferNumber}
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                        <Clock size={12} />
+                        {dateFormatted}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full flex items-center gap-1">
+                        <CheckCircle2 size={12} />
+                        مكتمل ومحدث بالمخازن
+                      </span>
+                      {trf.performedBy && (
+                        <span className="text-[10px] font-bold text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2 py-0.5 rounded-lg">
+                          👤 {trf.performedBy}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Warehouses Flow */}
+                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 font-bold text-[10px]">من (المصدر):</span>
+                      <span className="font-black text-slate-800 dark:text-white bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2.5 py-1 rounded-lg">
+                        🏬 {srcWh?.name || 'مستودع المصدر'}
+                      </span>
+                    </div>
+
+                    <ArrowRight size={16} className="text-cyan-500 shrink-0 rotate-180" />
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 font-bold text-[10px]">إلى (الوجهة):</span>
+                      <span className="font-black text-slate-800 dark:text-white bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 rounded-lg">
+                        🏬 {dstWh?.name || 'مستودع الوجهة'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Transfer Items */}
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400">الأصناف المحولة:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(trf.items || []).map((itm, idx) => (
+                        <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3 py-1.5 rounded-xl text-xs flex items-center gap-2 shadow-2xs">
+                          <Package size={13} className="text-indigo-500" />
+                          <span className="font-black text-slate-800 dark:text-slate-200">{itm.name}</span>
+                          <span className="font-mono text-[10px] text-slate-400">({itm.sku || 'بدون SKU'})</span>
+                          <span className="font-black text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/50 px-2 py-0.5 rounded-md text-[11px]">
+                            الكمية: {itm.quantity} قطعة
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {trf.notes && (
+                    <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60">
+                      📝 ملاحظات: {trf.notes}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* 4. Add / Edit Warehouse Modal Dialog */}
       <AnimatePresence>

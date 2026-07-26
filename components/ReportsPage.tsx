@@ -1880,7 +1880,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 className="p-1 rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200 transition-colors"
                                 title={showInventoryValue ? "إخفاء قيمة البضاعة المتاحة في المخزن" : "إظهار قيمة البضاعة المتاحة في المخزن"}
                             >
-                                {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                                {showInventoryValue ? <Eye size={14} className="text-amber-600" /> : <EyeOff size={14} />}
                             </button>
                         </div>
                         {showInventoryValue ? (
@@ -1927,8 +1927,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                         onClick={toggleInventoryValue}
                                         className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700"
                                     >
-                                        {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
-                                        <span>{showInventoryValue ? 'إخفاء' : 'إظهار'}</span>
+                                        {showInventoryValue ? <Eye size={14} className="text-blue-400" /> : <EyeOff size={14} />}
+                                        <span>{showInventoryValue ? 'ظاهر' : 'مخفي'}</span>
                                     </button>
                                 </div>
                                 {showInventoryValue ? (
@@ -3059,8 +3059,8 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
                             }`}
                             title={showInventoryValue ? "إخفاء قيمة المخزون" : "إظهار قيمة المخزون"}
                         >
-                            {showInventoryValue ? <EyeOff size={18} /> : <Eye size={18} />}
-                            {showInventoryValue ? 'إخفاء قيمة المخزون' : 'إظهار قيمة المخزون'}
+                            {showInventoryValue ? <Eye size={18} className="text-amber-600" /> : <EyeOff size={18} />}
+                            {showInventoryValue ? 'تفاصيل المخزون ظاهرة' : 'إظهار قيمة المخزون'}
                         </button>
                         <button 
                             onClick={handlePreview} 
@@ -3625,8 +3625,8 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                                     <h3 className="text-base font-bold text-emerald-300 flex items-center gap-2">
                                         <Package size={16} /> القيمة السوقية الكامنة للمخزون بالمستودع
                                     </h3>
-                                    <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-white transition-colors" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-                                        {showInventoryValue ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-white transition-colors" title={showInventoryValue ? "إخفاء التفاصيل" : "إظهار التفاصيل"}>
+                                        {showInventoryValue ? <Eye size={16} className="text-emerald-400" /> : <EyeOff size={16} />}
                                     </button>
                                 </div>
                                 <p className="text-slate-400 text-xs leading-relaxed mb-4">
@@ -3929,8 +3929,8 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                                 <h3 className="text-base font-bold text-blue-300 flex items-center gap-2">
                                     <Package size={18} /> قيمة البضاعة المتاحة حالياً (في مخزن المتجر)
                                 </h3>
-                                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-white transition-colors" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-                                    {showInventoryValue ? <EyeOff size={16} /> : <Eye size={16} />}
+                                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-white transition-colors" title={showInventoryValue ? "إخفاء التفاصيل" : "إظهار التفاصيل"}>
+                                    {showInventoryValue ? <Eye size={16} className="text-blue-400" /> : <EyeOff size={16} />}
                                 </button>
                             </div>
                             {showInventoryValue ? (

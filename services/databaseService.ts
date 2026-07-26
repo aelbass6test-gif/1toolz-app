@@ -914,7 +914,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 }
             }
 
-            const syncTable = async (table: string, items: any[], omitFields: string[] = []) => {
+            const syncTable = async (table: string, rawItems: any[], omitFields: string[] = []) => {
+                const items = Array.isArray(rawItems) ? rawItems : [];
                 // 1. Handle Deletions (Relational Sync)
                 // We need to identify items currently in Supabase for this store that are NOT in the incoming 'items' list
                 try {
@@ -1176,6 +1177,134 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             callAttempts: cleanItem.callAttempts || [],
                             details: detailsObj
                         };
+                    } else if (table === 'warehouses') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            name: cleanItem.name || '',
+                            location: cleanItem.location || '',
+                            is_default: Boolean(cleanItem.isDefault ?? cleanItem.is_default ?? false),
+                            isDefault: Boolean(cleanItem.isDefault ?? cleanItem.is_default ?? false)
+                        };
+                    } else if (table === 'inventory_audits') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            title: cleanItem.title || '',
+                            date: cleanItem.date || '',
+                            performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
+                            performedBy: cleanItem.performedBy || cleanItem.performed_by || '',
+                            scope: cleanItem.scope || '',
+                            warehouse_id: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            warehouseId: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            total_system_qty: Number(cleanItem.totalSystemQty ?? cleanItem.total_system_qty ?? 0),
+                            totalSystemQty: Number(cleanItem.totalSystemQty ?? cleanItem.total_system_qty ?? 0),
+                            total_actual_qty: Number(cleanItem.totalActualQty ?? cleanItem.total_actual_qty ?? 0),
+                            totalActualQty: Number(cleanItem.totalActualQty ?? cleanItem.total_actual_qty ?? 0),
+                            total_variance_qty: Number(cleanItem.totalVarianceQty ?? cleanItem.total_variance_qty ?? 0),
+                            totalVarianceQty: Number(cleanItem.totalVarianceQty ?? cleanItem.total_variance_qty ?? 0),
+                            total_variance_value: Number(cleanItem.totalVarianceValue ?? cleanItem.total_variance_value ?? 0),
+                            totalVarianceValue: Number(cleanItem.totalVarianceValue ?? cleanItem.total_variance_value ?? 0),
+                            discrepancies: Array.isArray(cleanItem.discrepancies) ? cleanItem.discrepancies : [],
+                            notes: cleanItem.notes || ''
+                        };
+                    } else if (table === 'stock_transfers') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            transfer_number: cleanItem.transferNumber || cleanItem.transfer_number || '',
+                            transferNumber: cleanItem.transferNumber || cleanItem.transfer_number || '',
+                            date: cleanItem.date || '',
+                            source_warehouse_id: cleanItem.sourceWarehouseId || cleanItem.source_warehouse_id || '',
+                            sourceWarehouseId: cleanItem.sourceWarehouseId || cleanItem.source_warehouse_id || '',
+                            destination_warehouse_id: cleanItem.destinationWarehouseId || cleanItem.destination_warehouse_id || '',
+                            destinationWarehouseId: cleanItem.destinationWarehouseId || cleanItem.destination_warehouse_id || '',
+                            items: Array.isArray(cleanItem.items) ? cleanItem.items : [],
+                            status: cleanItem.status || 'pending',
+                            notes: cleanItem.notes || '',
+                            performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
+                            performedBy: cleanItem.performedBy || cleanItem.performed_by || ''
+                        };
+                    } else if (table === 'order_returns') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            return_number: cleanItem.returnNumber || cleanItem.return_number || '',
+                            returnNumber: cleanItem.returnNumber || cleanItem.return_number || '',
+                            order_id: cleanItem.orderId || cleanItem.order_id || '',
+                            orderId: cleanItem.orderId || cleanItem.order_id || '',
+                            order_number: cleanItem.orderNumber || cleanItem.order_number || '',
+                            orderNumber: cleanItem.orderNumber || cleanItem.order_number || '',
+                            date: cleanItem.date || '',
+                            items: Array.isArray(cleanItem.items) ? cleanItem.items : [],
+                            total_refund: Number(cleanItem.totalRefund ?? cleanItem.total_refund ?? 0),
+                            totalRefund: Number(cleanItem.totalRefund ?? cleanItem.total_refund ?? 0),
+                            reason: cleanItem.reason || '',
+                            warehouse_id: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            warehouseId: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            restock_items: Boolean(cleanItem.restockItems ?? cleanItem.restock_items ?? true),
+                            restockItems: Boolean(cleanItem.restockItems ?? cleanItem.restock_items ?? true),
+                            status: cleanItem.status || 'completed',
+                            performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
+                            performedBy: cleanItem.performedBy || cleanItem.performed_by || '',
+                            notes: cleanItem.notes || ''
+                        };
+                    } else if (table === 'purchase_returns') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            return_number: cleanItem.returnNumber || cleanItem.return_number || '',
+                            returnNumber: cleanItem.returnNumber || cleanItem.return_number || '',
+                            supplier_id: cleanItem.supplierId || cleanItem.supplier_id || '',
+                            supplierId: cleanItem.supplierId || cleanItem.supplier_id || '',
+                            supplier_name: cleanItem.supplierName || cleanItem.supplier_name || '',
+                            supplierName: cleanItem.supplierName || cleanItem.supplier_name || '',
+                            date: cleanItem.date || '',
+                            items: Array.isArray(cleanItem.items) ? cleanItem.items : [],
+                            total_refund_amount: Number(cleanItem.totalRefundAmount ?? cleanItem.total_refund_amount ?? 0),
+                            totalRefundAmount: Number(cleanItem.totalRefundAmount ?? cleanItem.total_refund_amount ?? 0),
+                            warehouse_id: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            warehouseId: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            status: cleanItem.status || 'completed',
+                            performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
+                            performedBy: cleanItem.performedBy || cleanItem.performed_by || '',
+                            notes: cleanItem.notes || ''
+                        };
+                    } else if (table === 'pos_sales') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            sale_number: cleanItem.saleNumber || cleanItem.sale_number || '',
+                            saleNumber: cleanItem.saleNumber || cleanItem.sale_number || '',
+                            date: cleanItem.date || '',
+                            items: Array.isArray(cleanItem.items) ? cleanItem.items : [],
+                            total_amount: Number(cleanItem.totalAmount ?? cleanItem.total_amount ?? 0),
+                            totalAmount: Number(cleanItem.totalAmount ?? cleanItem.total_amount ?? 0),
+                            payment_method: cleanItem.paymentMethod || cleanItem.payment_method || '',
+                            paymentMethod: cleanItem.paymentMethod || cleanItem.payment_method || '',
+                            warehouse_id: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            warehouseId: cleanItem.warehouseId || cleanItem.warehouse_id || '',
+                            customer_phone: cleanItem.customerPhone || cleanItem.customer_phone || '',
+                            customerPhone: cleanItem.customerPhone || cleanItem.customer_phone || '',
+                            customer_name: cleanItem.customerName || cleanItem.customer_name || '',
+                            customerName: cleanItem.customerName || cleanItem.customer_name || '',
+                            customer_address: cleanItem.customerAddress || cleanItem.customer_address || '',
+                            customerAddress: cleanItem.customerAddress || cleanItem.customer_address || '',
+                            performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
+                            performedBy: cleanItem.performedBy || cleanItem.performed_by || ''
+                        };
                     }
                     
                     return mappedItem;
@@ -1268,36 +1397,36 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             // Parallel sync with individual error handling to ensure one table error (like missing column) 
             // doesn't block other tables (like employees) from syncing.
             const tablesToSync = [
-                () => syncTable('products', data.settings.products, ['updatedAt']),
-                () => syncTable('orders', data.orders),
-                () => syncTable('transactions', data.wallet.transactions),
-                () => syncTable('treasury_accounts', data.treasury?.accounts || []),
-                () => syncTable('treasury_transactions', data.treasury?.transactions || []),
-                () => syncTable('suppliers', data.settings.suppliers),
-                () => syncTable('supply_orders', data.settings.supplyOrders),
-                () => syncTable('reviews', data.settings.reviews),
-                () => syncTable('abandoned_carts', data.settings.abandonedCarts),
-                () => syncTable('activity_logs', data.settings.activityLogs || []),
-                () => syncTable('employees', data.settings.employees, ['id', 'updatedAt']),
-                () => syncTable('discount_codes', data.settings.discountCodes),
-                () => syncTable('collections', data.settings.collections),
-                () => syncTable('custom_pages', data.settings.customPages, ['isActive', 'updatedAt']),
-                () => syncTable('payment_methods', data.settings.paymentMethods),
-                () => syncTable('customers', data.customers),
-                () => syncTable('global_options', data.settings.globalOptions),
-                () => syncTable('shipping_integrations', data.settings.shippingIntegrations),
-                () => syncTable('partners', data.settings.partners || []),
-                () => syncTable('partner_transactions', data.settings.partnerTransactions || []),
-                () => syncTable('warehouses', data.settings.warehouses || []),
-                () => syncTable('inventory_audits', data.settings.inventoryAudits || []),
-                () => syncTable('stock_transfers', data.settings.stockTransfers || []),
-                () => syncTable('order_returns', data.settings.orderReturns || []),
-                () => syncTable('purchase_returns', data.settings.purchaseReturns || []),
-                () => syncTable('pos_sales', data.settings.posSales || []),
-                () => syncTable('cash_holders', data.settings.cashHolders || []),
-                () => syncTable('cash_handovers', data.settings.cashHandovers || []),
-                () => syncTable('whatsapp_templates', data.settings.whatsappTemplates || []),
-                () => syncTable('call_scripts', data.settings.callScripts || []),
+                () => syncTable('products', products, ['updatedAt']),
+                () => syncTable('orders', orders),
+                () => syncTable('transactions', wallet.transactions),
+                () => syncTable('treasury_accounts', treasury?.accounts || []),
+                () => syncTable('treasury_transactions', treasury?.transactions || []),
+                () => syncTable('suppliers', suppliers),
+                () => syncTable('supply_orders', supplyOrders),
+                () => syncTable('reviews', reviews),
+                () => syncTable('abandoned_carts', abandonedCarts),
+                () => syncTable('activity_logs', activityLogs || []),
+                () => syncTable('employees', employees, ['id', 'updatedAt']),
+                () => syncTable('discount_codes', discountCodes),
+                () => syncTable('collections', collections),
+                () => syncTable('custom_pages', customPages, ['isActive', 'updatedAt']),
+                () => syncTable('payment_methods', paymentMethods),
+                () => syncTable('customers', customers),
+                () => syncTable('global_options', globalOptions),
+                () => syncTable('shipping_integrations', shippingIntegrations),
+                () => syncTable('partners', partners || []),
+                () => syncTable('partner_transactions', partnerTransactions || []),
+                () => syncTable('warehouses', warehouses || []),
+                () => syncTable('inventory_audits', inventoryAudits || []),
+                () => syncTable('stock_transfers', stockTransfers || []),
+                () => syncTable('order_returns', orderReturns || []),
+                () => syncTable('purchase_returns', purchaseReturns || []),
+                () => syncTable('pos_sales', posSales || []),
+                () => syncTable('cash_holders', cashHolders || []),
+                () => syncTable('cash_handovers', cashHandovers || []),
+                () => syncTable('whatsapp_templates', whatsappTemplates || []),
+                () => syncTable('call_scripts', callScripts || []),
                 () => syncTable('chat_messages', [])
             ];
 
@@ -1419,7 +1548,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     }
                 });
 
-                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 2 && ['products', 'orders', 'customers', 'users', 'transactions'].includes(collectionName));
+                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1 && ['products', 'orders', 'customers', 'users', 'transactions', 'suppliers', 'purchase_returns', 'order_returns', 'stock_transfers', 'inventory_audits', 'pos_sales', 'employees'].includes(collectionName));
                 if (isMassDeletionRisk) {
                     console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records. This prevents accidental database wipes during initialization.`);
                 }

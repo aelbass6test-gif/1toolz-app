@@ -764,9 +764,15 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                         {(() => {
                           const remains = totalCost - distributedPartnerTotal;
                           const isComplete = Math.abs(remains) < 0.01 && totalCost > 0;
+                          const totalFees = (shippingFees || 0) + (otherFees || 0) + (taxAmount || 0);
                           return (
-                            <div className="flex items-center gap-2 font-extrabold text-xs">
-                              <span className="text-slate-500">إجمالي المطلوب: <span className="font-mono font-black text-slate-800 dark:text-white">{totalCost.toLocaleString()} ج.م</span></span>
+                            <div className="flex items-center gap-2 font-extrabold text-xs flex-wrap">
+                              <span className="text-slate-500">
+                                إجمالي المطلوب: <span className="font-mono font-black text-slate-800 dark:text-white">{totalCost.toLocaleString()} ج.م</span>
+                                <span className="text-[10px] text-slate-400 font-bold mr-1">
+                                  ({itemsSubtotal.toLocaleString()} بضاعة {totalFees > 0 ? `+ ${totalFees.toLocaleString()} رسوم` : ''})
+                                </span>
+                              </span>
                               <span className="text-slate-300">|</span>
                               <span className="text-indigo-600 dark:text-indigo-400">الموزع: <span className="font-mono font-black">{distributedPartnerTotal.toLocaleString()} ج.م</span></span>
                               <span className="text-slate-300">|</span>
@@ -1964,7 +1970,9 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
         <div className="p-5 sm:p-6 bg-slate-900 dark:bg-black flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0 border-t border-white/10 select-none">
           <div className="flex flex-wrap gap-6 text-right items-center">
             <div>
-              <span className="text-slate-400 text-[10px] block mb-0.5">صافي الفاتورة النهائي</span>
+              <span className="text-slate-400 text-[10px] block mb-0.5">
+                صافي الفاتورة النهائي (بضاعة: {itemsSubtotal.toLocaleString()} ج.م {((shippingFees || 0) + (otherFees || 0) + (taxAmount || 0)) > 0 ? `+ رسوم: ${((shippingFees || 0) + (otherFees || 0) + (taxAmount || 0)).toLocaleString()} ج.م` : ''})
+              </span>
               <div className="text-2xl sm:text-3xl font-mono font-black text-emerald-400 tracking-tight">
                 {totalCost.toLocaleString()} <span className="text-xs font-sans font-bold text-white/60">ج.م</span>
               </div>

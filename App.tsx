@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
-import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse } from './types';
+import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb, auth } from './services/firebaseClient';
@@ -2117,6 +2117,31 @@ export const AppComponent = () => {
                 }
             });
             unsubscribers.push(unsubEmployees);
+            
+            // Listen for changes on purchase returns
+            const qPurchaseReturns = query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', activeStoreId));
+            const unsubPurchaseReturns = onSnapshot(qPurchaseReturns, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    console.log('[REALTIME] Purchase Returns change detected via Firestore snapshot');
+                    isRefreshing.current = true;
+                    const newPurchaseReturns = snap.docs.map(doc => ({ 
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
+                        ...doc.data() 
+                    } as PurchaseReturn));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: { 
+                                ...store, 
+                                settings: { ...store.settings, purchaseReturns: newPurchaseReturns } 
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubPurchaseReturns);
         }
 
         // Listen for user collections change (Admin only)

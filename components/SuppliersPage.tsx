@@ -3,7 +3,7 @@ import { Settings, Supplier, SupplyOrder, Transaction, PurchaseReturn, PurchaseR
 import { 
   UserPlus, Truck, Save, Plus, Package, Calendar, DollarSign, User, Trash2, 
   Edit2, Eye, EyeOff, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
-  ChevronDown, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
+  ChevronDown, ChevronUp, Warehouse, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
   PieChart as LucidePieChart, Download, Printer, Layers, HelpCircle, CheckCircle2,
   Search, Info, RotateCw
 } from 'lucide-react';
@@ -14,7 +14,7 @@ import {
 import { SupplyOrderItem } from '../types';
 import { InventoryAudit } from './InventoryAudit';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
-import { getLatestProductCost } from '../utils/financials';
+import { getLatestProductCost, generateSupplyOrderInvoiceHTML } from '../utils/financials';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplyOrderModal } from './SupplyOrderModal';
@@ -78,6 +78,14 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
   const [treasuryPayments, setTreasuryPayments] = useState<{ treasuryAccountId: string, amount: number }[]>([]);
   const [isSplitTreasury, setIsSplitTreasury] = useState(false);
   const [selectedPartnerId, setSelectedPartnerId] = useState(''); 
+
+  // Full Order Details & Expand States
+  const [viewingOrderDetails, setViewingOrderDetails] = useState<SupplyOrder | null>(null);
+  const [expandedOrderIds, setExpandedOrderIds] = useState<string[]>([]);
+
+  const toggleExpandOrder = (id: string) => {
+    setExpandedOrderIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
 
   // Return Product from Invoice States
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -2327,292 +2335,314 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             ) : (
               (settings.supplyOrders || []).map(order => {
                 const supplier = settings.suppliers.find(s => s.id === order.supplierId);
+                const warehouseList = Array.isArray(settings?.warehouses) ? settings.warehouses : Object.values(settings?.warehouses || {});
+                const warehouse = warehouseList.find((w: any) => String(w.id) === String(order.warehouseId));
                 const isPaid = order.isPaid || !!autoPaidOrdersMap.get(order.id);
                 const isAutoPaid = !order.isPaid && !!autoPaidOrdersMap.get(order.id) && (order.paymentMethod === 'credit');
+                const isExpanded = expandedOrderIds.includes(order.id);
+                const calcOrderItemsSubtotal = (order.items || []).reduce((s, item) => {
+                  const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null)
+                    ? Number(item.receivedQuantity)
+                    : (Number(item.quantity) || 0);
+                  const bonus = Number(item.bonusQuantity) || 0;
+                  const cost = Number(item.cost) || 0;
+                  const discountVal = Number(item.discountValue) || 0;
+                  const discountAmt = discountVal ? (item.discountType === 'percentage' ? (cost * discountVal / 100) : discountVal) : 0;
+                  const netUnitCost = Math.max(0, cost - discountAmt);
+                  const isInvoiceReturn = Boolean(item.isReturn);
+                  const totalQty = qty + bonus;
+                  const returnedQty = isInvoiceReturn ? totalQty : (Number(item.returnedQuantity) || 0);
+                  const billableQty = isInvoiceReturn ? 0 : Math.max(0, totalQty - returnedQty);
+                  const lineNet = isInvoiceReturn ? -(totalQty * netUnitCost) : (billableQty * netUnitCost);
+                  return s + lineNet;
+                }, 0);
+
                 return (
-                  <div key={order.id} className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200/80 dark:hover:border-slate-700/80 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-5 transition-all duration-300">
-                    <div className="space-y-3 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className={`p-2 rounded-xl flex items-center justify-center shrink-0 ${getAvatarColor(supplier?.name || '')}`}>
-                          <User size={18}/>
-                        </div>
-                        <span className="font-extrabold text-slate-800 dark:text-white text-base">{supplier?.name || 'مورد غير معروف'}</span>
-                        {order.referenceNumber && (
-                          <span className="text-[10px] font-black bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-xl text-slate-500 border border-slate-200/40 dark:border-slate-700/40 uppercase tracking-widest leading-none">
-                            Ref: {order.referenceNumber}
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="text-xs text-slate-400 dark:text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <Calendar size={13} className="text-slate-400"/>
-                          {new Date(order.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })}
-                        </span>
-                        
-                        <span className="text-slate-300">|</span>
-                        
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 border ${
-                          order.paymentMethod === 'credit'
-                            ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-405 border-rose-100 dark:border-rose-900/30'
-                            : order.paymentMethod === 'partner'
-                            ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-405 border-amber-100 dark:border-amber-900/30'
-                            : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-455 border-emerald-100 dark:border-emerald-900/30'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            order.paymentMethod === 'credit' ? 'bg-rose-500' : order.paymentMethod === 'partner' ? 'bg-amber-500' : order.paymentMethod === 'custody' ? 'bg-teal-500' : 'bg-emerald-500'
-                          }`}></span>
-                          {order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' : 'مدفوعة كاش'}
-                        </span>
-
-                        {order.paymentMethod === 'credit' && (
-                          <>
-                            <span className="text-slate-300">|</span>
-                            <span
-                              onClick={() => toggleOrderPaymentStatus(order.id)}
-                              title="اضغط لتغيير حالة السداد يدوياً"
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1.5 border cursor-pointer select-none transition-all hover:brightness-95 active:scale-95 ${
-                                isPaid
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-450 border-emerald-150 dark:border-emerald-900/30'
-                                  : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-450 border-rose-150 dark:border-rose-900/30'
-                              }`}
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full ${isPaid ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                              {isAutoPaid ? 'تم السداد (تلقائي ⚡)' : isPaid ? 'مسددة' : 'غير مسددة'}
-                            </span>
-                          </>
-                        )}
-
-                        <span className="text-slate-300">|</span>
-
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 border ${
-                          order.costUpdateMethod === 'weighted_average'
-                            ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/30'
-                            : 'bg-slate-50 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-800'
-                        }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${
-                            order.costUpdateMethod === 'weighted_average' ? 'bg-blue-500' : 'bg-slate-400 dark:bg-slate-500'
-                          }`}></span>
-                          {order.costUpdateMethod === 'weighted_average' ? 'تسعير: متوسط مرجح (WAC)' : 'تسعير: آخر شراء مباشر'}
-                        </span>
-                        
-                        {order.notes && (
-                          <>
-                            <span className="text-slate-300">|</span>
-                            <span className="opacity-80 italic font-medium max-w-xs truncate" title={order.notes}>{order.notes}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex w-full lg:w-auto items-center justify-between lg:justify-end gap-5 border-t lg:border-0 pt-4 lg:pt-0 border-slate-100 dark:border-slate-800">
-                      {/* Products visual thumbnails pile */}
-                      <div className="flex -space-x-2.5 sm:-space-x-3.5 space-x-reverse overflow-hidden shrink-0">
-                        {order.items.slice(0, 4).map((item, i) => {
-                          const product = settings.products.find(p => p.id === item.productId);
-                          return (
-                            <div key={i} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-slate-900 bg-slate-50 dark:bg-slate-800 overflow-hidden shadow-sm shrink-0 flex items-center justify-center">
-                              {product?.thumbnail ? (
-                                <img src={product.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : <Package size={14} className="text-slate-400" />}
-                            </div>
-                          );
-                        })}
-                        {order.items.length > 4 && (
-                          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-slate-900 bg-slate-150 dark:bg-slate-700 flex items-center justify-center text-[10px] sm:text-xs font-black text-slate-600 dark:text-slate-300 shrink-0">
-                            +{order.items.length - 4}
+                  <div key={order.id} className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200/80 dark:hover:border-slate-700/80 transition-all duration-300 overflow-hidden">
+                    {/* Main Card Header Row */}
+                    <div className="p-5 sm:p-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-5">
+                      <div className="space-y-3 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className={`p-2 rounded-xl flex items-center justify-center shrink-0 ${getAvatarColor(supplier?.name || '')}`}>
+                            <User size={18}/>
                           </div>
-                        )}
-                      </div>
-
-                      <div className="text-left select-none">
-                        <div className="font-black text-xl sm:text-2xl text-emerald-600 dark:text-emerald-555 tracking-tight">
-                          {(order.grandTotal || order.totalCost).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-bold flex flex-col items-start lg:items-end mt-0.5">
-                          <span>
-                            {order.items.length} أصناف {order.items.reduce((s, i) => s + (i.bonusQuantity || 0), 0) > 0 && `(+ ${order.items.reduce((s, i) => s + (i.bonusQuantity || 0), 0)} بونص)`}
-                          </span>
-                          {(order.shippingFees || 0) > 0 && <span className="text-[9px] text-indigo-400">شحن: +{order.shippingFees} ج.م</span>}
-                          {order.items.some(i => (i.damagedQuantity || 0) > 0) && (
-                            <span className="text-[9px] text-rose-500 font-black animate-pulse flex items-center gap-1 mt-0.5">
-                              <AlertCircle size={10} />
-                              يوجد سلع تالفة ({order.items.reduce((s, i) => s + (i.damagedQuantity || 0), 0)})
+                          <span className="font-extrabold text-slate-800 dark:text-white text-base">{supplier?.name || 'مورد غير معروف'}</span>
+                          
+                          {order.referenceNumber && (
+                            <span className="text-[10px] font-black bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-xl text-slate-500 border border-slate-200/40 dark:border-slate-700/40 uppercase tracking-widest leading-none">
+                              Ref: {order.referenceNumber}
                             </span>
+                          )}
+
+                          <span className="text-[10px] font-black bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-xl border border-indigo-100 dark:border-indigo-900/30 flex items-center gap-1">
+                            <Warehouse size={11} />
+                            المخزن: {(warehouse as any)?.name || 'المستودع الرئيسي'}
+                          </span>
+                        </div>
+                        
+                        <div className="text-xs text-slate-400 dark:text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <Calendar size={13} className="text-slate-400"/>
+                            {new Date(order.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          </span>
+                          
+                          <span className="text-slate-300">|</span>
+                          
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 border ${
+                            order.paymentMethod === 'credit'
+                              ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-405 border-rose-100 dark:border-rose-900/30'
+                              : order.paymentMethod === 'partner'
+                              ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-405 border-amber-100 dark:border-amber-900/30'
+                              : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-455 border-emerald-100 dark:border-emerald-900/30'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              order.paymentMethod === 'credit' ? 'bg-rose-500' : order.paymentMethod === 'partner' ? 'bg-amber-500' : order.paymentMethod === 'custody' ? 'bg-teal-500' : 'bg-emerald-500'
+                            }`}></span>
+                            {order.paymentMethod === 'credit' ? 'آجل مديونية' : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'عهدة شخصية' : 'مدفوعة كاش'}
+                          </span>
+
+                          {order.paymentMethod === 'credit' && (
+                            <>
+                              <span className="text-slate-300">|</span>
+                              <span
+                                onClick={() => toggleOrderPaymentStatus(order.id)}
+                                title="اضغط لتغيير حالة السداد يدوياً"
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1.5 border cursor-pointer select-none transition-all hover:brightness-95 active:scale-95 ${
+                                  isPaid
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-450 border-emerald-150 dark:border-emerald-900/30'
+                                    : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-450 border-rose-150 dark:border-rose-900/30'
+                                }`}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${isPaid ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                                {isAutoPaid ? 'تم السداد (تلقائي ⚡)' : isPaid ? 'مسددة' : 'غير مسددة'}
+                              </span>
+                            </>
+                          )}
+
+                          <span className="text-slate-300">|</span>
+
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 border ${
+                            order.costUpdateMethod === 'weighted_average'
+                              ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/30'
+                              : 'bg-slate-50 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-800'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              order.costUpdateMethod === 'weighted_average' ? 'bg-blue-500' : 'bg-slate-400 dark:bg-slate-500'
+                            }`}></span>
+                            {order.costUpdateMethod === 'weighted_average' ? 'تسعير: متوسط مرجح (WAC)' : 'تسعير: آخر شراء مباشر'}
+                          </span>
+                          
+                          {order.notes && (
+                            <>
+                              <span className="text-slate-300">|</span>
+                              <span className="opacity-80 italic font-medium max-w-xs truncate" title={order.notes}>{order.notes}</span>
+                            </>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex gap-1 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-100/50 dark:border-slate-800/40 shrink-0">
-                        <button 
-                          onClick={() => startReturnFromOrder(order)} 
-                          className="p-2 text-slate-400 hover:text-amber-500 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
-                          title="إرجاع منتجات من هذه الفاتورة"
+                      <div className="flex w-full lg:w-auto items-center justify-between lg:justify-end gap-5 border-t lg:border-0 pt-4 lg:pt-0 border-slate-100 dark:border-slate-800">
+                        {/* Products visual thumbnails pile */}
+                        <div 
+                          onClick={() => toggleExpandOrder(order.id)} 
+                          className="flex -space-x-2.5 sm:-space-x-3.5 space-x-reverse overflow-hidden shrink-0 cursor-pointer group"
+                          title="انقر لإظهار كافة المنتجات"
                         >
-                          <RotateCw size={15}/>
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const supplier = settings.suppliers.find(s => s.id === order.supplierId);
-                            const dateStr = new Date(order.date).toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                            
-                            const html = `
-                              <!DOCTYPE html>
-                              <html dir="rtl" lang="ar">
-                              <head>
-                                <meta charset="utf-8">
-                                <title>فاتورة شراء توريد - ${order.referenceNumber || order.id}</title>
-                                <style>
-                                  body { font-family: 'Cairo', system-ui, sans-serif; padding: 30px; color: #1e293b; line-height: 1.6; }
-                                  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 30px; }
-                                  .header-info h1 { font-size: 24px; font-weight: 900; margin: 0; color: #0f172a; }
-                                  .header-info p { margin: 5px 0 0; font-size: 13px; color: #64748b; font-weight: bold; }
-                                  .meta-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 40px; margin-bottom: 30px; }
-                                  .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 15px; }
-                                  .meta-label { font-size: 11px; font-weight: 900; color: #94a3b8; text-transform: uppercase; margin-bottom: 5px; }
-                                  .meta-val { font-size: 14px; font-weight: 800; color: #334155; }
-                                  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                                  th { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 12px; text-align: right; font-size: 12px; font-weight: 900; }
-                                  td { border: 1px solid #f1f5f9; padding: 12px; font-size: 12px; }
-                                  .text-center { text-align: center; }
-                                  .text-left { text-align: left; font-family: monospace; }
-                                  .footer-stats { margin-top: 30px; border-top: 2px solid #0f172a; pt: 20px; }
-                                  .stat-row { display: flex; justify-content: flex-end; gap: 50px; padding: 10px 0; }
-                                  .stat-label { font-weight: bold; color: #64748b; }
-                                  .stat-val { font-weight: 900; color: #0f172a; min-width: 120px; text-align: left; font-family: monospace; font-size: 15px; }
-                                  .grand-total { border-top: 1px dashed #e2e8f0; margin-top: 5px; padding-top: 15px; }
-                                  .grand-total .stat-val { color: #059669; font-size: 20px; }
-                                  @media print { .no-print { display: none; } body { padding: 0; } }
-                                </style>
-                              </head>
-                              <body>
-                                <div class="header">
-                                  <div class="header-info">
-                                    <h1>فاتورة شراء بضائع / إذن استلام مخزني</h1>
-                                    <p>نظام إدارة المخازن والتوريد الذكي</p>
-                                  </div>
-                                  <div style="text-align: left;">
-                                    <div style="font-weight: 900; font-size: 18px; color: #6366f1;"># ${order.referenceNumber || order.id}</div>
-                                    <div style="font-size: 11px; color: #94a3b8; font-weight: bold; margin-top: 4px;">تاريخ التوريد: ${new Date(order.date).toLocaleDateString('ar-EG')}</div>
-                                  </div>
-                                </div>
+                          {order.items.slice(0, 4).map((item, i) => {
+                            const product = settings.products.find(p => p.id === item.productId);
+                            return (
+                              <div key={i} className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-slate-900 bg-slate-50 dark:bg-slate-800 overflow-hidden shadow-sm shrink-0 flex items-center justify-center transition-transform group-hover:scale-105">
+                                {product?.thumbnail ? (
+                                  <img src={product.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : <Package size={14} className="text-slate-400" />}
+                              </div>
+                            );
+                          })}
+                          {order.items.length > 4 && (
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border-2 border-white dark:border-slate-900 bg-slate-150 dark:bg-slate-700 flex items-center justify-center text-[10px] sm:text-xs font-black text-slate-600 dark:text-slate-300 shrink-0">
+                              +{order.items.length - 4}
+                            </div>
+                          )}
+                        </div>
 
-                                <div class="meta-grid">
-                                  <div class="meta-box">
-                                    <div class="meta-label">بيانات المورد والشريك المالي:</div>
-                                    <div class="meta-val">${supplier?.name || 'مورد عام'}</div>
-                                    <div class="meta-val" style="font-size: 12px; margin-top: 5px; color: #64748b;">${supplier?.phone || '-'}</div>
-                                  </div>
-                                  <div class="meta-box">
-                                    <div class="meta-label">بروتوكول السداد ومصدر التمويل:</div>
-                                    <div class="meta-val">
-                                      ${order.paymentMethod === 'credit' ? `آجل مديونية (${(order.isPaid || !!autoPaidOrdersMap.get(order.id)) ? 'مسددة' : 'غير مسددة'})` : order.paymentMethod === 'partner' ? 'تمويل شركاء' : order.paymentMethod === 'custody' ? 'سداد عهدة شخصية' :  order.paymentMethod === 'treasury' ? 'تمويل من الخزينة' : 'نقدي (كاش)'}
-                                    </div>
-                                    <div class="meta-val" style="font-size: 11px; margin-top: 5px; color: #64748b;">الحالة: مُعتمدة ومُرحلة للمخازن</div>
-                                  </div>
-                                </div>
+                        <div className="text-left select-none">
+                          <div className="font-black text-xl sm:text-2xl text-emerald-600 dark:text-emerald-500 tracking-tight">
+                            {(order.grandTotal || order.totalCost).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-bold flex flex-col items-start lg:items-end mt-0.5">
+                            <span>
+                              {order.items.length} أصناف (بضاعة: <strong className="text-slate-700 dark:text-slate-300 font-mono">{calcOrderItemsSubtotal.toLocaleString()} ج.م</strong>)
+                            </span>
+                            {(order.shippingFees || 0) > 0 && <span className="text-[9px] text-indigo-400 font-mono">شحن: +{Number(order.shippingFees).toLocaleString()} ج.م</span>}
+                            {(order.otherFees || 0) > 0 && <span className="text-[9px] text-amber-500 font-mono">رسوم إضافية: +{Number(order.otherFees).toLocaleString()} ج.م</span>}
+                            {order.items.some(i => (i.damagedQuantity || 0) > 0) && (
+                              <span className="text-[9px] text-rose-500 font-black animate-pulse flex items-center gap-1 mt-0.5">
+                                <AlertCircle size={10} />
+                                يوجد سلع تالفة ({order.items.reduce((s, i) => s + (i.damagedQuantity || 0), 0)})
+                              </span>
+                            )}
+                          </div>
+                        </div>
 
-                                <table>
-                                  <thead>
-                                    <tr>
-                                      <th>مسلسل</th>
-                                      <th>اسم المنتج / الصنف</th>
-                                      <th class="text-center">الكمية</th>
-                                      <th class="text-center">بونص</th>
-                                      <th class="text-center">سعر التكلفة</th>
-                                      <th class="text-center">الخصم</th>
-                                      <th class="text-left">الإجمالي الصافي</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    ${order.items.map((item, idx) => {
-                                      const lineTotal = (item.cost * (item.quantity || 0)) - (item.discountType === 'percentage' ? (item.cost * (item.quantity || 0) * (item.discountValue || 0) / 100) : ((item.discountValue || 0) * (item.quantity || 0)));
-                                      return `
-                                        <tr>
-                                          <td>${idx + 1}</td>
-                                          <td><strong>${item.name}</strong></td>
-                                          <td class="text-center">${item.quantity} قطعة</td>
-                                          <td class="text-center">${item.bonusQuantity || 0}</td>
-                                          <td class="text-center">${item.cost.toLocaleString()} ج.م</td>
-                                          <td class="text-center">
-                                            ${item.discountValue ? `${item.discountValue}${item.discountType === 'percentage' ? '%' : ' ج.م'}` : '-'}
-                                          </td>
-                                          <td class="text-left">${lineTotal.toLocaleString()} ج.م</td>
-                                        </tr>
-                                      `;
-                                    }).join('')}
-                                  </tbody>
-                                </table>
-
-                                <div class="footer-stats">
-                                  <div class="stat-row">
-                                    <div class="stat-label">إجمالي البضاعة (Subtotal):</div>
-                                    <div class="stat-val">${((order.grandTotal || order.totalCost) - (order.shippingFees || 0) - (order.otherFees || 0) - (order.taxAmount || 0)).toLocaleString()} ج.م</div>
-                                  </div>
-                                  ${(order.shippingFees || 0) > 0 ? `
-                                    <div class="stat-row">
-                                      <div class="stat-label">مصاريف الشحن والنقل:</div>
-                                      <div class="stat-val">+ ${order.shippingFees?.toLocaleString()} ج.م</div>
-                                    </div>
-                                  ` : ''}
-                                  ${(order.taxAmount || 0) > 0 ? `
-                                    <div class="stat-row">
-                                      <div class="stat-label">الضرائب المضافة (${order.taxRate}%):</div>
-                                      <div class="stat-val">+ ${order.taxAmount?.toLocaleString()} ج.م</div>
-                                    </div>
-                                  ` : ''}
-                                  <div class="stat-row grand-total">
-                                    <div class="stat-label" style="font-size: 16px; color: #0f172a;">الإجمالي النهائي المستحق:</div>
-                                    <div class="stat-val">${(order.grandTotal || order.totalCost).toLocaleString()} ج.م</div>
-                                  </div>
-                                </div>
-
-                                <div style="margin-top: 80px; display: grid; grid-template-cols: 1fr 1fr; gap: 100px; font-size: 13px; text-align: center;">
-                                  <div>
-                                    <div style="font-weight: bold; margin-bottom: 50px;">توقيع مأمور الاستلام (المخازن)</div>
-                                    <div style="border-top: 1px solid #e2e8f0; width: 200px; margin: 0 auto;"></div>
-                                  </div>
-                                  <div>
-                                    <div style="font-weight: bold; margin-bottom: 50px;">اعتماد المدير المالي / المالك</div>
-                                    <div style="border-top: 1px solid #e2e8f0; width: 200px; margin: 0 auto;"></div>
-                                  </div>
-                                </div>
-
-                                <div style="margin-top: 60px; text-align: center; color: #94a3b8; font-size: 10px; font-weight: bold; border-top: 1px solid #f1f5f9; padding-top: 20px;">
-                                  تم استخراج هذه الفاتورة آلياً بواسطة نظام مدير الأوردرات الذكي بتاريخ ${dateStr}
-                                </div>
-                              </body>
-                              </html>
-                            `;
-                            
-                            const prt = window.open('', '_blank');
-                            if (prt) {
-                              prt.document.write(html);
-                              prt.document.close();
-                              setTimeout(() => prt.print(), 500);
-                            }
-                          }} 
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
-                          title="طباعة هذه الفاتورة"
-                        >
-                          <Printer size={15}/>
-                        </button>
-                        <button 
-                          onClick={() => startEditOrder(order)} 
-                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
-                          title="تعديل هذا الأمر"
-                        >
-                          <Edit2 size={15}/>
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteOrder(order)} 
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
-                          title="حذف هذا الأمر"
-                        >
-                          <Trash2 size={15}/>
-                        </button>
+                        <div className="flex gap-1 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-100/50 dark:border-slate-800/40 shrink-0">
+                          <button 
+                            onClick={() => setViewingOrderDetails(order)} 
+                            className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                            title="عرض تفاصيل الفاتورة الشاملة بالكامل"
+                          >
+                            <Eye size={15}/>
+                          </button>
+                          <button 
+                            onClick={() => toggleExpandOrder(order.id)} 
+                            className={`p-2 rounded-xl transition-all cursor-pointer ${isExpanded ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/50' : 'text-slate-400 hover:text-slate-600 hover:bg-white dark:hover:bg-slate-700/60'}`}
+                            title={isExpanded ? 'إخفاء أصناف الفاتورة' : 'إظهار أصناف الفاتورة في السطر'}
+                          >
+                            {isExpanded ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+                          </button>
+                          <button 
+                            onClick={() => startReturnFromOrder(order)} 
+                            className="p-2 text-slate-400 hover:text-amber-500 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                            title="إرجاع منتجات من هذه الفاتورة"
+                          >
+                            <RotateCw size={15}/>
+                          </button>
+                          <button 
+                            onClick={() => {
+                              const html = generateSupplyOrderInvoiceHTML(order, settings, autoPaidOrdersMap);
+                              const prt = window.open('', '_blank');
+                              if (prt) {
+                                prt.document.write(html);
+                                prt.document.close();
+                                setTimeout(() => prt.print(), 500);
+                              }
+                            }} 
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                            title="طباعة هذه الفاتورة الشاملة"
+                          >
+                            <Printer size={15}/>
+                          </button>
+                          <button 
+                            onClick={() => startEditOrder(order)} 
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                            title="تعديل هذا الأمر"
+                          >
+                            <Edit2 size={15}/>
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteOrder(order)} 
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-white dark:hover:bg-slate-700/60 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
+                            title="حذف هذا الأمر"
+                          >
+                            <Trash2 size={15}/>
+                          </button>
+                        </div>
                       </div>
                     </div>
+
+                    {/* Expandable Inline Items Table */}
+                    {isExpanded && (
+                      <div className="bg-slate-50/80 dark:bg-slate-850/60 border-t border-slate-100 dark:border-slate-800 p-4 sm:p-6 space-y-4 animate-fadeIn">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                            <Package size={14} className="text-indigo-500" />
+                            تفاصيل أصناف أمر التوريد ({order.items.length} أصناف)
+                          </h4>
+                          <button
+                            onClick={() => setViewingOrderDetails(order)}
+                            className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <Eye size={13} />
+                            فتح النموج الكامل بالفاتورة
+                          </button>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900 shadow-sm">
+                          <table className="w-full text-right text-xs">
+                            <thead className="bg-slate-100/70 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold text-[11px]">
+                              <tr>
+                                <th className="p-2.5 text-center w-10">م</th>
+                                <th className="p-2.5">المنتج / الصنف</th>
+                                <th className="p-2.5 text-center">الكمية المستلمة</th>
+                                <th className="p-2.5 text-center">البونص</th>
+                                <th className="p-2.5 text-center">تكلفة الوحدة</th>
+                                <th className="p-2.5 text-center">الخصم</th>
+                                <th className="p-2.5 text-center">المرتجع</th>
+                                <th className="p-2.5 text-left">الإجمالي الصافي</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                              {order.items.map((item, idx) => {
+                                const prod = settings.products.find(p => p.id === item.productId);
+                                const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null)
+                                  ? Number(item.receivedQuantity)
+                                  : (Number(item.quantity) || 0);
+                                const bonus = Number(item.bonusQuantity) || 0;
+                                const cost = Number(item.cost) || 0;
+                                const discountVal = Number(item.discountValue) || 0;
+                                const discountAmt = discountVal ? (item.discountType === 'percentage' ? (cost * discountVal / 100) : discountVal) : 0;
+                                const netUnitCost = Math.max(0, cost - discountAmt);
+                                const totalQty = qty + bonus;
+                                const isInvoiceReturn = Boolean(item.isReturn);
+                                const returnedQty = isInvoiceReturn ? totalQty : (Number(item.returnedQuantity) || 0);
+                                const billableQty = isInvoiceReturn ? 0 : Math.max(0, totalQty - returnedQty);
+                                const lineNet = isInvoiceReturn ? -(totalQty * netUnitCost) : (billableQty * netUnitCost);
+
+                                return (
+                                  <tr key={idx} className={isInvoiceReturn ? 'bg-rose-50/50 dark:bg-rose-950/20' : ''}>
+                                    <td className="p-2.5 text-center font-bold text-slate-400">{idx + 1}</td>
+                                    <td className="p-2.5">
+                                      <div className="flex items-center gap-2">
+                                        {prod?.thumbnail ? (
+                                          <img src={prod.thumbnail} className="w-7 h-7 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0" referrerPolicy="no-referrer" />
+                                        ) : (
+                                          <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                            <Package size={12} className="text-slate-400" />
+                                          </div>
+                                        )}
+                                        <div>
+                                          <span className="font-extrabold block text-slate-900 dark:text-white leading-tight">{item.name || prod?.name || 'منتج'}</span>
+                                          {(item.sku || prod?.sku) && <span className="text-[10px] text-slate-400 font-mono block">SKU: {item.sku || prod?.sku}</span>}
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="p-2.5 text-center font-bold">{qty} قطعة</td>
+                                    <td className="p-2.5 text-center font-bold text-emerald-600">{bonus > 0 ? `+${bonus}` : '-'}</td>
+                                    <td className="p-2.5 text-center font-mono font-bold">{cost.toLocaleString()} ج.م</td>
+                                    <td className="p-2.5 text-center font-bold text-emerald-600">
+                                      {discountVal > 0 ? `${discountVal}${item.discountType === 'percentage' ? '%' : ' ج.م'}` : '-'}
+                                    </td>
+                                    <td className="p-2.5 text-center font-bold text-rose-500">
+                                      {returnedQty > 0 ? `${returnedQty} قطعة` : '-'}
+                                    </td>
+                                    <td className="p-2.5 text-left font-mono font-black text-indigo-600 dark:text-indigo-400">
+                                      {lineNet.toLocaleString()} ج.م
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Order Math Summary Footer Bar */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs">
+                          <div className="flex flex-wrap items-center gap-4 text-slate-600 dark:text-slate-400 font-bold">
+                            <span>عدد الأصناف: <strong className="text-slate-900 dark:text-white">{order.items.length}</strong></span>
+                            <span>إجمالي البضاعة الأصناف: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{calcOrderItemsSubtotal.toLocaleString()} ج.م</strong></span>
+                            {(order.shippingFees || 0) > 0 && <span>مصاريف شحن: <strong className="text-indigo-600 font-mono">+{Number(order.shippingFees).toLocaleString()} ج.م</strong></span>}
+                            {(order.otherFees || 0) > 0 && <span>رسوم إضافية: <strong className="text-amber-600 font-mono">+{Number(order.otherFees).toLocaleString()} ج.م</strong></span>}
+                            {(order.taxAmount || 0) > 0 && <span>ضريبة: <strong className="text-blue-600 font-mono">+{Number(order.taxAmount).toLocaleString()} ج.م</strong></span>}
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40">
+                            <span className="font-extrabold text-slate-700 dark:text-slate-200">الإجمالي الصافي النهائي:</span>
+                            <span className="font-black text-base text-emerald-600 dark:text-emerald-400 font-mono">
+                              {(order.grandTotal || order.totalCost).toLocaleString()} ج.م
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -2682,8 +2712,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block">رأس مال البضاعة</span>
-                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-                  {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+                  {showInventoryValue ? <Eye size={16} className="text-emerald-600 dark:text-emerald-400" /> : <EyeOff size={16} className="text-slate-400" />}
                 </button>
               </div>
               <div className="flex items-center gap-2">
@@ -2705,8 +2735,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold block">العائد المتوقع للبيع</span>
-                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-                  {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+                  {showInventoryValue ? <Eye size={16} className="text-teal-600 dark:text-teal-400" /> : <EyeOff size={16} className="text-slate-400" />}
                 </button>
               </div>
               <div className="flex items-center gap-2">
@@ -2728,8 +2758,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/50 dark:border-slate-800 shadow-sm">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[10px] text-slate-455 dark:text-slate-500 font-bold block">صافي الجدوى الربحية</span>
-                <button onClick={toggleInventoryValue} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title={showInventoryValue ? "إخفاء" : "إظهار"}>
-                  {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+                  {showInventoryValue ? <Eye size={16} className="text-indigo-600 dark:text-indigo-400" /> : <EyeOff size={16} className="text-slate-400" />}
                 </button>
               </div>
               <div className="flex items-center gap-2">
@@ -3814,6 +3844,315 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                 >
                   <Check size={16}/>
                   <span>تأكيد تسجيل السداد وخصم المديونية</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comprehensive Supply Order Full Details Modal */}
+      {viewingOrderDetails && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-3xl overflow-hidden shadow-2xl border border-slate-200/80 dark:border-slate-800 my-auto flex flex-col max-h-[92vh]">
+            
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white p-5 sm:p-6 flex items-center justify-between border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-indigo-600/30 text-indigo-400 rounded-2xl border border-indigo-500/30">
+                  <Eye size={22} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black leading-tight flex items-center gap-2">
+                    فاتورة أمر توريد بضاعة شاملة
+                    {viewingOrderDetails.referenceNumber && (
+                      <span className="text-xs bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2.5 py-0.5 rounded-full font-mono dir-ltr">
+                        #{viewingOrderDetails.referenceNumber}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5 flex items-center gap-2">
+                    <Calendar size={13} />
+                    تاريخ التوريد: {new Date(viewingOrderDetails.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setViewingOrderDetails(null)}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content - Scrollable */}
+            <div className="p-5 sm:p-6 space-y-6 overflow-y-auto text-right text-slate-800 dark:text-slate-200">
+              
+              {/* Top Summary Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Supplier Info */}
+                {(() => {
+                  const supp = settings.suppliers.find(s => s.id === viewingOrderDetails.supplierId);
+                  return (
+                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+                      <span className="text-[10px] font-black text-slate-400 block mb-1">بيانات المورد</span>
+                      <span className="font-extrabold text-sm block text-slate-900 dark:text-white">{supp?.name || 'مورد غير معروف'}</span>
+                      {supp?.phone && <span className="text-xs text-slate-500 block mt-0.5 font-mono dir-ltr text-right">{supp.phone}</span>}
+                    </div>
+                  );
+                })()}
+
+                {/* Warehouse Info */}
+                {(() => {
+                  const warehouseList = Array.isArray(settings?.warehouses) ? settings.warehouses : Object.values(settings?.warehouses || {});
+                  const wh: any = warehouseList.find((w: any) => String(w.id) === String(viewingOrderDetails.warehouseId));
+                  return (
+                    <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/40">
+                      <span className="text-[10px] font-black text-indigo-500 block mb-1">المستودع المستقبل</span>
+                      <span className="font-extrabold text-sm block text-indigo-950 dark:text-indigo-200">{wh?.name || 'المستودع الرئيسي'}</span>
+                      {wh?.location && <span className="text-xs text-indigo-600/80 dark:text-indigo-400 block mt-0.5">{wh.location}</span>}
+                    </div>
+                  );
+                })()}
+
+                {/* Payment Protocol */}
+                <div className="p-3.5 bg-emerald-50/50 dark:bg-emerald-950/20 rounded-2xl border border-emerald-100 dark:border-emerald-900/40">
+                  <span className="text-[10px] font-black text-emerald-600 block mb-1">طريقة وسداد التمويل</span>
+                  <span className="font-extrabold text-sm block text-emerald-950 dark:text-emerald-200">
+                    {viewingOrderDetails.paymentMethod === 'credit' ? 'آجل مديونية مورد' :
+                     viewingOrderDetails.paymentMethod === 'partner' ? 'تمويل شركاء' :
+                     viewingOrderDetails.paymentMethod === 'custody' ? 'عهدة شخصية' :
+                     viewingOrderDetails.paymentMethod === 'treasury' ? 'حساب خزينة / بنك' : 'مدفوعة كاش من المحفظة'}
+                  </span>
+                  <span className="text-xs text-emerald-700 dark:text-emerald-400 block mt-0.5 font-bold">
+                    {viewingOrderDetails.isPaid ? 'حالة السداد: مسددة بالكامل ✅' : 'حالة السداد: معلقة / مديونية ⏳'}
+                  </span>
+                </div>
+
+                {/* Costing Rule */}
+                <div className="p-3.5 bg-blue-50/50 dark:bg-blue-950/20 rounded-2xl border border-blue-100 dark:border-blue-900/40">
+                  <span className="text-[10px] font-black text-blue-500 block mb-1">نظام التسعير المطبق</span>
+                  <span className="font-extrabold text-sm block text-blue-950 dark:text-blue-200">
+                    {viewingOrderDetails.costUpdateMethod === 'weighted_average' ? 'المتوسط المرجح (WAC)' : 'آخر شراء مباشر'}
+                  </span>
+                  <span className="text-xs text-blue-600/80 dark:text-blue-400 block mt-0.5">تحديث أسعار تكلفة الأصناف تلقائياً</span>
+                </div>
+              </div>
+
+              {/* Items Table Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Package size={16} className="text-indigo-600" />
+                    جدول كافة المنتجات والمواد الواردة بالفاتورة ({viewingOrderDetails.items.length} أصناف)
+                  </h4>
+                </div>
+
+                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black text-[11px]">
+                      <tr>
+                        <th className="p-3 text-center w-12">#</th>
+                        <th className="p-3">بيانات الصنف والرمز</th>
+                        <th className="p-3 text-center">الكمية المستلمة</th>
+                        <th className="p-3 text-center">البونص المجاني</th>
+                        <th className="p-3 text-center">سعر التكلفة للوحدة</th>
+                        <th className="p-3 text-center">الخصم المطبق</th>
+                        <th className="p-3 text-center">الصافي للوحدة</th>
+                        <th className="p-3 text-center">الكمية المرتجعة</th>
+                        <th className="p-3 text-left">إجمالي الصنف</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-800 dark:text-slate-200 font-medium">
+                      {viewingOrderDetails.items.map((item, idx) => {
+                        const prod = settings.products.find(p => p.id === item.productId);
+                        const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null)
+                          ? Number(item.receivedQuantity)
+                          : (Number(item.quantity) || 0);
+                        const bonus = Number(item.bonusQuantity) || 0;
+                        const cost = Number(item.cost) || 0;
+                        const discountVal = Number(item.discountValue) || 0;
+                        const discountAmt = discountVal ? (item.discountType === 'percentage' ? (cost * discountVal / 100) : discountVal) : 0;
+                        const netUnitCost = Math.max(0, cost - discountAmt);
+                        const totalQty = qty + bonus;
+                        const isInvoiceReturn = Boolean(item.isReturn);
+                        const returnedQty = isInvoiceReturn ? totalQty : (Number(item.returnedQuantity) || 0);
+                        const billableQty = isInvoiceReturn ? 0 : Math.max(0, totalQty - returnedQty);
+                        const lineNet = isInvoiceReturn ? -(totalQty * netUnitCost) : (billableQty * netUnitCost);
+
+                        return (
+                          <tr key={idx} className={isInvoiceReturn ? 'bg-rose-50/60 dark:bg-rose-950/30' : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50'}>
+                            <td className="p-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-2.5">
+                                {prod?.thumbnail ? (
+                                  <img src={prod.thumbnail} className="w-8 h-8 rounded-xl object-cover border border-slate-200 dark:border-slate-700 shrink-0" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                    <Package size={15} className="text-slate-400" />
+                                  </div>
+                                )}
+                                <div>
+                                  <span className="font-extrabold block text-slate-900 dark:text-white text-xs leading-tight">{item.name || prod?.name || 'صنف'}</span>
+                                  {(item.sku || prod?.sku) && <span className="text-[10px] text-slate-400 font-mono block">SKU: {item.sku || prod?.sku}</span>}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3 text-center font-extrabold text-slate-900 dark:text-white">{qty} قطعة</td>
+                            <td className="p-3 text-center font-extrabold text-emerald-600">{bonus > 0 ? `+${bonus}` : '-'}</td>
+                            <td className="p-3 text-center font-mono font-bold">{cost.toLocaleString()} ج.م</td>
+                            <td className="p-3 text-center font-bold text-emerald-600">
+                              {discountVal > 0 ? `${discountVal}${item.discountType === 'percentage' ? '%' : ' ج.م'}` : '-'}
+                            </td>
+                            <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                              {netUnitCost.toLocaleString()} ج.م
+                            </td>
+                            <td className="p-3 text-center font-bold text-rose-500">
+                              {returnedQty > 0 ? `${returnedQty} قطعة` : '-'}
+                            </td>
+                            <td className="p-3 text-left font-mono font-black text-slate-900 dark:text-white">
+                              {lineNet.toLocaleString()} ج.م
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Complete Math & Fees Detailed Breakdown */}
+              {(() => {
+                const viewingOrderItemsSubtotal = (viewingOrderDetails.items || []).reduce((sum, item) => {
+                  const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null)
+                    ? Number(item.receivedQuantity)
+                    : (Number(item.quantity) || 0);
+                  const bonus = Number(item.bonusQuantity) || 0;
+                  const unitCost = Number(item.cost) || 0;
+                  const discountVal = Number(item.discountValue) || 0;
+                  const discountAmt = discountVal ? (item.discountType === 'percentage' ? (unitCost * discountVal / 100) : discountVal) : 0;
+                  const netUnitCost = Math.max(0, unitCost - discountAmt);
+                  const isInvoiceReturn = Boolean(item.isReturn);
+                  const totalQty = qty + bonus;
+                  const returnedQty = isInvoiceReturn ? totalQty : (Number(item.returnedQuantity) || 0);
+                  const billableQty = isInvoiceReturn ? 0 : Math.max(0, totalQty - returnedQty);
+                  const lineNet = isInvoiceReturn ? -(totalQty * netUnitCost) : (billableQty * netUnitCost);
+                  return sum + lineNet;
+                }, 0);
+
+                const shipping = Number(viewingOrderDetails.shippingFees || 0);
+                const otherFees = Number(viewingOrderDetails.otherFees || 0);
+                const tax = Number(viewingOrderDetails.taxAmount || 0);
+                const totalFees = shipping + otherFees + tax;
+                const grandTotal = viewingOrderDetails.grandTotal || viewingOrderDetails.totalCost || (viewingOrderItemsSubtotal + totalFees);
+
+                return (
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-3">
+                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+                      التحليل المالي والحسابي الدقيق للفاتورة:
+                    </h4>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-400 font-medium">
+                          <span>إجمالي قيمة الأصناف والمنتجات (الصافي):</span>
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            {viewingOrderItemsSubtotal.toLocaleString()} ج.م
+                          </span>
+                        </div>
+
+                        {shipping > 0 && (
+                          <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-medium">
+                            <span>مصاريف الشحن والنقل (+):</span>
+                            <span className="font-mono font-bold">
+                              +{shipping.toLocaleString()} ج.م
+                            </span>
+                          </div>
+                        )}
+
+                        {otherFees > 0 && (
+                          <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 font-medium">
+                            <span>مصاريف إضافية ورسوم أخرى (+):</span>
+                            <span className="font-mono font-bold">
+                              +{otherFees.toLocaleString()} ج.م
+                            </span>
+                          </div>
+                        )}
+
+                        {tax > 0 && (
+                          <div className="flex justify-between items-center text-blue-600 dark:text-blue-400 font-medium">
+                            <span>الضرائب المضافة (+):</span>
+                            <span className="font-mono font-bold">
+                              +{tax.toLocaleString()} ج.م
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 flex flex-col justify-center">
+                        <div className="text-[11px] font-bold text-slate-400 block mb-1">إجمالي الفاتورة النهائي المستحق:</div>
+                        <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                          {grandTotal.toLocaleString()} <span className="text-xs font-bold">ج.م</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-bold mt-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                          💡 التفكيك المالي: ({viewingOrderItemsSubtotal.toLocaleString()} ج.م بضاعة {totalFees > 0 ? `+ ${totalFees.toLocaleString()} ج.م رسوم/مصاريف` : ''} = {grandTotal.toLocaleString()} ج.م الإجمالي)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Notes Section if available */}
+                    {(viewingOrderDetails.notes || viewingOrderDetails.shippingFeesNote || viewingOrderDetails.otherFeesNote) && (
+                      <div className="bg-amber-50/60 dark:bg-amber-950/20 p-3.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40 text-xs space-y-1">
+                        <span className="font-black text-amber-800 dark:text-amber-300 block mb-1">الملاحظات المسجلة:</span>
+                        {viewingOrderDetails.notes && <p className="text-slate-700 dark:text-slate-300 font-medium">• ملاحظات الفاتورة: {viewingOrderDetails.notes}</p>}
+                        {viewingOrderDetails.shippingFeesNote && <p className="text-slate-700 dark:text-slate-300 font-medium">• ملاحظة الشحن: {viewingOrderDetails.shippingFeesNote}</p>}
+                        {viewingOrderDetails.otherFeesNote && <p className="text-slate-700 dark:text-slate-300 font-medium">• ملاحظة المصاريف الأخرى: {viewingOrderDetails.otherFeesNote}</p>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const html = generateSupplyOrderInvoiceHTML(viewingOrderDetails, settings, autoPaidOrdersMap);
+                  const prt = window.open('', '_blank');
+                  if (prt) {
+                    prt.document.write(html);
+                    prt.document.close();
+                    setTimeout(() => prt.print(), 500);
+                  }
+                }}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-black text-xs hover:bg-indigo-700 transition-all cursor-pointer inline-flex items-center gap-2 shadow-sm"
+              >
+                <Printer size={16} />
+                طباعة الفاتورة الشاملة
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const orderToEdit = viewingOrderDetails;
+                    setViewingOrderDetails(null);
+                    startEditOrder(orderToEdit);
+                  }}
+                  className="px-4 py-2.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-extrabold text-xs hover:bg-slate-300 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Edit2 size={14} />
+                  تعديل هذا الأمر
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingOrderDetails(null)}
+                  className="px-5 py-2.5 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 rounded-xl font-black text-xs hover:bg-slate-800 transition-all cursor-pointer"
+                >
+                  إغلاق
                 </button>
               </div>
             </div>

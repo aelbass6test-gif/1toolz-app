@@ -1429,10 +1429,10 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   </p>
                   <button
                     onClick={toggleInventoryValue}
-                    className="p-1 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+                    className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     title={showInventoryValue ? "إخفاء قيمة البضاعة المتاحة في المخزن" : "إظهار قيمة البضاعة المتاحة في المخزن"}
                   >
-                    {showInventoryValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showInventoryValue ? <Eye size={16} className="text-amber-600 dark:text-amber-400" /> : <EyeOff size={16} className="text-slate-400" />}
                   </button>
                 </div>
                 {showInventoryValue ? (

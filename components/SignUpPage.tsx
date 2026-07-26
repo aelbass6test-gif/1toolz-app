@@ -659,10 +659,41 @@ ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalSystemQty" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalActualQty" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceQty" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceValue" NUMERIC DEFAULT 0;
+
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "transferNumber" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "sourceWarehouseId" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "destinationWarehouseId" TEXT;
+ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
+
 ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "returnNumber" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "orderId" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "totalRefund" NUMERIC DEFAULT 0;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "restockItems" BOOLEAN DEFAULT true;
+ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
+
 ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "returnNumber" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "supplierName" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "totalRefundAmount" NUMERIC DEFAULT 0;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
+ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
+
 ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "userId" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "userName" TEXT;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "currentBalance" NUMERIC DEFAULT 0;
+ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "lastUpdated" TEXT;
 ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;

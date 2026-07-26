@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 
 export const useInventoryVisibility = () => {
     const [showInventoryValue, setShowInventoryValue] = useState<boolean>(() => {
-        return localStorage.getItem('show_inventory_value') !== 'false';
+        const val = localStorage.getItem('show_inventory_value');
+        if (val === null) return true;
+        return val !== 'false';
     });
 
     useEffect(() => {
         const handleToggle = () => {
-            setShowInventoryValue(localStorage.getItem('show_inventory_value') !== 'false');
+            const val = localStorage.getItem('show_inventory_value');
+            setShowInventoryValue(val === null ? true : val !== 'false');
         };
         window.addEventListener('inventory_value_toggled', handleToggle);
         return () => window.removeEventListener('inventory_value_toggled', handleToggle);
@@ -26,5 +29,6 @@ export const useInventoryVisibility = () => {
 };
 
 export const getShowInventoryValue = (): boolean => {
-    return localStorage.getItem('show_inventory_value') !== 'false';
+    const val = localStorage.getItem('show_inventory_value');
+    return val === null ? true : val !== 'false';
 };

@@ -1,4 +1,4 @@
-import { Order, Settings, Wallet, Treasury } from '../types';
+import { Order, Settings, Wallet, Treasury, SupplyOrder } from '../types';
 import { EGYPT_GOVERNORATES } from '../constants';
 
 export const isBosta = (companyName: string): boolean => {
@@ -767,3 +767,313 @@ export const calculateWalletLiveBalance = (wallet?: Wallet, treasury?: Treasury)
         return sum;
     }, 0);
 };
+
+export const generateSupplyOrderInvoiceHTML = (order: SupplyOrder, settings: Settings, autoPaidOrdersMap?: Map<string, boolean>): string => {
+  const supplierList = Array.isArray(settings?.suppliers) ? settings.suppliers : Object.values(settings?.suppliers || {});
+  const supplier: any = supplierList.find((s: any) => String(s.id) === String(order.supplierId));
+  
+  const warehouseList = Array.isArray(settings?.warehouses) ? settings.warehouses : Object.values(settings?.warehouses || {});
+  const warehouse: any = warehouseList.find((w: any) => String(w.id) === String(order.warehouseId));
+  
+  const partnerList = Array.isArray(settings?.partners) ? settings.partners : Object.values(settings?.partners || {});
+  const treasuryList = Array.isArray((settings as any)?.treasuryAccounts) ? (settings as any).treasuryAccounts : Object.values((settings as any)?.treasuryAccounts || {});
+  const cashHolderList = Array.isArray(settings?.cashHolders) ? settings.cashHolders : Object.values(settings?.cashHolders || {});
+  const productList = Array.isArray(settings?.products) ? settings.products : Object.values(settings?.products || {});
+
+  const dateStr = new Date(order.date).toLocaleDateString('ar-EG', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  // Calculate payment protocol details
+  let paymentText = 'نقدي (كاش)';
+  const isPaid = order.isPaid || (autoPaidOrdersMap && autoPaidOrdersMap.get(order.id));
+  
+  if (order.paymentMethod === 'credit') {
+    paymentText = `آجل مديونية (${isPaid ? 'مسددة بالكامل' : 'غير مسددة / قائمة'})`;
+  } else if (order.paymentMethod === 'partner') {
+    const parts = order.partnerPayments?.map((p: any) => {
+      const pt: any = partnerList.find((x: any) => String(x.id) === String(p.partnerId));
+      return `${pt?.name || 'شريك'}: ${Number(p.amount || 0).toLocaleString()} ج.م`;
+    }).join(' + ');
+    paymentText = `تمويل شركاء ${parts ? `[${parts}]` : ''}`;
+  } else if (order.paymentMethod === 'treasury') {
+    const tr: any = treasuryList.find((t: any) => String(t.id) === String(order.treasuryAccountId));
+    paymentText = `تمويل الخزينة / البنك ${tr ? `[${tr.name}]` : ''}`;
+  } else if (order.paymentMethod === 'custody') {
+    const custs = order.custodyPayments?.map((c: any) => {
+      const h: any = cashHolderList.find((x: any) => String(x.id) === String(c.cashHolderId));
+      return `${h?.name || 'عهدة'}: ${Number(c.amount || 0).toLocaleString()} ج.م`;
+    }).join(' + ');
+    paymentText = `سداد عهدة شخصية ${custs ? `[${custs}]` : ''}`;
+  } else if (order.paymentMethod === 'supply_wallet') {
+    paymentText = 'خصم من محفظة التوريد الخاصة بالمورد';
+  }
+
+  // Items table generation
+  let grossPurchases = 0;
+  let purchaseDiscounts = 0;
+  let totalReturnsDeducted = 0;
+
+  const itemRowsHTML = (order.items || []).map((item: any, idx: number) => {
+    const prod: any = productList.find((p: any) => String(p.id) === String(item.productId));
+    const sku = item.sku || prod?.sku || '';
+    const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null)
+      ? Number(item.receivedQuantity)
+      : (Number(item.quantity) || 0);
+    const bonus = Number(item.bonusQuantity) || 0;
+    const totalQty = qty + bonus;
+    const unitCost = Number(item.cost) || 0;
+
+    const discountVal = Number(item.discountValue) || 0;
+    const discountAmt = discountVal ? (item.discountType === 'percentage' ? (unitCost * discountVal / 100) : discountVal) : 0;
+    const netUnitCost = Math.max(0, unitCost - discountAmt);
+
+    const isInvoiceReturn = Boolean(item.isReturn);
+    const returnedQty = isInvoiceReturn ? totalQty : (Number(item.returnedQuantity) || 0);
+
+    let lineNet = 0;
+    if (isInvoiceReturn) {
+      lineNet = -(totalQty * netUnitCost);
+      totalReturnsDeducted += totalQty * netUnitCost;
+    } else {
+      grossPurchases += totalQty * unitCost;
+      purchaseDiscounts += discountAmt * totalQty;
+      totalReturnsDeducted += returnedQty * netUnitCost;
+      const billableQty = Math.max(0, totalQty - returnedQty);
+      lineNet = billableQty * netUnitCost;
+    }
+
+    return `
+      <tr style="${isInvoiceReturn ? 'background-color: #fff1f2;' : (idx % 2 === 1 ? 'background-color: #f8fafc;' : '')}">
+        <td style="text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
+        <td>
+          <div style="font-weight: 800; color: #0f172a; font-size: 13px;">${item.name || prod?.name || 'منتج'}</div>
+          ${sku ? `<div style="font-size: 10px; color: #64748b; font-family: monospace;">كود الصنف: ${sku}</div>` : ''}
+          ${isInvoiceReturn ? `<span style="display:inline-block; padding: 2px 6px; background:#fecdd3; color:#9f1239; font-size:10px; font-weight:bold; border-radius:4px; margin-top:3px;">صنف مرتجع بالكامل</span>` : ''}
+          ${!isInvoiceReturn && returnedQty > 0 ? `<span style="display:inline-block; padding: 2px 6px; background:#fef3c7; color:#92400e; font-size:10px; font-weight:bold; border-radius:4px; margin-top:3px;">مرتجع جزئي: ${returnedQty} قطعة</span>` : ''}
+        </td>
+        <td style="text-align: center; font-weight: bold; color: #1e293b;">${qty} قطعة</td>
+        <td style="text-align: center;">${bonus > 0 ? `<strong style="color:#059669;">+${bonus}</strong>` : '<span style="color:#cbd5e1;">0</span>'}</td>
+        <td style="text-align: center; font-family: monospace; font-weight: 700;">${unitCost.toLocaleString()} ج.م</td>
+        <td style="text-align: center;">
+          ${discountVal > 0 ? `
+            <span style="color: #059669; font-weight: bold;">${discountVal}${item.discountType === 'percentage' ? '%' : ' ج.م'}</span>
+            <div style="font-size: 10px; color: #94a3b8; font-family: monospace;">(-${(discountAmt * totalQty).toLocaleString()} ج.م)</div>
+          ` : '<span style="color:#cbd5e1;">-</span>'}
+        </td>
+        <td style="text-align: center;">
+          ${returnedQty > 0 || isInvoiceReturn ? `
+            <span style="color: #e11d48; font-weight: bold;">${returnedQty} قطعة</span>
+            <div style="font-size: 10px; color: #e11d48; font-family: monospace;">(-${(returnedQty * netUnitCost).toLocaleString()} ج.م)</div>
+          ` : '<span style="color:#cbd5e1;">-</span>'}
+        </td>
+        <td style="text-align: left; font-family: monospace; font-weight: 900; ${lineNet < 0 ? 'color: #e11d48;' : 'color: #4338ca;'}">
+          ${lineNet.toLocaleString()} ج.م
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const shipping = Number(order.shippingFees || 0);
+  const shippingNote = order.shippingFeesNote;
+  const shippingPayment = order.shippingFeesPaymentMethod === 'wallet' ? 'يدفع من المحفظة (غير محمل على دين الفاتورة)' : 'مضاف على قيمة الفاتورة';
+  const otherFees = Number(order.otherFees || 0);
+  const otherFeesNote = order.otherFeesNote;
+  const tax = Number(order.taxAmount || 0);
+
+  const netItemsSubtotal = grossPurchases - purchaseDiscounts - totalReturnsDeducted;
+  const calculatedSubtotal = Math.max(0, netItemsSubtotal + shipping + otherFees + tax);
+  const finalGrandTotal = order.grandTotal || order.totalCost || calculatedSubtotal;
+
+  const unallocatedExpenses = Math.max(0, finalGrandTotal - calculatedSubtotal);
+  const unallocatedDiscount = Math.max(0, calculatedSubtotal - finalGrandTotal);
+
+  return `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="utf-8">
+      <title>فاتورة شراء توريد - #${order.referenceNumber || order.orderNumber || order.id}</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+        body { font-family: 'Cairo', system-ui, -apple-system, sans-serif; padding: 30px; color: #0f172a; line-height: 1.6; background-color: #f8fafc; }
+        .invoice-card { max-width: 920px; margin: 0 auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 20px; padding: 35px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 25px; }
+        .header-info h1 { font-size: 24px; font-weight: 900; margin: 0; color: #0f172a; letter-spacing: -0.5px; }
+        .header-info p { margin: 4px 0 0; font-size: 13px; color: #64748b; font-weight: 700; }
+        .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
+        .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; }
+        .meta-label { font-size: 11px; font-weight: 900; color: #64748b; text-transform: uppercase; margin-bottom: 4px; }
+        .meta-val { font-size: 13px; font-weight: 800; color: #0f172a; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 25px; }
+        th { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px 8px; text-align: right; font-size: 11px; font-weight: 900; color: #334155; }
+        td { border: 1px solid #e2e8f0; padding: 10px 8px; font-size: 12px; }
+        .footer-stats { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 14px; padding: 22px; margin-top: 20px; }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; }
+        .stat-label { font-weight: 700; color: #475569; }
+        .stat-val { font-weight: 900; color: #0f172a; font-family: monospace; font-size: 14px; }
+        .grand-total { border-top: 2px solid #0f172a; margin-top: 12px; padding-top: 14px; }
+        .grand-total .stat-label { font-size: 16px; color: #0f172a; font-weight: 900; }
+        .grand-total .stat-val { color: #4338ca; font-size: 22px; font-weight: 900; }
+        .notes-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 14px; margin-top: 20px; font-size: 12px; color: #92400e; }
+        .signatures { margin-top: 50px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; font-size: 12px; text-align: center; }
+        .sig-line { border-top: 1px dashed #94a3b8; width: 80%; margin: 45px auto 0; }
+        @media print {
+          body { padding: 0; background: #ffffff; }
+          .invoice-card { border: none; box-shadow: none; padding: 0; max-width: 100%; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="invoice-card">
+        <div class="header">
+          <div class="header-info">
+            <h1>فاتورة شراء بضائع / إذن استلام مخزني</h1>
+            <p>نظام إدارة المخازن والتوريد والمالية الذكي</p>
+          </div>
+          <div style="text-align: left;">
+            <div style="font-weight: 900; font-size: 20px; color: #4338ca;"># ${order.referenceNumber || order.orderNumber || order.id}</div>
+            <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-top: 4px;">تاريخ التوريد: ${dateStr}</div>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-box">
+            <div class="meta-label">بيانات المورد والشريك المالي:</div>
+            <div class="meta-val">${supplier?.name || 'مورد عام'}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 3px;">الهاتف: ${supplier?.phone || '-'}</div>
+            ${supplier?.address ? `<div style="font-size: 11px; color: #64748b;">العنوان: ${supplier.address}</div>` : ''}
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">المخزن المستلم والحالة:</div>
+            <div class="meta-val">${warehouse?.name || 'المخزن الرئيسي'}</div>
+            <div style="font-size: 11px; color: #059669; font-weight: 800; margin-top: 3px;">الحالة: مُعتمدة ومُرحلة للمخازن</div>
+          </div>
+          <div class="meta-box">
+            <div class="meta-label">بروتوكول السداد ومصدر التمويل:</div>
+            <div class="meta-val" style="font-size: 12px;">${paymentText}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 35px; text-align: center;">م</th>
+              <th>اسم الصنف / المنتج</th>
+              <th style="text-align: center;">الكمية المستلمة</th>
+              <th style="text-align: center;">بونص</th>
+              <th style="text-align: center;">سعر التكلفة</th>
+              <th style="text-align: center;">الخصم</th>
+              <th style="text-align: center;">المرتجع</th>
+              <th style="text-align: left;">الإجمالي الصافي</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRowsHTML}
+          </tbody>
+        </table>
+
+        <div class="footer-stats">
+          <div class="stat-row">
+            <span class="stat-label">إجمالي قيمة المشتريات (قبل الخصم والمرتجع):</span>
+            <span class="stat-val">${grossPurchases.toLocaleString()} ج.م</span>
+          </div>
+
+          ${purchaseDiscounts > 0 ? `
+            <div class="stat-row" style="color: #059669;">
+              <span class="stat-label" style="color: #059669;">إجمالي الخصومات المطبقة على الأصناف:</span>
+              <span class="stat-val">- ${purchaseDiscounts.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          ${totalReturnsDeducted > 0 ? `
+            <div class="stat-row" style="color: #e11d48;">
+              <span class="stat-label" style="color: #e11d48;">إجمالي قيمة المرتجعات المخصومة من الفاتورة:</span>
+              <span class="stat-val">- ${totalReturnsDeducted.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          <div class="stat-row" style="border-top: 1px dashed #cbd5e1; padding-top: 8px;">
+            <span class="stat-label">صافي قيمة الأصناف والمنتجات:</span>
+            <span class="stat-val">${netItemsSubtotal.toLocaleString()} ج.م</span>
+          </div>
+
+          ${shipping > 0 ? `
+            <div class="stat-row">
+              <span class="stat-label">مصاريف الشحن والنقل ${shippingNote ? `(${shippingNote})` : ''} - [${shippingPayment}]:</span>
+              <span class="stat-val">+ ${shipping.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          ${otherFees > 0 ? `
+            <div class="stat-row" style="color: #d97706;">
+              <span class="stat-label" style="color: #d97706;">مصاريف أخرى / إضافية ${otherFeesNote ? `(${otherFeesNote})` : ''}:</span>
+              <span class="stat-val">+ ${otherFees.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          ${unallocatedExpenses > 0 ? `
+            <div class="stat-row" style="color: #d97706;">
+              <span class="stat-label" style="color: #d97706;">مصاريف إضافية محملة على الفاتورة:</span>
+              <span class="stat-val">+ ${unallocatedExpenses.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          ${unallocatedDiscount > 0 ? `
+            <div class="stat-row" style="color: #059669;">
+              <span class="stat-label" style="color: #059669;">خصم إضافي شامل على الفاتورة:</span>
+              <span class="stat-val">- ${unallocatedDiscount.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          ${tax > 0 ? `
+            <div class="stat-row">
+              <span class="stat-label">الضرائب المضافة والرسوم (${order.taxRate || 0}%):</span>
+              <span class="stat-val">+ ${tax.toLocaleString()} ج.م</span>
+            </div>
+          ` : ''}
+
+          <div class="stat-row grand-total">
+            <span class="stat-label">الإجمالي الصافي النهائي المستحق للفاتورة:</span>
+            <span class="stat-val">${finalGrandTotal.toLocaleString()} ج.م</span>
+          </div>
+        </div>
+
+        ${order.notes || order.shippingFeesNote || order.otherFeesNote ? `
+          <div class="notes-box">
+            <strong style="display:block; margin-bottom:4px;">ملاحظات وتفاصيل إضافية:</strong>
+            ${order.notes ? `<div>- ${order.notes}</div>` : ''}
+            ${order.shippingFeesNote ? `<div>- ملاحظة الشحن والنقل: ${order.shippingFeesNote}</div>` : ''}
+            ${order.otherFeesNote ? `<div>- ملاحظة المصاريف الإضافية: ${order.otherFeesNote}</div>` : ''}
+          </div>
+        ` : ''}
+
+        <div class="signatures">
+          <div>
+            <div style="font-weight: 800; color: #334155;">توقيع مأمور الاستلام (المخازن)</div>
+            <div class="sig-line"></div>
+          </div>
+          <div>
+            <div style="font-weight: 800; color: #334155;">توقيع المحاسب / المراجع</div>
+            <div class="sig-line"></div>
+          </div>
+          <div>
+            <div style="font-weight: 800; color: #334155;">اعتماد المدير المالي / المالك</div>
+            <div class="sig-line"></div>
+          </div>
+        </div>
+
+        <div style="margin-top: 40px; text-align: center; color: #94a3b8; font-size: 10px; font-weight: bold; border-top: 1px solid #f1f5f9; padding-top: 15px;">
+          تم استخراج هذه الفاتورة الشاملة آلياً بواسطة نظام إدارة المشتريات والمخازن الذكي بتاريخ ${dateStr}
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+};
+
