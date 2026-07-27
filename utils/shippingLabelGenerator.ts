@@ -19,6 +19,10 @@ export const generateShippingLabelHTML = (order: Order, storeName: string, setti
   const isCOD = order.paymentMethod?.toLowerCase().includes('cod') || !order.paymentMethod;
   const amountToCollect = isCOD ? totalAmount : 0;
 
+  const senderBrand = order.merchantBrandName?.trim() || storeName;
+  const senderPhone = order.merchantBrandPhone?.trim() || "";
+  const isDropshipBrand = !!order.merchantBrandName?.trim();
+
   return `
   <!DOCTYPE html>
   <html lang="ar" dir="rtl">
@@ -46,7 +50,9 @@ export const generateShippingLabelHTML = (order: Order, storeName: string, setti
   <body>
     <div class="label-container">
       <div class="header">
-        <h1>${storeName}</h1>
+        <h1>${senderBrand}</h1>
+        ${senderPhone ? `<p style="font-size: 11px; font-weight: bold; margin: 2px 0;">هاتف الراسل: ${senderPhone}</p>` : ''}
+        ${isDropshipBrand ? `<p style="font-size: 9px; margin: 1px 0; background: #eee; padding: 2px 5px; border-radius: 4px; display: inline-block;">(شحن باسم البراند المعتمد)</p>` : ''}
         <p>${new Date(order.date).toLocaleDateString('ar-EG')}</p>
       </div>
       <div class="content">

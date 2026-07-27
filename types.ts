@@ -429,10 +429,14 @@ export interface Partner {
 export interface PartnerTransaction {
   id: string;
   partnerId: string;
-  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment' | 'pos_collection' | 'internal_transfer_out' | 'internal_transfer_in';
+  partnerName?: string;
+  type: 'loan' | 'capital_addition' | 'profit_withdrawal' | 'repayment' | 'supply_funding' | 'profit_distribution' | 'shipping_funding' | 'customer_advance' | 'expense_coverage' | 'expense_repayment' | 'pos_collection' | 'internal_transfer_out' | 'internal_transfer_in' | 'wallet_withdrawal' | 'personal_withdrawal' | string;
   amount: number;
   date: string;
   note?: string;
+  notes?: string;
+  description?: string;
+  category?: string;
   treasuryAccountId?: string;
 }
 
@@ -1144,6 +1148,10 @@ export interface Order {
   shipmentType?: 'delivery' | 'partial_delivery' | 'exchange' | 'return' | 'cash_collection' | 'maintenance_pickup' | 'maintenance_return';
   maintenanceCost?: number;
   maintenanceItemDescription?: string;
+  merchantBrandName?: string;
+  merchantBrandPhone?: string;
+  externalProfitMarkup?: number;
+  isExternalDropship?: boolean;
   maintenanceItemSerial?: string;
   maintenanceItemValue?: number;
   maintenanceTechnicalReport?: string;

@@ -55,7 +55,19 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                     <CheckCircle size={40} />
                 </div>
                 <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-3">تم إنشاء الطلب بنجاح!</h2>
-                <p className="text-slate-500 dark:text-slate-400 mb-6">ملخص الطلب المالي للعميل <span className="font-bold text-slate-700 dark:text-slate-200">{order.customerName}</span></p>
+                <p className="text-slate-500 dark:text-slate-400 mb-4">ملخص الطلب المالي للعميل <span className="font-bold text-slate-700 dark:text-slate-200">{order.customerName}</span></p>
+
+                {order.merchantBrandName?.trim() && (
+                    <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl text-right flex items-center justify-between">
+                        <div>
+                            <span className="text-[10px] font-bold text-amber-800 dark:text-amber-400 block">شحن لحساب براند خارجي (White Label):</span>
+                            <span className="text-xs font-black text-amber-900 dark:text-amber-200">{order.merchantBrandName} {order.merchantBrandPhone ? `(${order.merchantBrandPhone})` : ''}</span>
+                        </div>
+                        <span className="px-2 py-1 bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 rounded-lg text-[10px] font-black">
+                            الراسل المطبوع
+                        </span>
+                    </div>
+                )}
                 <div className="space-y-3 text-right bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700">
                     <div className="flex justify-between items-center text-sm">
                         <span className="font-bold text-slate-500">إجمالي المنتجات:</span>

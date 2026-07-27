@@ -58,6 +58,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: `${storePrefix}/create-order`, label: 'إنشاء طلب جديد', icon: <Plus size={18} /> },
                 { to: `${storePrefix}/orders`, label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={18} /> },
                 { 
+                    to: `${storePrefix}/dropshipping`, 
+                    label: 'الدروب شيبنج والشحن الخارجي', 
+                    icon: <Package size={18} />,
+                    badge: { text: "White Label 📦", color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/10 text-[9px] font-bold" } 
+                },
+                { 
                     to: `${storePrefix}/confirmation-queue`, 
                     label: 'تأكيد الطلبات والمعالجة', 
                     icon: <PhoneForwarded size={18} />,

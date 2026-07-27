@@ -30,7 +30,15 @@ export const getOrderProductCost = (order: Order, settings?: Settings): number =
     }
     if (order.items && order.items.length > 0) {
         return order.items.reduce((sum, item) => {
-            const cost = settings ? (getLatestProductCost(item.productId, settings) || item.cost || 0) : (item.cost || 0);
+            const isExternalItem = (item as any).isExternal || item.productId?.startsWith('external-') || item.productId?.startsWith('custom-');
+            let cost = 0;
+            if (item.cost !== undefined && item.cost !== null && (item.cost > 0 || isExternalItem)) {
+                cost = item.cost;
+            } else if (settings) {
+                cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            } else {
+                cost = item.cost || 0;
+            }
             return sum + (cost * (item.quantity || 1));
         }, 0);
     }
@@ -464,7 +472,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
     closingDifference = netRevenueCollected - baseExpectedRevenueWithFees;
 
     // Calculate profit based on base expected revenue (without manual differences)
-    profit = totalRevenueForProfit - carrierFees - productCostCalculated;
+    const extraMarkup = Number((order as any).externalProfitMarkup) || Number((order as any).dropshipCommission) || 0;
+    profit = totalRevenueForProfit - carrierFees - productCostCalculated + extraMarkup;
 
     // If there is manual settlement/closure and closing difference is negative, deduct it from profit
     const isManualSettlement = order.totalAmountOverride !== undefined && 

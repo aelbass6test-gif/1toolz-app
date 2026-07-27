@@ -125,12 +125,18 @@ export const generateProductLogPrintHTML = (
     }, 0);
 
     const rowTotal = itemInfo.reduce((sum: number, item: any) => {
-      const c = type === 'purchase' ? (item.cost || 0) : (item.costPrice || item.cost || 0);
-      const q = type === 'purchase' 
-        ? ((item.receivedQuantity !== undefined && item.receivedQuantity !== null) 
-            ? Number(item.receivedQuantity) 
-            : (Number(item.quantity) || 0)) + (Number(item.bonusQuantity) || 0)
-        : (item.quantity || 0);
+      if (type === 'purchase') {
+        const rawCost = Number(item.cost) || 0;
+        const discountVal = Number(item.discountValue) || 0;
+        const discountAmt = discountVal ? (item.discountType === 'percentage' ? (rawCost * discountVal / 100) : discountVal) : 0;
+        const netUnitCost = Math.max(0, rawCost - discountAmt);
+        const paidQty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null) 
+          ? Number(item.receivedQuantity) 
+          : (Number(item.quantity) || 0);
+        return sum + (paidQty * netUnitCost);
+      }
+      const c = Number(item.costPrice || item.cost) || 0;
+      const q = Number(item.quantity) || 0;
       return sum + (c * q);
     }, 0);
 
@@ -615,14 +621,22 @@ export const ProductSalesLogModal: React.FC<ProductSalesLogModalProps> = ({
           if (totalQty > 0) {
             purchaseItems.push(item);
             qtyPurchased += totalQty;
-            cost += (item.cost || 0) * totalQty;
+            const rawCost = Number(item.cost) || 0;
+            const discountVal = Number(item.discountValue) || 0;
+            const discountAmt = discountVal ? (item.discountType === 'percentage' ? (rawCost * discountVal / 100) : discountVal) : 0;
+            const netUnitCost = Math.max(0, rawCost - discountAmt);
+            cost += qty * netUnitCost;
           }
 
           if (item.returnedQuantity && Number(item.returnedQuantity) > 0) {
+            const rawCost = Number(item.cost) || 0;
+            const discountVal = Number(item.discountValue) || 0;
+            const discountAmt = discountVal ? (item.discountType === 'percentage' ? (rawCost * discountVal / 100) : discountVal) : 0;
+            const netUnitCost = Math.max(0, rawCost - discountAmt);
             orderReturnItems.push({
               ...item,
               quantity: Number(item.returnedQuantity),
-              costPrice: item.cost || 0
+              costPrice: netUnitCost
             });
           }
         }
@@ -1117,12 +1131,18 @@ export const ProductSalesLogModal: React.FC<ProductSalesLogModalProps> = ({
                                     return sum + (item.quantity || 0);
                                 }, 0);
                                 const rowTotal = itemInfo.reduce((sum: number, item: any) => {
-                                    const c = type === 'purchase' ? (item.cost || 0) : (item.costPrice || item.cost || 0);
-                                    const q = type === 'purchase' 
-                                        ? ((item.receivedQuantity !== undefined && item.receivedQuantity !== null) 
+                                    if (type === 'purchase') {
+                                        const rawCost = Number(item.cost) || 0;
+                                        const discountVal = Number(item.discountValue) || 0;
+                                        const discountAmt = discountVal ? (item.discountType === 'percentage' ? (rawCost * discountVal / 100) : discountVal) : 0;
+                                        const netUnitCost = Math.max(0, rawCost - discountAmt);
+                                        const paidQty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null) 
                                             ? Number(item.receivedQuantity) 
-                                            : (Number(item.quantity) || 0)) + (Number(item.bonusQuantity) || 0)
-                                        : (item.quantity || 0);
+                                            : (Number(item.quantity) || 0);
+                                        return sum + (paidQty * netUnitCost);
+                                    }
+                                    const c = Number(item.costPrice || item.cost) || 0;
+                                    const q = Number(item.quantity) || 0;
                                     return sum + (c * q);
                                 }, 0);
 

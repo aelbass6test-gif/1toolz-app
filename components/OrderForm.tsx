@@ -64,7 +64,8 @@ import {
   ArrowLeftCircle,
   Edit3,
   Lock,
-  Unlock
+  Unlock,
+  Store
 } from "lucide-react";
 import {
   Order,
@@ -72,7 +73,6 @@ import {
   OrderItem,
   Product,
   CustomerProfile,
-  Store,
   User,
   OrderStatus,
   PreparationStatus,
@@ -1622,56 +1622,58 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </div>
           </div>
 
-          {/* Quick Filter Tabs */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setProductFilterTab("all")}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                productFilterTab === "all"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-              }`}
-            >
-              <Package size={14} />
-              <span>الكل ({productsList.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setProductFilterTab("in_stock")}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                productFilterTab === "in_stock"
-                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-              }`}
-            >
-              <CheckCircle size={14} />
-              <span>متوفر بالمخزون</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setProductFilterTab("variants")}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                productFilterTab === "variants"
-                  ? "bg-violet-600 text-white shadow-md shadow-violet-500/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-              }`}
-            >
-              <Layers size={14} />
-              <span>منتجات بمتغيرات</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setProductFilterTab("low_stock")}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                productFilterTab === "low_stock"
-                  ? "bg-amber-600 text-white shadow-md shadow-amber-500/20"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
-              }`}
-            >
-              <AlertTriangle size={14} />
-              <span>مخزون منخفض/نفد</span>
-            </button>
+          {/* Quick Filter Tabs & Add External Product */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setProductFilterTab("all")}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  productFilterTab === "all"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                }`}
+              >
+                <Package size={14} />
+                <span>الكل ({productsList.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductFilterTab("in_stock")}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  productFilterTab === "in_stock"
+                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                }`}
+              >
+                <CheckCircle size={14} />
+                <span>متوفر بالمخزون</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductFilterTab("variants")}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  productFilterTab === "variants"
+                    ? "bg-violet-600 text-white shadow-md shadow-violet-500/20"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                }`}
+              >
+                <Layers size={14} />
+                <span>منتجات بمتغيرات</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setProductFilterTab("low_stock")}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                  productFilterTab === "low_stock"
+                    ? "bg-amber-600 text-white shadow-md shadow-amber-500/20"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                }`}
+              >
+                <AlertTriangle size={14} />
+                <span>مخزون منخفض/نفد</span>
+              </button>
+            </div>
           </div>
 
           {/* Products Grid */}
@@ -1882,6 +1884,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   ? itemPrice * itemQty * (itemDiscountVal / 100)
                   : itemDiscountVal * itemQty;
                 const itemTotal = (itemPrice * itemQty) - itemDiscount;
+                const itemCost = Number(item.cost || 0);
+                const itemProfit = itemTotal - (itemCost * itemQty);
+                const isExt = (item as any).isExternal || item.productId?.startsWith("external-") || item.productId?.startsWith("custom-");
 
                 return (
                   <div
@@ -1894,23 +1899,34 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         {item.thumbnail ? (
                           <img src={item.thumbnail} alt={item.name} className="w-full h-full object-cover" />
                         ) : (
-                          <Package size={22} className="text-slate-400" />
+                          <Package size={22} className={isExt ? "text-amber-500" : "text-slate-400"} />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <h4 className="font-black text-sm text-slate-800 dark:text-white truncate">{item.name}</h4>
-                        {item.variantDescription && (
-                          <span className="inline-block px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded text-[10px] font-extrabold mt-1">
-                            {item.variantDescription}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {isExt && (
+                            <span className="inline-block px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded text-[10px] font-black">
+                              📦 دروب شيبنج / صنف خارجي (بدون مخزون)
+                            </span>
+                          )}
+                          {item.variantDescription && (
+                            <span className="inline-block px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded text-[10px] font-extrabold">
+                              {item.variantDescription}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-1 font-mono flex items-center gap-2">
+                          <span>الوزن: {item.weight || 0} كجم</span>
+                          <span>|</span>
+                          <span className={itemProfit >= 0 ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-rose-600 font-bold"}>
+                            مكسب الصنف: {Math.round(itemProfit).toLocaleString("ar-EG")} ج.م
                           </span>
-                        )}
-                        <div className="text-[11px] text-slate-400 mt-1 font-mono">
-                          الوزن: {item.weight || 0} كجم | التكلفة: {item.cost || 0} ج.م
                         </div>
                       </div>
                     </div>
 
-                    {/* Quantity Controls */}
+                    {/* Quantity & Price Controls */}
                     <div className="flex flex-wrap items-center gap-3 sm:gap-4 shrink-0">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-slate-400 block text-center">الكمية</label>
@@ -1940,13 +1956,25 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       </div>
 
                       <div className="space-y-1 w-24">
-                        <label className="text-[10px] font-bold text-slate-400 block text-center">سعر الوحدة (ج.م)</label>
+                        <label className="text-[10px] font-bold text-slate-400 block text-center">سعر البيع (ج.م)</label>
                         <input
                           type="number"
                           step="0.5"
                           value={itemPrice}
                           onChange={(e) => handleItemChange(index, "price", parseFloat(e.target.value) || 0)}
                           className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center font-mono outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1 w-24">
+                        <label className="text-[10px] font-bold text-amber-600 dark:text-amber-400 block text-center">التكلفة (ج.م)</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          placeholder="0"
+                          value={item.cost !== undefined && item.cost !== null ? item.cost : ""}
+                          onChange={(e) => handleItemChange(index, "cost", parseFloat(e.target.value) || 0)}
+                          className="w-full p-2 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-bold text-center font-mono outline-none focus:border-amber-500 text-amber-900 dark:text-amber-200"
                         />
                       </div>
 

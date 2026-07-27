@@ -14,6 +14,10 @@ import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { useLocalStorage } from '../src/hooks/useLocalStorage';
 import { shareReport } from '../services/reportShareService';
 
+const normalizeName = (name: string): string => {
+    return (name || '').trim().toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+};
+
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 interface ReportsPageProps {
@@ -56,6 +60,89 @@ const ReportCard: React.FC<{ title: string; value: string; icon: React.ReactNode
                 <div className={`p-3 rounded-xl ${currentColors.bg} ${currentColors.text}`}>
                     {icon}
                 </div>
+            </div>
+        </div>
+    );
+};
+
+const PartnerWithdrawalBreakdown = ({ partner, settings }: { partner: any; settings: Settings }) => {
+    const allTxs = settings.partnerTransactions || [];
+    const normPName = normalizeName(partner.name);
+    
+    const partnerTxs = allTxs.filter(t => {
+        const matchesId = t.partnerId === partner.id || t.partnerId === `part_${partner.id}` || t.partnerId === `partner_${partner.id}`;
+        const matchesName = t.partnerName && normalizeName(t.partnerName) === normPName;
+        const matchesNote = t.notes && normalizeName(t.notes).includes(normPName);
+        return matchesId || matchesName || matchesNote;
+    });
+
+    const withdrawalTxs = partnerTxs.filter(t => 
+        ['profit_withdrawal', 'loan', 'profit_distribution', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
+        (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage')
+    );
+
+    if (withdrawalTxs.length === 0) {
+        return (
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl text-center text-xs text-slate-400">
+                لا توجد مسحوبات أو سلف تفصيلية مسجلة للشريك {partner.name}.
+            </div>
+        );
+    }
+
+    const totalAmt = withdrawalTxs.reduce((s, t) => s + (t.amount || 0), 0);
+
+    return (
+        <div className="p-4 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 rounded-2xl space-y-3 my-2 text-right">
+            <div className="flex justify-between items-center text-xs font-black text-rose-800 dark:text-rose-300 pb-2 border-b border-rose-200/50 dark:border-rose-900/40">
+                <span>تفاصيل مسحوبات وسلف الشريك ({partner.name})</span>
+                <span className="text-xs font-mono font-black text-rose-600 dark:text-rose-400">
+                    الإجمالي: -{totalAmt.toLocaleString()} ج.م
+                </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {withdrawalTxs.map(t => {
+                    const notes = t.notes || t.description || t.category || t.note || '';
+                    const notesNorm = normalizeName(notes);
+                    
+                    let badge = 'مسحوبات';
+                    let badgeClass = 'bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 border-rose-200';
+
+                    if (t.type === 'loan' || notesNorm.includes('سلفة') || notesNorm.includes('سلفه')) {
+                        badge = 'سلفة';
+                        badgeClass = 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-200';
+                    } else if (t.type === 'wallet_withdrawal' || notesNorm.includes('محفظة') || notesNorm.includes('سحب محفظة') || notesNorm.includes('بنك')) {
+                        badge = 'سحب محفظة';
+                        badgeClass = 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border-emerald-200';
+                    } else if (t.type === 'profit_withdrawal') {
+                        badge = 'سحب أرباح';
+                        badgeClass = 'bg-sky-100 dark:bg-sky-900/50 text-sky-800 dark:text-sky-300 border-sky-200';
+                    } else if (t.type === 'profit_distribution') {
+                        badge = 'توزيع أرباح';
+                        badgeClass = 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300 border-purple-200';
+                    }
+
+                    const displayNote = notes || (badge === 'سلفة' ? 'مسحوبات شخصية' : 'مسحوبات شريك');
+                    const dateStr = t.date ? new Date(t.date).toLocaleDateString('ar-EG') : '---';
+
+                    return (
+                        <div key={t.id} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex justify-between items-center gap-2">
+                            <div className="space-y-1 text-right min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeClass}`}>
+                                        {badge}
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                                        {displayNote}
+                                    </span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-medium">📅 {dateStr}</p>
+                            </div>
+                            <span className="font-mono font-black text-rose-600 dark:text-rose-400 text-xs whitespace-nowrap">
+                                -{Number(t.amount || 0).toLocaleString()} ج.م
+                            </span>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
@@ -276,6 +363,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
     };
 
     const [isExporting, setIsExporting] = useState(false);
+    const [expandedPartnerId, setExpandedPartnerId] = useState<string | null>(null);
     const reportRef = React.useRef<HTMLDivElement>(null);
 
     const handleExportPDF = async () => {
@@ -1126,6 +1214,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [expandedPartnerId, setExpandedPartnerId] = useState<string | null>(null);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
     const [isSharing, setIsSharing] = useState(false);
     const [shareLink, setShareLink] = useState<string | null>(null);
@@ -2010,19 +2099,36 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 {stats.partnerPerformance.length === 0 ? (
                                     <tr><td colSpan={7} className="text-center py-8 text-slate-400">لا يوجد شركاء مسجلين.</td></tr>
                                 ) : (
-                                    stats.partnerPerformance.map(p => (
-                                        <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                            <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">{p.name}</td>
-                                            <td className="px-4 py-3"><span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
-                                            <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-4 py-3 font-mono text-red-600">-{p.netLoan.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
-                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '0'}</td>
-                                            <td className={`px-4 py-3 font-black ${p.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
-                                            </td>
-                                        </tr>
-                                    ))
+                                    stats.partnerPerformance.map(p => {
+                                        const isExpanded = expandedPartnerId === p.id;
+                                        return (
+                                            <React.Fragment key={p.id}>
+                                                <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" onClick={() => setExpandedPartnerId(isExpanded ? null : p.id)}>
+                                                    <td className="px-4 py-3 font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                                        <span className="text-xs text-indigo-500 font-mono">{isExpanded ? '▼' : '◀'}</span>
+                                                        {p.name}
+                                                    </td>
+                                                    <td className="px-4 py-3"><span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
+                                                    <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                                    <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                                    <td className="px-4 py-3 font-mono text-red-600 font-bold hover:underline" title="انقر لعرض تفاصيل المسحوبات">
+                                                        -{p.netLoan.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '0'}</td>
+                                                    <td className={`px-4 py-3 font-black ${p.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                        {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                                                    </td>
+                                                </tr>
+                                                {isExpanded && (
+                                                    <tr>
+                                                        <td colSpan={7} className="px-4 py-2 bg-slate-50/80 dark:bg-slate-900/50">
+                                                            <PartnerWithdrawalBreakdown partner={p} settings={settings} />
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

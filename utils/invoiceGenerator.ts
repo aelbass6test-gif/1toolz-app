@@ -3,6 +3,9 @@ import { Order, Settings, OrderItem } from '../types';
 import { getAdvancePaymentCustodyName } from './financials';
 
 export const generateInvoiceHTML = (order: Order, settings: Settings, storeName: string) => {
+  const senderBrand = order.merchantBrandName?.trim() || storeName;
+  const senderPhone = order.merchantBrandPhone?.trim() || "";
+
   const itemDiscounts = order.items.reduce((sum, item) => {
     let discount = 0;
     if (item.discountValue) {
@@ -79,7 +82,11 @@ export const generateInvoiceHTML = (order: Order, settings: Settings, storeName:
       <div class="invoice-container">
         <div class="header">
           <div class="store-info">
-            ${settings.customization.logoUrl ? `<img src="${settings.customization.logoUrl}" class="logo" alt="Logo">` : `<h1>${storeName}</h1>`}
+            ${order.merchantBrandName?.trim() ? `
+              <h1 style="margin: 0; font-size: 24px; color: ${settings.customization.primaryColor};">${senderBrand}</h1>
+              ${senderPhone ? `<p style="margin: 3px 0; font-size: 13px; font-weight: bold; color: #444;">هاتف البراند: ${senderPhone}</p>` : ''}
+              <p style="margin: 2px 0; font-size: 10px; color: #888; text-transform: uppercase;">(فاتورة شحن براند خارجي / دروب شيبنج)</p>
+            ` : (settings.customization.logoUrl ? `<img src="${settings.customization.logoUrl}" class="logo" alt="Logo">` : `<h1>${storeName}</h1>`)}
             <p style="margin:5px 0 0; font-size:12px; color:#777;">${settings.customization.footerText}</p>
           </div>
           <div style="text-align: left;">

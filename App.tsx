@@ -84,6 +84,8 @@ import ComingSoonPage from './components/ComingSoonPage';
 import AppsPage from './components/AppsPage';
 import UniversalInstallPrompt from './components/UniversalInstallPrompt';
 import { FailedDeliveryCompensationPage } from './components/FailedDeliveryCompensationPage';
+import { DropshippingPage } from './components/DropshippingPage';
+import CreateDropshippingOrderPage from './components/CreateDropshippingOrderPage';
 
 interface EmployeeRegisterRequestData {
   fullName: string;
@@ -2837,6 +2839,8 @@ export const AppComponent = () => {
                     <Route path="maintenance" element={<MaintenancePage currentStoreId={activeStoreId!} settings={pageProps.settings} setSettings={pageProps.setSettings} customers={pageProps.customers} setCustomers={pageProps.setCustomers} products={pageProps.products} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} setOrders={pageProps.setOrders} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
+                    <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
+                    <Route path="dropshipping/new" element={<CreateDropshippingOrderPage {...pageProps} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />} />
                     <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} />} />

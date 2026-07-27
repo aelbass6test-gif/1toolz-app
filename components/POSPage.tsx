@@ -34,13 +34,63 @@ import {
   Check,
   Copy,
   ArrowLeft,
-  DollarSign
+  DollarSign,
+  Share2,
+  MessageSquare,
+  Flame,
+  Volume2,
+  VolumeX,
+  PlusCircle,
+  SlidersHorizontal
 } from 'lucide-react';
 import { Settings, Product, ProductVariant, POSSale, POSSaleItem, Order, Wallet as WalletType, Transaction, Treasury } from '../types';
 
 import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { triggerCelebration } from '../utils/celebration';
+
+// Audio Feedback helper for POS Cashier
+const playBeep = (type: 'add' | 'scan' | 'success' | 'delete' = 'add') => {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === 'add') {
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } else if (type === 'scan') {
+      osc.frequency.setValueAtTime(1000, ctx.currentTime);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    } else if (type === 'success') {
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+      osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.07);
+      osc.frequency.setValueAtTime(783.99, ctx.currentTime + 0.14);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    } else if (type === 'delete') {
+      osc.frequency.setValueAtTime(400, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.1);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.1);
+    }
+  } catch {
+    // Audio unsupported or blocked
+  }
+};
 
 const normalizeName = (name: string): string => {
   if (!name) return '';
@@ -118,6 +168,13 @@ const POSPage: React.FC<POSPageProps> = (props) => {
   const [activeTab, setActiveTab] = useState<'checkout' | 'history'>('checkout');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
 
+  // Audio Feedback Toggle
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+
+  // Custom Item Modal State
+  const [showCustomItemModal, setShowCustomItemModal] = useState(false);
+  const [customItemData, setCustomItemData] = useState({ name: '', price: '', quantity: 1, cost: 0 });
+
   // Cashier Calculator (الباقي والدفع)
   const [paidCashAmount, setPaidCashAmount] = useState<number | ''>('');
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
@@ -179,7 +236,8 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     const totalAmount = todaySales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
     return {
       count: todaySales.length,
-      revenue: totalAmount
+      revenue: totalAmount,
+      avgTicket: todaySales.length > 0 ? Math.round(totalAmount / todaySales.length) : 0
     };
   }, [settings.posSales]);
 
@@ -231,6 +289,8 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     if (selectedCategory !== 'all') {
       if (selectedCategory === 'low_stock') {
         list = list.filter(p => (p.stockQuantity || 0) <= ((p as any).minStockThreshold || (p as any).stockThreshold || 5));
+      } else if (selectedCategory === 'top_selling') {
+        list = [...list].sort((a, b) => (b.stockQuantity || 0) - (a.stockQuantity || 0));
       } else {
         list = list.filter(p => (p as any).category === selectedCategory);
       }
@@ -245,7 +305,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
       );
     }
 
-    return list.slice(0, 30);
+    return list.slice(0, 35);
   }, [products, searchTerm, selectedCategory]);
 
   // Handle direct barcode scanner enter key
@@ -261,12 +321,14 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     );
 
     if (foundProduct) {
+      if (soundEnabled) playBeep('scan');
       addToCart(foundProduct);
       setSearchTerm('');
     }
   };
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
+    if (soundEnabled) playBeep('add');
     const existingIdx = cart.findIndex(item => 
       variant ? (item.productId === product.id && item.variantId === variant.id) : (item.productId === product.id && !item.variantId)
     );
@@ -288,6 +350,26 @@ const POSPage: React.FC<POSPageProps> = (props) => {
     }
   };
 
+  const handleAddCustomItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customItemData.name.trim()) return alert('يرجى كتابة اسم المادة أو الخدمة');
+    const priceNum = Number(customItemData.price) || 0;
+    const qtyNum = Number(customItemData.quantity) || 1;
+    if (priceNum <= 0) return alert('يرجى تحديد السعر');
+
+    const newItem: POSSaleItem = {
+      productId: `custom-${Date.now()}`,
+      name: customItemData.name.trim(),
+      quantity: qtyNum,
+      price: priceNum,
+      cost: Number(customItemData.cost) || 0
+    };
+    setCart([...cart, newItem]);
+    if (soundEnabled) playBeep('add');
+    setShowCustomItemModal(false);
+    setCustomItemData({ name: '', price: '', quantity: 1, cost: 0 });
+  };
+
   const updateQuantity = (idx: number, delta: number) => {
     const newCart = [...cart];
     newCart[idx].quantity = Math.max(1, newCart[idx].quantity + delta);
@@ -301,6 +383,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
   };
 
   const removeFromCart = (idx: number) => {
+    if (soundEnabled) playBeep('delete');
     const newCart = [...cart];
     newCart.splice(idx, 1);
     setCart(newCart);
@@ -629,7 +712,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Today's Sales Metric */}
-            <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
+            <div className="bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/10 flex items-center gap-3">
               <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-xl">
                 <Sparkles size={18} />
               </div>
@@ -639,13 +722,46 @@ const POSPage: React.FC<POSPageProps> = (props) => {
               </div>
             </div>
 
+            {/* Average Ticket Size */}
+            <div className="hidden sm:flex bg-white/10 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/10 items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-xl">
+                <DollarSign size={18} />
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-300 block font-bold">متوسط الفاتورة</span>
+                <span className="text-sm font-black text-indigo-300 tabular-nums">{todayStats.avgTicket.toLocaleString()} ج.م</span>
+              </div>
+            </div>
+
+            {/* Sound Effects Toggle */}
+            <button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className={`p-2.5 rounded-2xl border transition-all ${
+                soundEnabled 
+                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-400/30 hover:bg-indigo-500/30' 
+                  : 'bg-white/5 text-slate-400 border-white/10 hover:bg-white/10'
+              }`}
+              title={soundEnabled ? "إيقاف الأصوات" : "تفعيل الأصوات"}
+            >
+              {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+            </button>
+
+            {/* Custom Unregistered Item Button */}
+            <button
+              onClick={() => setShowCustomItemModal(true)}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2.5 rounded-2xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-indigo-600/30 active:scale-95"
+            >
+              <PlusCircle size={16} />
+              <span>خدمة/صنف خاص</span>
+            </button>
+
             {/* Parked Carts Trigger */}
             <button
               onClick={() => setShowParkedModal(true)}
-              className="relative bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 rounded-2xl border border-white/10 font-bold text-xs flex items-center gap-2 transition-all active:scale-95"
+              className="relative bg-white/10 hover:bg-white/20 text-white px-3.5 py-2.5 rounded-2xl border border-white/10 font-bold text-xs flex items-center gap-2 transition-all active:scale-95"
             >
               <PauseCircle size={18} className="text-amber-400" />
-              <span>الطلبات المعلقة</span>
+              <span>المعلقة</span>
               {parkedOrders.length > 0 && (
                 <span className="bg-amber-500 text-slate-950 font-black text-[10px] w-5 h-5 rounded-full flex items-center justify-center">
                   {parkedOrders.length}
@@ -739,6 +855,12 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                     الكل ({products.length})
                   </button>
                   <button
+                    onClick={() => setSelectedCategory('top_selling')}
+                    className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all whitespace-nowrap flex items-center gap-1 ${selectedCategory === 'top_selling' ? 'bg-orange-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-orange-600 dark:text-orange-400 border border-slate-200 dark:border-slate-700 hover:bg-orange-50'}`}
+                  >
+                    <Flame size={14} /> الأكثر توفراً
+                  </button>
+                  <button
                     onClick={() => setSelectedCategory('low_stock')}
                     className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all whitespace-nowrap ${selectedCategory === 'low_stock' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-700 hover:bg-amber-50'}`}
                   >
@@ -759,65 +881,90 @@ const POSPage: React.FC<POSPageProps> = (props) => {
             {/* Products Grid */}
             <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {filteredProducts.map(product => (
-                    <div key={product.id} className="space-y-2 flex flex-col">
-                       {product.hasVariants ? (
-                         product.variants.map(variant => (
+                  {filteredProducts.map(product => {
+                    const currentStock = selectedWarehouse && product.warehouseStock && product.warehouseStock[selectedWarehouse] !== undefined
+                      ? product.warehouseStock[selectedWarehouse]
+                      : (product.stockQuantity || 0);
+
+                    const isOut = currentStock <= 0;
+                    const isLow = currentStock > 0 && currentStock <= 5;
+
+                    return (
+                      <div key={product.id} className="space-y-2 flex flex-col">
+                         {product.hasVariants ? (
+                           product.variants.map(variant => {
+                             const variantStock = selectedWarehouse && variant.warehouseStock && variant.warehouseStock[selectedWarehouse] !== undefined
+                              ? variant.warehouseStock[selectedWarehouse]
+                              : (variant.stockQuantity || 0);
+
+                             return (
+                               <button
+                                 key={variant.id}
+                                 onClick={() => addToCart(product, variant)}
+                                 className="w-full bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-lg transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden"
+                               >
+                                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800 relative group-hover:scale-105 transition-transform duration-300">
+                                    {product.thumbnail || (product.images && product.images[0]) ? (
+                                      <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
+                                    ) : (
+                                      <Package size={32} className="text-slate-300 dark:text-slate-600" />
+                                    )}
+                                    <div className="absolute inset-0 bg-indigo-600/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                      <span className="bg-indigo-600 text-white font-black text-[10px] px-2.5 py-1 rounded-full shadow-md flex items-center gap-1">
+                                        <Plus size={12} /> إضافة
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="font-bold text-xs text-slate-800 dark:text-white line-clamp-2 leading-snug">{product.name}</span>
+                                  <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-lg w-fit">{Object.values(variant.options).join(' / ')}</span>
+                                  <div className="flex items-end justify-between mt-auto pt-2 w-full">
+                                     <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{variant.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
+                                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
+                                       variantStock <= 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400' :
+                                       variantStock <= 5 ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400' :
+                                       'bg-slate-100 dark:bg-slate-900 text-slate-500'
+                                     }`}>
+                                        مخزن: {variantStock}
+                                     </span>
+                                  </div>
+                               </button>
+                             );
+                           })
+                         ) : (
                            <button
-                             key={variant.id}
-                             onClick={() => addToCart(product, variant)}
-                             className="w-full bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden"
+                             onClick={() => addToCart(product)}
+                             className="w-full flex-1 bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-lg transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden h-full"
                            >
                               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800">
+                              <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800 relative group-hover:scale-105 transition-transform duration-300">
                                 {product.thumbnail || (product.images && product.images[0]) ? (
                                   <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
                                 ) : (
                                   <Package size={32} className="text-slate-300 dark:text-slate-600" />
                                 )}
+                                <div className="absolute inset-0 bg-indigo-600/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <span className="bg-indigo-600 text-white font-black text-[10px] px-2.5 py-1 rounded-full shadow-md flex items-center gap-1">
+                                    <Plus size={12} /> إضافة
+                                  </span>
+                                </div>
                               </div>
                               <span className="font-bold text-xs text-slate-800 dark:text-white line-clamp-2 leading-snug">{product.name}</span>
-                              <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-lg w-fit">{Object.values(variant.options).join(' / ')}</span>
-                              <div className="flex items-end justify-between mt-auto pt-2 w-full">
-                                 <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{variant.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
-                                 <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">
-                                    مخزن: {
-                                      selectedWarehouse && variant.warehouseStock && variant.warehouseStock[selectedWarehouse] !== undefined
-                                        ? variant.warehouseStock[selectedWarehouse]
-                                        : (variant.stockQuantity || 0)
-                                    }
-                                 </span>
+                              <div className="mt-auto flex items-end justify-between pt-2 w-full">
+                                  <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{product.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
+                                    isOut ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400' :
+                                    isLow ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400' :
+                                    'bg-slate-100 dark:bg-slate-900 text-slate-500'
+                                  }`}>
+                                     مخزن: {currentStock}
+                                  </span>
                               </div>
                            </button>
-                         ))
-                       ) : (
-                         <button
-                           onClick={() => addToCart(product)}
-                           className="w-full flex-1 bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-md transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden h-full"
-                         >
-                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800">
-                              {product.thumbnail || (product.images && product.images[0]) ? (
-                                <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
-                              ) : (
-                                <Package size={32} className="text-slate-300 dark:text-slate-600" />
-                              )}
-                            </div>
-                            <span className="font-bold text-xs text-slate-800 dark:text-white line-clamp-2 leading-snug">{product.name}</span>
-                            <div className="mt-auto flex items-end justify-between pt-2 w-full">
-                                <span className="text-base font-black text-slate-900 dark:text-white tabular-nums tracking-tight">{product.price.toLocaleString()} <span className="text-[10px] text-slate-500">ج.م</span></span>
-                                <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-1 rounded-lg">
-                                   مخزن: {
-                                     selectedWarehouse && product.warehouseStock && product.warehouseStock[selectedWarehouse] !== undefined
-                                       ? product.warehouseStock[selectedWarehouse]
-                                       : (product.stockQuantity || 0)
-                                   }
-                                </span>
-                            </div>
-                         </button>
-                       )}
-                    </div>
-                  ))}
+                         )}
+                      </div>
+                    );
+                  })}
                   {filteredProducts.length === 0 && (
                     <div className="col-span-full py-16 text-center text-slate-400">
                       <Package size={48} className="mx-auto opacity-30 mb-2" />
@@ -1215,6 +1362,78 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         </div>
       )}
 
+      {/* Custom Item Modal */}
+      {showCustomItemModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <PlusCircle className="text-indigo-600" size={22} />
+                إضافة صنف أو خدمة غير مسجلة
+              </h3>
+              <button onClick={() => setShowCustomItemModal(false)} className="p-1 text-slate-400 hover:text-slate-600"><X size={20}/></button>
+            </div>
+
+            <form onSubmit={handleAddCustomItem} className="py-4 space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-black text-slate-600 dark:text-slate-400">اسم المادة / الخدمة / الشحن</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="مثال: خدمة شحن / غلاف خاص / منتج إضافي"
+                  value={customItemData.name}
+                  onChange={(e) => setCustomItemData({ ...customItemData, name: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-11 px-3 rounded-2xl text-xs font-bold outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-600 dark:text-slate-400">السعر (ج.م)</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    placeholder="السعر"
+                    value={customItemData.price}
+                    onChange={(e) => setCustomItemData({ ...customItemData, price: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-11 px-3 rounded-2xl text-xs font-black outline-none focus:border-indigo-500 tabular-nums"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-black text-slate-600 dark:text-slate-400">الكمية</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customItemData.quantity}
+                    onChange={(e) => setCustomItemData({ ...customItemData, quantity: Math.max(1, Number(e.target.value)) })}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 h-11 px-3 rounded-2xl text-xs font-black outline-none focus:border-indigo-500 tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="submit"
+                  className="flex-1 h-12 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs shadow-lg shadow-indigo-600/30 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <Plus size={18} />
+                  إضافة السلة المباشرة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCustomItemModal(false)}
+                  className="px-4 h-12 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold text-xs"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
       {/* Keyboard Shortcuts Drawer */}
       {showHotkeysModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
@@ -1311,6 +1530,22 @@ const ThermalReceiptModal: React.FC<{
     printHTMLDirectly(receiptHtml);
   };
 
+  const handleWhatsAppShare = () => {
+    const text = `*فاتورة بيع مباشر - ${storeName}*\n` +
+      `رقم الفاتورة: #${sale.saleNumber}\n` +
+      `العميل: ${sale.customerName || 'عميل نقدي'}\n` +
+      `التاريخ: ${new Date(sale.date).toLocaleString('ar-EG')}\n\n` +
+      `*الأصناف:*\n` +
+      sale.items.map(i => `• ${i.name} (عدد ${i.quantity}) - ${(i.price * i.quantity).toLocaleString()} ج.م`).join('\n') +
+      `\n\n*الإجمالي النهائي:* ${sale.totalAmount.toLocaleString()} ج.م\n` +
+      `طريقة الدفع: ${sale.paymentMethod === 'cash' ? 'نقداً (كاش)' : sale.paymentMethod === 'card' ? 'فيزا' : 'محفظة'}\n\n` +
+      `شكراً لتعاملكم معنا! 🌹`;
+
+    const phone = sale.customerPhone ? sale.customerPhone.replace(/[^0-9]/g, '') : '';
+    const url = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" dir="rtl">
       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6">
@@ -1349,16 +1584,25 @@ const ThermalReceiptModal: React.FC<{
           </div>
         </div>
 
-        <div className="flex items-center gap-2 pt-2">
-          <button
-            onClick={handlePrint}
-            className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
-          >
-            <Printer size={16} /> طباعة حرارية فورية
-          </button>
+        <div className="flex flex-col gap-2 pt-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrint}
+              className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-95 transition-all"
+            >
+              <Printer size={16} /> طباعة حرارية
+            </button>
+            <button
+              onClick={handleWhatsAppShare}
+              className="py-3 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/20 active:scale-95 transition-all"
+              title="إرسال الفاتورة عبر واتساب"
+            >
+              <MessageSquare size={16} /> واتساب
+            </button>
+          </div>
           <button
             onClick={onClose}
-            className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold text-xs"
+            className="w-full py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold text-xs hover:bg-slate-200 transition-colors"
           >
             إغلاق
           </button>
