@@ -127,7 +127,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
   return (
     <div className="bg-slate-50 min-h-screen font-store antialiased selection:bg-indigo-600 selection:text-white" dir="rtl">
       {/* Premium Navigation */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-2xl border-b border-slate-100">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-2xl border-b border-slate-200">
         <div className="container mx-auto px-6 h-20 sm:h-24 flex items-center justify-between">
           <button type="button" onClick={() => navigate('/store')} className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-all group">
             <div className="p-2 bg-slate-50 rounded-xl group-hover:bg-slate-100 transition-colors">
@@ -173,11 +173,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="group relative">
-                    <input type="text" placeholder="الاسم الكامل" required value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-100 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all" />
+                    <input type="text" placeholder="الاسم الكامل" required value={customerName} onChange={e => setCustomerName(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all" />
                     <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">اسم العميل</label>
                   </div>
                   <div className="group relative">
-                    <input type="tel" placeholder="01xxxxxxxxx" required value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-100 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all text-left" dir="ltr" />
+                    <input type="tel" placeholder="01xxxxxxxxx" required value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all text-left" dir="ltr" />
                     <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">رقم الهاتف</label>
                   </div>
                 </div>
@@ -197,14 +197,14 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="group relative">
-                    <select required value={shippingCompany} onChange={e => setShippingCompany(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-100 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all appearance-none cursor-pointer">
+                    <select required value={shippingCompany} onChange={e => setShippingCompany(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all appearance-none cursor-pointer">
                       <option value="" disabled>اختر شركة الشحن</option>
                       {activeCompanies.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                     <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">مزوّد الشحن</label>
                   </div>
                   <div className="group relative">
-                    <select required value={shippingArea} onChange={e => setShippingArea(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-100 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all appearance-none cursor-pointer">
+                    <select required value={shippingArea} onChange={e => setShippingArea(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all appearance-none cursor-pointer">
                       <option value="" disabled>اختر منطقة التوصيل</option>
                       {shippingOptions.map(opt => <option key={opt.id} value={opt.label}>{opt.label}</option>)}
                     </select>
@@ -213,7 +213,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                 </div>
 
                 <div className="group relative">
-                  <textarea placeholder="العنوان التفصيلي (رقم المبنى، الشقة، المعالم المميزة)..." required value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-100 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all h-32 resize-none" ></textarea>
+                  <textarea placeholder="العنوان التفصيلي (رقم المبنى، الشقة، المعالم المميزة)..." required value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all h-32 resize-none" ></textarea>
                   <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">العنوان بالتفصيل</label>
                 </div>
               </motion.section>
@@ -232,7 +232,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {activePaymentMethods.map(method => (
-                    <div key={method.id} onClick={() => setSelectedPaymentMethod(method.id)} className={`p-6 rounded-[2rem] border-2 cursor-pointer transition-all flex items-center gap-5 relative overflow-hidden ${selectedPaymentMethod === method.id ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
+                    <div key={method.id} onClick={() => setSelectedPaymentMethod(method.id)} className={`p-6 rounded-[2rem] border-2 cursor-pointer transition-all flex items-center gap-5 relative overflow-hidden ${selectedPaymentMethod === method.id ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-200 bg-white hover:border-slate-200'}`}>
                       <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedPaymentMethod === method.id ? 'border-indigo-600' : 'border-slate-300'}`}>
                         {selectedPaymentMethod === method.id && <motion.div layoutId="radio" className="w-3 h-3 bg-indigo-600 rounded-full" />}
                       </div>
@@ -272,7 +272,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                     <h2 className="text-2xl font-black text-slate-900 leading-none">ملاحظات الطلب</h2>
                   </div>
                 </div>
-                <textarea placeholder="أي تعليمات خاصة لشركة الشحن أو للمتجر؟" value={notes} onChange={e => setNotes(e.target.value)} className="w-full p-6 bg-white border-2 border-slate-100 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all h-28 resize-none" ></textarea>
+                <textarea placeholder="أي تعليمات خاصة لشركة الشحن أو للمتجر؟" value={notes} onChange={e => setNotes(e.target.value)} className="w-full p-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all h-28 resize-none" ></textarea>
               </motion.section>
 
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} disabled={isSubmitting} type="submit" className="w-full py-8 rounded-[2.5rem] font-black text-white text-2xl shadow-[0_30px_60px_-15px_rgba(99,102,241,0.4)] flex items-center justify-center gap-4 disabled:opacity-70 transition-all active:shadow-none" style={{ backgroundColor: primaryColor }} >
@@ -294,7 +294,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
           {/* Summary Sidebar - 5 columns */}
           <div className="lg:col-span-5">
             <div className="lg:sticky top-32 space-y-8">
-              <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8 }} className="bg-white border border-slate-100 rounded-[3rem] p-10 shadow-2xl shadow-slate-200/50" >
+              <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8 }} className="bg-white border border-slate-200 rounded-[3rem] p-10 shadow-2xl shadow-slate-200/50" >
                 <div className="flex items-center justify-between mb-10">
                   <div className="flex items-center gap-3">
                     <ShoppingCart size={24} className="text-indigo-600" />
@@ -310,7 +310,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                     <div key={item.productId} className="flex items-center justify-between group">
                       <div className="flex items-center gap-5">
                         <div className="relative flex-shrink-0">
-                          <img src={item.thumbnail} alt={item.name} className="w-20 h-20 rounded-[2rem] object-cover bg-slate-50 p-2 border border-slate-100" />
+                          <img src={item.thumbnail} alt={item.name} className="w-20 h-20 rounded-[2rem] object-cover bg-slate-50 p-2 border border-slate-200" />
                           <span className="absolute -top-2 -right-2 w-7 h-7 bg-indigo-600 text-white text-[11px] font-black rounded-full flex items-center justify-center shadow-xl border-4 border-white group-hover:scale-110 transition-transform">
                             {item.quantity}
                           </span>
@@ -340,7 +340,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                   )}
                 </div>
 
-                <div className="space-y-5 mt-10 p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100">
+                <div className="space-y-5 mt-10 p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200">
                   <div className="flex justify-between items-center text-sm font-bold text-slate-500">
                     <span>المجموع الفرعي</span>
                     <span className="font-black text-slate-900">{subtotal.toLocaleString()} ج.م</span>
@@ -369,7 +369,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                   </div>
                 </div>
 
-                <div className="mt-8 flex items-center justify-center gap-3 py-4 border-2 border-dashed border-slate-100 rounded-3xl opacity-50 group hover:opacity-100 transition-opacity">
+                <div className="mt-8 flex items-center justify-center gap-3 py-4 border-2 border-dashed border-slate-200 rounded-3xl opacity-50 group hover:opacity-100 transition-opacity">
                   <Lock size={16} className="text-emerald-500"/>
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">تشفير SSL 256-bit لمشتريات آمنة</span>
                 </div>
@@ -383,7 +383,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                   { icon: <ShieldCheck size={20}/>, text: "ضمان جودة" }
                 ].map((badge, i) => (
                   <div key={i} className="space-y-2">
-                    <div className="w-full aspect-square bg-white rounded-2xl flex items-center justify-center text-slate-300 shadow-sm border border-slate-100 mb-2">
+                    <div className="w-full aspect-square bg-white rounded-2xl flex items-center justify-center text-slate-300 shadow-sm border border-slate-200 mb-2">
                       {badge.icon}
                     </div>
                     <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">{badge.text}</span>
@@ -395,7 +395,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
         </div>
       </main>
 
-      <footer className="container mx-auto px-6 py-12 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-6 opacity-30">
+      <footer className="container mx-auto px-6 py-12 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-6 opacity-30">
         <p className="text-[9px] font-black uppercase text-slate-400 tracking-widest">© {new Date().getFullYear()} {settings.products[0]?.name || 'VOGUE'}. كل الحقوق محفوظة.</p>
         <div className="flex gap-4 items-center">
           <div className="h-4 w-8 bg-slate-200 rounded-sm" />

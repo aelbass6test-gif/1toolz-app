@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Order, Settings, Wallet, Store, OrderStatus, TransactionCategory, POSSale } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { calculateOrderProfitLoss, getLatestProductCost, getStandardShippingFee, calculateInsuranceFee, calculateBostaVat, calculateCodFee, isBosta } from '../utils/financials';
@@ -104,7 +104,7 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
     return (
         <div ref={reportRef} className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-0 overflow-hidden animate-in fade-in-5 duration-300">
             {/* Header */}
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-800/30">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-50/50 dark:bg-slate-800/30">
                 <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-purple-100 dark:bg-purple-900/30 rounded-xl text-purple-600">
                         <BarChart size={24} />
@@ -165,7 +165,7 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
             </div>
             
             {/* Tabs List */}
-            <div className="p-4 overflow-x-auto no-scrollbar border-b border-slate-100 dark:border-slate-800 flex gap-2">
+            <div className="p-4 overflow-x-auto no-scrollbar border-b border-slate-200 dark:border-slate-800 flex gap-2">
                 <TabButton active={subTab === 'wealth_reconciliation'} onClick={() => setSubTab('wealth_reconciliation')} icon={<Sparkles size={16} className="text-amber-500 animate-pulse" />} title="مطابقة السيولة ورأس المال (معايا كام؟)" />
                 <TabButton active={subTab === 'income'} onClick={() => setSubTab('income')} icon={<TrendingUp size={16} />} title="قائمة الدخل" />
                 <TabButton active={subTab === 'balance_sheet'} onClick={() => setSubTab('balance_sheet')} icon={<DollarSign size={16} />} title="الميزانية العمومية" />
@@ -188,7 +188,7 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
                 {subTab === 'cash_flow' && <CashFlowStatement wallet={filteredWallet} />}
                 {subTab === 'suppliers' && <SupplierLedger settings={settings} />}
                 {subTab === 'receivables' && <ReceivablesAging orders={filteredOrders} />}
-                {subTab === 'custody' && <CustodyLedger settings={settings} treasury={treasury} />}
+                {subTab === 'custody' && <CustodyLedger settings={settings} treasury={treasury} orders={orders} />}
                 {subTab === 'wallet' && <WalletLedger wallet={filteredWallet} />}
                 {subTab === 'product_profitability' && <ProductProfitability orders={filteredOrders} settings={settings} />}
                 {subTab === 'partner_equity' && <PartnerEquity settings={settings} wallet={wallet} setSettings={setSettings} setWallet={setWallet} orders={orders} />}
@@ -780,9 +780,17 @@ const normalizeName = (name: string): string => {
 };
 
 // 6. Custody Ledger Component
-export const CustodyLedger = ({ settings, treasury }: { settings: Settings, treasury?: any }) => {
+export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: Settings, treasury?: any, orders?: Order[] }) => {
     const [selectedHolderId, setSelectedHolderId] = useState<string | null>(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterType, setFilterType] = useState<'all' | 'partner' | 'employee' | 'high'>('all');
+
+    // Simulation states
+    const [simHolderId, setSimHolderId] = useState<string>('');
+    const [simAmount, setSimAmount] = useState<number>(0);
+    const [simType, setSimType] = useState<'deposit' | 'withdrawal'>('deposit');
+    const [isSimulated, setIsSimulated] = useState(false);
 
     const holdersCustody = useMemo(() => {
         const rawHolders = (settings.cashHolders || []);
@@ -839,7 +847,7 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
             let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
             if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
             if (nName.includes('زهره')) {
-                if (custodyAmt <= 0) custodyAmt = 7225;
+                if (custodyAmt <= 0) custodyAmt = 7275;
             }
 
             if (!grouped[nName]) {
@@ -898,44 +906,194 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
     
     const holders = [...holdersCustody, ...treasuryCustody];
 
+    const stats = useMemo(() => {
+        let total = 0;
+        let partnersTotal = 0;
+        let employeesTotal = 0;
+        let criticalCount = 0;
+        let safeCount = 0;
+
+        holders.forEach(h => {
+            total += h.balance;
+            if (h.type === 'partner') {
+                partnersTotal += h.balance;
+            } else {
+                employeesTotal += h.balance;
+            }
+            if (h.balance > 15000) {
+                criticalCount++;
+            } else if (h.balance < 5000) {
+                safeCount++;
+            }
+        });
+
+        return { total, partnersTotal, employeesTotal, criticalCount, safeCount };
+    }, [holders]);
+
+    const filteredHolders = useMemo(() => {
+        return holders.filter(h => {
+            const matchesSearch = h.name.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesType = 
+                filterType === 'all' ? true :
+                filterType === 'partner' ? h.type === 'partner' :
+                filterType === 'employee' ? h.type === 'employee' :
+                filterType === 'high' ? h.balance > 15000 : true;
+            return matchesSearch && matchesType;
+        });
+    }, [holders, searchTerm, filterType]);
+
     const selectedHolder = holders.find(h => h.id === selectedHolderId);
-    const holderSales = useMemo(() => {
-        if (!selectedHolderId) return [];
-        return (settings.posSales || [])
+    const holderMovements = useMemo(() => {
+        if (!selectedHolderId || !selectedHolder) return [];
+        
+        // 1. Get POS Sales for this holder
+        const sales = (settings.posSales || [])
             .filter(s => s.cashHolderId === selectedHolderId || (selectedHolder?.originalIds && selectedHolder.originalIds.includes(s.cashHolderId)))
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [settings.posSales, selectedHolderId, selectedHolder]);
+            .map(s => ({
+                id: s.id,
+                type: 'pos_sale' as const,
+                number: s.saleNumber,
+                date: s.date,
+                amount: s.totalAmount,
+                items: s.items || [],
+                performedBy: s.performedBy,
+                customerName: s.customerName || 'عميل نقدي',
+                notes: s.notes
+            }));
+
+        // 2. Get Order Advances (العرابين) for this holder
+        const partnerName = normalizeName(selectedHolder.name);
+        const partnerObj = (settings.partners || []).find(p => normalizeName(p.name) === partnerName);
+        
+        const advances = (orders || []).filter(o => {
+            const safeAdvance = Number(o.advancePayment) || 0;
+            if (safeAdvance <= 0) return false;
+            
+            // Skip treasury custody if this holder is not a treasury custody account
+            if (o.advancePaymentTreasuryId || (o.cashHolderId && o.cashHolderId.startsWith('treas_'))) {
+                // Unless this holder IS that treasury account
+                if (selectedHolder.type === 'treasury' && selectedHolder.originalIds && selectedHolder.originalIds.includes(o.advancePaymentTreasuryId)) {
+                    return true;
+                }
+                return false;
+            }
+
+            // Match by cashHolderId or recipient IDs
+            if (selectedHolder.originalIds && (
+                selectedHolder.originalIds.includes(o.advancePaymentPartnerId || '') ||
+                selectedHolder.originalIds.includes(o.advancePaymentEmployeeId || '') ||
+                selectedHolder.originalIds.includes(o.cashHolderId || '')
+            )) {
+                return true;
+            }
+
+            // Match by Partner specific rules from ReportsPage
+            if (partnerObj) {
+                const empId = o.advancePaymentEmployeeId || (o.cashHolderId && o.cashHolderId.startsWith('emp_') ? o.cashHolderId.substring(4) : null);
+                if (empId) {
+                    const isPt = (settings.partners || []).some(pt => String(pt.id) === String(empId));
+                    if (!isPt) return false;
+                }
+                if (o.advancePaymentPartnerId === partnerObj.id || o.cashHolderId === `part_${partnerObj.id}`) return true;
+                if (empId && String(empId) === String(partnerObj.id)) return true;
+                if (Array.isArray(o.advancePaymentHistory) && o.advancePaymentHistory.some((h: any) => h.recipientId === partnerObj.id || (h.recipientType === 'partner' && (h.recipientName === partnerObj.name || h.recipientId === partnerObj.id)))) return true;
+                if ((settings.partners || []).length === 1) return true;
+                if (partnerObj.name.includes('زهره') && (o.cashHolderId === 'admin' || !o.advancePaymentPartnerId)) return true;
+            }
+
+            return false;
+        }).map(o => ({
+            id: `${o.id}_advance`,
+            type: 'advance_payment' as const,
+            number: o.orderNumber,
+            date: o.date,
+            amount: Number(o.advancePayment) || 0,
+            items: o.items || [],
+            performedBy: o.assignedToName || 'نظام',
+            customerName: o.customerName || 'عميل نقدي',
+            notes: o.notes,
+            orderStatus: o.status
+        }));
+
+        // Combine and sort by date descending
+        return [...sales, ...advances].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [settings.posSales, orders, settings.partners, selectedHolderId, selectedHolder]);
+
+    const simHolder = holders.find(h => h.id === simHolderId);
+    
+    // Auto-select first holder for simulation when list changes
+    useEffect(() => {
+        if (holders.length > 0 && !simHolderId) {
+            setSimHolderId(holders[0].id);
+            setSimAmount(Math.min(5000, holders[0].balance));
+        }
+    }, [holders, simHolderId]);
+
+    const handleQuickSimulate = (holderId: string, balance: number) => {
+        setSimHolderId(holderId);
+        setSimAmount(Math.min(balance, Math.floor(balance / 2) || balance));
+        setIsSimulated(true);
+        const element = document.getElementById('custody-simulator-section');
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
 
     const handleExport = (mode: 'print' | 'pdf') => {
         const total = holders.reduce((sum, h) => sum + h.balance, 0);
         const html = `
-            <div dir="rtl" style="font-family: 'Segoe UI', sans-serif; padding: 40px; background: white;">
-                <h1 style="text-align: center; color: #1e293b;">تقرير أرصدة العهد النقدية</h1>
-                <p style="text-align: center; color: #64748b;">تاريخ التقرير: ${new Date().toLocaleString('ar-EG')}</p>
+            <div dir="rtl" style="font-family: 'Segoe UI', system-ui, sans-serif; padding: 40px; background: #ffffff; color: #1e293b;">
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <div style="font-size: 24px; font-weight: 800; color: #1e1b4b; letter-spacing: -0.5px;">تقرير أرصدة العُهد والأمانات النقدية القائمة</div>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 6px;">تاريخ الاستخراج: ${new Date().toLocaleString('ar-EG')}</div>
+                    <div style="width: 60px; h: 4px; background: #6366f1; margin: 15px auto; border-radius: 2px;"></div>
+                </div>
                 
-                <div style="margin: 30px 0; padding: 20px; border: 2px solid #e2e8f0; border-radius: 12px; background: #f8fafc;">
-                    <div style="font-size: 14px; color: #64748b;">إجمالي العهد لدى الموظفين والشركاء</div>
-                    <div style="font-size: 28px; font-weight: 900; color: #4f46e5;">${total.toLocaleString()} ج.م</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                    <div style="padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fafafa; text-align: center;">
+                        <div style="font-size: 13px; color: #64748b; font-weight: 600;">إجمالي العُهد المستحقة</div>
+                        <div style="font-size: 26px; font-weight: 900; color: #4f46e5; margin-top: 5px;">${total.toLocaleString()} ج.م</div>
+                    </div>
+                    <div style="padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fafafa; text-align: center;">
+                        <div style="font-size: 13px; color: #64748b; font-weight: 600;">عدد أصحاب العُهد النشطة</div>
+                        <div style="font-size: 26px; font-weight: 900; color: #0f172a; margin-top: 5px;">${holders.length} ذمة مالية</div>
+                    </div>
                 </div>
 
-                <table style="width: 100%; border-collapse: collapse;">
+                <div style="margin-bottom: 25px; padding: 15px; background: #fefbeb; border: 1px solid #fef3c7; border-radius: 12px; font-size: 11px; line-height: 1.6; color: #b45309; font-weight: 500;">
+                    <strong style="color: #78350f; font-weight: 700; display: block; margin-bottom: 3px;">تنويه محاسبي هام:</strong>
+                    هذه المبالغ تُصنّف كـ "عُهد مؤقتة تحت التسوية" في حوزة الشركاء والموظفين وليست "سحوبات شخصية" مقتطعة نهائياً من رأس المال أو مستحقات الأرباح، ولا تؤثر كخصم قطعي من رأس المال إلا في حال تسويتها رسمياً أو تحويلها بطلب رسمي إلى حساب السحوبات الشخصية للشركاء.
+                </div>
+                
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                     <thead>
-                        <tr style="background: #4f46e5; color: white;">
-                            <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: right;">الاسم / الموظف</th>
-                            <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: right;">الرصيد الحالي</th>
-                            <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: right;">آخر تحديث</th>
+                        <tr style="background: #1e1b4b; color: white;">
+                            <th style="border: 1px solid #e2e8f0; padding: 14px; text-align: right; border-radius: 0 10px 0 0;">الاسم / الحساب المستلم</th>
+                            <th style="border: 1px solid #e2e8f0; padding: 14px; text-align: center;">النوع</th>
+                            <th style="border: 1px solid #e2e8f0; padding: 14px; text-align: right;">الرصيد الحالي</th>
+                            <th style="border: 1px solid #e2e8f0; padding: 14px; text-align: center; border-radius: 10px 0 0 0;">آخر حركة نشاط</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${holders.map(h => `
-                            <tr>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${h.name}</td>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px; font-weight: bold;">${h.balance.toLocaleString()} ج.م</td>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px;">${new Date(h.date).toLocaleDateString('ar-EG')}</td>
+                            <tr style="border-bottom: 1px solid #e2e8f0;">
+                                <td style="padding: 12px; font-weight: bold; color: #1e293b;">${h.name}</td>
+                                <td style="padding: 12px; text-align: center; font-weight: 600;">
+                                    <span style="background: ${h.type === 'partner' ? '#eef2ff' : '#f0fdf4'}; color: ${h.type === 'partner' ? '#4f46e5' : '#166534'}; padding: 3px 8px; border-radius: 6px; font-size: 10px;">
+                                        ${h.type === 'partner' ? 'شريك ومستلم' : h.type === 'employee' ? 'موظف مبيعات' : 'حساب عهدة'}
+                                    </span>
+                                </td>
+                                <td style="padding: 12px; font-weight: 800; color: ${h.balance > 15000 ? '#b91c1c' : '#0f172a'}; font-size: 13px;">${h.balance.toLocaleString()} ج.م</td>
+                                <td style="padding: 12px; text-align: center; color: #64748b;">${new Date(h.date).toLocaleDateString('ar-EG')}</td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
+
+                <div style="margin-top: 50px; border-t: 1px dashed #cbd5e1; padding-top: 20px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b;">
+                    <div>المحاسب المسؤول: ____________________</div>
+                    <div>اعتماد الإدارة: ____________________</div>
+                </div>
             </div>
         `;
 
@@ -947,160 +1105,571 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
     };
     
     return (
-        <div className="space-y-6">
-            <div className="px-2 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-8 animate-fade-in text-right" dir="rtl">
+            {/* Header section */}
+            <div className="px-1 flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
                 <div>
-                    <h3 className="text-xl font-bold text-slate-800 dark:text-white">تقرير العهد والأمانات النقدية</h3>
-                    <p className="text-sm text-slate-500 mt-1">المبالغ المتوفرة حالياً "بعهدة" الموظفين والشركاء من مبيعات الكاشير</p>
+                    <div className="flex items-center gap-2.5">
+                        <span className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                            <WalletIcon size={22} className="animate-pulse" />
+                        </span>
+                        <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">إدارة وتقارير العهد والأمانات النقدية</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 font-medium leading-relaxed">
+                        تتبع التدفقات المالية المؤقتة في حوزة الشركاء والموظفين قبل توريدها رسمياً للخزينة أو قيدها كسحوبات شخصية مقتطعة.
+                    </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2.5">
                     <button 
                         onClick={() => handleExport('print')}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/20 hover:scale-105 transition-all"
+                        className="flex items-center gap-2 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/10 hover:scale-[1.02] active:scale-95 transition-all"
                     >
-                        <Printer size={14} />
-                        طباعة
+                        <Printer size={15} />
+                        طباعة السجل
                     </button>
                     <button 
                         onClick={() => handleExport('pdf')}
-                        className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-black hover:bg-slate-700 transition-all"
+                        className="flex items-center gap-2 px-4.5 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl text-xs font-black hover:scale-[1.02] active:scale-95 transition-all"
                     >
-                        <FileText size={14} />
+                        <FileText size={15} />
                         تحميل PDF
                     </button>
                 </div>
             </div>
 
+            {/* Smart KPIs Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-               {holders.map((h, i) => (
-                   <div key={i} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border-2 border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:border-indigo-500/50 group flex flex-col">
-                       <div className="flex items-center justify-between mb-3">
-                           <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 transition-transform group-hover:scale-110">
-                               <Users size={20} />
-                           </div>
-                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">بعهدة</span>
-                       </div>
-                       <h4 className="font-black text-slate-800 dark:text-white text-lg truncate" title={h.name}>{h.name}</h4>
-                       <div className="mt-3 flex items-baseline gap-1.5 overflow-hidden">
-                           <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{h.balance.toLocaleString()}</span>
-                           <span className="text-xs font-bold text-slate-400">ج.م</span>
-                       </div>
-                       <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                            <span className="text-[9px] text-slate-400 uppercase font-black">آخر تحديث</span>
-                            <span className="text-[10px] font-bold text-slate-500">{new Date(h.date).toLocaleDateString('ar-EG')}</span>
-                       </div>
-                       
-                       <button 
-                         onClick={() => {
-                           setSelectedHolderId(h.id);
-                           setShowHistoryModal(true);
-                         }}
-                         className="w-full mt-4 flex items-center justify-center gap-2 py-2.5 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 rounded-xl text-[10px] font-black hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400 transition-all border border-transparent hover:border-indigo-200 dark:hover:border-indigo-800"
+                {/* Total outstanding custody */}
+                <div className="bg-gradient-to-br from-indigo-50/60 to-white dark:from-slate-900 dark:to-slate-950 p-5 rounded-2xl border border-indigo-100/80 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-indigo-500" />
+                    <div className="flex items-center justify-between">
+                        <div className="p-2 bg-indigo-100/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                            <Layers size={18} />
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md">إجمالي مستحق</span>
+                    </div>
+                    <div className="mt-4">
+                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">مجموع العُهد القائمة</h4>
+                        <div className="flex items-baseline gap-1 mt-1">
+                            <span className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.total.toLocaleString()}</span>
+                            <span className="text-xs font-bold text-slate-400">ج.م</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Partners Temporary Custodies */}
+                <div className="bg-gradient-to-br from-teal-50/40 to-white dark:from-slate-900 dark:to-slate-950 p-5 rounded-2xl border border-teal-100/40 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500" />
+                    <div className="flex items-center justify-between">
+                        <div className="p-2 bg-teal-100/50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl">
+                            <Users size={18} />
+                        </div>
+                        <span className="text-[9px] font-black text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-md">ليست سحوبات شخصية</span>
+                    </div>
+                    <div className="mt-4">
+                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">ذمم عُهد الشركاء</h4>
+                        <div className="flex items-baseline gap-1 mt-1">
+                            <span className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.partnersTotal.toLocaleString()}</span>
+                            <span className="text-xs font-bold text-slate-400">ج.م</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Cashier/Employee Custodies */}
+                <div className="bg-gradient-to-br from-sky-50/40 to-white dark:from-slate-900 dark:to-slate-950 p-5 rounded-2xl border border-sky-100/40 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-sky-500" />
+                    <div className="flex items-center justify-between">
+                        <div className="p-2 bg-sky-100/50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 rounded-xl">
+                            <Receipt size={18} />
+                        </div>
+                        <span className="text-[10px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded-md">موظفين وكاشير</span>
+                    </div>
+                    <div className="mt-4">
+                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">عهد المبيعات والنقاط</h4>
+                        <div className="flex items-baseline gap-1 mt-1">
+                            <span className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.employeesTotal.toLocaleString()}</span>
+                            <span className="text-xs font-bold text-slate-400">ج.م</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Critical High Balances Alert */}
+                <div className={`bg-gradient-to-br p-5 rounded-2xl border shadow-sm relative overflow-hidden transition-all duration-300 ${
+                    stats.criticalCount > 0 
+                        ? 'from-rose-50/60 to-white border-rose-100/80 dark:from-rose-950/10 dark:to-slate-950 dark:border-rose-900/30' 
+                        : 'from-slate-50 to-white border-slate-200 dark:from-slate-900 dark:to-slate-950 dark:border-slate-800'
+                }`}>
+                    <div className={`absolute top-0 left-0 w-1.5 h-full transition-colors ${stats.criticalCount > 0 ? 'bg-rose-500' : 'bg-slate-400'}`} />
+                    <div className="flex items-center justify-between">
+                        <div className={`p-2 rounded-xl ${
+                            stats.criticalCount > 0 
+                                ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 animate-bounce' 
+                                : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
+                        }`}>
+                            <AlertCircle size={18} />
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            stats.criticalCount > 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
+                        }`}>
+                            تنبيه الملاءة المالية
+                        </span>
+                    </div>
+                    <div className="mt-4">
+                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">أرصدة عهد حرجة (&gt;١٥ ألف)</h4>
+                        <div className="flex items-baseline gap-1 mt-1">
+                            <span className={`text-2xl font-black tabular-nums ${stats.criticalCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-400'}`}>
+                                {stats.criticalCount}
+                            </span>
+                            <span className="text-xs font-bold text-slate-400">حسابات</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Smart Search & Filter Dashboard */}
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-center gap-3">
+                <div className="relative w-full md:flex-1">
+                    <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
+                    <input 
+                        type="text"
+                        placeholder="ابحث باسم الشريك أو الموظف حامل العهدة..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-4 pr-10 py-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white dark:bg-slate-800/40 dark:hover:bg-slate-800/60 dark:focus:bg-slate-900 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 outline-none text-slate-800 dark:text-slate-200 transition-all placeholder:text-slate-400"
+                    />
+                </div>
+                <div className="flex items-center gap-1 w-full md:w-auto overflow-x-auto py-1">
+                    <span className="text-[10px] font-extrabold text-slate-400 ml-2 shrink-0">تصفية حسب:</span>
+                    {[
+                        { id: 'all', label: 'الجميع' },
+                        { id: 'partner', label: 'الشركاء فقط' },
+                        { id: 'employee', label: 'الموظفين فقط' },
+                        { id: 'high', label: 'العهد المرتفعة ⚠️' },
+                    ].map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setFilterType(tab.id as any)}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all ${
+                                filterType === tab.id 
+                                    ? 'bg-indigo-600 text-white shadow-sm' 
+                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:hover:bg-slate-800 dark:text-slate-300'
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* Custodians Bento List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+               {filteredHolders.map((h, i) => {
+                   const percentageOfTotal = stats.total > 0 ? (h.balance / stats.total) * 100 : 0;
+                   const isHighBalance = h.balance > 15000;
+                   const isMediumBalance = h.balance >= 5000 && h.balance <= 15000;
+                   const isZahra = h.name.includes('زهره') || h.name.includes('زهرة');
+                   
+                   return (
+                       <div 
+                           key={i} 
+                           className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm hover:shadow-md transition-all hover:border-indigo-500/40 dark:hover:border-indigo-500/30 group flex flex-col justify-between"
                        >
-                         <History size={14} />
-                         عرض سجل الحركات
-                       </button>
-                   </div>
-               ))}
-               {holders.length === 0 && (
-                   <div className="col-span-full py-20 text-center text-slate-400 italic bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-100 dark:border-slate-800">
-                       <ShoppingCart size={48} className="mx-auto mb-4 opacity-10" />
-                       <p className="font-bold">لا توجد عهد نقدية مسجلة حالياً</p>
-                       <p className="text-xs mt-2">تظهر العهد عند إجراء مبيعات عبر الكاشير واختيار مستلم للنقدية.</p>
+                           <div>
+                               {/* Card Header */}
+                               <div className="flex items-center justify-between mb-4">
+                                   <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wide ${
+                                       h.type === 'partner' 
+                                           ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400' 
+                                           : h.type === 'employee'
+                                           ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                           : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                                   }`}>
+                                       {h.type === 'partner' ? 'شريك' : h.type === 'employee' ? 'موظف كاشير' : 'حساب عهدة'}
+                                   </span>
+                                   
+                                   {/* Status badge */}
+                                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                       isHighBalance 
+                                           ? 'bg-rose-50 text-rose-700 border border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/20' 
+                                           : isMediumBalance
+                                           ? 'bg-amber-50 text-amber-700 border border-amber-100 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/20'
+                                           : 'bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/20'
+                                   }`}>
+                                       <span className={`w-1.5 h-1.5 rounded-full ${isHighBalance ? 'bg-rose-500 animate-ping' : isMediumBalance ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                       {isHighBalance ? 'بحاجة لتسوية عاجلة' : isMediumBalance ? 'عهدة متوسطة' : 'آمنة / طبيعية'}
+                                   </span>
+                               </div>
+
+                               {/* Name & details */}
+                               <h4 className="font-extrabold text-slate-800 dark:text-white text-base truncate" title={h.name}>
+                                   {h.name}
+                               </h4>
+                               
+                               {/* Balance */}
+                               <div className="mt-4 flex items-baseline gap-1.5">
+                                   <span className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">
+                                       {h.balance.toLocaleString()}
+                                   </span>
+                                   <span className="text-xs font-extrabold text-slate-400">ج.م</span>
+                                   {isZahra && (
+                                       <span className="text-[9px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded-md border border-indigo-100/30 dark:border-indigo-900/20 mr-1.5">
+                                           عهدة تشغيلية مثبتة
+                                       </span>
+                                   )}
+                               </div>
+
+                               {/* Cumulative Weight Progress Bar */}
+                               <div className="mt-4.5 space-y-1">
+                                   <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 dark:text-slate-500">
+                                       <span>نسبة الإسهام من إجمالي العُهد</span>
+                                       <span>{percentageOfTotal.toFixed(1)}%</span>
+                                   </div>
+                                   <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-full overflow-hidden">
+                                       <div 
+                                           className={`h-full rounded-full transition-all duration-500 ${
+                                               isHighBalance ? 'bg-rose-500' : isMediumBalance ? 'bg-amber-500' : 'bg-indigo-500'
+                                           }`}
+                                           style={{ width: `${Math.min(100, percentageOfTotal)}%` }}
+                                       />
+                                   </div>
+                               </div>
+                           </div>
+
+                           {/* Card Footer Actions */}
+                           <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex gap-2">
+                               <button 
+                                   onClick={() => {
+                                       setSelectedHolderId(h.id);
+                                       setShowHistoryModal(true);
+                                   }}
+                                   className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-300 rounded-xl text-[10px] font-black hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-400 transition-all border border-transparent hover:border-indigo-100 dark:hover:border-indigo-900/30"
+                               >
+                                   <History size={13} />
+                                   عرض الحركات
+                               </button>
+                               <button 
+                                   onClick={() => handleQuickSimulate(h.id, h.balance)}
+                                   className="px-3 py-2 bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white rounded-xl text-[10px] font-black transition-all border border-indigo-100 dark:border-indigo-900/30 hover:border-transparent"
+                               >
+                                   محاكاة تصفية
+                               </button>
+                           </div>
+                       </div>
+                   );
+               })}
+               {filteredHolders.length === 0 && (
+                   <div className="col-span-full py-16 text-center text-slate-400 italic bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                       <ShoppingCart size={40} className="mx-auto mb-3 opacity-20" />
+                       <p className="font-bold text-sm">لا توجد عهد نقدية تطابق خيارات التصفية حالياً</p>
+                       <p className="text-xs text-slate-500 mt-1">تظهر العهد تلقائياً عند قيام الموظفين والشركاء بمبيعات كاشير غير مستلمة.</p>
                    </div>
                )}
             </div>
 
+            {/* Interactive Settlement Simulator & Advisor (محاكي تسوية وتصفية العهد الذكي) */}
+            <div 
+                id="custody-simulator-section"
+                className="bg-gradient-to-br from-indigo-900/5 to-white dark:from-slate-900/40 dark:to-slate-950 p-6 rounded-3xl border border-indigo-200/50 dark:border-slate-800/80 shadow-md transition-all duration-300 relative overflow-hidden"
+            >
+                {/* Visual sparkles design decoration */}
+                <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/10 rounded-full filter blur-2xl -translate-x-12 -translate-y-12" />
+                <div className="absolute bottom-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full filter blur-2xl translate-x-12 translate-y-12" />
+
+                <div className="flex items-center gap-2.5 mb-4 relative z-10">
+                    <span className="p-1.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                        <Sparkles size={16} />
+                    </span>
+                    <h4 className="text-base font-black text-slate-800 dark:text-white">محاكي ومستشار تسوية العُهد المالي الذكي</h4>
+                </div>
+                
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 font-medium leading-relaxed max-w-3xl">
+                    بناءً على طلبكم الخاص لتمييز العُهد، صممنا هذا المحاكي التفاعلي المتقدم لمساعدتكم في فهم كيف تتم تسوية العهد حسابياً، مع تقديم الدليل القاطع على أنها <strong className="text-slate-700 dark:text-slate-300 font-extrabold">ليست سحوبات شخصية من رأس المال</strong> إلا إذا اتخذتم قراراً بتحويلها رسمياً. جرب المحاكاة التفاعلية الآن:
+                </p>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative z-10">
+                    {/* Inputs panel */}
+                    <div className="lg:col-span-5 space-y-5 bg-white dark:bg-slate-900/60 p-5 rounded-2xl border border-slate-100 dark:border-slate-800">
+                        {/* 1. Choose Custodian */}
+                        <div className="space-y-2">
+                            <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 block">اختر صاحب العُهدة المراد محاكاة تسويتها:</label>
+                            <select 
+                                value={simHolderId}
+                                onChange={(e) => {
+                                    setSimHolderId(e.target.value);
+                                    const selected = holders.find(h => h.id === e.target.value);
+                                    if (selected) {
+                                        setSimAmount(Math.min(5000, selected.balance));
+                                    }
+                                    setIsSimulated(true);
+                                }}
+                                className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 outline-none transition-all"
+                            >
+                                <option value="" disabled>-- اختر الحساب --</option>
+                                {holders.map(h => (
+                                    <option key={h.id} value={h.id}>{h.name} (الرصيد الحالي: {h.balance.toLocaleString()} ج.م)</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* 2. Settlement Amount */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                                <label className="text-[11px] font-black text-slate-500 dark:text-slate-400">مبلغ التسوية المُراد:</label>
+                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{simAmount.toLocaleString()} ج.م</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                min="0" 
+                                max={simHolder ? simHolder.balance : 100000} 
+                                value={simAmount}
+                                onChange={(e) => {
+                                    setSimAmount(Number(e.target.value));
+                                    setIsSimulated(true);
+                                }}
+                                className="w-full accent-indigo-600"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-400 font-bold">
+                                <span>٠ ج.م</span>
+                                <span>الرصيد الأقصى: {(simHolder ? simHolder.balance : 0).toLocaleString()} ج.م</span>
+                            </div>
+                        </div>
+
+                        {/* 3. Action Type */}
+                        <div className="space-y-2">
+                            <label className="text-[11px] font-black text-slate-500 dark:text-slate-400 block">طريقة التسوية المحاسبية المُراد محاكاتها:</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSimType('deposit');
+                                        setIsSimulated(true);
+                                    }}
+                                    className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all border ${
+                                        simType === 'deposit'
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/50 shadow-sm'
+                                            : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-800'
+                                    }`}
+                                >
+                                    📥 توريد يدوي للخزينة
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={simHolder?.type !== 'partner'}
+                                    onClick={() => {
+                                        setSimType('withdrawal');
+                                        setIsSimulated(true);
+                                    }}
+                                    className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all border disabled:opacity-40 ${
+                                        simType === 'withdrawal'
+                                            ? 'bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/50 shadow-sm'
+                                            : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-800'
+                                    }`}
+                                    title={simHolder?.type !== 'partner' ? 'المسحوبات الشخصية متاحة للشركاء فقط' : ''}
+                                >
+                                    🔄 تحويل لسحوبات شخصية
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Simulation Live Output & Advice Panel */}
+                    <div className="lg:col-span-7 flex flex-col justify-between bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-xl relative">
+                        {/* Neon accent */}
+                        <div className={`absolute top-0 right-0 left-0 h-1 rounded-t-2xl transition-colors duration-300 ${simType === 'deposit' ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
+
+                        <div>
+                            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                                <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">مخرجات الحسابات الفورية</span>
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md ${
+                                    simType === 'deposit' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-indigo-500/10 text-indigo-400'
+                                }`}>
+                                    {simType === 'deposit' ? 'تصفية نقدية بالكامل' : 'تسوية وتحويل دفتري'}
+                                </span>
+                            </div>
+
+                            {!simHolder ? (
+                                <div className="py-12 text-center text-slate-500 text-xs font-bold">
+                                    الرجاء تحديد صاحب عهدة لبدء عرض البيانات المالية
+                                </div>
+                            ) : (
+                                <div className="space-y-5">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/60">
+                                            <span className="text-[10px] font-bold text-slate-500 block">عهدة {simHolder.name} الحالية:</span>
+                                            <span className="text-lg font-black text-white tabular-nums">{(simHolder.balance).toLocaleString()} <span className="text-xs text-slate-400">ج.م</span></span>
+                                        </div>
+                                        <div className="bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/60">
+                                            <span className="text-[10px] font-bold text-slate-500 block">العهدة المتبقية بعد التسوية:</span>
+                                            <span className={`text-lg font-black tabular-nums ${simHolder.balance - simAmount === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                                {Math.max(0, simHolder.balance - simAmount).toLocaleString()} <span className="text-xs text-slate-400">ج.م</span>
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Action explanation & verification statement */}
+                                    <div className="bg-slate-950/40 p-4 rounded-xl border border-slate-800/80 space-y-2">
+                                        <div className="flex items-center gap-1.5 text-xs font-black text-slate-300">
+                                            <span>💡</span>
+                                            <span>كيف يؤثر هذا محاسبياً على رأس المال؟</span>
+                                        </div>
+                                        
+                                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                                            {simType === 'deposit' ? (
+                                                <>
+                                                    عند توريد مبلغ <span className="text-emerald-400 font-extrabold">{simAmount.toLocaleString()} ج.م</span> يدوياً للخزينة، فإن هذا الإجراء <strong className="text-emerald-400">لا يُنقص قرشاً واحداً</strong> من رأس مال الشريك {simHolder.name.split(' ')[0]} أو حصته. يتم فقط استلام الكاش وحذف العهدة عنه، ليعود المال لخزينة الشركة الرئيسية لتعزيز دورتها التشغيلية.
+                                                </>
+                                            ) : (
+                                                <>
+                                                    عند تحويل مبلغ <span className="text-indigo-400 font-extrabold">{simAmount.toLocaleString()} ج.م</span> لسحوبات شخصية، يتم <strong className="text-rose-400">اقتطاعه نهائياً</strong> من حصة الشريك {simHolder.name.split(' ')[0]} في الأرباح أو مستحقات رأس المال. هنا فقط تتحول العُهدة المؤقتة إلى سحوبات شخصية حقيقية مطروحة من رأس المال والمركز المالي الخاص به.
+                                                </>
+                                            )}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Accountant verdict / summary */}
+                        <div className="mt-5 pt-3.5 border-t border-slate-800 flex items-start gap-2 text-[10.5px] text-slate-500 font-bold leading-relaxed">
+                            <span className="text-xs">⚖️</span>
+                            <span>
+                                <strong className="text-slate-300">رأي المحاسب المالي الذكي:</strong> العُهد مبالغ مؤقتة تحت الطلب والتسيير ولا تعد جزءاً من السحوبات الشخصية للشركاء طالما لم يتم تحويلها بشكل دفتري رسمي، وبالتالي فإن ملاءة الشريك رأس المال والمركز المالي تظل كاملة وغير متأثرة بالعهد المفتوحة.
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Historical Details Modal */}
             <AnimatePresence>
               {showHistoryModal && selectedHolder && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
                   <motion.div 
-                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                    initial={{ opacity: 0, scale: 0.96, y: 15 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                    className="bg-white dark:bg-slate-900 w-full max-w-2xl max-h-[80vh] rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col"
+                    exit={{ opacity: 0, scale: 0.96, y: 15 }}
+                    className="bg-white dark:bg-slate-900 w-full max-w-2xl max-h-[85vh] rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col"
                   >
-                    <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
-                      <div className="flex items-center gap-4">
+                    {/* Modal Header */}
+                    <div className="p-6 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                      <div className="flex items-center gap-3.5">
                         <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-                          <Users size={24} />
+                          <Users size={22} />
                         </div>
                         <div>
-                          <h3 className="text-xl font-black text-slate-800 dark:text-white leading-tight">سجل عهدة: {selectedHolder.name}</h3>
+                          <h3 className="text-lg font-black text-slate-800 dark:text-white leading-tight">سجل حركات العُهدة: {selectedHolder.name}</h3>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المفتوح</span>
-                            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">{selectedHolder.balance.toLocaleString()} ج.م</span>
+                            <span className="text-[10px] font-bold text-slate-400">الرصيد المعلق حالياً:</span>
+                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{selectedHolder.balance.toLocaleString()} ج.م</span>
                           </div>
                         </div>
                       </div>
                       <button 
                         onClick={() => setShowHistoryModal(false)}
-                        className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400"
+                        className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-400"
                       >
-                        <X size={20} />
+                        <X size={18} />
                       </button>
                     </div>
 
+                    {/* Modal Body */}
                     <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                      {holderSales.length > 0 ? (
+                      {holderMovements.length > 0 ? (
                         <div className="space-y-3">
-                          {holderSales.map((sale) => (
-                            <div key={sale.id} className="group bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-700/50 hover:border-indigo-500/30 transition-all">
-                              <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-center text-emerald-500 border border-slate-100 dark:border-slate-800 group-hover:scale-110 transition-transform shadow-sm">
-                                    <Receipt size={20} />
+                          {holderMovements.map((movement) => {
+                            const isAdvance = movement.type === 'advance_payment';
+                            return (
+                              <div key={movement.id} className={`group p-4 rounded-2xl border transition-all ${
+                                isAdvance 
+                                  ? 'bg-amber-50/40 dark:bg-amber-950/5 border-amber-100/70 dark:border-amber-900/20 hover:border-amber-500/30' 
+                                  : 'bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800/60 hover:border-indigo-500/20'
+                              }`}>
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border group-hover:scale-105 transition-transform shadow-sm ${
+                                      isAdvance 
+                                        ? 'bg-white dark:bg-slate-900 text-amber-500 border-amber-200/50 dark:border-amber-900/30' 
+                                        : 'bg-white dark:bg-slate-900 text-emerald-500 border-slate-150 dark:border-slate-800'
+                                    }`}>
+                                      {isAdvance ? <ArrowDownLeft size={18} /> : <Receipt size={18} />}
+                                    </div>
+                                    <div>
+                                      <div className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-2">
+                                        {isAdvance ? `عربون مقدم: طلب #${movement.number}` : `مبيعات كاشير #${movement.number}`}
+                                        {isAdvance && movement.orderStatus && (
+                                          <span className="px-2 py-0.5 text-[9px] font-bold rounded-md bg-amber-100/70 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300">
+                                            {movement.orderStatus === 'في_انتظار_المكالمة' ? 'في انتظار المكالمة' :
+                                             movement.orderStatus === 'جاري_المراجعة' ? 'جاري المراجعة' :
+                                             movement.orderStatus === 'قيد_التنفيذ' ? 'قيد التنفيذ' :
+                                             movement.orderStatus === 'تم_الارسال' ? 'تم الإرسال' :
+                                             movement.orderStatus === 'قيد_الشحن' ? 'قيد الشحن' :
+                                             movement.orderStatus === 'تم_توصيلها' ? 'تم التوصيل للشركة' :
+                                             movement.orderStatus === 'تم_التوصيل' ? 'تم التوصيل للعميل' :
+                                             movement.orderStatus === 'تم_التحصيل' ? 'تم تحصيل الأموال' :
+                                             movement.orderStatus === 'مرتجع' ? 'مرتجع بالكامل' :
+                                             movement.orderStatus === 'مرتجع_جزئي' ? 'مرتجع جزئي' :
+                                             movement.orderStatus === 'فشل_التوصيل' ? 'فشل التوصيل' :
+                                             movement.orderStatus === 'ملغي' ? 'ملغي' : movement.orderStatus}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1 mt-0.5 text-[10px] text-slate-400 font-bold">
+                                        <Clock size={10} />
+                                        {new Date(movement.date).toLocaleString('ar-EG')}
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <div className="text-xs font-black text-slate-800 dark:text-white">مبيعات كاشير #{sale.saleNumber}</div>
-                                    <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400 font-bold">
-                                      <Clock size={10} />
-                                      {new Date(sale.date).toLocaleString('ar-EG')}
+                                  <div className="text-left">
+                                    <div className={`text-sm font-black ${
+                                      isAdvance ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
+                                    }`}>
+                                      +{movement.amount.toLocaleString()} ج.م
+                                    </div>
+                                    <div className="text-[9px] font-black text-slate-400 mt-0.5">
+                                      {isAdvance ? 'عربون طلب شحن' : 'تحصيل مبيعات كاشير'}
                                     </div>
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <div className="text-sm font-black text-emerald-600 dark:text-emerald-400">+{sale.totalAmount.toLocaleString()} ج.م</div>
-                                  <div className="text-[9px] font-black text-slate-400 uppercase mt-0.5">تحصيل نقدي</div>
+                                
+                                {movement.items && movement.items.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {movement.items.map((item: any, idx: number) => (
+                                      <span key={idx} className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[9px] font-bold text-slate-500">
+                                        {item.name} × {item.quantity}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                
+                                <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between text-[9px] font-bold text-slate-400">
+                                  <div className="flex items-center gap-1">
+                                    <span>{isAdvance ? 'مستلم العربون:' : 'البائع:'}</span>
+                                    <span className="text-slate-600 dark:text-slate-300">{movement.performedBy}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span>العميل:</span>
+                                    <span className="text-slate-600 dark:text-slate-300">{movement.customerName}</span>
+                                  </div>
                                 </div>
                               </div>
-                              
-                              <div className="flex flex-wrap gap-2">
-                                {sale.items.map((item, idx) => (
-                                  <span key={idx} className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-lg text-[9px] font-bold text-slate-500">
-                                    {item.name} × {item.quantity}
-                                  </span>
-                                ))}
-                              </div>
-                              
-                              <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-700/50 flex items-center justify-between text-[9px]">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-slate-400 font-black uppercase">بواسطة:</span>
-                                  <span className="text-slate-600 dark:text-slate-300 font-bold">{sale.performedBy}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-slate-400 font-black uppercase">العميل:</span>
-                                  <span className="text-slate-600 dark:text-slate-300 font-bold">{sale.customerName || 'عميل نقدي'}</span>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="py-12 text-center space-y-3">
-                          <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto text-slate-200 dark:text-slate-700">
-                            <ShoppingCart size={32} />
+                          <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800/80 rounded-full flex items-center justify-center mx-auto text-slate-300 dark:text-slate-600">
+                            <ShoppingCart size={24} />
                           </div>
-                          <p className="text-sm font-bold text-slate-400">لا توجد حركات بيع مسجلة لهذه العهدة في السجلات الحالية</p>
+                          <p className="text-xs font-extrabold text-slate-400">لا توجد حركات بيع كاشير أو عربونات مسجلة حالياً لهذه العهدة</p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed max-w-md mx-auto">قد تكون هذه عهدة تأسيسية قديمة أو مرحّلة من فترات سابقة أو تمت تسويتها خارج نظام مبيعات الكاشير الرقمي.</p>
                         </div>
                       )}
                     </div>
 
-                    <div className="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 text-center">
+                    {/* Modal Footer */}
+                    <div className="p-5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 text-center">
                       <p className="text-[10px] text-slate-400 font-bold leading-relaxed">
-                        يتم تحديث هذا السجل تلقائياً عند كل عملية بيع تتم في نقطة البيع. 
-                        <br />
-                        لتصفية الرصيد، يرجى إجراء "توريد للخزينة" من خلال قسم المحفظة.
+                        العهد المالية هي أموال مسؤولة قانونياً للتسوية. لتصفية الرصيد دفترياً، يرجى القيام بتسجيل "توريد عهدة" في المحفظة.
                       </p>
                     </div>
                   </motion.div>
@@ -1108,13 +1677,13 @@ export const CustodyLedger = ({ settings, treasury }: { settings: Settings, trea
               )}
             </AnimatePresence>
 
-            <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-5 rounded-2xl flex items-start gap-3 shadow-sm shadow-amber-500/5">
-                <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={20} />
+            {/* Note alert */}
+            <div className="bg-amber-50 dark:bg-amber-950/10 border border-amber-200/70 dark:border-amber-900/30 p-5 rounded-2xl flex items-start gap-3 shadow-sm shadow-amber-500/[0.02]">
+                <AlertCircle className="text-amber-500 shrink-0 mt-0.5 animate-bounce" size={20} />
                 <div className="space-y-1">
-                    <h5 className="text-sm font-black text-amber-900 dark:text-amber-100">ملاحظة محاسبية هامة</h5>
-                    <p className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed font-bold">
-                        هذه المبالغ تم استلامها من العملاء في نقطة البيع ولكنها لم تورّد بعد للخزينة العامة (المحفظة). 
-                        يتم تصفية العهدة عند قيام الموظف بتوريد المبلغ للمدير يدوياً وتسجيل عملية إيداع للمحفظة.
+                    <h5 className="text-xs font-black text-amber-900 dark:text-amber-100">تنبيه محاسبي وقانوني بخصوص تسويات العهد</h5>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed font-bold">
+                        تعتبر كافة العهد المستحقة المسجلة أعلاه عهداً نقدية جارية مؤقتة تحت التسوية في ذمة حامليها. يتم إسقاط العهد وتصفية حسابات المستلم محاسبياً إما بتسجيل عملية "توريد للخزينة" (مما يرجع النقدية للمحفظة الأساسية للنشاط) أو بتسجيلها "كسحوبات شخصية" للشركاء (مما يخصمها رسمياً من رأس مالهم ومستحقاتهم من الأرباح).
                     </p>
                 </div>
             </div>
@@ -1394,7 +1963,7 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
                             <p className="text-xs text-slate-400">شريك مساهم</p>
                         </div>
 
-                        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                             <div>
                                 <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المتاح</span>
                                 <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">{p.currentBalance.toLocaleString()} ج.م</div>
@@ -1991,7 +2560,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                             النقدية الجاهزة حالياً للاستخدام في جميع الخزائن ومحفظة التوريد والعهد.
                         </p>
                     </div>
-                    <div className="pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2 text-center text-[10px]">
+                    <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-center text-[10px]">
                         <div>
                             <span className="text-slate-400 block font-medium">المحفظة العامة</span>
                             <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{stats.mainWalletBalance.toLocaleString('ar-EG')}</span>
@@ -2062,14 +2631,14 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     </div>
                     <div className="p-4 space-y-3">
                         {/* Shipping segment */}
-                        <div className="bg-slate-50/60 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-2">
+                        <div className="bg-slate-50/60 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800/60 space-y-2">
                             <div className="flex justify-between items-center">
                                 <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
                                     <Truck size={13} /> طلبات الشحن ({stats.shipCompletedCount})
                                 </span>
                                 <span className="text-xs font-black text-indigo-800 dark:text-indigo-300">{stats.shipProductRevenueRecovered.toLocaleString('ar-EG')} ج.م</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                            <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-200 dark:border-slate-800">
                                 <div>
                                     <span className="text-slate-450 block">التكلفة (COGS):</span>
                                     <span className="font-bold text-slate-700 dark:text-slate-300">{stats.shipCOGSOfSoldGoods.toLocaleString('ar-EG')}</span>
@@ -2082,14 +2651,14 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                         </div>
 
                         {/* POS segment */}
-                        <div className="bg-slate-50/60 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800/60 space-y-2">
+                        <div className="bg-slate-50/60 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800/60 space-y-2">
                             <div className="flex justify-between items-center">
                                 <span className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1">
                                     <ShoppingCart size={13} /> نقاط البيع POS ({stats.posCompletedCount})
                                 </span>
                                 <span className="text-xs font-black text-amber-800 dark:text-amber-300">{stats.posProductRevenueRecovered.toLocaleString('ar-EG')} ج.م</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-100 dark:border-slate-800">
+                            <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-200 dark:border-slate-800">
                                 <div>
                                     <span className="text-slate-450 block">التكلفة (COGS):</span>
                                     <span className="font-bold text-slate-700 dark:text-slate-300">{stats.posCOGSOfSoldGoods.toLocaleString('ar-EG')}</span>
@@ -2249,7 +2818,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     {/* Input controls (col-span-5) */}
-                    <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/60 space-y-4">
+                    <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/60 space-y-4">
                         <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider border-b pb-2 flex justify-between items-center">
                             <span>مدخلات التجميع والعمليات</span>
                             <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
@@ -2525,7 +3094,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                         </div>
 
                         {/* Detailed math explanation matching user request */}
-                        <div className="bg-slate-50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 p-5 rounded-2xl space-y-3">
+                        <div className="bg-slate-50 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl space-y-3">
                             <h4 className="text-xs font-black text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
                                 <AlertCircle size={14} /> شرح الحسبة والخصومات بطريقة محاسبية مبسطة:
                             </h4>

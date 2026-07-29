@@ -221,7 +221,7 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({ staff, onClose, on
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800"
       >
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
           <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
             <Calendar size={18} className="text-indigo-600" /> تقديم طلب إجازة جديد للموظف
           </h3>
@@ -295,7 +295,7 @@ export const AddLeaveModal: React.FC<AddLeaveModalProps> = ({ staff, onClose, on
             />
           </div>
 
-          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button type="button" onClick={onClose} className="px-4 py-2 text-slate-500">
               إلغاء
             </button>
@@ -355,7 +355,7 @@ export const AddAdvanceModal: React.FC<AddAdvanceModalProps> = ({ staff, onClose
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800"
       >
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
           <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
             <DollarSign size={18} className="text-indigo-600" /> صرف سلفة مالية جديدة لموظف
           </h3>
@@ -423,7 +423,7 @@ export const AddAdvanceModal: React.FC<AddAdvanceModalProps> = ({ staff, onClose
             </p>
           </div>
 
-          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button type="button" onClick={onClose} className="px-4 py-2 text-slate-500">
               إلغاء
             </button>
@@ -486,7 +486,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({ staff, onClo
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800"
       >
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
           <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
             <FileText size={18} className="text-indigo-600" /> إضافة مستند أو عقد لموظف جديد
           </h3>
@@ -574,7 +574,7 @@ export const AddDocumentModal: React.FC<AddDocumentModalProps> = ({ staff, onClo
             />
           </div>
 
-          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
             <button type="button" onClick={onClose} className="px-4 py-2 text-slate-500">
               إلغاء
             </button>

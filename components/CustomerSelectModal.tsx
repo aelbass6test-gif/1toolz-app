@@ -39,7 +39,7 @@ export function CustomerSelectModal({ isOpen, onClose, customers, onSelect }: Pr
            exit={{ opacity: 0, scale: 0.95, y: 10 }}
            className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl relative z-10 flex flex-col max-h-[80vh]"
         >
-           <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+           <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
                  <User className="text-indigo-500" size={20} />
                  اختيار عميل مسجل
@@ -49,7 +49,7 @@ export function CustomerSelectModal({ isOpen, onClose, customers, onSelect }: Pr
               </button>
            </div>
            
-           <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+           <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
               <div className="relative">
                  <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                  <input 
@@ -76,7 +76,7 @@ export function CustomerSelectModal({ isOpen, onClose, customers, onSelect }: Pr
                             onSelect(customer);
                             onClose();
                          }}
-                         className="w-full p-4 rounded-2xl border-2 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-800/50 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all text-right group flex items-center justify-between"
+                         className="w-full p-4 rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/50 hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all text-right group flex items-center justify-between"
                        >
                           <div>
                              <p className="font-black text-slate-800 dark:text-white group-hover:text-indigo-700 dark:group-hover:text-indigo-300">{customer.name || 'بدون اسم'}</p>

@@ -340,7 +340,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
           >
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
               
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div className="p-2.5 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400">
                   <UserIcon size={20} />
                 </div>
@@ -465,7 +465,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
           >
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
               
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div className="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
                   <KeyRound size={20} />
                 </div>
@@ -555,7 +555,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
           >
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
               
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
                   <Bell size={20} />
                 </div>
@@ -605,7 +605,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
           >
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
               
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-2xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
                     <Laptop size={20} />

@@ -1330,7 +1330,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <p className="text-sm text-slate-500">قد يستغرق هذا بضع لحظات</p>
             </div>
         )}
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex flex-col sm:flex-row gap-3 justify-between items-center">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex flex-col sm:flex-row gap-3 justify-between items-center">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
             <input
@@ -1363,7 +1363,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         <div className="overflow-x-auto hidden md:block">
           <table className="w-full text-right">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm font-semibold border-b border-slate-100 dark:border-slate-700">
+              <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm font-semibold border-b border-slate-200 dark:border-slate-700">
                 <th className="px-6 py-4"></th>
                 <th className="px-6 py-4">المنتج</th>
                 <th className="px-6 py-4">القسم</th>
@@ -1444,7 +1444,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${isExpanded ? 'bg-indigo-50/20 dark:bg-indigo-900/10' : ''} ${isDuplicate ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
                       <td className="px-6 py-2">
                         {product.thumbnail ? (
-                          <img src={product.thumbnail} alt={product.name} className="w-12 h-12 rounded-lg object-cover border-2 border-slate-100 dark:border-slate-700" />
+                          <img src={product.thumbnail} alt={product.name} className="w-12 h-12 rounded-lg object-cover border-2 border-slate-200 dark:border-slate-700" />
                         ) : (
                           <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
                             <ImageIcon size={20} />
@@ -1550,7 +1550,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     {/* Warehouse detail expansion */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={9} className="px-6 py-4 bg-slate-50/70 dark:bg-slate-900/30 border-t border-b border-slate-100 dark:border-slate-800 text-right">
+                        <td colSpan={9} className="px-6 py-4 bg-slate-50/70 dark:bg-slate-900/30 border-t border-b border-slate-200 dark:border-slate-800 text-right">
                           <motion.div 
                             initial={{ opacity: 0, y: -10 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -1593,7 +1593,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                     {settings.warehouses.map(wh => {
                                       const stock = product.warehouseStock?.[wh.id] ?? 0;
                                       return (
-                                        <div key={wh.id} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between gap-4">
+                                        <div key={wh.id} className="p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex items-center justify-between gap-4">
                                           <div className="min-w-0">
                                             <p className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate">{wh.name}</p>
                                             <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">{wh.location || 'بدون تفاصيل عنوان'}</p>
@@ -1608,7 +1608,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                                 ) : (
                                   <div className="space-y-2">
                                     <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">تفاصيل المتغيرات والألوان والمقاسات حسب كل مستودع:</p>
-                                    <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-850">
+                                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850">
                                       <table className="w-full text-xs text-right">
                                         <thead className="bg-slate-100/60 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                                           <tr>
@@ -1715,7 +1715,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                   <div className="flex gap-3">
                      <div className="relative flex-shrink-0">
                         {product.thumbnail ? (
-                          <img src={product.thumbnail} alt={product.name} className="w-16 h-16 rounded-lg object-cover border border-slate-100 dark:border-slate-700" />
+                          <img src={product.thumbnail} alt={product.name} className="w-16 h-16 rounded-lg object-cover border border-slate-200 dark:border-slate-700" />
                         ) : (
                           <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
                             <ImageIcon size={20} />
@@ -1747,7 +1747,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/50">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 dark:border-slate-800/50">
                     <div className="bg-slate-50 dark:bg-slate-800/30 p-2 rounded-lg">
                       <p className="text-[10px] font-bold text-slate-500 mb-0.5">سعر البيع</p>
                       <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">{(product.price || 0).toLocaleString()} ج.م</p>
@@ -1793,7 +1793,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="pt-2 border-t border-slate-100 dark:border-slate-800/50 space-y-2 text-right overflow-hidden"
+                        className="pt-2 border-t border-slate-200 dark:border-slate-800/50 space-y-2 text-right overflow-hidden"
                       >
                         <div className="flex items-center justify-between">
                           <div className="text-xs font-bold text-slate-700 dark:text-slate-300">مخزون المستودعات ({distributedStockForMobile}):</div>
@@ -1814,7 +1814,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                               settings.warehouses.map(wh => {
                                 const stock = product.warehouseStock?.[wh.id] ?? 0;
                                 return (
-                                  <div key={wh.id} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 px-2 py-1.5 rounded-lg text-xs border border-slate-100 dark:border-slate-700">
+                                  <div key={wh.id} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 px-2 py-1.5 rounded-lg text-xs border border-slate-200 dark:border-slate-700">
                                     <span className="font-semibold text-slate-600 dark:text-slate-400">{wh.name}</span>
                                     <span className={`font-black ${stock > 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}>{stock} قطعة</span>
                                   </div>
@@ -1822,7 +1822,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                               })
                             ) : (
                               (product.variants || []).map((v, idx) => (
-                                <div key={idx} className="bg-slate-50/70 dark:bg-slate-800/40 p-2 rounded-lg text-xs space-y-1 border border-slate-100 dark:border-slate-700">
+                                <div key={idx} className="bg-slate-50/70 dark:bg-slate-800/40 p-2 rounded-lg text-xs space-y-1 border border-slate-200 dark:border-slate-700">
                                   <div className="font-black text-slate-700 dark:text-slate-300 border-b border-dashed border-slate-200 dark:border-slate-700/50 pb-0.5 text-right">
                                     {Object.values(v.options || {}).join(' / ') || v.sku}
                                   </div>
@@ -1877,7 +1877,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         {filteredProducts.length > 0 && (
           <div className="mx-3 mt-4 mb-6 px-6 py-4 bg-white/70 dark:bg-[#0b0f19]/70 backdrop-blur-xl rounded-[2rem] border border-slate-200/50 dark:border-white/5 shadow-2xl flex flex-col md:flex-row justify-between items-center gap-4 transition-all">
             {/* Items Per Page Selector */}
-            <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-200 dark:border-slate-800">
               <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">عدد المنتجات بالصفحة:</span>
               <select
                 value={itemsPerPage}
@@ -1898,7 +1898,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             </div>
 
             {/* Pagination Flow */}
-            <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-1.5 rounded-[1.25rem] border border-slate-200 dark:border-slate-800">
               <button
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
@@ -2049,7 +2049,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 </div>
 
                 {/* Alarm Ringing Animation Indicator with Custom Sprung Bell */}
-                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-100 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-200 dark:border-slate-800 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
                   <span>تنبيه داخلي نشط</span>
                   <motion.span
@@ -2136,7 +2136,7 @@ const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, onClose
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800 max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-shrink-0">
               <h3 className="text-xl font-bold dark:text-white flex items-center gap-2"><FileUp size={20} className="text-indigo-500" /> استيراد المنتجات</h3>
               <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><XCircle size={24} className="text-slate-400 dark:text-slate-600" /></button>
             </div>
@@ -2182,7 +2182,7 @@ const ProductImportModal: React.FC<ProductImportModalProps> = ({ isOpen, onClose
                                         <thead className="bg-slate-100 dark:bg-slate-800"><tr><th className="p-2">الاسم</th><th className="p-2">السعر</th><th className="p-2">الكمية</th></tr></thead>
                                         <tbody>
                                             {previewData.products.slice(0, 5).map((p, i) => (
-                                                <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                                                <tr key={i} className="border-t border-slate-200 dark:border-slate-800">
                                                     <td className="p-2 font-bold">{p.name}</td>
                                                     <td className="p-2">{p.price}</td>
                                                     <td className="p-2">{p.stockQuantity}</td>
@@ -3188,7 +3188,7 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
                                     </div>
 
                                     {(settings.warehouses || []).length > 0 && (
-                                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                                        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700/60">
                                             <span className="text-[10px] font-extrabold text-slate-400">توزيع المستودعات:</span>
                                             {(settings.warehouses || []).map(wh => (
                                                 <div key={wh.id} className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
@@ -3278,7 +3278,7 @@ const SelectiveSyncModal: React.FC<SelectiveSyncModalProps> = ({
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh]">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <h3 className="text-xl font-bold dark:text-white flex items-center gap-2"><ListChecks size={20} className="text-indigo-500" /> اختيار منتجات للمزامنة</h3>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><XCircle size={24} className="text-slate-400 dark:text-slate-600" /></button>
         </div>
@@ -3301,7 +3301,7 @@ const SelectiveSyncModal: React.FC<SelectiveSyncModalProps> = ({
               <div 
                 key={product.id} 
                 onClick={() => toggleProduct(product.id)}
-                className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${selectedIds.has(product.id) ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'}`}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${selectedIds.has(product.id) ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'}`}
               >
                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${selectedIds.has(product.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                   {selectedIds.has(product.id) && <CheckCircle size={14} />}

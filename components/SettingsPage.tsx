@@ -477,7 +477,7 @@ const DatabaseCard: React.FC<{
         {/* Connection Diagnostics Board */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 font-sans">
           {/* Internet Status */}
-          <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold block">حالة الاتصال والشبكة</span>
               <span className="text-xs font-black dark:text-white">
@@ -491,7 +491,7 @@ const DatabaseCard: React.FC<{
           </div>
 
           {/* Test Ping Tool */}
-          <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold block">اختبار استجابة السحابة</span>
               <span className="text-xs font-black dark:text-white block">
@@ -512,7 +512,7 @@ const DatabaseCard: React.FC<{
           </div>
 
           {/* IndexedDB Status */}
-          <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold block">قاعدة البيانات المحلية</span>
               <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">نشطة (IndexedDB)</span>
@@ -521,7 +521,7 @@ const DatabaseCard: React.FC<{
           </div>
 
           {/* Cloud Core Status */}
-          <div className="p-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
+          <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold block">المزامنة والنسخة السحابية</span>
               <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">متصلة (Firestore)</span>
@@ -583,22 +583,22 @@ const DatabaseCard: React.FC<{
           </div>
 
           {/* Sync Stats Summary Bar */}
-          <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-xl border border-slate-100 dark:border-slate-800 text-right">
+          <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-right">
             <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 mb-2">📊 جرد البيانات المحلية الحالية بمتصفحك:</h4>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-sans">
-              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
                 <span className="text-slate-400 block pb-1">المنتجات النشطة</span>
                 <span className="font-black text-indigo-600 dark:text-indigo-400">{products.length} منتج</span>
               </div>
-              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
                 <span className="text-slate-400 block pb-1">إجمالي طلبات النظام</span>
                 <span className="font-black text-indigo-600 dark:text-indigo-400">{orders.length} طلب</span>
               </div>
-              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
                 <span className="text-slate-400 block pb-1">قاعدة بيانات العملاء</span>
                 <span className="font-black text-indigo-600 dark:text-indigo-400">{customers.length} عميل</span>
               </div>
-              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
                 <span className="text-slate-400 block pb-1">المعاملات المالية المسجلة</span>
                 <span className="font-black text-indigo-600 dark:text-indigo-400">{financialCount} حركة مالية</span>
               </div>
@@ -692,7 +692,7 @@ const DatabaseCard: React.FC<{
         </div>
 
         {/* Capture Snapshot Section */}
-        <div className="bg-slate-50 dark:bg-slate-850 p-5 rounded-xl border border-slate-100 dark:border-slate-800 space-y-4 mb-6 text-right">
+        <div className="bg-slate-50 dark:bg-slate-850 p-5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-4 mb-6 text-right">
           <h4 className="text-sm font-black text-slate-800 dark:text-white">صناعة نقطة استعادة فورية جديدة:</h4>
           <div className="flex flex-col sm:flex-row gap-3">
             <input 
@@ -735,7 +735,7 @@ const DatabaseCard: React.FC<{
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-right text-slate-500 dark:text-slate-400 border-collapse">
             <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-100 dark:border-slate-700">
+              <tr className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
                 <th className="p-4 rounded-r-xl">مسمى نقطة الاسترداد واللقطة الاحتياطية</th>
                 <th className="p-4 text-center">تاريخ ووقت الحفظ</th>
                 <th className="p-4 text-center">حجم البيانات بالتقريب</th>
@@ -745,7 +745,7 @@ const DatabaseCard: React.FC<{
             </thead>
             <tbody>
               {snapshots.map((snap) => (
-                <tr key={snap.id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-850/50 transition-colors">
+                <tr key={snap.id} className="border-b border-slate-200 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-850/50 transition-colors">
                   <td className="p-4">
                     <div className="flex items-center gap-2 justify-start">
                       <FileJson className="text-indigo-500 shrink-0" size={16} />
@@ -821,7 +821,7 @@ const DatabaseCard: React.FC<{
               <X size={18} />
             </button>
 
-            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
               <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl">
                 <RefreshCw size={24} className="animate-spin duration-300" />
               </div>
@@ -839,19 +839,19 @@ const DatabaseCard: React.FC<{
                   <span className="font-bold text-xs text-indigo-650 dark:text-indigo-400">الوضع الحالي النشط على السيستم</span>
                 </div>
                 <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-350 font-sans">
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>📦 عدد المنتجات:</span>
                     <span className="font-mono font-bold dark:text-white">{products.length}</span>
                   </div>
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>🛍️ عدد الطلبات الكلي:</span>
                     <span className="font-mono font-bold dark:text-white">{orders.length}</span>
                   </div>
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>👥 سجل الـعملاء:</span>
                     <span className="font-mono font-bold dark:text-white">{customers.length}</span>
                   </div>
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>💰 الحركات المالية:</span>
                     <span className="font-mono font-bold dark:text-white">{financialCount}</span>
                   </div>
@@ -867,7 +867,7 @@ const DatabaseCard: React.FC<{
                   </span>
                 </div>
                 <div className="space-y-2.5 text-xs text-slate-600 dark:text-slate-350 font-sans">
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>📦 عدد المنتجات:</span>
                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       {selectedSnapForRestore.productsCount}
@@ -878,7 +878,7 @@ const DatabaseCard: React.FC<{
                       )}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>🛍️ عدد الطلبات الكلي:</span>
                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       {selectedSnapForRestore.ordersCount}
@@ -889,7 +889,7 @@ const DatabaseCard: React.FC<{
                       )}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>👥 سجل الـعملاء:</span>
                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       {selectedSnapForRestore.customersCount}
@@ -900,7 +900,7 @@ const DatabaseCard: React.FC<{
                       )}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-850">
+                  <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-850">
                     <span>⏱️ تاريخ الحفظ:</span>
                     <span className="font-mono font-medium text-slate-500 dark:text-slate-400 text-[10px]">{selectedSnapForRestore.timestamp}</span>
                   </div>
@@ -1625,7 +1625,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 text-right pb-12 px-4" dir="rtl">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
@@ -1795,7 +1795,7 @@ const DisplaySettingsCard: React.FC<{
             </div>
 
             <div className="max-w-md space-y-6">
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                     <div className="text-right">
                         <label className="text-sm font-bold text-slate-700 dark:text-slate-200 block">تفعيل إخفاء مبلغ (فرق التقفيل)</label>
                         <p className="text-[10px] text-slate-500">تمكين أو تعطيل خصم مبلغ معين من الرصيد الظاهري.</p>
@@ -2015,7 +2015,7 @@ const ExpenseCategoriesSettingsCard: React.FC<{ settings: Settings, setSettings:
                     </div>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
                     <label className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-3 block">أضف تصنيف مخصص يدوي:</label>
                     <div className="flex gap-2">
                         <input 
@@ -2426,7 +2426,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                     )}
                 </div>
 
-                <hr className="border-slate-100 dark:border-slate-800" />
+                <hr className="border-slate-200 dark:border-slate-800" />
 
                 {/* 2. Custom Domain Setting */}
                 <div className="space-y-4">
@@ -2550,7 +2550,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                                 {/* Ownership Verification */}
                                 {hostnameInfo.ownership_verification && (
                                     <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
-                                        <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-1">
+                                        <div className="flex justify-between items-center mb-2 border-b border-slate-200 dark:border-slate-800 pb-1">
                                             <span className="bg-indigo-50 text-indigo-600 px-1.5 rounded font-black text-[9px]">TXT Record (Ownership)</span>
                                             <span className="text-slate-400">سجل إثبات الملكية</span>
                                         </div>
@@ -2570,7 +2570,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                                 {/* SSL Validation */}
                                 {hostnameInfo.ssl?.validation_records?.map((record: any, idx: number) => (
                                     <div key={idx} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
-                                        <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-1">
+                                        <div className="flex justify-between items-center mb-2 border-b border-slate-200 dark:border-slate-800 pb-1">
                                             <span className="bg-emerald-50 text-emerald-600 px-1.5 rounded font-black text-[9px] uppercase">{record.type} Record (SSL)</span>
                                             <span className="text-slate-400">سجل توثيق SSL</span>
                                         </div>
@@ -2589,7 +2589,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
 
                                 {/* Standard CNAME Points to fallback */}
                                 <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
-                                    <div className="flex justify-between items-center mb-2 border-b border-slate-100 dark:border-slate-800 pb-1">
+                                    <div className="flex justify-between items-center mb-2 border-b border-slate-200 dark:border-slate-800 pb-1">
                                         <span className="bg-blue-50 text-blue-600 px-1.5 rounded font-black text-[9px]">CNAME Record (Routing)</span>
                                         <span className="text-slate-400">سجل توجيه المتجر</span>
                                     </div>
@@ -2609,7 +2609,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                     )}
                 </div>
 
-                <hr className="border-slate-100 dark:border-slate-800" />
+                <hr className="border-slate-200 dark:border-slate-800" />
 
                 {/* 3. Custom App Domain (The original setting) */}
                 <div className="space-y-2">
@@ -2655,7 +2655,7 @@ const PlatformIntegrationCard: React.FC<PlatformIntegrationCardProps> = ({ integ
       <div className="flex flex-col md:flex-row items-center justify-between bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 gap-6">
         <div className="flex items-center gap-4">
            {integration.platform === 'wuilt' && (
-              <img src="https://wuilt.com/assets/images/logo/wuilt-logo-blue.svg" alt="Wuilt" className="w-12 h-12 p-2 bg-white rounded-xl border border-slate-100" />
+              <img src="https://wuilt.com/assets/images/logo/wuilt-logo-blue.svg" alt="Wuilt" className="w-12 h-12 p-2 bg-white rounded-xl border border-slate-200" />
            )}
            <div>
               <p className="font-bold text-slate-900 dark:text-white">
@@ -2770,7 +2770,7 @@ const DangerZone: React.FC<{ activeStore?: Store }> = ({ activeStore }) => {
             {showConfirm && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-6 text-center border border-slate-300 dark:border-slate-800">
-                        <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                        <div className="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-800 pb-4">
                             <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
                                 <Trash2 size={20} className="text-red-600"/>
                                 اختر ما تريد حذفه
@@ -2895,7 +2895,7 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                                     className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all text-[11px] font-black ${
                                         applicableMethods.includes(method.id)
                                         ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm'
-                                        : 'border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50 dark:bg-slate-900 hover:border-slate-200'
+                                        : 'border-slate-200 dark:border-slate-800 text-slate-400 bg-slate-50 dark:bg-slate-900 hover:border-slate-200'
                                     }`}
                                 >
                                     <method.icon size={16} />
@@ -2907,7 +2907,7 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                 </div>
 
                 {/* 💸 رسوم السحب */}
-                <div className="space-y-8 border-r border-slate-100 dark:border-slate-800 pr-0 lg:pr-8">
+                <div className="space-y-8 border-r border-slate-200 dark:border-slate-800 pr-0 lg:pr-8">
                     <div className="space-y-6">
                         <div className="flex items-center justify-between flex-row-reverse bg-rose-50 dark:bg-rose-900/10 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
                             <div className="text-right">
@@ -2986,7 +2986,7 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                         )}
                     </div>
 
-                    <div className="space-y-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <div className="space-y-6 pt-6 border-t border-slate-200 dark:border-slate-800">
                         <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
                             <Clock size={18} className="text-amber-500" />
                             رسوم السحب الفوري (Same Day)
@@ -3038,7 +3038,7 @@ const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.
                         )}
                     </div>
 
-                    <div className="flex items-center gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-3 pt-6 border-t border-slate-200 dark:border-slate-800">
                         <div className="relative flex-1">
                             <input 
                                 type="number" 

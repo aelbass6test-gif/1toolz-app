@@ -91,7 +91,7 @@ const CollectionsPage: React.FC<CollectionsPageProps> = ({ settings, setSettings
                     <div className="p-4">
                         <h3 className="font-bold text-lg text-slate-800 dark:text-white">{collection.name}</h3>
                         <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mt-1">{collection.description || 'لا يوجد وصف'}</p>
-                        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-400 font-bold">
+                        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-400 font-bold">
                             {settings.products.filter(p => p.collectionId === collection.id).length} منتجات
                         </div>
                     </div>

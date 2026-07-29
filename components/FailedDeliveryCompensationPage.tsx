@@ -1076,7 +1076,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
                 <div className="text-center py-12 text-slate-400">لا توجد بيانات كافية لإجراء التحليل والفرز لشركات الشحن.</div>
               ) : (
                 carrierStats.map(stat => (
-                  <div key={stat.carrier} className="border border-slate-100 dark:border-slate-800/60 p-4 rounded-xl space-y-3">
+                  <div key={stat.carrier} className="border border-slate-200 dark:border-slate-800/60 p-4 rounded-xl space-y-3">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
@@ -1158,7 +1158,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
               </div>
             </div>
 
-            <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 text-center">
+            <div className="border-t border-slate-200 dark:border-slate-800/80 pt-4 text-center">
               <div className="text-[10px] text-indigo-600 font-bold bg-indigo-50 dark:bg-indigo-950/20 px-3 py-2.5 rounded-xl flex items-center gap-2 text-right">
                 <Shield size={20} className="shrink-0" />
                 <span>برنامج تعويض فشل التوصيل يساهم في توفير متوسط 15% من نفقات الشحن الضائعة سنوياً.</span>

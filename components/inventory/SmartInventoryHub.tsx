@@ -282,7 +282,7 @@ const AIDemandForecastingTab: React.FC<{
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-black uppercase border-b border-slate-100 dark:border-slate-800">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-black uppercase border-b border-slate-200 dark:border-slate-800">
               <tr>
                 <th className="px-5 py-4">المنتج / SKU</th>
                 <th className="px-5 py-4">المخزون الحالي</th>
@@ -527,7 +527,7 @@ const ProfitabilityMatrixTab: React.FC<{
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs mb-4 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="grid grid-cols-2 gap-2 text-xs mb-4 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                 <div>
                   <span className="text-slate-400 block text-[10px]">سعر التكلفة</span>
                   <span className="font-bold text-slate-700 dark:text-slate-300 tabular-nums">{item.cost.toLocaleString()} ج.م</span>
@@ -543,7 +543,7 @@ const ProfitabilityMatrixTab: React.FC<{
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center text-xs">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-xs">
               <div>
                 <span className="text-[10px] text-slate-400 block">المخزون المتوفر</span>
                 <span className="font-black text-slate-800 dark:text-slate-200 tabular-nums">{item.stock} قطعة</span>
@@ -664,7 +664,7 @@ const BulkEditorTab: React.FC<{
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs">
-            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black uppercase border-b border-slate-100 dark:border-slate-800">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black uppercase border-b border-slate-200 dark:border-slate-800">
               <tr>
                 <th className="px-4 py-3.5 w-64">اسم المنتج</th>
                 <th className="px-4 py-3.5 w-36">SKU</th>
@@ -842,7 +842,7 @@ const BarcodeScannerTab: React.FC<{
           animate={{ scale: 1, opacity: 1 }}
           className="bg-white dark:bg-slate-900 p-8 rounded-3xl border-2 border-indigo-500/30 shadow-2xl space-y-6"
         >
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
             <div className="flex items-center gap-4 text-right">
               {selectedProduct.thumbnail || selectedProduct.images?.[0] ? (
                 <img src={selectedProduct.thumbnail || selectedProduct.images[0]} alt="" className="w-20 h-20 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-sm" />

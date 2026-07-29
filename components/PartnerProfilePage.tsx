@@ -460,15 +460,37 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
   const stats = useMemo(() => {
     if (!partner) return { totalInvested: 0, totalDividends: 0, totalWithdrawn: 0, totalLoans: 0, totalAdvances: 0, totalRepaid: 0 };
+    
+    const pOrderAdvances = orders.filter(o => {
+        const safeAdvance = Number(o.advancePayment) || 0;
+        if (safeAdvance <= 0) return false;
+        if (o.advancePaymentTreasuryId || (o.cashHolderId && o.cashHolderId.startsWith('treas_'))) return false;
+        // Check if employee ID or cashHolderId actually belongs to a partner
+        const empId = o.advancePaymentEmployeeId || (o.cashHolderId && o.cashHolderId.startsWith('emp_') ? o.cashHolderId.substring(4) : null);
+        if (empId) {
+            const isPt = (settings.partners || []).some((pt) => String(pt.id) === String(empId));
+            if (!isPt) return false;
+        }
+        if (empId && String(empId) === String(partner.id)) return true;
+        if (o.advancePaymentPartnerId === partner.id || o.cashHolderId === `part_${partner.id}`) return true;
+        if (Array.isArray(o.advancePaymentHistory) && o.advancePaymentHistory.some((h: any) => h.recipientId === partner.id || (h.recipientType === 'partner' && (h.recipientName === partner.name || h.recipientId === partner.id)))) return true;
+        const partnersCount = settings.cashHolders?.filter(h => h.userId.startsWith('part_')).length || 1;
+        if (partnersCount === 1) return true;
+        if (partner.name.includes('زهره') && (o.cashHolderId === 'admin' || !o.advancePaymentPartnerId)) return true;
+        return false;
+    }).reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+
+    const txAdvances = transactions.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0);
+
     return {
        totalInvested: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((sum, t) => sum + t.amount, 0),
        totalDividends: transactions.filter(t => t.type === 'profit_distribution').reduce((sum, t) => sum + t.amount, 0),
        totalWithdrawn: transactions.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + t.amount, 0),
        totalLoans: transactions.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0),
-       totalAdvances: transactions.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0),
+       totalAdvances: txAdvances + pOrderAdvances,
        totalRepaid: transactions.filter(t => t.type === 'repayment').reduce((sum, t) => sum + t.amount, 0),
     };
-  }, [transactions, partner]);
+  }, [transactions, partner, orders]);
 
   const chartData = useMemo(() => {
     if (!partner) return [];
@@ -925,7 +947,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
               )}
 
               {/* Custody Action Form */}
-              <div className="bg-slate-50 dark:bg-slate-900/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-4">
+              <div className="bg-slate-50 dark:bg-slate-900/20 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-4">
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300">إجراء حركة عهدة جديدة مسجلة على ذمة الشريك:</h4>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1015,7 +1037,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
               </div>
 
               {/* Custody History */}
-              <div className="bg-slate-50 dark:bg-slate-900/20 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-4">
+              <div className="bg-slate-50 dark:bg-slate-900/20 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-4">
                   <h4 className="text-sm font-black text-slate-700 dark:text-slate-300">سجل حركات العهدة الخاصة بالشريك:</h4>
                   <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
                     {(() => {
@@ -1090,7 +1112,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
               <div key={date} className="space-y-4">
                 <div className="flex items-center gap-4">
                   <div className="h-px flex-1 bg-slate-100 dark:bg-slate-700/50"></div>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-900/50 px-3 py-1 rounded-full border border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 dark:bg-slate-900/50 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-800">
                     {date}
                   </span>
                   <div className="h-px flex-1 bg-slate-100 dark:bg-slate-700/50"></div>
@@ -1189,7 +1211,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                         </div>
 
                         {t.note && (
-                          <div className="mt-3 mr-16 ml-2 p-3 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-100 dark:border-slate-800/50 text-[11px] font-medium text-slate-600 dark:text-slate-400 leading-relaxed italic">
+                          <div className="mt-3 mr-16 ml-2 p-3 bg-slate-50 dark:bg-slate-950/50 rounded-xl border border-slate-200 dark:border-slate-800/50 text-[11px] font-medium text-slate-600 dark:text-slate-400 leading-relaxed italic">
                             <span className="text-slate-400 not-italic block mb-1 font-black uppercase text-[9px]">ملاحظات:</span>
                             {t.note}
                           </div>

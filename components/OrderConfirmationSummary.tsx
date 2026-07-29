@@ -132,7 +132,7 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                     {order.totalAmountOverride !== undefined && order.totalAmountOverrideReason && (
                         <div className="mt-3 text-right">
                             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase tracking-wider mb-1">سبب تعديل الإجمالي</span>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 italic">
+                            <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 italic">
                                 "{order.totalAmountOverrideReason}"
                             </p>
                         </div>

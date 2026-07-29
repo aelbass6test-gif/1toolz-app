@@ -55,7 +55,7 @@ const AbandonedCartsPage: React.FC<AbandonedCartsPageProps> = ({ settings, setSe
                         ))}
                     </div>
                 </div>
-                <div className="flex flex-col justify-center gap-3 border-t md:border-t-0 md:border-r border-slate-100 dark:border-slate-800 pt-4 md:pt-0 md:pr-6">
+                <div className="flex flex-col justify-center gap-3 border-t md:border-t-0 md:border-r border-slate-200 dark:border-slate-800 pt-4 md:pt-0 md:pr-6">
                     <button onClick={() => sendRecoveryMessage(cart)} className="flex items-center justify-center gap-2 bg-green-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-green-600 transition-all shadow-lg shadow-green-500/20 active:scale-95">
                         <MessageCircle size={18}/> استعادة عبر واتساب
                     </button>

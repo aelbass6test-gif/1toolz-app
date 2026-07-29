@@ -318,7 +318,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
         </div>
 
         {/* Segment Filter Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-t border-slate-100 dark:border-slate-800 pt-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar border-t border-slate-200 dark:border-slate-800 pt-3">
           <span className="text-xs font-black text-slate-400 flex items-center gap-1 shrink-0 ml-1">
             <Filter size={14} /> التصنيف:
           </span>

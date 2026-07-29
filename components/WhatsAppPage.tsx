@@ -266,7 +266,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
               </div>
 
               {/* Step 1: Select Simulation Order */}
-              <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-2xl space-y-3">
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3">
                 <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
                   Step 1: اختر أوردر تجريبي للمحاكاة الفورية 🎯
                 </label>
@@ -295,7 +295,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
                 <div className="space-y-3">
                   {interactiveButtons.map((btn, index) => (
-                    <div key={btn.id} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
+                    <div key={btn.id} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
                       <div className="flex-1 space-y-1">
                         <span className="text-[10px] font-black text-indigo-500 block">الزر التفاعلي #{index + 1} ({btn.label})</span>
                         <input
@@ -335,7 +335,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
               {/* Status Log & Webhook Info */}
               <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100/30 dark:border-indigo-900/40 rounded-2xl space-y-2">
                 <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 block">📡 رابط استقبال الويب-هوك الفعلي (WhatsApp Webhook URL):</span>
-                <code className="text-[10px] font-mono text-slate-600 dark:text-slate-400 block bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-100 dark:border-slate-800 text-left" dir="ltr">
+                <code className="text-[10px] font-mono text-slate-600 dark:text-slate-400 block bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-left" dir="ltr">
                   POST http://[YOUR-DOMAIN]/api/webhook/whatsapp
                 </code>
                 <p className="text-[10px] text-indigo-500/80 font-bold leading-relaxed">
@@ -378,7 +378,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                   {selectedSimOrder ? (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl rounded-tr-none p-3 shadow-sm text-right space-y-2 max-w-[240px] self-end animate-in fade-in duration-200">
                       {/* Header Title */}
-                      <div className="border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-1.5">
+                      <div className="border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-1.5">
                         <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">
                           <span>📦 تأكيد أوردر الشراء</span>
                         </span>
@@ -403,7 +403,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                       <span className="text-[8px] text-slate-400 block font-bold mt-1">نظام فليكس شيب الذكي لمتابعة الشحن</span>
 
                       {/* Interactive Buttons Stack */}
-                      <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800 mt-2">
+                      <div className="space-y-1 pt-2 border-t border-slate-200 dark:border-slate-800 mt-2">
                         {interactiveButtons.map(btn => {
                           const isSimulating = isSimulatingBtn === btn.id;
                           return (
@@ -440,7 +440,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
         {activeTab === 'chats' && (
           <div className="grid grid-cols-1 md:grid-cols-3 h-full divide-x divide-x-reverse divide-slate-100 dark:divide-slate-800">
-            <div className="p-6 border-l border-slate-100 dark:border-slate-800">
+            <div className="p-6 border-l border-slate-200 dark:border-slate-800">
               <div className="relative mb-6">
                 <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input 
@@ -506,7 +506,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
             <div className="grid grid-cols-1 gap-6">
               {templates.map((template) => (
-                <div key={template.id} className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-4">
+                <div key={template.id} className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
                   <div className="flex items-center justify-between">
                     <input 
                       type="text" 
@@ -585,7 +585,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col gap-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
                     <span className="text-[10px] font-bold text-slate-400">معاينة النص:</span>
                     <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap">
                       {whatsappService.formatMessage(template.text, orders[0] || { customerName: 'عميل تجريبي', orderNumber: '1001', totalPrice: 750, status: 'pending', customerAddress: 'القاهرة، مصر' } as any, settings)}
@@ -756,7 +756,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
           <div className="p-8 max-w-3xl mx-auto space-y-10">
             {/* Provider Type Selector */}
             <div className="space-y-4">
-              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <Smartphone size={24} />
                 <h3 className="text-xl font-black">طريقة الاتصال والإرسال</h3>
               </div>
@@ -808,7 +808,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
             {config.providerType === 'meta_cloud' && (
               <div className="space-y-6">
-                <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 pb-4 border-b border-slate-200 dark:border-slate-800">
                   <Code size={24} />
                   <h3 className="text-xl font-black">إعدادات ميتا الرسمية (WhatsApp Business Cloud API)</h3>
                 </div>
@@ -852,7 +852,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
             {config.providerType === 'ultramsg' && (
               <div className="space-y-6">
-                <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-200 dark:border-slate-800">
                   <Code size={24} />
                   <h3 className="text-xl font-black">إعدادات الاتصال بالـ API الخارجي</h3>
                 </div>
@@ -947,7 +947,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
             )}
 
             <div className="space-y-6">
-              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-200 dark:border-slate-800">
                 <Bell size={24} />
                 <h3 className="text-xl font-black">أتمتة الرسائل</h3>
               </div>

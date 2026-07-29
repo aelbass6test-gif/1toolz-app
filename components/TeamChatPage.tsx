@@ -125,7 +125,7 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
             <h2 className="font-bold text-lg text-slate-800 dark:text-white">محادثات الموظفين</h2>
           </div>
           <div className="flex-1 overflow-y-auto">
-            <button onClick={() => setActiveChat('general')} className={`w-full text-right p-4 flex items-center gap-3 transition-colors border-b border-slate-100 dark:border-slate-800 ${activeChat === 'general' ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+            <button onClick={() => setActiveChat('general')} className={`w-full text-right p-4 flex items-center gap-3 transition-colors border-b border-slate-200 dark:border-slate-800 ${activeChat === 'general' ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
               <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 rounded-full flex items-center justify-center font-bold text-sm">
                 <MessageSquare size={20} />
               </div>
@@ -134,7 +134,7 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
               </div>
             </button>
             {employees.filter(e => e && e.name).map(employee => (
-              <button key={employee.id} onClick={() => setActiveChat(employee)} className={`w-full text-right p-4 flex items-center gap-3 transition-colors border-b border-slate-100 dark:border-slate-800 ${activeChat !== 'general' && activeChat?.id === employee.id ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
+              <button key={employee.id} onClick={() => setActiveChat(employee)} className={`w-full text-right p-4 flex items-center gap-3 transition-colors border-b border-slate-200 dark:border-slate-800 ${activeChat !== 'general' && activeChat?.id === employee.id ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}>
                 <div className="relative">
                   <div className="w-10 h-10 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 text-sm">
                     {String(employee.name || "").substring(0, 2)}

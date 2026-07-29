@@ -392,7 +392,7 @@ const Header: React.FC<HeaderProps> = ({
                                 {isSyncMenuOpen && (
                                     <div className="absolute left-0 mt-2.5 w-85 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200 p-1 z-50 overflow-hidden text-right font-sans" dir="rtl" style={{ minWidth: '340px' }}>
                                         {/* Header of Control Panel */}
-                                        <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
+                                        <div className="p-4 bg-slate-50/55 dark:bg-slate-950/20 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between rounded-t-3xl">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
                                                     <Cloud size={14} className={dbSyncMode === 'auto' ? "animate-pulse" : ""} />
@@ -457,7 +457,7 @@ const Header: React.FC<HeaderProps> = ({
                                             </div>
 
                                             {/* Last Sync Tracking */}
-                                            <div className="flex justify-between items-center pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                                            <div className="flex justify-between items-center pt-2.5 border-t border-slate-200 dark:border-slate-800">
                                                 <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">آخر مزامنة ناجحة:</span>
                                                 <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400 font-mono">
                                                     {lastSyncTime}
@@ -465,7 +465,7 @@ const Header: React.FC<HeaderProps> = ({
                                             </div>
 
                                             {/* Work Mode Toggle */}
-                                            <div className="bg-slate-50/70 dark:bg-slate-950/20 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col gap-2">
+                                            <div className="bg-slate-50/70 dark:bg-slate-950/20 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col gap-2">
                                                 <div className="text-[10px] font-bold text-slate-400">نمط العمل والربط الفعلي:</div>
                                                 <div className="grid grid-cols-2 gap-1 bg-slate-100/75 dark:bg-slate-800 p-1 rounded-xl">
                                                      <button
@@ -526,7 +526,7 @@ const Header: React.FC<HeaderProps> = ({
                                                         }}
                                                     ></div>
                                                 </div>
-                                                <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-100/50 dark:border-slate-800/50">
+                                                <div className="flex justify-between items-center mt-2.5 pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
                                                     <span className="text-[9px] text-slate-400 leading-none">تأمين محلي فوري والعمل المباشر مدعوم</span>
                                                     <button 
                                                         onClick={executePingTest}
@@ -540,7 +540,7 @@ const Header: React.FC<HeaderProps> = ({
                                         </div>
 
                                         {/* Footer Quick Info and toggle */}
-                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-100 dark:border-slate-850 flex flex-col gap-2 rounded-b-3xl">
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/45 border-t border-slate-200 dark:border-slate-850 flex flex-col gap-2 rounded-b-3xl">
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={async () => {
@@ -610,7 +610,7 @@ const Header: React.FC<HeaderProps> = ({
                             </button>
                             {isAlertsOpen && (
                                 <div className="absolute left-0 top-14 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 z-[60] overflow-hidden">
-                                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
+                                    <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
                                         <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
                                             <Bell size={16} className="text-amber-500" />
                                             تنبيهات المخزون والجرد
@@ -665,7 +665,7 @@ const Header: React.FC<HeaderProps> = ({
                                         )}
                                     </div>
                                     {inventoryAlerts.length > 0 && (
-                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800">
+                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800">
                                             <Link 
                                                 to="inventory-audit" 
                                                 onClick={() => setIsAlertsOpen(false)}
@@ -704,7 +704,7 @@ const Header: React.FC<HeaderProps> = ({
                     </button>
                     {isUserMenuOpen && (
                         <div className="absolute left-0 top-14 w-64 glass rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-200 p-2 z-50">
-                            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 mb-2">
+                            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 mb-2">
                                 <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{currentUser?.fullName}</p>
                                 <p className="text-xs text-slate-400 truncate">{currentUser?.email}</p>
                             </div>
@@ -741,7 +741,7 @@ const Header: React.FC<HeaderProps> = ({
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 font-sans select-none text-right" dir="rtl">
                 <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[80vh]">
                     {/* Modal Header */}
-                    <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
+                    <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
                         <div className="flex items-center gap-3">
                             <div className="p-2.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl">
                                 <ShieldAlert size={20} className="animate-pulse" />
@@ -813,7 +813,7 @@ const Header: React.FC<HeaderProps> = ({
                                 }
 
                                 return (
-                                    <div key={i} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 rounded-2xl text-[11px] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+                                    <div key={i} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800/60 rounded-2xl text-[11px] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
                                         <div className="flex items-center gap-3">
                                             <div className="p-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-xl shadow-sm text-slate-500">
                                                 {icon}
@@ -837,7 +837,7 @@ const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     {/* Modal Footer */}
-                    <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                    <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-200 dark:border-slate-800 flex gap-3">
                         <button
                             type="button"
                             onClick={async () => {

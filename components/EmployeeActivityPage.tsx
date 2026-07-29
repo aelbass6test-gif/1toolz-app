@@ -110,7 +110,7 @@ const EmployeeActivityPage: React.FC<EmployeeActivityPageProps> = ({ orders, cur
                 {myActivityOrders.length > 0 ? (
                     myActivityOrders.map(({ order, lastAction }) => (
                         <div key={order.id} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
                                 <div>
                                     <h3 className="font-bold text-slate-800 dark:text-white">{order.customerName}</h3>
                                     <p className="text-xs text-slate-500 font-mono">#{order.orderNumber}</p>

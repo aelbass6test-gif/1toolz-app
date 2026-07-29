@@ -784,7 +784,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                       </div>
 
                       {/* Financial summary for selected month */}
-                      <div className="space-y-2.5 bg-slate-50/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <div className="space-y-2.5 bg-slate-50/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-slate-500 font-bold">الراتب الأساسي:</span>
                           <span className="font-black text-slate-900 dark:text-white">{summary.base.toLocaleString()} ج.م</span>
@@ -821,7 +821,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                     </div>
 
                     {/* Actions footer */}
-                    <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2">
+                    <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-2">
                       <button 
                         onClick={() => { setSelectedStaff(staff); setShowPayslipModal(true); }}
                         className="w-full py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
@@ -929,7 +929,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       {activeTab === 'attendance' && (
         <div className="space-y-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm text-right">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-6 border-b border-slate-200 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
                   <Clock className="text-indigo-600" size={20} /> تسجيل حضور وانصراف الموظفين
@@ -1013,7 +1013,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       {activeTab === 'leaves' && (
         <div className="space-y-4 text-right">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center mb-6 pb-6 border-b border-slate-200 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
                   <Calendar className="text-indigo-600" size={20} /> إدارة إجازات وغيابات الموظفين
@@ -1116,7 +1116,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       {activeTab === 'advances' && (
         <div className="space-y-4 text-right">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center mb-6 pb-6 border-b border-slate-200 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
                   <DollarSign className="text-indigo-600" size={20} /> إدارة سلف وقروض الموظفين
@@ -1199,7 +1199,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       {activeTab === 'documents' && (
         <div className="space-y-4 text-right">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
-            <div className="flex justify-between items-center mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center mb-6 pb-6 border-b border-slate-200 dark:border-slate-800">
               <div>
                 <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
                   <FileText className="text-indigo-600" size={20} /> إدارة ملفات وعقود طاقم العمل
@@ -1402,7 +1402,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       {/* TAB 3: MONTHLY COMPREHENSIVE REPORT */}
       {activeTab === 'report' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 space-y-6 shadow-sm">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-4">
             <div>
               <h3 className="text-lg font-black text-slate-800 dark:text-white">التقرير الشامل لرواتب ومستحقات شهر {selectedMonth}</h3>
               <p className="text-xs text-slate-500 mt-0.5">ملخص تفصيلي لكل موظف موضحاً فيه صافي الاستحقاق وما تم صرفه فعلياً.</p>
@@ -1568,7 +1568,7 @@ const StaffModal: React.FC<{ staff?: StaffMember; onClose: () => void; onSave: (
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800"
       >
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
             <UserPlus size={24} className="text-indigo-600" /> {staff ? 'تعديل بيانات موظف' : 'إضافة موظف جديد'}
           </h2>
@@ -1641,7 +1641,7 @@ const StaffModal: React.FC<{ staff?: StaffMember; onClose: () => void; onSave: (
           </div>
         </div>
 
-        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-sm">إلغاء</button>
           <button 
             onClick={() => {
@@ -1688,7 +1688,7 @@ const PaymentModal: React.FC<{ staff: StaffMember; treasury?: Treasury; onClose:
         exit={{ opacity: 0, y: 20 }}
         className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800"
       >
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div>
             <h2 className="text-xl font-black text-slate-800 dark:text-white">صرف أو تسجيل حركة مالية</h2>
             <p className="text-xs text-indigo-600 font-bold mt-0.5">للموظف: {staff.name}</p>
@@ -1796,7 +1796,7 @@ const PaymentModal: React.FC<{ staff: StaffMember; treasury?: Treasury; onClose:
           </div>
         </div>
 
-        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
           <button onClick={onClose} className="px-6 py-2.5 font-bold text-slate-500 hover:text-slate-700 text-sm">إلغاء</button>
           <button 
             onClick={() => {
@@ -1839,7 +1839,7 @@ const EditPaymentModal: React.FC<{ tx: PayrollTransaction; treasury?: Treasury; 
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800"
       >
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-blue-50/50 dark:bg-blue-900/20">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-blue-50/50 dark:bg-blue-900/20">
           <div>
             <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
               <Edit2 size={18} className="text-blue-600" /> تعديل سجل الصرف
@@ -1937,7 +1937,7 @@ const EditPaymentModal: React.FC<{ tx: PayrollTransaction; treasury?: Treasury; 
           </div>
         </div>
 
-        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
           <button onClick={onClose} className="px-5 py-2 font-bold text-slate-500 text-sm">إلغاء</button>
           <button 
             onClick={() => {
@@ -1973,7 +1973,7 @@ const PayslipModal: React.FC<{ staff: StaffMember; summary: any; month: string; 
         exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-3xl shadow-2xl overflow-hidden text-right border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]"
       >
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-indigo-600 text-white rounded-2xl"><FileText size={22} /></div>
             <div>
@@ -1993,7 +1993,7 @@ const PayslipModal: React.FC<{ staff: StaffMember; summary: any; month: string; 
 
         <div className="p-6 space-y-6 overflow-y-auto flex-1 text-sm">
           {/* Employee Card */}
-          <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-800">
+          <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl flex justify-between items-center border border-slate-200 dark:border-slate-800">
             <div>
               <h3 className="font-black text-base text-slate-900 dark:text-white">{staff.name}</h3>
               <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">{staff.position}</p>
@@ -2053,7 +2053,7 @@ const PayslipModal: React.FC<{ staff: StaffMember; summary: any; month: string; 
               <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider">سجل حركات الشهر:</h4>
               <div className="space-y-1.5 max-h-40 overflow-y-auto">
                 {summary.staffTxs.map((t: any) => (
-                  <div key={t.id} className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-750">
+                  <div key={t.id} className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-750">
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded ${
                         t.type === 'salary' ? 'bg-blue-100 text-blue-700' : t.type === 'incentive' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
@@ -2070,7 +2070,7 @@ const PayslipModal: React.FC<{ staff: StaffMember; summary: any; month: string; 
           )}
         </div>
 
-        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center">
           <div className="text-[11px] text-slate-400">تاريخ الإصدار: {new Date().toLocaleDateString('ar-EG')}</div>
           <button onClick={onClose} className="px-6 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 rounded-xl font-bold text-slate-700 dark:text-white text-sm transition-colors">
             إغلاق

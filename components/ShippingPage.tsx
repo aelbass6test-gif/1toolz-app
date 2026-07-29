@@ -188,7 +188,7 @@ const CityManagerModal: React.FC<{
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-2 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-800">
+                <div className="flex-1 overflow-y-auto p-2 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-200 dark:border-slate-800">
                     {displayedCities.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                             <Map className="mb-2 opacity-50" size={32}/>
@@ -396,7 +396,7 @@ const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompa
             initial="hidden"
             animate="visible"
         >
-             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800 w-full">
+             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-800 w-full">
                 <div>
                     <div className="flex items-center gap-2 mb-1">
                         <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>

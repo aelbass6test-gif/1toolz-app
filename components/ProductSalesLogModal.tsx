@@ -787,7 +787,7 @@ export const ProductSalesLogModal: React.FC<ProductSalesLogModalProps> = ({
           dir="rtl"
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+          <div className="flex items-center justify-between p-5 sm:p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
                 <Package size={24} />
@@ -825,7 +825,7 @@ export const ProductSalesLogModal: React.FC<ProductSalesLogModalProps> = ({
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex border-b border-slate-100 dark:border-slate-800 px-6 bg-slate-50/30 dark:bg-slate-800/20">
+          <div className="flex border-b border-slate-200 dark:border-slate-800 px-6 bg-slate-50/30 dark:bg-slate-800/20">
             <button
               onClick={() => setActiveTab('sales')}
               className={`py-3.5 px-5 font-extrabold text-xs sm:text-sm border-b-2 transition-all flex items-center gap-2 cursor-pointer ${
@@ -1248,7 +1248,7 @@ export const ProductSalesLogModal: React.FC<ProductSalesLogModalProps> = ({
       {/* Supply Order Details Modal */}
       {selectedSupplyOrder && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
             {/* Header */}
             <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-white/10 shrink-0">
               <div className="flex items-center gap-3">
@@ -1590,7 +1590,7 @@ export const ProductSalesLogModal: React.FC<ProductSalesLogModalProps> = ({
       {/* Purchase Return Details Modal */}
       {selectedPurchaseReturn && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" dir="rtl">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
             {/* Header */}
             <div className="bg-rose-950 text-white p-5 flex items-center justify-between border-b border-white/10 shrink-0">
               <div className="flex items-center gap-3">

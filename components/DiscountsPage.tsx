@@ -109,7 +109,7 @@ const DiscountsPage: React.FC<DiscountsPageProps> = ({ settings, setSettings }) 
                     </div>
                     <button onClick={() => toggleCode(code.id)} className={`p-2 rounded-lg transition-colors ${code.active ? 'text-green-500 bg-green-50' : 'text-slate-400 bg-slate-100'}`}><Power size={20}/></button>
                 </div>
-                <div className="flex justify-between items-center pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex justify-between items-center pt-4 border-t border-slate-200 dark:border-slate-800">
                     <span className="text-xs font-bold text-slate-500">استخدم {code.usageCount} مرة</span>
                     <button onClick={() => deleteCode(code.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 size={16}/></button>
                 </div>

@@ -115,7 +115,7 @@ const ProductSelect: React.FC<{ value: string; onChange: (val: string) => void; 
 
       {isOpen && (
         <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-[70] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-          <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80">
+          <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/80">
             <div className="relative">
               <input 
                 autoFocus
@@ -302,7 +302,7 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200" dir="rtl">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200 max-h-[95vh] flex flex-col">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 max-h-[95vh] flex flex-col">
         
         {/* Modal Top Header */}
         <div className="bg-slate-900 dark:bg-black p-5 sm:p-6 text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/10 shrink-0">
@@ -972,7 +972,7 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                       }`}
                     >
                       {/* Top Row: Product Select & Return Checkbox */}
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center border-b border-slate-100 dark:border-slate-700/60 pb-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center border-b border-slate-200 dark:border-slate-700/60 pb-4">
                         <div className="lg:col-span-8">
                           <div className="flex justify-between items-center mb-1.5">
                             <label className="text-xs font-black text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
@@ -1189,7 +1189,7 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
 
                       {/* Pricing, Discounts, and Landed Cost Engine */}
                       {item.productId && (
-                        <div className="pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-4">
+                        <div className="pt-3 border-t border-slate-200 dark:border-slate-700/60 space-y-4">
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                             <div>
                               <label className="text-xs font-black text-slate-600 dark:text-slate-300 mb-1 block">تكلفة شراء الحبة بالمستند</label>
@@ -1613,7 +1613,7 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                       <span>مصدر دفع المصروفات الإضافية / الشحن (المحفظة، الخزائن، العهد أو الشركاء):</span>
                       <span className="text-[10px] text-indigo-500 font-bold">يحدد جهة الصرف في سجل المصروفات</span>
                     </label>
-                    <div className="space-y-3 bg-slate-50/50 dark:bg-slate-900/30 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                    <div className="space-y-3 bg-slate-50/50 dark:bg-slate-900/30 p-3 rounded-2xl border border-slate-200 dark:border-slate-800/80">
                       {/* Basic Wallet & Partners */}
                       <div className="space-y-1.5">
                         <div className="text-[10px] font-black text-slate-400 dark:text-slate-500">السيولة الأساسية والشركاء:</div>

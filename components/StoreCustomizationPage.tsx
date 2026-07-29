@@ -189,7 +189,7 @@ const StoreCustomizationPage: React.FC<StoreCustomizationPageProps> = ({ setting
   return (
     <div className="space-y-8">
       {/* Upper Title Section */}
-      <div className="bg-gradient-to-r from-indigo-50/60 to-purple-50/30 dark:from-slate-900/40 dark:to-slate-950 p-6 md:p-8 rounded-3xl border border-slate-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      <div className="bg-gradient-to-r from-indigo-50/60 to-purple-50/30 dark:from-slate-900/40 dark:to-slate-950 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="text-right">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 dark:bg-indigo-900/30 text-indigo-705 dark:text-indigo-300 text-xs font-bold mb-3">
             <Sparkles size={12} className="animate-pulse" /> مصمم الواجهات السحابي الذكي v2
@@ -197,7 +197,7 @@ const StoreCustomizationPage: React.FC<StoreCustomizationPageProps> = ({ setting
           <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3"><Brush className="text-indigo-600" /> مخصّص التصميم العالمي</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1.5 text-sm font-bold">كل التحكّمات في شكل المتجر الخارجي متاحة للأكشن الفوري. التغييرات تظهر لحظياً داخل المحاكي الذكي.</p>
         </div>
-        <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 shrink-0">
+        <div className="flex items-center gap-3 bg-white dark:bg-slate-900 p-2 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 shrink-0">
           <Link to="/store" target="_blank" className="flex items-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-95 text-sm shadow-md shadow-indigo-600/10"><Eye size={18} /> معاينة المتجر بصفحة جديدة</Link>
         </div>
       </div>
@@ -701,7 +701,7 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
         )}
 
         {/* Categories Tab Pill List */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2 border-b border-slate-100 dark:border-slate-800 flex-row-reverse">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-2 border-b border-slate-200 dark:border-slate-800 flex-row-reverse">
           {TEMPLATE_CATEGORIES.map(category => {
             const isCatActive = selectedCategory === category;
             return (
@@ -738,7 +738,7 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
                   {/* Desktop view simulator in the background */}
                   <div className={`w-[85%] h-[90%] rounded-t-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-lg p-2.5 overflow-hidden transition-all duration-500 group-hover:scale-[1.01] ${isActive ? 'ring-1 ring-indigo-500/20' : ''}`}>
                     {/* Tiny header bar */}
-                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex-row-reverse">
+                    <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-2 flex-row-reverse">
                       <div className="flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-slate-350" />
                         <span className="w-1.5 h-1.5 rounded-full bg-slate-350" />
@@ -758,21 +758,21 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
                     {/* Collections / Grid simulation */}
                     <div className="mt-3">
                       <div className="grid grid-cols-3 gap-2">
-                        <div className="p-1 bg-slate-50 dark:bg-slate-950 rounded-md border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                        <div className="p-1 bg-slate-50 dark:bg-slate-950 rounded-md border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
                           <div className="w-full h-5 rounded bg-slate-200/50 dark:bg-slate-800" />
                           <div className="mt-1 flex justify-between items-center flex-row-reverse">
                             <span className="text-[5px] text-slate-500 font-extrabold">EGP 290</span>
                             <div className="w-3 h-1 bg-indigo-500 rounded" style={{ backgroundColor: tpl.primaryColor }} />
                           </div>
                         </div>
-                        <div className="p-1 bg-slate-50 dark:bg-slate-950 rounded-md border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                        <div className="p-1 bg-slate-50 dark:bg-slate-950 rounded-md border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
                           <div className="w-full h-5 rounded bg-slate-200/50 dark:bg-slate-800" />
                           <div className="mt-1 flex justify-between items-center flex-row-reverse">
                             <span className="text-[5px] text-slate-500 font-extrabold">EGP 420</span>
                             <div className="w-3 h-1 bg-indigo-500 rounded" style={{ backgroundColor: tpl.primaryColor }} />
                           </div>
                         </div>
-                        <div className="p-1 bg-slate-50 dark:bg-slate-950 rounded-md border border-slate-100 dark:border-slate-800 flex flex-col justify-between">
+                        <div className="p-1 bg-slate-50 dark:bg-slate-950 rounded-md border border-slate-200 dark:border-slate-800 flex flex-col justify-between">
                           <div className="w-full h-5 rounded bg-slate-200/50 dark:bg-slate-800" />
                           <div className="mt-1 flex justify-between items-center flex-row-reverse">
                             <span className="text-[5px] text-slate-500 font-extrabold">EGP 880</span>
@@ -786,7 +786,7 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
                   {/* 2. Floating iPhone / Mobile Screen simulator on the bottom right */}
                   <div className="absolute right-4 bottom-0 w-[80px] h-[135px] bg-slate-950 rounded-t-xl border-t-4 border-x-[3px] border-slate-900 p-1 shadow-2xl flex flex-col overflow-hidden transition-all duration-500 group-hover:translate-y-[-4px]">
                     <div className="flex-1 bg-white dark:bg-slate-900 rounded-sm overflow-hidden flex flex-col justify-between text-right p-1 pb-0">
-                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-0.5 flex-row-reverse">
+                      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-0.5 flex-row-reverse">
                         <ShoppingCart size={4} className="text-slate-400" />
                         <span className="text-[4px] font-black" style={{ color: tpl.primaryColor }}>{tpl.name}</span>
                       </div>
@@ -795,7 +795,7 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
                         <h5 className="text-[4px] font-extrabold text-white scale-[0.95]">{tpl.bannerTitle}</h5>
                       </div>
 
-                      <div className="bg-slate-50 dark:bg-slate-950 p-0.5 rounded border border-slate-100 flex flex-col justify-between h-8">
+                      <div className="bg-slate-50 dark:bg-slate-950 p-0.5 rounded border border-slate-200 flex flex-col justify-between h-8">
                         <div className="w-full h-3 bg-slate-250 dark:bg-slate-800 rounded-sm" />
                         <div className="flex items-center justify-between scale-[0.8] origin-bottom mt-0.5 flex-row-reverse">
                           <span className="text-[3px] text-slate-850 dark:text-white font-bold">120 EGP</span>
@@ -807,7 +807,7 @@ const TemplatesSection: React.FC<SectionComponentProps> = ({ customization, setC
                 </div>
 
                 {/* 2. CARD FOOTER */}
-                <div className="p-4 flex items-center justify-between gap-4 w-full bg-white dark:bg-slate-900 text-right border-t border-slate-100 dark:border-slate-805 flex-row-reverse">
+                <div className="p-4 flex items-center justify-between gap-4 w-full bg-white dark:bg-slate-900 text-right border-t border-slate-200 dark:border-slate-805 flex-row-reverse">
                   <div>
                     <h3 className="font-black text-slate-900 dark:text-white text-sm">
                       {tpl.name}
@@ -1275,7 +1275,7 @@ const NavigationSection: React.FC<SectionComponentProps> = ({ customization, set
                 <p className="text-xs text-slate-500 leading-relaxed -mt-3 mb-4 font-bold">بناء وتنسيق تبويبات شريط التنقل العلوي للمتجر للوصول السريع للأقسام والمنتجات.</p>
                 <div className="space-y-2">
                     {list.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800/80 flex-row-reverse">
+                        <div key={idx} className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800/80 flex-row-reverse">
                             <div className="flex flex-col text-right">
                                 <span className="font-black text-xs text-slate-800 dark:text-white">{item.label}</span>
                                 <span className="text-[10px] text-slate-405 font-semibold mt-0.5 select-all">{item.url}</span>
@@ -1292,10 +1292,10 @@ const NavigationSection: React.FC<SectionComponentProps> = ({ customization, set
                     ))}
                 </div>
 
-                <div className="border-t border-slate-100 dark:border-slate-800/80 my-4"></div>
+                <div className="border-t border-slate-200 dark:border-slate-800/80 my-4"></div>
                 
                 <h3 className="font-extrabold text-xs text-slate-700 dark:text-slate-355 mb-2.5">إضافة رابط جديد:</h3>
-                <div className="space-y-3.5 bg-slate-50/50 dark:bg-slate-950/20 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/40">
+                <div className="space-y-3.5 bg-slate-50/50 dark:bg-slate-950/20 p-4 rounded-2xl border border-slate-200 dark:border-slate-800/40">
                     <FormInput
                         label="اسم الرابط (مثال: الشتوي)"
                         value={newItem.label}
@@ -1475,7 +1475,7 @@ const HomepageSectionsSection: React.FC<SectionComponentProps> = ({ customizatio
                     )}
                 </div>
 
-                <div className="border-t border-slate-100 dark:border-slate-800 my-4"></div>
+                <div className="border-t border-slate-200 dark:border-slate-800 my-4"></div>
                 
                 <h3 className="font-black text-xs text-slate-705 dark:text-slate-355 mb-3">+ إضافة قسم جديد بتنسيق فوري:</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -1657,7 +1657,7 @@ const CheckoutFieldsSection: React.FC<SectionComponentProps> = ({ customization,
                         };
                         const item = fields[fieldKey];
                         return (
-                            <div key={fieldKey} className="p-4 bg-slate-50/70 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800 flex items-center justify-between text-right flex-row-reverse">
+                            <div key={fieldKey} className="p-4 bg-slate-50/70 dark:bg-slate-800/20 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-right flex-row-reverse">
                                 <span className="font-extrabold text-xs text-slate-800 dark:text-white">{labelNames[fieldKey]}</span>
                                 <div className="flex items-center gap-3">
                                     <label className="flex items-center gap-1 hover:cursor-pointer select-none text-[11px] font-black text-slate-505">
@@ -1758,7 +1758,7 @@ const EmailNotifsSection: React.FC<SectionComponentProps> = ({ customization, se
 
 const CustomizationSection: React.FC<{ title: string; children: React.ReactNode; }> = ({ title, children }) => (
     <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm text-right leading-relaxed">
-        <h2 className="text-sm font-black text-slate-800 dark:text-white mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
+        <h2 className="text-sm font-black text-slate-800 dark:text-white mb-5 border-b border-slate-200 dark:border-slate-800 pb-3">
             {title}
         </h2>
         <div className="space-y-5">
@@ -1855,7 +1855,7 @@ const ToggleControl: React.FC<{
     checked: boolean; 
     onChange: (checked: boolean) => void;
 }> = ({label, checked, onChange}) => (
-    <div className="flex items-center justify-between p-1 bg-slate-50/50 dark:bg-slate-950/30 rounded-xl border border-slate-100 dark:border-slate-805 px-3 py-2.5 flex-row-reverse text-right">
+    <div className="flex items-center justify-between p-1 bg-slate-50/50 dark:bg-slate-950/30 rounded-xl border border-slate-200 dark:border-slate-805 px-3 py-2.5 flex-row-reverse text-right">
         <label className="text-xs font-black text-slate-707 dark:text-slate-300">{label}</label>
         <div className="relative inline-flex items-center cursor-pointer">
             <input 
@@ -1913,7 +1913,7 @@ const BannersEditor: React.FC<{
 
             {editingBanner && (
                  <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl w-full max-w-lg text-right space-y-4 border border-slate-100 dark:border-slate-800 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl w-full max-w-lg text-right space-y-4 border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between border-b pb-3 border-slate-101 dark:border-slate-807 flex-row-reverse">
                             <span className="font-black text-slate-800 dark:text-white">{editingBanner.id ? 'عدّل تصميم السلايدر' : 'إضافة تصميم سلايدر جديد'}</span>
                             <button type="button" onClick={() => setEditingBanner(null)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400"><X size={16}/></button>
@@ -1968,8 +1968,8 @@ const ImageControl: React.FC<{
             
             {isModalOpen && (
                 <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
-                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl w-full max-w-md text-right border border-slate-100 dark:border-slate-800 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-805 flex-row-reverse">
+                    <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl w-full max-w-md text-right border border-slate-200 dark:border-slate-800 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between border-b pb-3 border-slate-200 dark:border-slate-805 flex-row-reverse">
                             <span className="font-black text-slate-850 dark:text-white">تعديل رابط الصورة المباشر</span>
                             <button type="button" onClick={() => setIsModalOpen(false)} className="p-1.5 hover:bg-slate-105 rounded-full text-slate-400"><X size={15}/></button>
                         </div>

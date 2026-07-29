@@ -128,7 +128,7 @@ const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Set
                         <span className="text-xs font-black text-slate-600 dark:text-slate-300">مستشار الذكاء الاصطناعي يقوم بتحليل المبيعات والعملاء والمخزون...</span>
                     </div>
                 ) : (
-                    <div className="p-4 bg-slate-50/80 dark:bg-slate-950/50 rounded-2xl border border-slate-100 dark:border-slate-800/80 text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+                    <div className="p-4 bg-slate-50/80 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800/80 text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
                         {suggestions.split('\n').map((line, i) => (
                             <p key={i} className="my-1.5 flex items-start gap-2">
                                 {line.startsWith('•') || line.startsWith('-') ? (
@@ -255,7 +255,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800/50">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800/50">
         <DashboardStatusCard title="بانتظار مكالمة" value={stats.counts['في_انتظار_المكالمة']} color="text-cyan-600" />
         <DashboardStatusCard title="مراجعة" value={stats.counts['جاري_المراجعة']} color="text-purple-600" />
         <DashboardStatusCard title="قيد التنفيذ" value={stats.processingCount} color="text-purple-600" />
@@ -320,7 +320,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             {lowStockProducts.length > 0 ? (
               <div className="space-y-2">
                 {lowStockProducts.slice(0,3).map(p => (
-                  <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700">
+                  <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
                      <span className="text-xs font-bold truncate max-w-[150px]">{p.name}</span>
                      <span className="px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 font-black text-xs tabular-nums">{p.stockQuantity} قطعة</span>
                   </div>
@@ -345,7 +345,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
              </div>
              <div className="space-y-2">
                {stats.topProducts.slice(0,3).map((p: any, idx: number) => (
-                 <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700">
+                 <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
                    <div className="flex items-center gap-2">
                      <span className="w-5 h-5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-black text-[10px] flex items-center justify-center">#{idx+1}</span>
                      <span className="text-xs font-bold truncate max-w-[140px]">{p.name}</span>
@@ -411,7 +411,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     return (
       <div className="space-y-3">
         {sortedStats.map(([id, info], idx) => (
-          <div key={id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 transition-hover hover:border-indigo-200">
+          <div key={id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 transition-hover hover:border-indigo-200">
             <div className="flex items-center gap-3">
               <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-white dark:bg-slate-700 text-slate-500'}`}>
                 {idx + 1}
@@ -1299,7 +1299,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           animate={{ height: showDetailedStats ? 'auto' : 0, opacity: showDetailedStats ? 1 : 0 }}
           className="overflow-hidden"
         >
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800/50">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800/50">
             <DashboardStatusCard title="المرتجعات" value={stats.returnedCount} color="text-rose-600" />
             <DashboardStatusCard title="فشل التوصيل" value={stats.failedCount} color="text-red-500" />
             <DashboardStatusCard title="ملغي" value={stats.cancelledCount} color="text-slate-500" />
@@ -1314,7 +1314,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           <button 
             type="button"
             onClick={() => setShowDetailedStats(!showDetailedStats)}
-            className="group flex items-center gap-2 px-6 py-1.5 rounded-full border border-slate-100 dark:border-slate-800 text-[10px] font-black text-slate-400 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+            className="group flex items-center gap-2 px-6 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 text-[10px] font-black text-slate-400 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
           >
             {showDetailedStats ? (
               <>
@@ -1368,7 +1368,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
             <div className={`grid grid-cols-1 sm:grid-cols-2 ${showDetailedFinancials ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-6 transition-all duration-500`}>
               {/* صافي الأرباح */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                   <DollarSign size={16} className="text-primary" />
                   <span>صافي الأرباح (Net Profit)</span>
@@ -1385,7 +1385,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               </div>
 
               {/* مجمل الأرباح */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                   <ShoppingBag size={16} className="text-emerald-500" />
                   <span>مجمل الربح (Gross Profit)</span>
@@ -1397,7 +1397,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               </div>
 
               {/* هامش صافي الربح */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                   <Percent size={16} className="text-emerald-500" />
                   <span>هامش صافي الربح</span>
@@ -1409,7 +1409,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               </div>
 
               {/* ROI */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                   <ArrowUpLeft size={16} className="text-indigo-500" />
                   <span>ROI (Return on Investment)</span>
@@ -1421,7 +1421,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               </div>
 
               {/* قيمة المخزون الحالية */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                     <Layers size={16} className="text-amber-500" />
@@ -1448,7 +1448,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               </div>
 
               {/* متوسط الأرباح لكل طلب */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
                 <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
                   <CheckCircle2 size={16} className="text-cyan-500" />
                   <span>صافي الربح / طلب</span>
@@ -1466,43 +1466,43 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               animate={{ height: showDetailedFinancials ? 'auto' : 0, opacity: showDetailedFinancials ? 1 : 0 }}
               className="overflow-hidden"
             >
-               <div className="pt-8 mt-8 border-t border-slate-100 dark:border-slate-800/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+               <div className="pt-8 mt-8 border-t border-slate-200 dark:border-slate-800/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">رأس المال العامل</p>
                     <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.workingCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">إجمالي الاستثمارات</p>
                     <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">تكلفة البضاعة COGS</p>
                     <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCOGS.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">مصاريف التشغيل</p>
                     <h5 className="text-sm font-black text-rose-500">{stats.adminExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">ديون الموردين</p>
                     <h5 className="text-sm font-black text-rose-600">{stats.supplierDebt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">صافي السيولة المتاحة</p>
                     <h5 className="text-sm font-black text-emerald-500">{stats.netAvailableLiquidity.toLocaleString()} ج.م</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">معدل الارتجاع (Return)</p>
                     <h5 className="text-sm font-black text-orange-500">{stats.returnRate.toFixed(1)}%</h5>
                   </div>
-                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                  <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">إصناف راكدة (Dead Stock)</p>
                     <h5 className="text-sm font-black text-rose-500">{stats.deadStockCount} صنف</h5>
                   </div>
                   <div className="col-span-full mt-4 p-4 rounded-2xl bg-primary/5 border border-primary/10">
                     <div className="flex items-center justify-between">
                        <p className="text-[10px] font-black text-primary">تحليل السيولة النقدية والتدفق:</p>
-                       <span className="text-[10px] font-black text-slate-500">معامل التغطية: {stats.liquidityCoverage} شهر</span>
+                       <span className="text-[10px] font-black text-slate-550">معامل التغطية: {stats.liquidityCoverage} شهر</span>
                     </div>
                     <div className="mt-2 h-1.5 w-full bg-primary/10 rounded-full overflow-hidden">
                        <div className="h-full bg-primary rounded-full" style={{ width: `${Math.min(Number(stats.liquidityCoverage) * 10, 100)}%` }} />
@@ -1572,7 +1572,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             <span className="text-[10px] font-black bg-indigo-100 text-indigo-600 px-3 py-1 rounded-full">مباشر</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 flex flex-col items-center text-center">
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 flex flex-col items-center text-center">
                <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center mb-3">
                  <Clock size={16} className="text-slate-500" />
                </div>
@@ -1683,7 +1683,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <div className="space-y-4 flex-1">
               {stats.topCustomers.map((customer: any) => (
-                <div key={customer.id} className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 shadow-sm hover:border-indigo-200 transition-colors">
+                <div key={customer.id} className="flex items-center justify-between p-4 rounded-2xl bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 shadow-sm hover:border-indigo-200 transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black">
                       {stats.topCustomers.indexOf(customer) + 1}
@@ -1702,7 +1702,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                  <div className="text-center py-10 text-slate-400 italic text-sm">لا توجد بيانات عملاء كافية</div>
               )}
             </div>
-            <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
+            <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800">
               <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/customers`} className="flex items-center justify-center gap-2 text-xs font-black text-indigo-600 hover:text-indigo-700 transition-colors">
                 <span>عرض قائمة العملاء بالكامل</span>
                 <ArrowLeft size={14} />
@@ -1721,7 +1721,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
               {stats.topProducts.map((product: any, idx: number) => (
-                <div key={product.id || idx} className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800">
+                <div key={product.id || idx} className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-3 mb-3">
                      <span className="text-xs font-black text-slate-400">#{idx + 1}</span>
                      <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate">{product.name}</p>
@@ -1801,7 +1801,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase mb-1">الأرصدة البنكية</p>
                 <p className="text-xl font-black text-blue-700 dark:text-blue-300">{stats.bankBalance.toLocaleString()} <span className="text-xs">ج.م</span></p>
               </div>
-              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/80">
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800/80">
                 <p className="text-[10px] font-black text-slate-500 uppercase mb-1">المجموع الكلي بالحسابات</p>
                 <p className="text-xl font-black text-slate-800 dark:text-white">{stats.treasuryTotal.toLocaleString()} <span className="text-xs">ج.م</span></p>
               </div>
@@ -1840,7 +1840,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               </div>
               <div className="space-y-4">
                 {channelData.map(item => (
-                  <div key={item.name} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+                  <div key={item.name} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                       <span className="text-xs font-bold text-slate-500">{item.name}</span>
@@ -1891,7 +1891,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 {filteredNotifications.length > 0 ? (
                   <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
                     {filteredNotifications.slice(0, 5).map(n => {
-                      let alertBg = 'bg-slate-50 dark:bg-slate-800/40 border-slate-100';
+                      let alertBg = 'bg-slate-50 dark:bg-slate-800/40 border-slate-200';
                       let iconColor = 'text-slate-400';
                       let statusText = '';
                       let statusBg = 'bg-slate-100 text-slate-600';
@@ -1952,14 +1952,14 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   </div>
                 )}
                 
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800/60">
                     <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/wallet`} className="text-[10px] font-black text-primary hover:underline flex items-center gap-1">
                       عرض كافة العمليات المالية من المحفظة <ArrowLeft size={12} />
                     </Link>
                 </div>
             </div>
 
-            <div className="lg:col-span-5 border-r lg:border-r-0 lg:border-right border-slate-100 dark:border-slate-800 lg:pr-8">
+            <div className="lg:col-span-5 border-r lg:border-r-0 lg:border-right border-slate-200 dark:border-slate-800 lg:pr-8">
                 <h3 className="text-lg font-black text-slate-800 dark:text-slate-200 flex items-center gap-2 mb-6">
                     <TrendingUp className="text-emerald-500" size={20} />
                     أعلى الموظفين إنجازاً (اليوم)
@@ -2001,7 +2001,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                     }
 
                     return sortedStats.map(([id, info], idx) => (
-                      <div key={id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 transition-hover hover:border-indigo-200">
+                      <div key={id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 transition-hover hover:border-indigo-200">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-white dark:bg-slate-700 text-slate-500'}`}>
                             {idx + 1}
@@ -2050,7 +2050,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             {lowStockProducts.length > 0 ? (
               <div className="space-y-3 my-4">
                 {lowStockProducts.slice(0, 4).map(p => (
-                  <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700 shadow-xs hover:border-amber-300 transition-all">
+                  <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 shadow-xs hover:border-amber-300 transition-all">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
                         <Package size={18} />
@@ -2077,7 +2077,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             )}
           </div>
 
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500">تم تفعيل المستشار الذكي للتنبؤ بالطلب</span>
             <Link to="/products" className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1">
               <span>عرض مصفوفة التحليل</span>
@@ -2108,7 +2108,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             
             <div className="space-y-3 my-4">
               {stats.topProducts.slice(0, 4).map((p: any, idx: number) => (
-                <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700 shadow-xs hover:border-indigo-300 transition-all">
+                <div key={p.id} className="flex items-center justify-between p-3.5 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 shadow-xs hover:border-indigo-300 transition-all">
                    <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs shrink-0 ${
                         idx === 0 ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20' :
@@ -2135,7 +2135,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <span className="text-xs font-bold text-slate-500">تم تفعيل تحليل هوامش الربحية</span>
             <Link to="/products" className="text-xs font-black text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1">
               <span>مصفوفة الأرباح</span>
@@ -2159,7 +2159,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {(settings.suppliers || []).filter(s => (s.balance || 0) > 0).slice(0, 8).map(supplier => (
-               <div key={supplier.id} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:border-rose-200 transition-colors group">
+               <div key={supplier.id} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 hover:border-rose-200 transition-colors group">
                   <div className="flex items-center gap-4 mb-4">
                      <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 flex items-center justify-center font-black text-lg transition-transform group-hover:scale-110">
                         {supplier.name.charAt(0)}
@@ -2200,7 +2200,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {(settings.cashHolders || []).slice(0, 8).map(holder => (
-               <div key={holder.userId} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 hover:border-orange-200 transition-colors group">
+               <div key={holder.userId} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 hover:border-orange-200 transition-colors group">
                   <div className="flex items-center gap-4 mb-4">
                      <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center font-black text-lg transition-transform group-hover:scale-110">
                         {holder.userName.charAt(0)}

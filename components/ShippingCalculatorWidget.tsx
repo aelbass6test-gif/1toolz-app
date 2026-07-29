@@ -144,7 +144,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
         dir="rtl"
       >
         {/* Header */}
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/20">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/20">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-amber-500/10 text-amber-600 rounded-xl flex items-center justify-center shadow-sm">
               <Calculator size={22} />
@@ -165,7 +165,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
         {/* Content */}
         <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
           {/* VAT Method Toggle */}
-          <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800">
+          <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-200 dark:border-slate-800">
             <label className="text-[10px] font-black text-slate-400 uppercase mb-3 block tracking-widest text-center">
               طريقة حساب ضريبة القيمة المضافة
             </label>
@@ -272,7 +272,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
 
           {/* Toggles */}
           <div className="space-y-4">
-            <div className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+            <div className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-800">
               <button
                 onClick={() => setIncludeInspectionFee(!includeInspectionFee)}
                 className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 relative flex items-center ${
@@ -316,7 +316,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
                   exit={{ height: 0, opacity: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="p-6 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 space-y-4 text-sm font-bold text-slate-700 dark:text-slate-300">
+                  <div className="p-6 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 space-y-4 text-sm font-bold text-slate-700 dark:text-slate-300">
                     <div className="flex justify-between items-center">
                       <span className="text-slate-900 dark:text-white font-black">{shippingFee} ج.م</span>
                       <span className="text-slate-500">سعر الشحن</span>
@@ -335,7 +335,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
                         <span className="text-slate-500">مصاريف المعاينة</span>
                       </div>
                     )}
-                    <div className="pt-4 border-t border-dashed border-slate-100 dark:border-slate-800 flex justify-between items-center font-black text-slate-900 dark:text-white">
+                    <div className="pt-4 border-t border-dashed border-slate-200 dark:border-slate-800 flex justify-between items-center font-black text-slate-900 dark:text-white">
                       <span className="text-amber-600 dark:text-amber-400 text-xl">
                         {totalDues.toFixed(2)} ج.م
                       </span>
@@ -343,7 +343,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
                     </div>
 
                     {/* Pay with Points */}
-                    <div className="pt-4 border-t border-dashed border-slate-100 dark:border-slate-800 flex justify-end items-center gap-3">
+                    <div className="pt-4 border-t border-dashed border-slate-200 dark:border-slate-800 flex justify-end items-center gap-3">
                       <span className="text-xs font-black text-slate-600 dark:text-slate-400">
                         دفع الأوردر بنقاط {getCompanyDisplayName(shippingCompany)}
                       </span>
@@ -369,7 +369,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
         </div>
 
         {/* Footer */}
-        <div className="p-6 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-100 dark:border-slate-800 flex gap-4">
+        <div className="p-6 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800 flex gap-4">
           <button 
             onClick={onClose}
             className="flex-1 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl font-black text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 transition-all shadow-sm"

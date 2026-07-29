@@ -334,7 +334,7 @@ const MainLayout = ({
     }, [settings, orders]);
 
     return (
-        <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#030712] text-slate-900 dark:text-slate-50 transition-colors duration-500 overflow-hidden relative" dir="rtl">
+        <div className="flex flex-col h-screen bg-slate-100/70 dark:bg-[#030712] text-slate-900 dark:text-slate-50 transition-colors duration-500 overflow-hidden relative" dir="rtl">
             {/* Immersive Floating Ambient Glow Elements */}
             <div className="absolute top-[-5%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[120px] pointer-events-none z-0 animate-ambient-pulse" />
             <div className="absolute bottom-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-500/8 dark:bg-purple-500/12 blur-[140px] pointer-events-none z-0 animate-ambient-pulse-slow" />
@@ -669,7 +669,7 @@ const OwnerLayoutWrapper = ({
             return <Navigate to="/create-store" replace />;
         }
         return (
-            <div className="bg-slate-50 dark:bg-gradient-to-b dark:from-slate-950 dark:to-[#111827] text-slate-800 dark:text-slate-200 min-h-screen" dir="rtl">
+            <div className="bg-slate-100/70 dark:bg-gradient-to-b dark:from-slate-950 dark:to-[#111827] text-slate-800 dark:text-slate-200 min-h-screen" dir="rtl">
                 <Header currentUser={currentUser} onLogout={handleLogout} onToggleSidebar={() => {}} theme={theme} setTheme={setTheme} />
                 <main className="flex-1 p-4 md:p-6">
                     <Outlet />
@@ -2712,7 +2712,7 @@ export const AppComponent = () => {
 
     if (isStoreNotFound) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-50 text-slate-800" dir="rtl">
+            <div className="flex items-center justify-center min-h-screen bg-slate-100/70 text-slate-800" dir="rtl">
                 <div className="text-center space-y-4">
                     <h1 className="text-4xl font-bold">404</h1>
                     <p className="text-lg">هذا المتجر غير موجود أو غير مفعل.</p>

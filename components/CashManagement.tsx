@@ -784,7 +784,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                         {/* Card Header */}
                         <div className="flex items-start justify-between gap-3 mb-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300 group-hover:scale-105 transition-transform shrink-0">
+                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300 group-hover:scale-105 transition-transform shrink-0">
                               <User className="w-4 h-4" />
                             </div>
                             <div className="truncate">
@@ -829,7 +829,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                         </div>
 
                         {/* Balance display */}
-                        <div className="bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800/40 rounded-xl p-3.5 mb-4">
+                        <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/40 rounded-xl p-3.5 mb-4">
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide block mb-0.5">الرصيد الجاري بالعهدة</span>
                           <div className="flex items-baseline gap-1.5">
                             <span className={`text-xl font-extrabold tabular-nums tracking-tight ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
@@ -842,7 +842,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
                       {/* Premium Card Actions */}
                       {(currentUser?.isAdmin || currentUser?.id === holder.userId) && (
-                        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                           <button 
                             onClick={() => {
                               setSelectedHolderForTreasury(holder);
@@ -905,7 +905,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               </div>
             ) : (
               <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
-                <div className="p-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
+                <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950 flex items-center justify-between">
                   <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
                     <History className="w-4 h-4 text-indigo-500" />
                     دفتر قيد ومراجعة عمليات النقدية والتحويل
@@ -922,7 +922,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       className="p-4 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-950/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-slate-100 dark:border-slate-800">
+                        <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-800">
                           <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                         </div>
                         <div>
@@ -937,7 +937,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                               {new Date(h.date).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' })}
                             </span>
                             {(h.notes || (h as any).note) && (
-                              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-850 px-2.5 py-0.5 rounded-md truncate max-w-xs">
+                              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 px-2.5 py-0.5 rounded-md truncate max-w-xs">
                                 "{h.notes || (h as any).note}"
                               </span>
                             )}
@@ -985,7 +985,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               <X size={16} />
             </button>
             
-            <div className="flex items-center gap-3 mb-5 pb-3.5 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-3 mb-5 pb-3.5 border-b border-slate-200 dark:border-slate-800">
               <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
                 <ArrowRightLeft className="w-4 h-4" />
               </div>
@@ -1138,7 +1138,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                 />
               </div>
 
-              <div className="pt-3.5 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-3.5 flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800">
                 <button 
                   type="button"
                   onClick={() => setShowHandoverModal(false)}
@@ -1180,7 +1180,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
               <X size={20} />
             </button>
             
-            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
                 <Landmark className="w-5 h-5" />
               </div>
@@ -1249,7 +1249,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                 />
               </div>
 
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800">
                 <button 
                   type="button"
                   onClick={() => {

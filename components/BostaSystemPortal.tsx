@@ -596,7 +596,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                   <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-md transform ${showVat ? 'translate-x-[-28px]' : 'translate-x-[-4px]'}`} />
                 </button>
               </div>
-              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 leading-normal bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 leading-normal bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
                 {showVat 
                   ? '● الأسعار المعروضة بالجدول والآلة الحاسبة تشمل القيمة المضافة 14%.' 
                   : '○ الأسعار معروضة خام وبدون حساب ضريبة القيمة المضافة 14%.'}
@@ -851,7 +851,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               </div>
 
               {/* Tab selector for regions */}
-              <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-100/30 dark:bg-slate-900/40 overflow-x-auto">
+              <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-100/30 dark:bg-slate-900/40 overflow-x-auto">
                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-max md:w-full">
                   {Object.keys(BOSTA_PRICING).map(region => (
                     <button 
@@ -1051,10 +1051,10 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                   </div>
 
                   {!isEditingPackagingPrices && (
-                    <div className="w-full flex items-center justify-between p-1 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-800 mt-2">
+                    <div className="w-full flex items-center justify-between p-1 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-800 mt-2">
                       <button 
                         onClick={() => handlePackagingCartUpdate(product.id, -1)}
-                        className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-700 text-slate-400 hover:text-red-500 rounded-xl shadow-sm border border-slate-100 dark:border-slate-600 transition active:scale-90"
+                        className="w-10 h-10 flex items-center justify-center bg-white dark:bg-slate-700 text-slate-400 hover:text-red-500 rounded-xl shadow-sm border border-slate-200 dark:border-slate-600 transition active:scale-90"
                       >
                         <Minus size={16} />
                       </button>
@@ -1145,7 +1145,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               </div>
             </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/80 p-5 rounded-2xl flex flex-col justify-between">
+            <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800/80 p-5 rounded-2xl flex flex-col justify-between">
               <div className="space-y-3 text-xs leading-normal">
                 <h4 className="font-black text-slate-800 dark:text-white flex items-center gap-1.5">
                   <ShieldCheck size={16} className="text-emerald-500" /> إرسال بوالص بوسطة بشكل مؤتمت بالكامل
@@ -1357,7 +1357,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
             </div>
 
             <div className="space-y-4">
-              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+              <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                 <h4 className="text-xs font-black text-slate-400 uppercase mb-3">تفاصيل السلة</h4>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {Object.entries(packagingCart).map(([id, qty]) => {
@@ -1518,7 +1518,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               </div>
             </div>
 
-            <p className="text-[10px] text-slate-500 font-bold bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+            <p className="text-[10px] text-slate-500 font-bold bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
               * سيتم قيد هذه العملية كـ "مصروف" في سجلات المتجر، وسيتم خصم المبلغ من الرصيد المختار.
             </p>
 
@@ -1552,7 +1552,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
       {showPackagingHistory && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300">
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh]">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-xl">
                   <ListFilter size={20} />
@@ -1580,7 +1580,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                 </div>
               ) : (
                 settings.data.packagingOrders.map((order: any) => (
-                  <div key={order.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 hover:border-indigo-200 transition-colors">
+                  <div key={order.id} className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 hover:border-indigo-200 transition-colors">
                     <div className="flex justify-between items-start mb-3">
                       <div>
                         <div className="flex items-center gap-2">
@@ -1635,7 +1635,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
               )}
             </div>
 
-            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800">
               <button 
                 onClick={() => setShowPackagingHistory(false)}
                 className="w-full py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-black rounded-xl hover:bg-slate-50 transition"

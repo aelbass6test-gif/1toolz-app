@@ -800,7 +800,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         className="max-w-6xl mx-auto space-y-10"
       >
         {/* Header Section */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-200 dark:border-slate-800 pb-6">
           <motion.div variants={itemVariants} className="space-y-1 text-right flex-1 w-full flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -935,7 +935,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                           <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed font-sans">سيتم تحويل قيمة التحصيل المستحق مباشرة بدون أي رسوم معاملات إلى الحساب البنكي المعتمد.</p>
                       </div>
                       <div className="mt-4">
-                          <div className="w-full bg-slate-50 dark:bg-slate-800/40 py-2.5 rounded-xl text-center text-[10px] font-black text-slate-500 border border-slate-100 dark:border-slate-800/80 font-sans">
+                          <div className="w-full bg-slate-50 dark:bg-slate-800/40 py-2.5 rounded-xl text-center text-[10px] font-black text-slate-500 border border-slate-200 dark:border-slate-800/80 font-sans">
                               الاثنين القادم، {getNextMondayFormatted()}
                           </div>
                       </div>
@@ -1193,10 +1193,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
           {/* Transactions List */}
           {activeTab === 'withdrawals' ? (
-              <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-2xl">
+              <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xl">
                   <table className="w-full text-right border-collapse">
                       <thead>
-                          <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800">
+                          <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
                               <th className="p-8">تفاصيل السحب</th>
                               <th className="p-8 text-center">الحالة</th>
                               <th className="p-8 text-center">المبلغ</th>
@@ -1304,7 +1304,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                           {getTransactionTitle(item)}
                                       </h5>
                                       <div className="flex items-center gap-3 flex-row-reverse mt-1.5">
-                                          <span className="text-[11px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-100 dark:border-slate-700">#{item.orderNumber || item.id.slice(-6)}</span>
+                                          <span className="text-[11px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">#{item.orderNumber || item.id.slice(-6)}</span>
                                            
                                           <span className="w-1 h-1 bg-slate-300 dark:bg-slate-600 rounded-full"></span>
                                           <div className="flex items-center gap-1.5 flex-row-reverse">
@@ -1427,7 +1427,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             {item.items.map((sub: any) => (
                               <div 
                                 key={sub.id} 
-                                className="flex items-center justify-between p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800"
+                                className="flex items-center justify-between p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-200 dark:border-slate-800"
                               >
                                 <div className="flex items-center gap-3 flex-row-reverse">
                                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${sub.type === 'إيداع' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
@@ -1455,7 +1455,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             exit={{ height: 0, opacity: 0 }}
                             className="overflow-hidden"
                           >
-                            <div className="mt-2 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-100 dark:border-slate-800 space-y-4">
+                            <div className="mt-2 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] border border-slate-200 dark:border-slate-800 space-y-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-right">
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">رقم العملية</p>
@@ -1526,9 +1526,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
            {/* Pagination Modern */}
           {totalPages > 0 && (
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 pt-4 border-t border-slate-200 dark:border-slate-800">
               {/* Items per page selector */}
-              <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-200 dark:border-slate-800">
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">عدد العمليات بالصفحة:</span>
                 <select
                   value={itemsPerPage}
@@ -1549,7 +1549,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               </div>
 
               {/* Page navigation */}
-              <div className="flex items-center gap-2 p-1.5 bg-slate-50/50 dark:bg-slate-900/50 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2 p-1.5 bg-slate-50/50 dark:bg-slate-900/50 rounded-[1.25rem] border border-slate-200 dark:border-slate-800">
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
@@ -1589,7 +1589,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-10 space-y-8">
@@ -1608,9 +1608,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   </button>
                 </div>
 
-                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] flex items-center justify-between flex-row-reverse border border-slate-100 dark:border-slate-800 shadow-inner">
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] flex items-center justify-between flex-row-reverse border border-slate-200 dark:border-slate-800 shadow-inner">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="p-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
                           <WalletIcon size={16} className="text-slate-400"/>
                         </div>
                         <p className="text-xs font-bold text-slate-400">الرصيد المتاح</p>
@@ -1635,7 +1635,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       className={`p-5 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-3 font-black text-[11px] relative overflow-hidden ${
                         chargeMethod === method.id 
                         ? 'border-emerald-500 bg-emerald-50/20 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' 
-                        : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 text-slate-400 bg-slate-50/20'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700 text-slate-400 bg-slate-50/20'
                       }`}
                     >
                       {chargeMethod === method.id && (
@@ -1690,7 +1690,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-10 space-y-8">
@@ -1762,9 +1762,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   </motion.div>
                 )}
 
-                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] flex items-center justify-between flex-row-reverse border border-slate-100 dark:border-slate-800 shadow-inner">
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] flex items-center justify-between flex-row-reverse border border-slate-200 dark:border-slate-800 shadow-inner">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800">
+                        <div className="p-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
                           <WalletIcon size={16} className="text-slate-400"/>
                         </div>
                         <p className="text-xs font-bold text-slate-400">الرصيد المتاح</p>
@@ -1829,7 +1829,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                           <select
                             value={selectedTreasuryId}
                             onChange={(e) => setSelectedTreasuryId(e.target.value)}
-                            className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-[1.8rem] px-6 py-4 text-right text-sm font-black outline-none focus:border-indigo-500/50 transition-all dark:text-white shadow-sm"
+                            className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-800 rounded-[1.8rem] px-6 py-4 text-right text-sm font-black outline-none focus:border-indigo-500/50 transition-all dark:text-white shadow-sm"
                             required
                           >
                             <option value="">-- اختر الوجهة --</option>
@@ -1842,9 +1842,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       )}
 
                       {preferredMethod !== 'treasury' && (
-                        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-[1.8rem] border border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse group transition-all hover:bg-slate-100/50 dark:hover:bg-slate-800 cursor-pointer" onClick={() => setPreferredMethod(preferredMethod === 'bank' ? 'wallet' : 'bank')}>
+                        <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-[1.8rem] border border-slate-200 dark:border-slate-800 flex justify-between items-center flex-row-reverse group transition-all hover:bg-slate-100/50 dark:hover:bg-slate-800 cursor-pointer" onClick={() => setPreferredMethod(preferredMethod === 'bank' ? 'wallet' : 'bank')}>
                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center shadow-sm border border-slate-100 dark:border-slate-800">
+                              <div className="w-12 h-12 bg-white dark:bg-slate-900 rounded-2xl flex items-center justify-center shadow-sm border border-slate-200 dark:border-slate-800">
                                   {preferredMethod === 'bank' ? <Banknote size={20} className="text-indigo-500" /> : <Smartphone size={20} className="text-emerald-500" />}
                               </div>
                               <div className="text-right">
@@ -1881,7 +1881,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-10 space-y-10">
@@ -1923,7 +1923,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         >
                             <button 
                                 onClick={() => setSettingsScreen('payment_methods')} 
-                                className="w-full p-8 bg-slate-50 dark:bg-slate-800/40 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center justify-between group hover:bg-white dark:hover:bg-slate-900 hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all shadow-sm hover:shadow-xl"
+                                className="w-full p-8 bg-slate-50 dark:bg-slate-800/40 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 flex items-center justify-between group hover:bg-white dark:hover:bg-slate-900 hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all shadow-sm hover:shadow-xl"
                             >
                                 <ChevronRight size={20} className="text-slate-300 group-hover:text-indigo-500 transition-all rotate-180"/>
                                 <div className="flex items-center gap-6 text-right">
@@ -1931,7 +1931,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         <p className="text-lg font-black text-slate-800 dark:text-white">وسائل الدفع</p>
                                         <p className="text-xs text-slate-400 font-bold mt-1">إضافة وحذف البطاقات والمحافظ الإلكترونية</p>
                                     </div>
-                                    <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
                                         <CreditCard size={28} className="text-slate-400 group-hover:text-indigo-500 transition-colors"/>
                                     </div>
                                 </div>
@@ -1939,7 +1939,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
                             <button 
                                 onClick={() => setSettingsScreen('withdraw_settings')} 
-                                className="w-full p-8 bg-slate-50 dark:bg-slate-800/40 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 flex items-center justify-between group hover:bg-white dark:hover:bg-slate-900 hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all shadow-sm hover:shadow-xl"
+                                className="w-full p-8 bg-slate-50 dark:bg-slate-800/40 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 flex items-center justify-between group hover:bg-white dark:hover:bg-slate-900 hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all shadow-sm hover:shadow-xl"
                             >
                                 <ChevronRight size={20} className="text-slate-300 group-hover:text-indigo-500 transition-all rotate-180"/>
                                 <div className="flex items-center gap-6 text-right">
@@ -1947,7 +1947,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         <p className="text-lg font-black text-slate-800 dark:text-white">إعدادات سحب الأرباح</p>
                                         <p className="text-xs text-slate-400 font-bold mt-1">تحديد مواعيد السحب الفوري والتلقائي</p>
                                     </div>
-                                    <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform">
                                         <Banknote size={28} className="text-slate-400 group-hover:text-emerald-500 transition-colors"/>
                                     </div>
                                 </div>
@@ -1993,7 +1993,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         ...prev, 
                                         settings: { ...(prev.settings || walletSettings), autoWithdrawal: false } 
                                     }))}
-                                    className={`flex-1 p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-4 font-black text-xs relative overflow-hidden ${!walletSettings.autoWithdrawal ? 'border-emerald-500 bg-emerald-50/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-100 dark:border-slate-800 text-slate-400'}`}
+                                    className={`flex-1 p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-4 font-black text-xs relative overflow-hidden ${!walletSettings.autoWithdrawal ? 'border-emerald-500 bg-emerald-50/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-800 text-slate-400'}`}
                                 >
                                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${!walletSettings.autoWithdrawal ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-700'}`}>
                                         {!walletSettings.autoWithdrawal && <motion.div layoutId="check" className="w-3 h-3 rounded-full bg-emerald-500" />}
@@ -2005,7 +2005,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         ...prev, 
                                         settings: { ...(prev.settings || walletSettings), autoWithdrawal: true } 
                                     }))}
-                                    className={`flex-1 p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-4 font-black text-xs relative overflow-hidden ${walletSettings.autoWithdrawal ? 'border-emerald-500 bg-emerald-50/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-100 dark:border-slate-800 text-slate-400'}`}
+                                    className={`flex-1 p-6 rounded-[2rem] border-2 transition-all flex flex-col items-center gap-4 font-black text-xs relative overflow-hidden ${walletSettings.autoWithdrawal ? 'border-emerald-500 bg-emerald-50/20 text-emerald-700 dark:text-emerald-400' : 'border-slate-200 dark:border-slate-800 text-slate-400'}`}
                                 >
                                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${walletSettings.autoWithdrawal ? 'border-emerald-500' : 'border-slate-300 dark:border-slate-700'}`}>
                                         {walletSettings.autoWithdrawal && <motion.div layoutId="check" className="w-3 h-3 rounded-full bg-emerald-500" />}
@@ -2022,7 +2022,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                             {['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'].map((day) => (
                                                 <button 
                                                     key={day}
-                                                    className="px-5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-[10px] font-black text-slate-600 dark:text-slate-300 hover:border-indigo-500/30 transition-all"
+                                                    className="px-5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-600 dark:text-slate-300 hover:border-indigo-500/30 transition-all"
                                                 >
                                                     {day}
                                                 </button>
@@ -2043,9 +2043,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                         تعديل البيانات
                                     </button>
                                 </div>
-                                <div className="p-8 bg-slate-50 dark:bg-slate-800/40 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 text-right space-y-5 shadow-inner">
+                                <div className="p-8 bg-slate-50 dark:bg-slate-800/40 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 text-right space-y-5 shadow-inner">
                                     <div className="flex justify-between items-start flex-row-reverse">
-                                        <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                                        <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                                             <Banknote className="text-indigo-500" size={28} />
                                         </div>
                                         <div>
@@ -2091,7 +2091,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               initial={{ scale: 0.9, opacity: 0, y: 40 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 40 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+              className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-10 space-y-10">
@@ -2181,11 +2181,11 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white dark:bg-slate-900 w-full h-full max-w-6xl rounded-none md:rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-100 dark:border-slate-800"
+                className="bg-white dark:bg-slate-900 w-full h-full max-w-6xl rounded-none md:rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
                 onClick={e => e.stopPropagation()}
              >
                 {/* Header */}
-                <div className="px-10 py-8 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse shrink-0">
+                <div className="px-10 py-8 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex justify-between items-center flex-row-reverse shrink-0">
                     <div className="flex items-center gap-6 flex-row-reverse">
                         <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-3xl flex items-center justify-center shadow-inner">
                             <ArrowDownLeft size={32} className="text-slate-900 dark:text-white" />
@@ -2201,7 +2201,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 </div>
 
                 {/* Filters */}
-                <div className="px-10 py-6 bg-slate-50/50 dark:bg-slate-800/30 flex gap-4 overflow-x-auto no-scrollbar flex-row-reverse border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="px-10 py-6 bg-slate-50/50 dark:bg-slate-800/30 flex gap-4 overflow-x-auto no-scrollbar flex-row-reverse border-b border-slate-200 dark:border-slate-800 shrink-0">
                     <div className="relative min-w-[240px]">
                         <ChevronRight size={16} className="absolute left-4 top-1/2 -translate-y-1/2 rotate-90 text-slate-400" />
                         <select 
@@ -2229,10 +2229,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
                 {/* Content Table */}
                 <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-10">
-                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-2xl">
+                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xl">
                         <table className="w-full text-right border-collapse">
                             <thead>
-                                <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800">
+                                <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
                                     <th className="p-8">تفاصيل السحب</th>
                                     <th className="p-8 text-center">الحالة</th>
                                     <th className="p-8 text-center">المبلغ</th>
@@ -2308,7 +2308,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 </div>
 
                 {/* Footer / Summary Stats */}
-                <div className="px-10 py-8 bg-slate-50/50 dark:bg-slate-800/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse shrink-0">
+                <div className="px-10 py-8 bg-slate-50/50 dark:bg-slate-800/80 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 flex justify-between items-center flex-row-reverse shrink-0">
                     <div className="flex gap-10 flex-row-reverse">
                         <div className="text-right">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">إجمالي ما تم سحبه</p>
@@ -2337,7 +2337,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-10 space-y-8">
@@ -2354,7 +2354,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   <p className="text-xs text-slate-400 font-bold">يرجى مراجعة تفاصيل العملية قبل التأكيد</p>
                 </div>
 
-                <div className="bg-slate-50 dark:bg-slate-800/60 rounded-[2.5rem] p-8 space-y-6 border border-slate-100 dark:border-slate-800">
+                <div className="bg-slate-50 dark:bg-slate-800/60 rounded-[2.5rem] p-8 space-y-6 border border-slate-200 dark:border-slate-800">
                   <div className="flex justify-between items-center flex-row-reverse border-b border-slate-200/50 dark:border-slate-700/50 pb-4">
                     <span className="text-xs text-slate-500 font-bold">وجهة التحويل</span>
                     <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
@@ -2412,7 +2412,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800"
+              className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
               onClick={e => e.stopPropagation()}
             >
               <div className="p-10 text-center space-y-8">
@@ -2445,11 +2445,11 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white dark:bg-slate-900 w-full h-full max-w-7xl rounded-none md:rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-100 dark:border-slate-800"
+                className="bg-white dark:bg-slate-900 w-full h-full max-w-7xl rounded-none md:rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800"
                 onClick={e => e.stopPropagation()}
              >
                 {/* Header */}
-                <div className="px-10 py-8 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse shrink-0">
+                <div className="px-10 py-8 bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex justify-between items-center flex-row-reverse shrink-0">
                     <div className="flex items-center gap-6 flex-row-reverse">
                         <div className="text-right">
                             <h2 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">المدفوعات من الدفع عند الاستلام</h2>
@@ -2465,7 +2465,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 </div>
 
                 {/* Filters */}
-                <div className="px-10 py-6 bg-slate-50/50 dark:bg-slate-800/30 flex gap-4 overflow-x-auto no-scrollbar flex-row-reverse border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="px-10 py-6 bg-slate-50/50 dark:bg-slate-800/30 flex gap-4 overflow-x-auto no-scrollbar flex-row-reverse border-b border-slate-200 dark:border-slate-800 shrink-0">
                     <div className="relative min-w-[280px]">
                         <ChevronRight size={16} className="absolute left-4 top-1/2 -translate-y-1/2 rotate-90 text-slate-300" />
                         <select className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-6 py-4 font-bold text-xs outline-none text-right appearance-none shadow-sm cursor-pointer text-slate-500">

@@ -76,7 +76,7 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
                 <h3 className="text-lg font-black dark:text-white">طرق الدفع المفعلة</h3>
                 <button onClick={() => { setEditingMethod({ type: 'manual', active: true }); setShowAddModal(true); }} className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-teal-700 transition-all text-sm">
                     <Plus size={16}/> إضافة طريقة جديدة
@@ -98,7 +98,7 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
                             </div>
                             <ToggleButton active={method.active} onToggle={() => toggleMethod(method.id)} />
                         </div>
-                        {method.instructions && <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">{method.instructions}</p>}
+                        {method.instructions && <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">{method.instructions}</p>}
                         
                         <div className="absolute top-4 left-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                             <button onClick={() => openEdit(method)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg"><Edit3 size={16}/></button>

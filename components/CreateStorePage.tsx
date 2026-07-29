@@ -126,7 +126,7 @@ const CreateStorePage: React.FC<CreateStorePageProps> = ({ currentUser, onStoreC
         >
           <div className="absolute top-0 right-0 left-0 h-2 bg-gradient-to-r from-teal-500 via-emerald-500 to-indigo-600" />
 
-          <div className="mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="mb-6 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2 mb-1">
               <span className="p-2 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400">
                 <StoreIcon size={22} />

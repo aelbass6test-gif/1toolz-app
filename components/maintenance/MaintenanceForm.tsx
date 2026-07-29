@@ -174,7 +174,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       dir="rtl"
     >
       {/* Top Banner Header */}
-      <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+      <div className="p-8 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/20">
             <Wrench className="w-7 h-7" />
@@ -201,7 +201,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
       </div>
 
       {/* Modern Stepper Indicator */}
-      <div className="bg-slate-50/30 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800/80 p-6">
+      <div className="bg-slate-50/30 dark:bg-slate-950/20 border-b border-slate-200 dark:border-slate-800/80 p-6">
         <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
           {stepsList.map((step, idx) => {
             const isCompleted = currentStep > step.id;
@@ -335,7 +335,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   </motion.div>
                 )}
 
-                <div className="border-t border-slate-100 dark:border-slate-800/60 pt-6">
+                <div className="border-t border-slate-200 dark:border-slate-800/60 pt-6">
                   <div className="flex items-center gap-2.5 text-indigo-600 mb-4">
                     <Package className="w-5 h-5" />
                     <h3 className="font-black text-sm uppercase tracking-wider">تفاصيل الجهاز أو المنتج</h3>
@@ -494,7 +494,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                 </div>
 
                 {/* Add Part Section */}
-                <div className="bg-slate-50 dark:bg-slate-900/40 p-6 rounded-3xl border border-slate-100 dark:border-slate-800">
+                <div className="bg-slate-50 dark:bg-slate-900/40 p-6 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <h4 className="text-xs font-black text-slate-500 mb-4 flex items-center gap-2">
                     <Package className="w-4 h-4 text-emerald-500" />
                     إضافة قطع غيار مستهلكة من المتجر أو مخصصة
@@ -570,7 +570,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                       {formData.parts.map((part) => (
                         <div
                           key={part.id}
-                          className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-850 group hover:border-emerald-500/20 transition-all"
+                          className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-850 group hover:border-emerald-500/20 transition-all"
                         >
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 rounded-xl flex items-center justify-center font-black text-xs">
@@ -605,7 +605,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   </div>
                 )}
 
-                <div className="border-t border-slate-100 dark:border-slate-800/60 pt-6">
+                <div className="border-t border-slate-200 dark:border-slate-800/60 pt-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Labor Cost */}
                     <div className="space-y-2">
@@ -779,7 +779,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
                   )}
                 </div>
 
-                <div className="border-t border-slate-100 dark:border-slate-800/60 pt-6">
+                <div className="border-t border-slate-200 dark:border-slate-800/60 pt-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Payment Method */}
                     <div className="space-y-2">
@@ -844,7 +844,7 @@ const MaintenanceForm: React.FC<MaintenanceFormProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-8 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex gap-4">
+        <div className="p-8 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex gap-4">
           {currentStep > 1 && (
             <button
               type="button"

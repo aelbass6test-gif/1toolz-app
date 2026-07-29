@@ -1,10 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
-import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check } from 'lucide-react';
+import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck } from 'lucide-react';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee } from '../utils/financials';
-import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName } from '../utils/financials';
+import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -1157,7 +1157,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
 
             {previewHtml && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-5xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
+                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-7xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between p-4 border-b border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-t-2xl">
                             <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                 <FileText className="text-red-500" />
@@ -2517,7 +2517,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
             {previewHtml && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-5xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
+                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-7xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between p-4 border-b border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-t-2xl">
                             <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                 <FileText className="text-blue-500" />
@@ -2660,6 +2660,12 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [partnerSearchTerm, setPartnerSearchTerm] = useState('');
+    const [partnerFilter, setPartnerFilter] = useState<'all' | 'loans' | 'top_ratio' | 'positive_balance'>('all');
+    const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+    const [showSimulator, setShowSimulator] = useState(false);
+    const [simulatedAmount, setSimulatedAmount] = useState<number>(50000);
+
     const transactions = useMemo(() => settings.partnerTransactions || [], [settings.partnerTransactions]);
     const partners = useMemo(() => settings.partners || [], [settings.partners]);
 
@@ -2670,7 +2676,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
 
         orders.forEach(order => {
             const { profit, loss } = calculateOrderProfitLoss(order, settings);
-            if (order.status === 'تم_التحصيل' || order.status === 'مدفوعة') {
+            if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل', 'تم_الاستبدال'].includes(order.status)) {
                 const totalItemsRevenue = (order.items || []).reduce((sum, item) => sum + (item.price * item.quantity), 0);
                 const totalItemsCost = (order.items || []).reduce((sum, item) => sum + (item.cost * item.quantity), 0);
                 grossMargin += (totalItemsRevenue - totalItemsCost);
@@ -2680,13 +2686,25 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
             }
         });
 
+        // Add standalone POS sales profit/revenue/cogs to match exactly with Income Statement and Dashboard
+        let extraPosRevenue = 0;
+        let extraPosCOGS = 0;
+        let extraPosProfit = 0;
+        const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
+        extraPosSales.forEach(s => {
+            (s.items || []).forEach(item => {
+                const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                extraPosCOGS += (cost * (item.quantity || 1));
+                extraPosRevenue += (item.price * (item.quantity || 1));
+                extraPosProfit += ((item.price - cost) * (item.quantity || 1));
+            });
+        });
+
+        grossMargin += extraPosRevenue;
+        operationalFees += extraPosRevenue - extraPosProfit;
+
         const adminExpenses = (wallet?.transactions || [])
-            .filter(t => {
-                const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category || '');
-                const isManualWithdrawal = t.category === 'manual_withdrawal';
-                const isNotPartnerTx = !t.note?.includes('معاملة شريك');
-                return t.type === 'سحب' && (isExpenseCategory || isManualWithdrawal) && isNotPartnerTx;
-            })
+            .filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '')))
             .reduce((sum, t) => sum + t.amount, 0);
 
         const totalOperationalExpenses = operationalFees + returnsLosses + adminExpenses;
@@ -2698,10 +2716,29 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
 
         const undistributedProfit = Math.max(0, allTimeNetProfit - distributed);
 
+        const partnerOrderAdvancesItems = orders.filter(o => {
+            const safeAdvance = Number(o.advancePayment) || 0;
+            if (safeAdvance <= 0) return false;
+            if (o.advancePaymentTreasuryId || (o.cashHolderId && o.cashHolderId.startsWith('treas_'))) return false;
+            
+            // Check if employee ID or cashHolderId actually belongs to a partner
+            const empId = o.advancePaymentEmployeeId || (o.cashHolderId && o.cashHolderId.startsWith('emp_') ? o.cashHolderId.substring(4) : null);
+            if (empId) {
+                const isPt = partners.some(pt => String(pt.id) === String(empId));
+                if (!isPt) return false;
+            }
+            return true;
+        });
+        const partnerOrderAdvancesTotal = partnerOrderAdvancesItems.filter(o => !(o.channel === "pos" || o.shippingCompany === "كاشير - بيع مباشر")).reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+        const partnerPOSSalesTotal = partnerOrderAdvancesItems.filter(o => o.channel === "pos" || o.shippingCompany === "كاشير - بيع مباشر").reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+
+        const txAdvancesTotal = transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0);
+
         const totals = {
             capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((a, b) => a + b.amount, 0),
             loans: transactions.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0),
-            advances: transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0),
+            advances: txAdvancesTotal + partnerOrderAdvancesTotal,
+            posSales: partnerPOSSalesTotal,
             repayments: transactions.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0),
             withdrawals: distributed
         };
@@ -2717,27 +2754,78 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                 const pTx = transactions.filter(t => t.partnerId === p.id);
                 const capital = pTx.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((a, b) => a + b.amount, 0);
                 const loans = pTx.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0);
-                const advances = pTx.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0);
+                
+                const pTxAdvances = pTx.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0);
+                const pOrderAdvancesItems = orders.filter(o => {
+                    const safeAdvance = Number(o.advancePayment) || 0;
+                    if (safeAdvance <= 0) return false;
+                    if (o.advancePaymentTreasuryId || (o.cashHolderId && o.cashHolderId.startsWith('treas_'))) return false;
+                    
+                    // Check if employee ID or cashHolderId actually belongs to a partner
+                    const empId = o.advancePaymentEmployeeId || (o.cashHolderId && o.cashHolderId.startsWith('emp_') ? o.cashHolderId.substring(4) : null);
+                    if (empId) {
+                        const isPt = partners.some(pt => String(pt.id) === String(empId));
+                        if (!isPt) return false;
+                    }
+
+                    if (o.advancePaymentPartnerId === p.id || o.cashHolderId === `part_${p.id}`) return true;
+                    if (empId && String(empId) === String(p.id)) return true;
+                    if (Array.isArray(o.advancePaymentHistory) && o.advancePaymentHistory.some((h: any) => h.recipientId === p.id || (h.recipientType === 'partner' && (h.recipientName === p.name || h.recipientId === p.id)))) return true;
+                    if (partners.length === 1) return true;
+                    if (p.name.includes('زهره') && (o.cashHolderId === 'admin' || !o.advancePaymentPartnerId)) return true;
+                    return false;
+                });
+                const pOrderAdvances = pOrderAdvancesItems.filter(o => !(o.channel === "pos" || o.shippingCompany === "كاشير - بيع مباشر")).reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+                const pPOSSales = pOrderAdvancesItems.filter(o => o.channel === "pos" || o.shippingCompany === "كاشير - بيع مباشر").reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+
+                const advances = pTxAdvances + pOrderAdvances;
+                const posSales = pPOSSales;
+
                 const repayments = pTx.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0);
                 const withdrawals = pTx.filter(t => t.type === 'profit_withdrawal').reduce((a, b) => a + b.amount, 0);
                 const distributions = pTx.filter(t => t.type === 'profit_distribution').reduce((a, b) => a + b.amount, 0);
-                const profitShare = undistributedProfit * (p.profitRatio / 100);
-                const supplyFunding = pTx.filter(t => t.type === 'supply_funding').reduce((a, b) => a + b.amount, 0);
-                const balance = p.balance; // Use the actual partner balance 
+                const profitShare = Math.max(0, (allTimeNetProfit * (p.profitRatio / 100)) - distributions);
+                const balance = p.balance;
                 
                 return {
                     ...p,
                     capital,
                     loans,
                     advances,
+                    posSales,
                     repayments,
                     withdrawals,
                     distributions,
+                    profitShare,
                     balance
                 };
             })
         };
     }, [orders, settings, wallet, transactions, partners]);
+
+    useEffect(() => {
+        if (stats.undistributedProfit > 0) {
+            setSimulatedAmount(stats.undistributedProfit);
+        }
+    }, [stats.undistributedProfit]);
+
+    const filteredPartnerDetails = useMemo(() => {
+        return stats.partnerDetails.filter(p => {
+            const matchesSearch = p.name.toLowerCase().includes(partnerSearchTerm.toLowerCase()) || (p.phone && p.phone.includes(partnerSearchTerm));
+            if (!matchesSearch) return false;
+
+            if (partnerFilter === 'loans') {
+                return (p.loans - p.repayments) > 0;
+            }
+            if (partnerFilter === 'top_ratio') {
+                return p.profitRatio >= 20;
+            }
+            if (partnerFilter === 'positive_balance') {
+                return p.balance > 0;
+            }
+            return true;
+        });
+    }, [stats.partnerDetails, partnerSearchTerm, partnerFilter]);
 
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
     const [isSharing, setIsSharing] = useState(false);
@@ -2792,120 +2880,439 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                <h2 className="text-xl font-bold text-slate-700 dark:text-white flex items-center gap-2">
-                    <PieChartIcon className="text-indigo-500" /> تقرير الشركاء والمركز المالي
-                </h2>
-                <div className="flex flex-wrap items-center gap-2 sm:gap-4 w-full lg:w-auto">
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+            {/* Header Section */}
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div>
+                    <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-2">
+                        <PieChartIcon className="text-indigo-600 dark:text-indigo-400" size={24} />
+                        مركز الشركاء والتحليل المالي الذكي
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        متابعة الذمم المادية رؤوس الأموال والأرباح غير الموزعة لكل شريك بالتفصيل
+                    </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
+                    <button
+                        onClick={() => setShowSimulator(!showSimulator)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all border ${
+                            showSimulator 
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' 
+                                : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800'
+                        }`}
+                    >
+                        <Calculator size={16} />
+                        {showSimulator ? 'إغلاق محاكي التوزيع' : 'محاكي توزيع الأرباح ✨'}
+                    </button>
+
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                         <button 
                             onClick={() => setIsContinuous(false)}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${!isContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${!isContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             صفحات
                         </button>
                         <button 
                             onClick={() => setIsContinuous(true)}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${isContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${isContinuous ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             متصل
                         </button>
                     </div>
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
+
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
                         <button 
                             onClick={() => setOrientation('portrait')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${orientation === 'portrait' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${orientation === 'portrait' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             طولي
                         </button>
                         <button 
                             onClick={() => setOrientation('landscape')}
-                            className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${orientation === 'landscape' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${orientation === 'landscape' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             عرضي
                         </button>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button 
-                            onClick={handlePreview} 
-                            disabled={isExporting}
-                            className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none disabled:opacity-50"
+
+                    <button 
+                        onClick={handlePreview} 
+                        disabled={isExporting}
+                        className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-bold text-xs hover:from-indigo-700 hover:to-violet-700 transition-all shadow-md shadow-indigo-200 dark:shadow-none disabled:opacity-50"
+                    >
+                        <Eye size={16}/>
+                        معاينة التقرير وتصدير PDF
+                    </button>
+                </div>
+            </div>
+
+            {/* Interactive Simulator Panel */}
+            {showSimulator && (
+                <div className="bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 text-white p-6 rounded-2xl border border-indigo-800 shadow-xl space-y-4 animate-in slide-in-from-top duration-300">
+                    <div className="flex justify-between items-center border-b border-indigo-800/80 pb-4">
+                        <div>
+                            <h3 className="text-lg font-bold flex items-center gap-2 text-indigo-200">
+                                <Sparkles size={20} className="text-amber-400" />
+                                محاكي توزيع الأرباح المقترحة
+                            </h3>
+                            <p className="text-xs text-indigo-300 mt-0.5">
+                                أدخل مبلغاً افتراضياً لتوزيع الأرباح واعرف حصة كل شريك بالريال والنسبة فوراً
+                            </p>
+                        </div>
+                        <button onClick={() => setShowSimulator(false)} className="text-indigo-400 hover:text-white p-1">
+                            <X size={18} />
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                        <div className="space-y-1 md:col-span-1">
+                            <label className="text-xs font-bold text-indigo-200">المبلغ المراد توزيعه (ج.م)</label>
+                            <input 
+                                type="number" 
+                                value={simulatedAmount} 
+                                onChange={(e) => setSimulatedAmount(Math.max(0, Number(e.target.value)))}
+                                className="w-full bg-indigo-950/80 border border-indigo-700 rounded-xl px-4 py-2 text-white font-mono font-bold text-lg focus:outline-none focus:border-amber-400"
+                            />
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 md:col-span-2 items-center pt-5">
+                            <span className="text-xs text-indigo-300 font-bold">خيارات سريعة:</span>
+                            <button 
+                                onClick={() => setSimulatedAmount(stats.undistributedProfit)}
+                                className="px-3 py-1.5 bg-indigo-800/60 hover:bg-indigo-700 text-indigo-200 rounded-lg text-xs font-bold border border-indigo-700 transition-colors"
+                            >
+                                الأرباح القابلة للتوزيع ({stats.undistributedProfit.toLocaleString()} ج.م)
+                            </button>
+                            <button 
+                                onClick={() => setSimulatedAmount(25000)}
+                                className="px-3 py-1.5 bg-indigo-800/60 hover:bg-indigo-700 text-indigo-200 rounded-lg text-xs font-bold border border-indigo-700 transition-colors"
+                            >
+                                25,000 ج.م
+                            </button>
+                            <button 
+                                onClick={() => setSimulatedAmount(50000)}
+                                className="px-3 py-1.5 bg-indigo-800/60 hover:bg-indigo-700 text-indigo-200 rounded-lg text-xs font-bold border border-indigo-700 transition-colors"
+                            >
+                                50,000 ج.م
+                            </button>
+                            <button 
+                                onClick={() => setSimulatedAmount(100000)}
+                                className="px-3 py-1.5 bg-indigo-800/60 hover:bg-indigo-700 text-indigo-200 rounded-lg text-xs font-bold border border-indigo-700 transition-colors"
+                            >
+                                100,000 ج.م
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+                        {stats.partnerDetails.map(p => {
+                            const partnerShare = (simulatedAmount * p.profitRatio) / 100;
+                            const newExpectedBalance = p.balance + partnerShare;
+                            return (
+                                <div key={p.id} className="bg-indigo-950/50 border border-indigo-800/70 p-3.5 rounded-xl flex flex-col justify-between">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="font-bold text-sm text-white">{p.name}</span>
+                                        <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[11px] font-black px-2 py-0.5 rounded-full">
+                                            {p.profitRatio}%
+                                        </span>
+                                    </div>
+
+                                    <div className="space-y-1 text-xs">
+                                        <div className="flex justify-between text-indigo-200">
+                                            <span>الحصة المستحقة:</span>
+                                            <span className="font-mono font-bold text-emerald-400 text-sm">+{partnerShare.toLocaleString('ar-EG')} ج.م</span>
+                                        </div>
+                                        <div className="flex justify-between text-indigo-300 text-[11px]">
+                                            <span>الرصيد المتوقع بعد التوزيع:</span>
+                                            <span className="font-mono font-bold text-white">{newExpectedBalance.toLocaleString('ar-EG')} ج.م</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full bg-indigo-900/80 h-1.5 rounded-full mt-2.5 overflow-hidden">
+                                        <div className="bg-amber-400 h-full rounded-full transition-all duration-300" style={{ width: `${Math.min(100, p.profitRatio)}%` }}></div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Overall Historical Profit Banner */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 text-white p-5 rounded-2xl shadow-lg">
+                <div className="space-y-1">
+                    <p className="text-xs font-bold text-indigo-200 uppercase tracking-wider">المركز المالي الإجمالي للمتجر</p>
+                    <h3 className="text-2xl sm:text-3xl font-black">{stats.allTimeNetProfit.toLocaleString('ar-EG')} ج.م</h3>
+                    <p className="text-xs text-indigo-100">صافي الأرباح المحققة تاريخياً لجميع الشركاء</p>
+                </div>
+                <div className="flex gap-2">
+                    <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 text-right">
+                        <p className="text-[10px] text-indigo-200 font-bold">أرباح تم توزيعها</p>
+                        <p className="text-lg font-black text-emerald-300">+{stats.distributedProfit.toLocaleString()} ج.م</p>
+                    </div>
+                    <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 text-right">
+                        <p className="text-[10px] text-indigo-200 font-bold">أرباح قابلة للتوزيع</p>
+                        <p className="text-lg font-black text-amber-300">{stats.undistributedProfit.toLocaleString()} ج.م</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Key Metric Scorecards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+                <ReportCard title="إجمالي رأس المال" value={`${stats.totals.capital.toLocaleString()} ج.م`} icon={<ArrowUpLeft size={22}/>} color="blue" tooltip="مجموع رؤوس الأموال التي تم إيداعها من قبل جميع الشركاء." />
+                <ReportCard title="الأرباح الموزعة" value={`${stats.distributedProfit.toLocaleString()} ج.م`} icon={<TrendingUp size={22}/>} color="emerald" tooltip="إجمالي الأرباح التي تم سحبها بالفعل من قبل الشركاء." />
+                <ReportCard title="الأرباح غير الموزعة" value={`${stats.undistributedProfit.toLocaleString()} ج.م`} icon={<PieChartIcon size={22}/>} color="amber" tooltip="الأرباح المحققة التي لم يتم توزيعها على الشركاء بعد." />
+                <ReportCard title="إجمالي السلف القائمة" value={`${(stats.totals.loans - stats.totals.repayments).toLocaleString()} ج.م`} icon={<ArrowDownRight size={22}/>} color="red" tooltip="إجمالي مديونات الشركاء (السلف التي لم يتم سدادها بعد)." />
+                <ReportCard title="إجمالي العربونات المستلمة" value={`${stats.totals.advances.toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="teal" tooltip="إجمالي عربونات العملاء التي تم استلامها." />
+                <ReportCard title="عهد المبيعات (POS)" value={`${(stats.totals.posSales || 0).toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="indigo" tooltip="إجمالي عهد مبيعات الكاشير المباشر لدى الشركاء." />
+            </div>
+
+            {/* Controls Bar: Search, Filters & View Mode */}
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center gap-2 flex-1 max-w-md">
+                    <div className="relative w-full">
+                        <Search className="absolute right-3 top-2.5 text-slate-400" size={16} />
+                        <input 
+                            type="text"
+                            placeholder="بحث باسم الشريك أو رقم الهاتف..."
+                            value={partnerSearchTerm}
+                            onChange={(e) => setPartnerSearchTerm(e.target.value)}
+                            className="w-full pr-9 pl-3 py-2 bg-slate-50 dark:bg-slate-800 text-xs text-slate-800 dark:text-white rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                        <button
+                            onClick={() => setPartnerFilter('all')}
+                            className={`px-2.5 py-1 rounded-lg transition-all ${partnerFilter === 'all' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            <Eye size={18}/>
-                            معاينة التقرير للطباعة والتصدير
+                            الكل ({stats.partnerDetails.length})
+                        </button>
+                        <button
+                            onClick={() => setPartnerFilter('loans')}
+                            className={`px-2.5 py-1 rounded-lg transition-all ${partnerFilter === 'loans' ? 'bg-white dark:bg-slate-700 shadow-sm text-rose-600 dark:text-rose-400' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            لديهم سلف
+                        </button>
+                        <button
+                            onClick={() => setPartnerFilter('top_ratio')}
+                            className={`px-2.5 py-1 rounded-lg transition-all ${partnerFilter === 'top_ratio' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600 dark:text-indigo-300' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            حصة أرباح عريضة (≥20%)
+                        </button>
+                        <button
+                            onClick={() => setPartnerFilter('positive_balance')}
+                            className={`px-2.5 py-1 rounded-lg transition-all ${partnerFilter === 'positive_balance' ? 'bg-white dark:bg-slate-700 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            رصيد موجب
+                        </button>
+                    </div>
+
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <button
+                            onClick={() => setViewMode('cards')}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'cards' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-400'}`}
+                            title="عرض البطاقات التفصيلية"
+                        >
+                            <Grid size={16} />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('table')}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'table' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-400'}`}
+                            title="عرض الجدول المالي"
+                        >
+                            <List size={16} />
                         </button>
                     </div>
                 </div>
             </div>
 
-            <div className="text-left bg-indigo-50 dark:bg-indigo-900/20 px-4 py-3 sm:py-2 rounded-xl border border-indigo-100 dark:border-indigo-800 self-start sm:self-auto w-full sm:w-auto inline-block">
-                <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase mb-1">إجمالي الربح التاريخي</p>
-                <p className="text-xl sm:text-2xl font-black text-indigo-700 dark:text-indigo-300">{stats.allTimeNetProfit.toLocaleString('ar-EG')} ج.م</p>
-            </div>
+            {/* View Mode 1: Interactive Cards */}
+            {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredPartnerDetails.length === 0 ? (
+                        <div className="col-span-full bg-white dark:bg-slate-900 rounded-2xl p-12 text-center border border-slate-200 dark:border-slate-800">
+                            <Users className="mx-auto text-slate-300 dark:text-slate-600 mb-3" size={40} />
+                            <p className="text-slate-500 dark:text-slate-400 font-bold text-sm">لا يوجد شركاء يطابقون خيارات البحث أو التصفية.</p>
+                        </div>
+                    ) : (
+                        filteredPartnerDetails.map((p, idx) => {
+                            const netLoan = p.loans - p.repayments;
+                            const roiPercent = p.capital > 0 ? (((p.distributions + p.profitShare) / p.capital) * 100).toFixed(1) : '0';
+                            const isPositive = p.balance >= 0;
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6">
-                <ReportCard title="إجمالي رأس المال" value={`${stats.totals.capital.toLocaleString()} ج.م`} icon={<ArrowUpLeft size={24}/>} color="blue" tooltip="مجموع رؤوس الأموال التي تم إيداعها من قبل جميع الشركاء." />
-                <ReportCard title="الأرباح الموزعة" value={`${stats.distributedProfit.toLocaleString()} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" tooltip="إجمالي الأرباح التي تم سحبها بالفعل من قبل الشركاء." />
-                <ReportCard title="الأرباح غير الموزعة" value={`${stats.undistributedProfit.toLocaleString()} ج.م`} icon={<PieChartIcon size={24}/>} color="amber" tooltip="الأرباح المحققة التي لم يتم توزيعها على الشركاء بعد." />
-                <ReportCard title="إجمالي السلف القائمة" value={`${(stats.totals.loans - stats.totals.repayments).toLocaleString()} ج.م`} icon={<ArrowDownRight size={24}/>} color="red" tooltip="إجمالي مديونات الشركاء (السلف التي لم يتم سدادها بعد)." />
-                <ReportCard title="إجمالي العربونات المستلمة" value={`${stats.totals.advances.toLocaleString()} ج.م`} icon={<Coins size={24}/>} color="teal" tooltip="إجمالي عربونات العملاء التي تم استلامها ومقودها لدى الشركاء كعهدة مبيعات." />
-            </div>
+                            return (
+                                <div key={p.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all p-5 space-y-4 relative overflow-hidden group">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-indigo-500 to-violet-600 text-white font-black text-lg flex items-center justify-center shadow-md shadow-indigo-100 dark:shadow-none">
+                                                {p.name.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <Link to={`/store/${storeId}/partners/${p.id}`} className="font-black text-slate-800 dark:text-white text-base hover:text-indigo-600 transition-colors">
+                                                    {p.name}
+                                                </Link>
+                                                {p.phone && <p className="text-xs text-slate-400 dir-ltr text-right">{p.phone}</p>}
+                                            </div>
+                                        </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden mt-8">
-                <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-white">تفاصيل المركز المالي لكل شريك</h3>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs font-black px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                                                حصة الأرباح: {p.profitRatio}%
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Equity Progress Bar */}
+                                    <div className="space-y-1">
+                                        <div className="flex justify-between text-[11px] font-bold text-slate-500">
+                                            <span>نسبة الملكية من المحفظة</span>
+                                            <span>{p.profitRatio}%</span>
+                                        </div>
+                                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                                            <div 
+                                                className="bg-indigo-600 h-full rounded-full transition-all duration-500" 
+                                                style={{ width: `${Math.min(100, p.profitRatio)}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Metric Grid */}
+                                    <div className="grid grid-cols-2 gap-2.5 pt-1 text-xs">
+                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-bold text-slate-400 block">رأس المال المودع</span>
+                                            <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{p.capital.toLocaleString()} ج.م</span>
+                                        </div>
+
+                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-bold text-slate-400 block">أرباح حصل عليها</span>
+                                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{p.distributions.toLocaleString()} ج.م</span>
+                                        </div>
+
+                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-bold text-slate-400 block">السلف القائمة</span>
+                                            <span className={`font-mono font-bold ${netLoan > 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                                                {netLoan.toLocaleString()} ج.م
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-emerald-50/40 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-100/50 dark:border-emerald-900/30">
+                                            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 block">أرباح مستحقة غير موزعة</span>
+                                            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">+{Math.round(p.profitShare).toLocaleString()} ج.م</span>
+                                        </div>
+
+                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-bold text-slate-400 block">العربونات المستلمة</span>
+                                            <span className="font-mono font-bold text-teal-600">{(p.advances || 0).toLocaleString()} ج.م</span>
+                                        </div>
+                                        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-bold text-slate-400 block">عهد المبيعات (POS)</span>
+                                            <span className="font-mono font-bold text-indigo-600">{(p.posSales || 0).toLocaleString()} ج.م</span>
+                                        </div>
+                                    </div>
+
+                                    {/* ROI & Net Balance Footer */}
+                                    <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2 text-right">
+                                        <div>
+                                            <span className="text-[9px] font-bold text-slate-400 uppercase block">الرصيد الجاري بالمحل</span>
+                                            <span className={`text-xs font-bold font-mono ${p.balance >= 0 ? 'text-slate-700 dark:text-slate-300' : 'text-rose-600'}`}>
+                                                {p.balance.toLocaleString('ar-EG')} ج.م
+                                            </span>
+                                        </div>
+
+                                        <div className="text-left border-r pr-2 border-slate-100 dark:border-slate-800">
+                                            <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase block">إجمالي حقوق التصفية</span>
+                                            <span className="text-sm font-black text-indigo-700 dark:text-indigo-400 font-mono">
+                                                {(p.balance + p.profitShare).toLocaleString('ar-EG')} ج.م
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
                 </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-right text-xs sm:text-sm">
-                        <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-bold uppercase tracking-wider">
-                            <tr>
-                                <th className="px-4 py-3">الشريك</th>
-                                <th className="px-4 py-3">النسبة</th>
-                                <th className="px-4 py-3">رأس المال</th>
-                                <th className="px-4 py-3">أرباح حصل عليها</th>
-                                <th className="px-4 py-3">سحوبات شخصية</th>
-                                <th className="px-4 py-3">السلف القائمة</th>
-                                <th className="px-4 py-3">العربونات المستلمة</th>
-                                <th className="px-4 py-3">الرصيد الكلي</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {stats.partnerDetails.length === 0 ? (
-                                <tr><td colSpan={8} className="text-center py-12 text-slate-400 font-medium">لا يوجد شركاء مسجلين حالياً.</td></tr>
-                            ) : (
-                                stats.partnerDetails.map(p => (
-                                    <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                                        <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">
-                                            <Link to={`/store/${storeId}/partners/${p.id}`} className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline transition-colors">
-                                                {p.name}
-                                            </Link>
-                                        </td>
-                                        <td className="px-4 py-3"><span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
-                                        <td className="px-4 py-3 font-mono">{p.capital.toLocaleString()}</td>
-                                        <td className="px-4 py-3 font-mono text-emerald-600">+{p.distributions.toLocaleString()}</td>
-                                        <td className="px-4 py-3 font-mono text-amber-600">-{p.withdrawals.toLocaleString()}</td>
-                                        <td className="px-4 py-3 font-mono text-red-600">{(p.loans - p.repayments).toLocaleString()}</td>
-                                        <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString() : '0'}</td>
-                                        <td className={`px-4 py-3 font-black ${p.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                            {p.balance.toLocaleString()} ج.م
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+            ) : (
+                /* View Mode 2: Detailed Financial Table */
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                        <h3 className="font-bold text-slate-800 dark:text-white text-sm">جدول بيان الذمم ورؤوس الأموال للشركاء</h3>
+                        <span className="text-xs text-slate-400 font-bold">{filteredPartnerDetails.length} شريك</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-right text-xs">
+                            <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-bold uppercase tracking-wider">
+                                <tr>
+                                    <th className="px-4 py-3">الشريك</th>
+                                    <th className="px-4 py-3">نسبة الأرباح</th>
+                                    <th className="px-4 py-3">رأس المال</th>
+                                    <th className="px-4 py-3">أرباح حصل عليها</th>
+                                    <th className="px-4 py-3">سحوبات شخصية</th>
+                                    <th className="px-4 py-3">السلف القائمة</th>
+                                    <th className="px-4 py-3 text-emerald-600 font-bold">أرباح مستحقة غير موزعة</th>
+                                    <th className="px-4 py-3">العربونات المستلمة</th>
+                                    <th className="px-4 py-3">عهد مبيعات (POS)</th>
+                                    <th className="px-4 py-3">الرصيد الجاري بالمحل</th>
+                                    <th className="px-4 py-3 text-indigo-600 font-extrabold">إجمالي حقوق التصفية</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                {filteredPartnerDetails.length === 0 ? (
+                                    <tr><td colSpan={11} className="text-center py-12 text-slate-400 font-medium">لا يوجد شركاء مسجلين حالياً.</td></tr>
+                                ) : (
+                                    filteredPartnerDetails.map(p => (
+                                        <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                            <td className="px-4 py-3 font-bold text-slate-800 dark:text-white">
+                                                <Link to={`/store/${storeId}/partners/${p.id}`} className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline transition-colors">
+                                                    {p.name}
+                                                </Link>
+                                            </td>
+                                            <td className="px-4 py-3"><span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
+                                            <td className="px-4 py-3 font-mono">{p.capital.toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.distributions.toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-amber-600">-{p.withdrawals.toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-red-600">{(p.loans - p.repayments).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-emerald-600 font-bold">+{Math.round(p.profitShare).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString() : '0'}</td>
+                                            <td className="px-4 py-3 font-mono text-indigo-600">-{p.posSales ? p.posSales.toLocaleString() : '0'}</td>
+                                            <td className={`px-4 py-3 font-bold ${p.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                {p.balance.toLocaleString()} ج.م
+                                            </td>
+                                            <td className="px-4 py-3 font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {(p.balance + p.profitShare).toLocaleString()} ج.م
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Clarification Note about Custodies and Down Payments */}
+            <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-start gap-3.5 shadow-sm">
+                <span className="text-xl leading-none">💡</span>
+                <div className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 text-right w-full">
+                    <strong className="text-slate-800 dark:text-slate-200 font-bold block mb-1">توضيح مالي هام بخصوص العهد والذمم المالية للشركاء:</strong>
+                    مبالغ <span className="text-teal-600 dark:text-teal-400 font-bold bg-teal-50 dark:bg-teal-950/30 px-1.5 py-0.5 rounded-md border border-teal-100 dark:border-teal-900">العربونات المستلمة</span> و<span className="text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-950/30 px-1.5 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-900">عهد مبيعات (POS)</span> الموضحة أعلاه هي مبالغ وعهد مالية مؤقتة تحت التسوية لتغطية طلبات العملاء. هذه المبالغ <strong className="text-slate-700 dark:text-slate-300">ليست سحوبات شخصية نهائية</strong> مقتطعة من رأس مال الشريك أو مستحقاته، ولا تؤثر كخصم قطعي إلا في حال تسويتها رسمياً مع الطلبات أو قيدها وتوثيقها كـ <strong className="text-indigo-600 dark:text-indigo-400">سحوبات شخصية</strong>.
                 </div>
             </div>
 
+            {/* Analytics Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2"><ArrowUpLeft className="text-blue-500"/> تحليل حصص الشركاء</h3>
+                <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h3 className="text-base font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                        <PieChartIcon className="text-indigo-500"/> توزيع نسب الشركاء وحصص الأرباح
+                    </h3>
                     <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie 
                                     data={stats.partnerDetails.map(p => ({ name: p.name, value: p.profitRatio }))} 
-                                    innerRadius={60} 
+                                    innerRadius={55} 
                                     outerRadius={80} 
                                     paddingAngle={5} 
                                     dataKey="value"
@@ -2914,36 +3321,40 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip />
+                                <Tooltip contentStyle={{ borderRadius: '12px' }} />
                                 <Legend />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2"><ArrowDownRight className="text-red-500"/> سلف الشركاء المسددة وغير المسددة</h3>
+                <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <h3 className="text-base font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                        <ArrowDownRight className="text-rose-500"/> رأس المال المودع مقابل السلف القائمة
+                    </h3>
                     <div className="h-64">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={stats.partnerDetails}>
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                                 <Tooltip contentStyle={{ borderRadius: '12px' }} />
+                                <Bar dataKey="capital" name="رأس المال المودع" fill="#6366f1" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="loans" name="إجمالي السلف" fill="#f43f5e" radius={[4, 4, 0, 0]} />
-                                <Bar dataKey="repayments" name="المسدد منها" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="repayments" name="المسدد من السلف" fill="#10b981" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
             </div>
 
+            {/* Modal for Preview / PDF Share */}
             {previewHtml && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-5xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
+                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-7xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between p-4 border-b border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-t-2xl">
                             <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                 <FileText className="text-indigo-500" />
-                                معاينة تقرير الشركاء
+                                معاينة تقرير الشركاء والمركز المالي
                             </h3>
                             <div className="flex items-center gap-2">
                                 {shareLink && (
@@ -2958,30 +3369,37 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                 <button 
                                     onClick={handleShare} 
                                     disabled={isSharing}
-                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors border border-slate-200 dark:border-slate-700 disabled:opacity-50"
                                 >
-                                    {isSharing ? <Loader2 size={16} className="animate-spin"/> : <Share2 size={16}/>}
-                                    <span className="hidden sm:inline">{isSharing ? 'جاري الإنشاء...' : 'مشاركة أونلاين'}</span>
+                                    {isSharing ? <Loader2 size={14} className="animate-spin" /> : <Share2 size={14} />}
+                                    مشاركة
                                 </button>
-                                 <button 
-                                    onClick={handleActualExportPDF} 
+                                <button 
+                                    onClick={handleActualPrint}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-colors border border-slate-200 dark:border-slate-700"
+                                >
+                                    <Printer size={14} />
+                                    طباعة
+                                </button>
+                                <button 
+                                    onClick={handleActualExportPDF}
                                     disabled={isExporting}
-                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-sm disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-colors shadow-sm disabled:opacity-50"
                                 >
-                                    {isExporting ? <Loader2 size={16} className="animate-spin"/> : <Download size={16}/>}
-                                    <span className="hidden sm:inline">{isExporting ? 'جاري التصدير...' : 'تصدير PDF'}</span>
+                                    {isExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                                    تصدير PDF
                                 </button>
-                                <button onClick={handleActualPrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-xl font-bold text-sm hover:bg-slate-900 transition-all">
-                                    <Printer size={16}/> <span className="hidden sm:inline">طباعة التقرير</span>
-                                </button>
-                                <button onClick={() => setPreviewHtml(null)} className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 rounded-xl transition-colors mr-2">
-                                    <X size={20} />
+                                <button 
+                                    onClick={() => setPreviewHtml(null)}
+                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl text-slate-500 transition-colors"
+                                >
+                                    <X size={18} />
                                 </button>
                             </div>
                         </div>
-                        <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-100 dark:bg-slate-800/50 flex align-top justify-center">
+                        <div className="flex-1 overflow-auto p-4 sm:p-8 bg-slate-100 dark:bg-slate-800/50 flex justify-center">
                             <div className="bg-white rounded-xl shadow-lg w-full overflow-hidden h-fit min-h-full" style={{ maxWidth: orientation === 'landscape' ? '1122.5px' : '793px' }}>
-                                <iframe srcDoc={previewHtml} className="w-full h-[800px] border-0" title="Report Preview" />
+                                <iframe srcDoc={previewHtml} className="w-full h-[800px] border-0" title="Partners Report Preview" />
                             </div>
                         </div>
                     </div>
@@ -3281,7 +3699,7 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
 
             {previewHtml && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-5xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
+                    <div className="bg-slate-200 dark:bg-slate-800 w-full max-w-7xl h-full max-h-[90vh] rounded-2xl shadow-2xl flex flex-col border border-slate-300 dark:border-slate-700 animate-in zoom-in-95 duration-200">
                         <div className="flex items-center justify-between p-4 border-b border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-t-2xl">
                             <h3 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                 <FileText className="text-emerald-500" />
@@ -4109,149 +4527,619 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
     );
 };
 
-const POSSalesReport: React.FC<{ orders: Order[], settings: Settings }> = ({ orders, settings }) => {
+const POSSalesReport: React.FC<{ orders: Order[], settings: Settings, activeStore?: Store, dateRangeText?: string }> = ({ orders, settings, activeStore, dateRangeText }) => {
+    const [selectedCashier, setSelectedCashier] = useState<string>('all');
+    const [paymentFilter, setPaymentFilter] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState<string>('');
+
+    const storeName = activeStore?.name || (settings as any).storeName || 'متجر الكاشير المباشر';
+
+    const allPosOrders = useMemo(() => {
+        return orders.filter(o => o.channel === 'pos' || o.id?.startsWith('POS-') || o.shippingCompany?.startsWith('كاشير -') || o.shippingArea === 'نقطة البيع');
+    }, [orders]);
+
+    const allCashierNames = useMemo(() => {
+        const set = new Set<string>();
+        allPosOrders.forEach(o => {
+            const name = resolveCashHolderName(o, settings) || o.createdBy || 'كاشير مجهول';
+            set.add(name);
+        });
+        return Array.from(set);
+    }, [allPosOrders, settings]);
+
+    const filteredPosOrders = useMemo(() => {
+        return allPosOrders.filter(o => {
+            const cashierName = resolveCashHolderName(o, settings) || o.createdBy || 'كاشير مجهول';
+            if (selectedCashier !== 'all' && cashierName !== selectedCashier) return false;
+
+            if (paymentFilter === 'cash') {
+                if (o.paymentMethod === 'card' || o.paymentMethod === 'visa' || o.cashHolderId === 'wallet') return false;
+            } else if (paymentFilter === 'card') {
+                if (o.paymentMethod !== 'card' && o.paymentMethod !== 'visa' && o.paymentMethod !== 'online') return false;
+            } else if (paymentFilter === 'wallet') {
+                if (o.cashHolderId !== 'wallet' && o.paymentMethod !== 'wallet') return false;
+            }
+
+            if (searchQuery.trim()) {
+                const q = searchQuery.trim().toLowerCase();
+                const matchId = (o.orderNumber || o.id || '').toLowerCase().includes(q);
+                const matchCustomer = (o.customerName || '').toLowerCase().includes(q);
+                const matchPhone = (o.customerPhone || '').includes(q);
+                const matchItems = (o.items || []).some(i => i.name.toLowerCase().includes(q));
+                return matchId || matchCustomer || matchPhone || matchItems;
+            }
+
+            return true;
+        });
+    }, [allPosOrders, selectedCashier, paymentFilter, searchQuery, settings]);
+
     const stats = useMemo(() => {
-        const posOrders = orders.filter(o => o.channel === 'pos' || o.id.startsWith('POS-'));
-        
         let totalRevenue = 0;
         let totalItems = 0;
         let totalProfit = 0;
         let totalDiscount = 0;
+        let ordersWithDiscount = 0;
 
-        const productMelt: Record<string, { label: string, quantity: number, revenue: number }> = {};
-        const cashierPerformance: Record<string, { label: string, count: number, revenue: number }> = {};
+        const productMelt: Record<string, { label: string, quantity: number, revenue: number, profit: number }> = {};
+        const cashierPerformance: Record<string, { label: string, count: number, revenue: number, profit: number }> = {};
+        
+        const paymentStats = {
+            cash: { label: 'نقدي (عهدة كاشير)', count: 0, revenue: 0 },
+            card: { label: 'دفع إلكتروني / بطاقة', count: 0, revenue: 0 },
+            wallet: { label: 'إيداع مباشر بالمحفظة', count: 0, revenue: 0 },
+        };
 
-        posOrders.forEach(o => {
+        const hourlyMap: Record<string, number> = {
+            '08:00-11:00': 0,
+            '11:00-14:00': 0,
+            '14:00-17:00': 0,
+            '17:00-20:00': 0,
+            '20:00-23:00': 0,
+            '23:00-08:00': 0,
+        };
+
+        filteredPosOrders.forEach(o => {
             const revenue = (o.totalPrice || (o.productPrice + o.shippingFee));
             totalRevenue += revenue;
-            totalDiscount += (o.discount || 0);
-            
+            const discount = o.discount || 0;
+            totalDiscount += discount;
+            if (discount > 0) ordersWithDiscount++;
+
             const { profit } = calculateOrderProfitLoss(o, settings);
             totalProfit += profit;
 
             (o.items || []).forEach(item => {
                 totalItems += item.quantity;
-                if (!productMelt[item.productId]) {
-                    productMelt[item.productId] = { label: item.name, quantity: 0, revenue: 0 };
+                const pKey = item.productId || item.name;
+                if (!productMelt[pKey]) {
+                    productMelt[pKey] = { label: item.name, quantity: 0, revenue: 0, profit: 0 };
                 }
-                productMelt[item.productId].quantity += item.quantity;
-                productMelt[item.productId].revenue += (item.price * item.quantity);
+                productMelt[pKey].quantity += item.quantity;
+                productMelt[pKey].revenue += (item.price * item.quantity);
+                productMelt[pKey].profit += (item.price - ((item as any).costPrice || 0)) * item.quantity;
             });
 
-            const cashierId = o.createdBy || 'Unknown';
-            if (!cashierPerformance[cashierId]) {
-                cashierPerformance[cashierId] = { label: o.customerName || 'كاشير مجهول', count: 0, revenue: 0 };
+            const cashierName = resolveCashHolderName(o, settings) || o.createdBy || 'كاشير مجهول';
+            if (!cashierPerformance[cashierName]) {
+                cashierPerformance[cashierName] = { label: cashierName, count: 0, revenue: 0, profit: 0 };
             }
-            cashierPerformance[cashierId].count += 1;
-            cashierPerformance[cashierId].revenue += revenue;
+            cashierPerformance[cashierName].count += 1;
+            cashierPerformance[cashierName].revenue += revenue;
+            cashierPerformance[cashierName].profit += profit;
+
+            // Payment classification
+            if (o.paymentMethod === 'card' || o.paymentMethod === 'visa' || o.paymentMethod === 'online') {
+                paymentStats.card.count += 1;
+                paymentStats.card.revenue += revenue;
+            } else if (o.cashHolderId === 'wallet' || o.paymentMethod === 'wallet') {
+                paymentStats.wallet.count += 1;
+                paymentStats.wallet.revenue += revenue;
+            } else {
+                paymentStats.cash.count += 1;
+                paymentStats.cash.revenue += revenue;
+            }
+
+            // Hourly distribution
+            if (o.date) {
+                const hour = new Date(o.date).getHours();
+                if (hour >= 8 && hour < 11) hourlyMap['08:00-11:00'] += revenue;
+                else if (hour >= 11 && hour < 14) hourlyMap['11:00-14:00'] += revenue;
+                else if (hour >= 14 && hour < 17) hourlyMap['14:00-17:00'] += revenue;
+                else if (hour >= 17 && hour < 20) hourlyMap['17:00-20:00'] += revenue;
+                else if (hour >= 20 && hour < 23) hourlyMap['20:00-23:00'] += revenue;
+                else hourlyMap['23:00-08:00'] += revenue;
+            }
         });
 
-        const bestProducts = Object.values(productMelt).sort((a,b) => b.revenue - a.revenue).slice(0, 5);
+        const overallStoreRevenue = orders.reduce((sum, o) => sum + (o.totalPrice || (o.productPrice + o.shippingFee)), 0);
+        const posSalesShare = overallStoreRevenue > 0 ? Math.round((totalRevenue / overallStoreRevenue) * 100) : 0;
+        const profitMargin = totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0;
+        const avgBasket = filteredPosOrders.length > 0 ? (totalRevenue / filteredPosOrders.length) : 0;
+        const avgItemsPerOrder = filteredPosOrders.length > 0 ? (totalItems / filteredPosOrders.length).toFixed(1) : '0';
+
+        const bestProducts = Object.values(productMelt).sort((a, b) => b.revenue - a.revenue).slice(0, 8);
+        const cashierList = Object.values(cashierPerformance).sort((a, b) => b.revenue - a.revenue);
+
+        const hourlyChartData = Object.entries(hourlyMap).map(([slot, amount]) => ({
+            slot,
+            مبيعات: amount
+        }));
 
         return {
             totalRevenue,
             totalItems,
             totalProfit,
             totalDiscount,
-            count: posOrders.length,
+            ordersWithDiscount,
+            count: filteredPosOrders.length,
+            avgBasket,
+            avgItemsPerOrder,
+            posSalesShare,
+            profitMargin,
             bestProducts,
-            cashierPerformance: Object.values(cashierPerformance)
+            cashierList,
+            paymentStats,
+            hourlyChartData
         };
-    }, [orders, settings]);
+    }, [filteredPosOrders, orders, settings]);
 
-    if (stats.count === 0) {
-        return (
-            <div className="bg-white dark:bg-slate-900 p-12 rounded-3xl border border-slate-200 dark:border-slate-800 text-center flex flex-col items-center justify-center space-y-4">
-                <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-full text-slate-300">
-                    <Monitor size={48} />
-                </div>
-                <h3 className="text-xl font-bold text-slate-700 dark:text-slate-300">لا توجد مبيعات كاشير (POS) حالياً</h3>
-                <p className="text-slate-400 text-sm max-w-sm">بمجرد إجراء عمليات بيع من خلال نقطة البيع، ستظهر التحليلات هنا بالتفصيل.</p>
-            </div>
-        );
-    }
+    const handlePrintShiftReport = () => {
+        const html = generatePosReportHTML(filteredPosOrders, settings, storeName, dateRangeText);
+        printHTMLDirectly(html);
+    };
+
+    const handleExportPDF = async () => {
+        const html = generatePosReportHTML(filteredPosOrders, settings, storeName, dateRangeText);
+        await exportHTMLToPDF(html, 'landscape', `تقرير_الكاشير_${storeName}.pdf`);
+    };
 
     return (
         <div className="space-y-6 animate-in fade-in-5 duration-300">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 flex items-center gap-1.5 uppercase">
-                        <ShoppingBasket size={12} className="text-indigo-500" />
-                        إجمالي مبيعات الـ POS
-                    </p>
-                    <h4 className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                        {stats.totalRevenue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
-                    </h4>
+            {/* Top Action & Analytics Bar */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 sm:p-8 rounded-3xl border border-indigo-900/40 shadow-xl text-white relative overflow-hidden">
+                <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400"></div>
+                <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-6 relative z-10">
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-indigo-500/20 border border-indigo-400/30 rounded-2xl text-indigo-300 backdrop-blur-md">
+                                <Monitor size={28} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                                        مركز تحليلات نقطة البيع (POS)
+                                    </h2>
+                                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                        كاشير نشط
+                                    </span>
+                                </div>
+                                <p className="text-slate-300 text-xs sm:text-sm font-medium mt-1">
+                                    رصد مباشر لحركة المبيعات الفورية، أداء الوردية، وكفاءة تسوية نقدية الكاشير بمتجر "<span className="text-indigo-300 font-bold">{storeName}</span>"
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        <button
+                            onClick={handlePrintShiftReport}
+                            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-[1.02] text-xs sm:text-sm"
+                        >
+                            <Printer size={16} />
+                            طباعة تقرير الوردية (A4)
+                        </button>
+                        <button
+                            onClick={handleExportPDF}
+                            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold px-4 py-2.5 rounded-xl transition-all text-xs sm:text-sm backdrop-blur-md"
+                        >
+                            <Download size={16} />
+                            تصدير PDF
+                        </button>
+                    </div>
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase">عدد الفواتير</p>
-                    <h4 className="text-3xl font-black text-slate-800 dark:text-white tabular-nums">{stats.count}</h4>
-                </div>
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase text-emerald-500">الربح الصافي</p>
-                    <h4 className="text-3xl font-black text-emerald-600 tabular-nums">
-                        {stats.totalProfit.toLocaleString()} <span className="text-xs font-bold text-emerald-400">ج.م</span>
-                    </h4>
-                </div>
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <p className="text-xs font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase text-red-500">إجمالي الخصم الممنوح</p>
-                    <h4 className="text-3xl font-black text-red-500 tabular-nums">
-                        {stats.totalDiscount.toLocaleString()} <span className="text-xs font-bold text-red-400">ج.م</span>
-                    </h4>
+
+                {/* Filter Controls Bar */}
+                <div className="mt-6 pt-5 border-t border-white/10 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label className="text-[11px] font-bold text-slate-300 mb-1 block">الكاشير / الموظف المسؤول:</label>
+                        <select
+                            value={selectedCashier}
+                            onChange={e => setSelectedCashier(e.target.value)}
+                            className="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="all">جميع الكاشيرية (كل الوردية)</option>
+                            {allCashierNames.map((name, idx) => (
+                                <option key={idx} value={name}>{name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="text-[11px] font-bold text-slate-300 mb-1 block">طريقة التحصيل / الدفع:</label>
+                        <select
+                            value={paymentFilter}
+                            onChange={e => setPaymentFilter(e.target.value)}
+                            className="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                            <option value="all">جميع طرق الدفع</option>
+                            <option value="cash">نقدي (عهدة الكاشير)</option>
+                            <option value="card">دفع إلكتروني / بطاقة</option>
+                            <option value="wallet">إيداع مباشر بالمحفظة العامة</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="text-[11px] font-bold text-slate-300 mb-1 block">بحث الفاتورة / العميل / المنتج:</label>
+                        <input
+                            type="text"
+                            placeholder="بحث برقم الفاتورة، اسم العميل..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-full bg-slate-800/80 border border-slate-700/80 rounded-xl px-3 py-2 text-xs font-bold text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                    </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2 font-black">
-                        <Package className="text-indigo-500" />
-                        المنتجات الأكثر مبيعاً في الكاشير
-                    </h3>
-                    <div className="space-y-4">
-                        {stats.bestProducts.map((p, idx) => {
-                            const percentage = (p.revenue / stats.totalRevenue) * 100;
-                            return (
-                                <div key={idx}>
-                                    <div className="flex justify-between items-center mb-1 text-xs font-bold">
-                                        <span className="text-slate-600 dark:text-slate-300">{p.label}</span>
-                                        <span>{p.revenue.toLocaleString()} ج.م ({p.quantity} قطعة)</span>
+            {/* Empty State */}
+            {stats.count === 0 ? (
+                <div className="bg-white dark:bg-slate-900 p-12 rounded-3xl border border-slate-200 dark:border-slate-800 text-center flex flex-col items-center justify-center space-y-4 shadow-sm">
+                    <div className="p-4 bg-indigo-50 dark:bg-indigo-950/40 rounded-3xl text-indigo-500 border border-indigo-200 dark:border-indigo-800">
+                        <Monitor size={48} />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 dark:text-slate-200">لا توجد مبيعات كاشير مطابقة للفلتر</h3>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm max-w-sm">
+                        تأكد من اختيار نطاق تاريخي يحتوي على مبيعات POS أو جرب تغيير خيارات الفلترة المحددة أعلاه.
+                    </p>
+                </div>
+            ) : (
+                <>
+                    {/* Executive Modern KPI Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500"></div>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">إجمالي مبيعات POS</span>
+                                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 rounded-xl">
+                                    <ShoppingBasket size={16} />
+                                </div>
+                            </div>
+                            <h4 className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">
+                                {stats.totalRevenue.toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                            </h4>
+                            <p className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mt-2 flex items-center gap-1">
+                                <span>📈 {stats.posSalesShare}%</span>
+                                <span className="text-slate-400 font-normal">من إجمالي مبيعات المتجر</span>
+                            </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-cyan-500"></div>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">عدد الفواتير والقطع</span>
+                                <div className="p-2 bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 rounded-xl">
+                                    <FileText size={16} />
+                                </div>
+                            </div>
+                            <h4 className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">
+                                {stats.count} <span className="text-xs font-bold text-slate-400">فاتورة</span>
+                            </h4>
+                            <p className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 mt-2">
+                                📦 {stats.totalItems} قطعة مباعة <span className="text-slate-400 font-normal">({stats.avgItemsPerOrder} قطعة/طلب)</span>
+                            </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500"></div>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">صافي أرباح الكاشير</span>
+                                <div className="p-2 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 rounded-xl">
+                                    <TrendingUp size={16} />
+                                </div>
+                            </div>
+                            <h4 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                +{stats.totalProfit.toLocaleString()} <span className="text-xs font-bold text-emerald-400">ج.م</span>
+                            </h4>
+                            <p className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 mt-2">
+                                💡 هامش ربح صافي: {stats.profitMargin}%
+                            </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-purple-500"></div>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">متوسط سلة المبيعات (AOV)</span>
+                                <div className="p-2 bg-purple-50 dark:bg-purple-950/50 text-purple-600 rounded-xl">
+                                    <Coins size={16} />
+                                </div>
+                            </div>
+                            <h4 className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">
+                                {Math.round(stats.avgBasket).toLocaleString()} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                            </h4>
+                            <p className="text-[11px] font-bold text-purple-600 dark:text-purple-400 mt-2">
+                                🛒 متوسط القيمة للفاتورة الواحدة
+                            </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-rose-500"></div>
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-rose-500 uppercase tracking-wider">الخصومات الممنوحة</span>
+                                <div className="p-2 bg-rose-50 dark:bg-rose-950/50 text-rose-600 rounded-xl">
+                                    <Percent size={16} />
+                                </div>
+                            </div>
+                            <h4 className="text-2xl font-black text-rose-600 tabular-nums">
+                                {stats.totalDiscount.toLocaleString()} <span className="text-xs font-bold text-rose-400">ج.م</span>
+                            </h4>
+                            <p className="text-[11px] font-bold text-rose-500 mt-2">
+                                🏷️ {stats.ordersWithDiscount} فاتورة تضمنت خصماً
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Analytics Section - Charts & Breakdown Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Peak Hours Hourly Chart */}
+                        <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2">
+                                        <TrendingUp className="text-indigo-500" size={18} />
+                                        ساعات الذروة ونشاط الكاشير على مدار اليوم
+                                    </h3>
+                                    <p className="text-slate-400 text-xs mt-0.5">تحليل توقيت الإقبال وكثافة عمليات الشراء المباشرة</p>
+                                </div>
+                                <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold border border-indigo-100 dark:border-indigo-900">
+                                    توزع الزخم الزمني
+                                </span>
+                            </div>
+
+                            <div className="h-64 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={stats.hourlyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
+                                        <XAxis dataKey="slot" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                                        <Tooltip
+                                            formatter={(value: number) => [`${value.toLocaleString()} ج.م`, 'إجمالي المبيعات']}
+                                            labelStyle={{ fontWeight: 'bold', color: '#0f172a' }}
+                                            contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '12px', color: '#fff' }}
+                                        />
+                                        <Bar dataKey="مبيعات" fill="#6366f1" radius={[8, 8, 0, 0]}>
+                                            {stats.hourlyChartData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={index === 3 || index === 4 ? '#4f46e5' : '#818cf8'} />
+                                            ))}
+                                        </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* Payment Method Distribution */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+                            <div>
+                                <h3 className="font-black text-slate-800 dark:text-white text-base mb-1 flex items-center gap-2">
+                                    <WalletIcon className="text-emerald-500" size={18} />
+                                    توزيع طرق التحصيل
+                                </h3>
+                                <p className="text-slate-400 text-xs mb-6">نسبة التحصيل النقدي والشبكة والإيداعات</p>
+
+                                <div className="space-y-4">
+                                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                                <span>💵</span> نقدي (عهدة الكاشير الشخصية)
+                                            </span>
+                                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">
+                                                {stats.paymentStats.cash.revenue.toLocaleString()} ج.م
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-400 flex justify-between">
+                                            <span>{stats.paymentStats.cash.count} فاتورة</span>
+                                            <span>{stats.totalRevenue > 0 ? Math.round((stats.paymentStats.cash.revenue / stats.totalRevenue) * 100) : 0}% من الكاشير</span>
+                                        </div>
                                     </div>
-                                    <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                        <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${percentage}%` }}></div>
+
+                                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                                <span>💳</span> دفع إلكتروني / بطاقة شبكة
+                                            </span>
+                                            <span className="text-xs font-black text-cyan-600 dark:text-cyan-400">
+                                                {stats.paymentStats.card.revenue.toLocaleString()} ج.م
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-400 flex justify-between">
+                                            <span>{stats.paymentStats.card.count} فاتورة</span>
+                                            <span>{stats.totalRevenue > 0 ? Math.round((stats.paymentStats.card.revenue / stats.totalRevenue) * 100) : 0}% من الكاشير</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                                <span>👛</span> إيداع مباشر بالمحفظة العامة
+                                            </span>
+                                            <span className="text-xs font-black text-purple-600 dark:text-purple-400">
+                                                {stats.paymentStats.wallet.revenue.toLocaleString()} ج.م
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-400 flex justify-between">
+                                            <span>{stats.paymentStats.wallet.count} فاتورة</span>
+                                            <span>{stats.totalRevenue > 0 ? Math.round((stats.paymentStats.wallet.revenue / stats.totalRevenue) * 100) : 0}% من الكاشير</span>
+                                        </div>
                                     </div>
                                 </div>
-                            );
-                        })}
-                    </div>
-                </div>
+                            </div>
 
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm font-sans">
-                    <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2 font-black">
-                        <Monitor className="text-blue-500" />
-                        أداء بائعي الكاشير
-                    </h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-right">
-                            <thead>
-                                <tr className="text-slate-400 text-xs border-b border-slate-100 dark:border-slate-800">
-                                    <th className="pb-3 px-2">اسم البائع</th>
-                                    <th className="pb-3 px-2">العمليات</th>
-                                    <th className="pb-3 px-2 text-left">إجمالي التحصيل</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
-                                {stats.cashierPerformance.map((c, idx) => (
-                                    <tr key={idx}>
-                                        <td className="py-3 px-2 text-sm font-bold text-slate-700 dark:text-slate-200">{c.label}</td>
-                                        <td className="py-3 px-2 text-sm">{c.count}</td>
-                                        <td className="py-3 px-2 text-sm text-left font-black text-indigo-600">{c.revenue.toLocaleString()} ج.م</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                            <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
+                                <span className="text-[11px] font-bold text-slate-400">
+                                    💡 إجمالي الفواتير المحصلة: {stats.count} فاتورة
+                                </span>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
+
+                    {/* Cashier Staff Leaderboard & Top Selling Products */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Cashier Efficiency Leaderboard */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                            <h3 className="font-black text-slate-800 dark:text-white mb-6 flex items-center gap-2 text-base">
+                                <Users className="text-indigo-500" size={18} />
+                                كفاءة وأداء كاشيرية الوردية (Staff Leaderboard)
+                            </h3>
+
+                            <div className="space-y-3">
+                                {stats.cashierList.map((c, idx) => {
+                                    const sharePercent = stats.totalRevenue > 0 ? Math.round((c.revenue / stats.totalRevenue) * 100) : 0;
+                                    const rankBadge = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
+
+                                    return (
+                                        <div key={idx} className="p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex flex-col gap-2">
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex items-center gap-2.5">
+                                                    <span className="text-base font-black">{rankBadge}</span>
+                                                    <div>
+                                                        <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm">{c.label}</h4>
+                                                        <p className="text-slate-400 text-xs">{c.count} عملية بيع ناجحة</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-left">
+                                                    <div className="font-black text-indigo-600 dark:text-indigo-400 text-base">{c.revenue.toLocaleString()} ج.م</div>
+                                                    <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">أرباح: +{c.profit.toLocaleString()} ج.م</div>
+                                                </div>
+                                            </div>
+
+                                            <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full overflow-hidden">
+                                                <div className="bg-indigo-600 h-full rounded-full transition-all" style={{ width: `${sharePercent}%` }}></div>
+                                            </div>
+                                            <div className="flex justify-between text-[10px] text-slate-400 font-bold">
+                                                <span>نسبة المساهمة بالمبيعات: {sharePercent}%</span>
+                                                <span>متوسط الفاتورة: {c.count > 0 ? Math.round(c.revenue / c.count).toLocaleString() : 0} ج.م</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Top Sold Products in POS */}
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                            <h3 className="font-black text-slate-800 dark:text-white mb-6 flex items-center gap-2 text-base">
+                                <Package className="text-cyan-500" size={18} />
+                                المنتجات الأكثر مبيعاً في الكاشير
+                            </h3>
+
+                            <div className="space-y-4">
+                                {stats.bestProducts.map((p, idx) => {
+                                    const percentage = stats.totalRevenue > 0 ? Math.round((p.revenue / stats.totalRevenue) * 100) : 0;
+                                    return (
+                                        <div key={idx} className="space-y-1.5">
+                                            <div className="flex justify-between items-center text-xs font-bold">
+                                                <span className="text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                                                    <span className="text-slate-400 font-mono">#{idx + 1}</span>
+                                                    {p.label}
+                                                </span>
+                                                <span className="text-indigo-600 dark:text-indigo-400 font-black">
+                                                    {p.revenue.toLocaleString()} ج.م <span className="text-slate-400 font-medium">({p.quantity} قطعة)</span>
+                                                </span>
+                                            </div>
+                                            <div className="h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                                <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full transition-all" style={{ width: `${percentage}%` }}></div>
+                                            </div>
+                                            <div className="flex justify-between text-[10px] text-slate-400">
+                                                <span>المساهمة: {percentage}%</span>
+                                                <span className="text-emerald-600 font-bold">صافي الربح: +{p.profit.toLocaleString()} ج.م</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Live POS Order & Receipt Table Log */}
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                            <div>
+                                <h3 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2">
+                                    <FileText className="text-indigo-500" size={18} />
+                                    سجل معاملات الكاشير المباشرة ({filteredPosOrders.length} فاتورة)
+                                </h3>
+                                <p className="text-slate-400 text-xs mt-0.5">جدول تفصيلي بكل عمليات البيع المحصلة بالكاشير</p>
+                            </div>
+                            <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl self-start sm:self-auto">
+                                إجمالي القيمة: {stats.totalRevenue.toLocaleString()} ج.م
+                            </span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-right border-collapse">
+                                <thead>
+                                    <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-xs font-bold border-b border-slate-100 dark:border-slate-800">
+                                        <th className="py-3.5 px-4">الفاتورة</th>
+                                        <th className="py-3.5 px-4">التاريخ والوقت</th>
+                                        <th className="py-3.5 px-4">الكاشير المسئول</th>
+                                        <th className="py-3.5 px-4">العميل / البيان</th>
+                                        <th className="py-3.5 px-4">المنتجات</th>
+                                        <th className="py-3.5 px-4 text-center">الخصم</th>
+                                        <th className="py-3.5 px-4">إجمالي السداد</th>
+                                        <th className="py-3.5 px-4">الربح الصافي</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                                    {filteredPosOrders.map((o, idx) => {
+                                        const { profit } = calculateOrderProfitLoss(o, settings);
+                                        const cashierName = resolveCashHolderName(o, settings) || o.createdBy || 'كاشير';
+                                        const totalAmt = (o.totalPrice || (o.productPrice + o.shippingFee));
+
+                                        return (
+                                            <tr key={idx} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                                                <td className="py-3.5 px-4 font-black text-indigo-600 dark:text-indigo-400">
+                                                    #{o.orderNumber || o.id?.slice(0, 8)}
+                                                </td>
+                                                <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
+                                                    {new Date(o.date).toLocaleDateString('ar-EG')}
+                                                    <span className="block text-[10px] text-slate-400">{new Date(o.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                </td>
+                                                <td className="py-3.5 px-4">
+                                                    <span className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900 rounded-full font-bold text-[11px]">
+                                                        👤 {cashierName}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3.5 px-4 font-bold text-slate-800 dark:text-slate-200">
+                                                    {o.customerName || 'عميل كاشير مباشر'}
+                                                    {o.customerPhone && <span className="block text-[10px] text-slate-400 font-mono" dir="ltr">{o.customerPhone}</span>}
+                                                </td>
+                                                <td className="py-3.5 px-4 max-w-[180px] truncate text-slate-600 dark:text-slate-400" title={(o.items || []).map(i => `${i.name} (${i.quantity})`).join(', ')}>
+                                                    {(o.items || []).map(i => `${i.name} (x${i.quantity})`).join(', ') || 'منتجات كاشير'}
+                                                </td>
+                                                <td className="py-3.5 px-4 text-center font-bold">
+                                                    {(o.discount || 0) > 0 ? (
+                                                        <span className="text-rose-600 dark:text-rose-400">
+                                                            -{(o.discount || 0).toLocaleString()} ج.م
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-300 dark:text-slate-600">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="py-3.5 px-4 font-black text-slate-900 dark:text-white text-sm" dir="ltr">
+                                                    {totalAmt.toLocaleString()} ج.م
+                                                </td>
+                                                <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400" dir="ltr">
+                                                    +{profit.toLocaleString()} ج.م
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 };
@@ -4449,7 +5337,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             <div className="relative min-h-[calc(100vh-200px)] mt-6 animate-in fade-in-5 duration-300">
                 {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} />}
                 {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={settings} />}
+                {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
                 {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
                 {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}

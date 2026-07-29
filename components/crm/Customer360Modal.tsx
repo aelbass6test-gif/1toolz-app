@@ -270,7 +270,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                 {/* 6 KPI Stat Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                     <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1.5">
                       <DollarSign size={14} className="text-emerald-500" /> إجمالي الإنفاق (LTV)
                     </div>
@@ -279,7 +279,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                     </div>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                     <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1.5">
                       <TrendingUp size={14} className="text-indigo-500" /> متوسط قيمة الطلب
                     </div>
@@ -288,7 +288,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                     </div>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                     <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1.5">
                       <ShoppingBag size={14} className="text-blue-500" /> إجمالي الطلبات
                     </div>
@@ -297,7 +297,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                     </div>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                     <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1.5">
                       <CheckCircle2 size={14} className="text-emerald-500" /> نسبة نجاح التوصيل
                     </div>
@@ -310,7 +310,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                     </div>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                     <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1.5">
                       <Star size={14} className="text-amber-500" /> نقاط الولاء المكتسبة
                     </div>
@@ -319,7 +319,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                     </div>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
                     <div className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1.5">
                       <Calendar size={14} className="text-purple-500" /> تاريخ أول وآخر طلب
                     </div>

@@ -2132,7 +2132,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             exit={{ opacity: 0, y: -10 }}
           >
             <div id="custom-database-settings"  className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-500/20 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold">
@@ -2446,7 +2446,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
               className="mt-6 p-6 bg-white dark:bg-slate-900 rounded-3xl border-2 border-indigo-500 shadow-2xl shadow-indigo-500/10 overflow-hidden mb-6"
               dir="rtl"
             >
-              <div className="flex items-center justify-between mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center justify-between mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400">
                     <Wrench size={20} />
@@ -2473,7 +2473,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                     </h4>
                     <div className="space-y-2">
                       {syncPreview.customers.map((c) => (
-                        <div key={c.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <div key={c.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
                           <div className="flex items-center gap-3">
                             <button 
                               onClick={() => setSyncPreview({
@@ -2512,7 +2512,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                     </h4>
                     <div className="space-y-2">
                       {syncPreview.treasury.map((acc) => (
-                        <div key={acc.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <div key={acc.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
                           <div className="flex items-center gap-3">
                             <button 
                               onClick={() => setSyncPreview({
@@ -2550,7 +2550,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                     </h4>
                     <div className="space-y-2">
                       {syncPreview.wallet.map((w) => (
-                        <div key={w.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+                        <div key={w.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
                           <div className="flex items-center gap-3">
                             <button 
                               onClick={() => setSyncPreview({
@@ -2581,7 +2581,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                 )}
               </div>
 
-              <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row gap-3">
+              <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row gap-3">
                 <button 
                   onClick={handleApplySync}
                   className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-2xl font-black text-sm shadow-xl shadow-indigo-500/20 transition flex items-center justify-center gap-2"
@@ -2692,7 +2692,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             </div>
           )}
 
-          <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden text-right">
+          <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-right">
             <button 
               type="button"
               onClick={() => setShowSqlSchema(!showSqlSchema)}
@@ -2744,7 +2744,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             exit={{ opacity: 0, y: -10 }}
           >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mb-8">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3 text-right">
             <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                <ShieldAlert size={20} />
@@ -2843,14 +2843,14 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
             <h3 className="text-sm font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5 justify-start mb-4">
               <History size={16} className="text-indigo-500" />
               <span>التحكم اليدوي ومؤشرات الأمان الفورية ⚙️</span>
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50 flex items-center justify-between">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800/50 flex items-center justify-between">
                 <div className="text-right">
                   <p className="text-xs text-slate-500">حالة الاتصال والبيئة</p>
                   <p className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1 mt-0.5">
@@ -2882,7 +2882,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                 </button>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800/50">
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800/50">
                 <p className="text-xs text-slate-500">حماية وسلامة العمليات المالية</p>
                 <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-1 flex items-center gap-1">
                   <Sparkles size={14} />
@@ -2934,7 +2934,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             exit={{ opacity: 0, y: -10 }}
           >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-600 dark:text-orange-400">
                <Webhook size={20} />
@@ -3023,7 +3023,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             exit={{ opacity: 0, y: -10 }}
           >
       <div id="activity-movements" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 overflow-hidden mt-8">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
               <History size={20} />
@@ -3042,7 +3042,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
           </button>
         </div>
         <div className="p-6">
-          <div className="overflow-hidden border border-slate-100 dark:border-slate-800 rounded-xl">
+          <div className="overflow-hidden border border-slate-200 dark:border-slate-800 rounded-xl">
             <table className="w-full text-right text-[11px]">
               <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-black">
                 <tr>
@@ -3084,7 +3084,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             exit={{ opacity: 0, y: -10 }}
           >
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden mt-8">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400">
                <ShoppingCart size={20} />

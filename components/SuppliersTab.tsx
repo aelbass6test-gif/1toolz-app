@@ -488,7 +488,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
           </h3>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl">
               <Coins size={24} />
@@ -504,7 +504,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
           </h3>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl">
               <CheckCircle2 size={24} />
@@ -520,7 +520,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
           </h3>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-2xl">
               <ShoppingCart size={24} />
@@ -538,7 +538,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       </div>
 
       {/* 2. Action Toolbar & Filter Suite */}
-      <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex flex-wrap items-center gap-2 flex-1">
           {/* Search */}
           <div className="relative min-w-[240px] flex-1 sm:flex-none">
@@ -610,7 +610,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
 
       {/* 3. Suppliers Cards Grid */}
       {filteredSuppliers.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 p-16 text-center rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-16 text-center rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="w-20 h-20 bg-indigo-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6 text-indigo-500">
             <User size={40} />
           </div>
@@ -659,7 +659,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
             return (
               <div 
                 key={s.id}
-                className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between overflow-hidden relative group"
+                className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between overflow-hidden relative group"
               >
                 <div className="p-6 space-y-4">
                   {/* Avatar, Tier & Action Buttons */}
@@ -703,7 +703,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                   </div>
 
                   {/* Category & Rating */}
-                  <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/40 px-3.5 py-2 rounded-2xl border border-slate-100 dark:border-slate-800/60 text-xs">
+                  <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/40 px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-800/60 text-xs">
                     <span className="font-extrabold text-slate-700 dark:text-slate-300">
                       {getCategoryLabel(s.category)}
                     </span>
@@ -774,11 +774,11 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
 
                   {/* Transaction Stats Grid */}
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50 flex flex-col items-center justify-center">
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/50 flex flex-col items-center justify-center">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-0.5">طلبيات مكتملة</span>
                       <span className="text-sm font-black text-slate-800 dark:text-slate-200">{completedPurchases} صفقة</span>
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50 flex flex-col items-center justify-center">
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/50 flex flex-col items-center justify-center">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-0.5">مرتجعات واستبدال</span>
                       <span className="text-sm font-black text-slate-800 dark:text-slate-200">{supplierReturns.length} محضر</span>
                     </div>
@@ -791,7 +791,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden pt-2 space-y-2 text-xs text-slate-600 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800"
+                        className="overflow-hidden pt-2 space-y-2 text-xs text-slate-600 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800"
                       >
                         {s.address && (
                           <div className="flex items-start gap-2 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl">
@@ -822,7 +822,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                 </div>
 
                 {/* Bottom Action Suite */}
-                <div className="border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/60 px-6 py-3">
+                <div className="border-t border-slate-200 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/60 px-6 py-3">
                   <div className="flex justify-between items-center gap-2">
                     <div className="flex items-center gap-2">
                       <button
@@ -874,7 +874,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden"
+              className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
             >
               <div className="p-6 bg-gradient-to-r from-indigo-600 to-indigo-800 text-white flex justify-between items-center">
                 <div className="flex items-center gap-3">
@@ -1048,7 +1048,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                 </div>
               </div>
 
-              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
                 <button
                   onClick={() => setShowSupplierModal(false)}
                   className="px-6 py-3 rounded-2xl text-xs font-black bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-all"
@@ -1075,7 +1075,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
             >
               {/* Header */}
               <div className="p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-center shrink-0">
@@ -1110,18 +1110,18 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
               </div>
 
               {/* Summary KPIs bar inside statement */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 shrink-0">
-                <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 shrink-0">
+                <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60">
                   <span className="text-[10px] font-bold text-slate-400 block mb-1">الرصيد الافتتاحي</span>
                   <span className="text-base font-black text-slate-800 dark:text-white">0 ج.م</span>
                 </div>
-                <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60">
+                <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60">
                   <span className="text-[10px] font-bold text-slate-400 block mb-1">إجمالي التوريدات (مدين)</span>
                   <span className="text-base font-black text-rose-600 dark:text-rose-400">
                     {statementEntries.reduce((s, x) => s + x.debit, 0).toLocaleString()} ج.م
                   </span>
                 </div>
-                <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700/60">
+                <div className="p-3 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/60">
                   <span className="text-[10px] font-bold text-slate-400 block mb-1">إجمالي المرتجعات / السداد</span>
                   <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
                     {statementEntries.reduce((s, x) => s + x.credit, 0).toLocaleString()} ج.م
@@ -1145,7 +1145,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                   <div className="overflow-x-auto">
                     <table className="w-full text-right border-collapse">
                       <thead>
-                        <tr className="border-b-2 border-slate-100 dark:border-slate-800 text-[11px] font-black text-slate-400 pb-3">
+                        <tr className="border-b-2 border-slate-200 dark:border-slate-800 text-[11px] font-black text-slate-400 pb-3">
                           <th className="py-3 px-2">التاريخ</th>
                           <th className="py-3 px-2">نوع الحركة والبيان</th>
                           <th className="py-3 px-2">الرقم المرجعي</th>
@@ -1196,7 +1196,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
               </div>
 
               {/* Footer */}
-              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 shrink-0">
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 shrink-0">
                 <button
                   onClick={() => setStatementSupplier(null)}
                   className="px-6 py-3 rounded-2xl text-xs font-black bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-all"

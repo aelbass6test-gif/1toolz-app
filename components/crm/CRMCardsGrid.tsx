@@ -95,7 +95,7 @@ export const CRMCardsGrid: React.FC<Props> = ({ customers, onSelectCustomer }) =
               </div>
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/80 mb-4">
+              <div className="grid grid-cols-2 gap-2 p-3 bg-slate-50/80 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800/80 mb-4">
                 <div>
                   <div className="text-[10px] font-bold text-slate-400 uppercase">إجمالي الإنفاق LTV</div>
                   <div className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
@@ -122,7 +122,7 @@ export const CRMCardsGrid: React.FC<Props> = ({ customers, onSelectCustomer }) =
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800/80 gap-2">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800/80 gap-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400">
                   <Sparkles size={14} className="text-amber-500" />
                   <span>صحة: <span className="text-slate-800 dark:text-white font-black">{customer.healthScore}%</span></span>

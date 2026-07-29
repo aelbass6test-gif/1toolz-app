@@ -597,7 +597,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
 
                 return (
                  <div key={group.title} className={`bg-white dark:bg-slate-800/80 rounded-2xl border transition-colors ${isPartialGroupSelected || isAllGroupSelected ? 'border-purple-300 dark:border-purple-500/50 shadow-sm' : 'border-slate-200 dark:border-slate-700'}`}>
-                   <div className={`p-4 flex justify-between items-center border-b ${isPartialGroupSelected || isAllGroupSelected ? 'border-purple-100 dark:border-purple-900/30 bg-purple-50/50 dark:bg-purple-900/10 rounded-t-2xl' : 'border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 rounded-t-2xl'}`}>
+                   <div className={`p-4 flex justify-between items-center border-b ${isPartialGroupSelected || isAllGroupSelected ? 'border-purple-100 dark:border-purple-900/30 bg-purple-50/50 dark:bg-purple-900/10 rounded-t-2xl' : 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 rounded-t-2xl'}`}>
                      <h5 className="font-black text-slate-800 dark:text-white flex items-center gap-2">{group.title}</h5>
                      <label className="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" 
@@ -611,7 +611,7 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
                    </div>
                    <div className="p-4 space-y-3">
                      {group.permissions.map(perm => ( 
-                         <label key={perm.key} className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 cursor-pointer hover:border-purple-300 dark:hover:border-purple-500/50 transition-colors group"> 
+                         <label key={perm.key} className="flex items-center gap-3 p-3 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-purple-300 dark:hover:border-purple-500/50 transition-colors group"> 
                              <div className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${formData.permissions.includes(perm.key) ? 'bg-purple-600 border-purple-600' : 'border-2 border-slate-300 dark:border-slate-600 group-hover:border-purple-400'}`}>
                                  {formData.permissions.includes(perm.key) && <Check size={14} className="text-white" />}
                              </div>

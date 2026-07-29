@@ -655,7 +655,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
 
                     {/* Past sessions container */}
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                             <h3 className="font-bold text-slate-800 dark:text-white">جلسات الجرد السابقة والتسويات المرحلة</h3>
                             <button 
                                 onClick={() => setSubTab('active')} 
@@ -1074,7 +1074,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
                     <div className="bg-white dark:bg-slate-900 w-full max-w-4xl h-[85vh] rounded-3xl shadow-2xl flex flex-col animate-in zoom-in duration-300 border border-slate-200 dark:border-slate-800">
                         {/* Modal Header */}
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900 rounded-t-3xl shadow-sm z-10">
+                        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900 rounded-t-3xl shadow-sm z-10">
                             <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-3">
                                 <div className="p-2 bg-indigo-100 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl">
                                     <ClipboardList size={20}/>
@@ -1092,7 +1092,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                         {/* Modal Body */}
                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                             {/* Summary Metadata Card */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-705">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-705">
                                 <div>
                                     <span className="text-[10px] text-slate-400 block font-bold">تاريخ الجرد</span>
                                     <span className="text-xs font-extrabold text-slate-800 dark:text-white">
@@ -1184,7 +1184,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                         </div>
 
                         {/* Modal Footer */}
-                        <div className="p-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900 rounded-b-3xl">
+                        <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900 rounded-b-3xl">
                             <button 
                                 onClick={() => handlePrintReport(selectedPastSession)}
                                 className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm"

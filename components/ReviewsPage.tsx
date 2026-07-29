@@ -72,13 +72,13 @@ const ReviewsPage: React.FC<ReviewsPageProps> = ({ settings, setSettings }) => {
                                     ))}
                                 </div>
                             </div>
-                            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800 mb-3">
+                            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-lg border border-slate-200 dark:border-slate-800 mb-3">
                                 <p className="text-xs md:text-sm font-bold text-slate-600 dark:text-slate-300">{getProductName(review.productId)}</p>
                             </div>
                             <p className="text-sm md:text-base text-slate-700 dark:text-slate-300 leading-relaxed">"{review.comment}"</p>
                         </div>
                         
-                        <div className="flex md:flex-col items-center justify-center gap-2 border-t md:border-t-0 md:border-r border-slate-100 dark:border-slate-800 pt-4 md:pt-0 md:pr-6 md:min-w-[140px]">
+                        <div className="flex md:flex-col items-center justify-center gap-2 border-t md:border-t-0 md:border-r border-slate-200 dark:border-slate-800 pt-4 md:pt-0 md:pr-6 md:min-w-[140px]">
                             {review.status === 'pending' && (
                                 <>
                                     <button onClick={() => handleStatusChange(review.id, 'approved')} className="flex-1 md:flex-none flex items-center justify-center gap-2 w-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-3 py-2 rounded-lg text-xs md:text-sm font-bold hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors">

@@ -69,7 +69,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
       desc: 'يمكنك الآن إضافتنا كأيقونة على شاشة جوالك الرئيسية لطلب المنتجات مباشرة، تصفح الكتالوج حتى لو انقطع معك الإنترنت تماماً!',
       actionLabel: 'تثبيت البرنامج',
       interactiveContent: (
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl text-right mt-2 space-y-3">
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-right mt-2 space-y-3">
           <p className="text-xs text-slate-550 dark:text-slate-400 leading-relaxed font-bold">
             💡 كيف تقوم بالتحميل؟
           </p>
@@ -127,7 +127,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
       colorClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
       desc: 'مراجعات المنتجات أصبحت حقيقية وتفاعلية. يمكنك مشاركة تجربتك وتقييم جودة خامات المنتجات التي اشتريتها لمساعدة العملاء الآخرين وتطوير متجرنا.',
       interactiveContent: (
-        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl mt-2 text-right">
+        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl mt-2 text-right">
           <p className="text-xs text-slate-600 dark:text-slate-400 mb-2 font-bold">قيم تجربتك الكلية مع نظامنا الذكي:</p>
           <div className="flex gap-2 justify-center py-2 flex-row-reverse">
             {[5, 4, 3, 2, 1].map((star) => (
@@ -247,7 +247,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
           <div className="absolute top-0 bottom-0 right-0 w-full max-w-md bg-white dark:bg-slate-950 shadow-2xl border-l border-slate-200/60 dark:border-slate-850 flex flex-col animate-in slide-in-from-right duration-300 overflow-hidden">
             
             {/* Drawer Header */}
-            <div className={`p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-right relative overflow-hidden ${
+            <div className={`p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-right relative overflow-hidden ${
               isAdminView 
                 ? 'bg-indigo-50/20 dark:bg-indigo-950/20' 
                 : 'bg-emerald-50/20 dark:bg-emerald-950/10'
@@ -306,7 +306,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
                   {selectedItem.interactiveContent ? (
                     selectedItem.interactiveContent
                   ) : (
-                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex items-start gap-3 mt-4">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex items-start gap-3 mt-4">
                       <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0 mt-0.5">
                         <CheckCircle2 size={13} />
                       </div>
@@ -337,7 +337,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
                     {currentList.map((item) => (
                       <div 
                         key={item.id}
-                        className="p-4 bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-2xl transition-colors hover:border-slate-300 dark:hover:border-slate-700 flex flex-col gap-2 relative group overflow-hidden"
+                        className="p-4 bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl transition-colors hover:border-slate-300 dark:hover:border-slate-700 flex flex-col gap-2 relative group overflow-hidden"
                       >
                         {/* Interactive Sparkle Hover effect */}
                         <div className="absolute top-0 left-0 bottom-0 w-1 bg-transparent group-hover:bg-indigo-500 transition-all"></div>
@@ -369,7 +369,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
             </div>
 
             {/* Drawer Footer info */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-100 dark:border-slate-850 flex items-center justify-between">
+            <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-850 flex items-center justify-between">
               <span className="text-[10px] text-slate-400 font-black">طور بكل فخر مع الذكاء الاصطناعي ⚙️</span>
               <button 
                 onClick={() => setSelectedItem(null)}

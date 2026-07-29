@@ -172,7 +172,7 @@ const FinancialRequestsTab: React.FC<{
                     <p className="text-slate-500 font-bold">لا توجد طلبات مالية معلقة للقرار الحالي.</p>
                 </div>
             ) : (
-                <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-2xl">
+                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl">
                     <table className="w-full text-sm text-right">
                         <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold">
                             <tr>
@@ -913,7 +913,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                 <p className="text-xs font-black text-slate-400 uppercase tracking-widest text-right">رسوم السحب المفروضة على شركاء المتاجر</p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-3xl border border-slate-100 dark:border-slate-850 space-y-4">
+                    <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-3xl border border-slate-200 dark:border-slate-850 space-y-4">
                         <div className="flex justify-between items-center">
                             <p className="text-xs font-black text-slate-700 dark:text-slate-300">السحب العادي (مدة معالجة ٢٤-٤٨ ساعة)</p>
                             <div className="flex p-0.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-250 dark:border-slate-800">
@@ -1038,7 +1038,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                 placeholder={settings.sameDayWithdrawalFeeType === 'percent' ? "أدخل النسبة المئوية" : "أدخل المبلغ الثابت للجلسة ج.م"}
                             />
                         </div>
-                        <div className="p-3 bg-white/70 dark:bg-black/40 rounded-xl border border-slate-100 dark:border-slate-850">
+                        <div className="p-3 bg-white/70 dark:bg-black/40 rounded-xl border border-slate-200 dark:border-slate-850">
                             <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold leading-relaxed">
                                 تنبيه: بالنسبة المئوية، سيتم فرض حد أدنى للمحفظة قدره ٢٥ ج.م عند سحب مبالغ أقل من ٢,٥٠٠ ج.م لضمان تغطية رسوم بوابة التحويل المالي الفوري.
                             </p>
@@ -1250,7 +1250,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                     />
                 </div>
 
-                <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-2xl">
+                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-2xl">
                     <table className="w-full text-right">
                         <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold text-xs uppercase">
                             <tr>

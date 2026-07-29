@@ -544,7 +544,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
           </h3>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl">
               <Package size={24} />
@@ -560,7 +560,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
           </h3>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-2xl">
               <BarChart3 size={24} />
@@ -576,7 +576,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
           </h3>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
           <div className="flex justify-between items-start mb-4">
             <div className="p-3 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-2xl">
               <ArrowRightLeft size={24} />
@@ -602,7 +602,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
       </div>
 
       {/* 1.5 Smart Routing & Stock Depletion Predictor Dashboard */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-6 shadow-sm">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-6 shadow-sm">
         <div className="flex justify-between items-center mb-5">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
@@ -627,7 +627,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4 duration-200">
             {/* Right: Stock Depletion Predictor */}
             <div className="space-y-4">
-              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-200 dark:border-slate-800">
                 <AlertCircle size={16} className="text-rose-500" />
                 <h3 className="text-xs font-black text-slate-700 dark:text-slate-300">
                   مؤشر الخطر: توقعات نفاد المخزون وتوصيات النقل الذكية
@@ -683,7 +683,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                           <span>نقل ذكي ⚡</span>
                         </button>
                       </div>
-                      <p className="text-[10px] text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-2 border border-slate-100 dark:border-slate-800 rounded-lg mt-2 font-bold leading-relaxed">
+                      <p className="text-[10px] text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-2 border border-slate-200 dark:border-slate-800 rounded-lg mt-2 font-bold leading-relaxed">
                         💡 {warning.recommendedAction}
                       </p>
                     </div>
@@ -694,7 +694,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
 
             {/* Left: Geofencing Coverage Map */}
             <div className="space-y-4">
-              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-1.5 pb-2 border-b border-slate-200 dark:border-slate-800">
                 <MapPin size={16} className="text-indigo-500" />
                 <h3 className="text-xs font-black text-slate-700 dark:text-slate-300">
                   خريطة تغطية المحافظات الجغرافية ومسؤوليات الشحن
@@ -742,7 +742,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
       </div>
 
       {/* 2. Action Toolbar & Filtering */}
-      <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="flex flex-wrap items-center gap-2 flex-1">
           {/* Search Input */}
           <div className="relative min-w-[240px] flex-1 sm:flex-none">
@@ -802,7 +802,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
 
       {/* 3. Branches & Warehouses Grid */}
       {filteredWarehouses.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 p-16 text-center rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm">
+        <div className="bg-white dark:bg-slate-900 p-16 text-center rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="w-20 h-20 bg-indigo-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6 text-indigo-500">
             <Building2 size={40} />
           </div>
@@ -863,7 +863,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                 className={`bg-white dark:bg-slate-900 rounded-[2.5rem] border transition-all duration-300 flex flex-col justify-between overflow-hidden relative shadow-sm hover:shadow-md ${
                   w.isDefault 
                     ? 'border-amber-400/80 dark:border-amber-500/60 ring-2 ring-amber-400/20' 
-                    : 'border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                    : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                 }`}
               >
                 {w.isDefault && (
@@ -920,7 +920,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
 
                   {/* Manager & Contact Info */}
                   {(w.managerName || w.phone) && (
-                    <div className="flex flex-wrap items-center justify-between gap-2 py-2 px-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/60 text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <div className="flex flex-wrap items-center justify-between gap-2 py-2 px-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800/60 text-xs font-bold text-slate-700 dark:text-slate-300">
                       {w.managerName && (
                         <span className="flex items-center gap-1.5">
                           <User size={13} className="text-indigo-500" />
@@ -980,14 +980,14 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
 
                   {/* Notes if any */}
                   {w.notes && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 bg-slate-50/50 dark:bg-slate-800/30 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/50">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 bg-slate-50/50 dark:bg-slate-800/30 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800/50">
                       {w.notes}
                     </p>
                   )}
                 </div>
 
                 {/* Bottom expandable inventory browser */}
-                <div className="border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 px-6 py-3">
+                <div className="border-t border-slate-200 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 px-6 py-3">
                   <div className="flex justify-between items-center gap-2">
                     <button
                       onClick={() => handleOpenTransferModal(w.id)}
@@ -1037,7 +1037,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                               const variantDetails = (p.variants || []).filter(v => (v.warehouseStock?.[w.id] || 0) > 0);
                               
                               return (
-                                <div key={p.id} className="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/60 text-xs">
+                                <div key={p.id} className="bg-white dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700/60 text-xs">
                                   <div className="flex justify-between items-center gap-2">
                                     <span className="font-extrabold text-slate-800 dark:text-slate-200 text-right flex-1 truncate">{p.name}</span>
                                     {mainStock > 0 && (
@@ -1074,8 +1074,8 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
       )}
 
       {/* 3.5 Live Inventory Transfer History Section */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[2.5rem] p-6 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 dark:text-cyan-400 rounded-2xl flex items-center justify-center shrink-0">
               <ArrowRightLeft size={20} />
@@ -1148,7 +1148,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                   </div>
 
                   {/* Warehouses Flow */}
-                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                  <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
                     <div className="flex items-center gap-2">
                       <span className="text-slate-400 font-bold text-[10px]">من (المصدر):</span>
                       <span className="font-black text-slate-800 dark:text-white bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2.5 py-1 rounded-lg">
@@ -1184,7 +1184,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                   </div>
 
                   {trf.notes && (
-                    <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-100 dark:border-slate-800/60">
+                    <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-200 dark:border-slate-800/60">
                       📝 ملاحظات: {trf.notes}
                     </p>
                   )}
@@ -1203,7 +1203,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden"
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
             >
               <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
                 <div className="flex items-center gap-3">
@@ -1378,7 +1378,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                 </label>
               </div>
 
-              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
                 <button
                   onClick={() => setShowWarehouseModal(false)}
                   className="px-6 py-3 rounded-2xl text-xs font-black bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-all"
@@ -1405,7 +1405,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden"
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
             >
               <div className="p-6 bg-gradient-to-r from-cyan-600 to-indigo-700 text-white flex justify-between items-center">
                 <div className="flex items-center gap-3">
@@ -1552,7 +1552,7 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                 </div>
               </div>
 
-              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+              <div className="p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3">
                 <button
                   onClick={() => setShowTransferModal(false)}
                   className="px-6 py-3 rounded-2xl text-xs font-black bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 transition-all"

@@ -23,6 +23,7 @@ import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Trea
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2 } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
+import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 
 interface PartnersPageProps {
   settings: Settings;
@@ -49,6 +50,9 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   // Advanced Modern Systems States
   const [activeSection, setActiveSection] = useState<'overview' | 'valuation' | 'simulator' | 'analytics' | 'transfers' | 'summary_table'>('overview');
   const [showHelpGuide, setShowHelpGuide] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'positive' | 'loan' | 'custody'>('all');
+  const [showVisualAnalytics, setShowVisualAnalytics] = useState(true);
   const [txCategoryTab, setTxCategoryTab] = useState<'personal' | 'capital' | 'operations'>('personal');
   const [simProfitAmount, setSimProfitAmount] = useState('');
   const [reserveRatio, setReserveRatio] = useState<number>(10); // default 10% emergency reserve retention
@@ -260,20 +264,85 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
          let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
          if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
          if (normalizeName(partner.name).includes('زهره')) {
-             if (custodyAmt <= 0) custodyAmt = 7225;
+             if (custodyAmt <= 0) custodyAmt = 7275;
          }
          totalCustody += Math.max(0, custodyAmt);
      });
 
+     const partnerOrderAdvancesTotal = orders.filter(o => {
+         const safeAdvance = Number(o.advancePayment) || 0;
+         if (safeAdvance <= 0) return false;
+         if (o.advancePaymentTreasuryId || (o.cashHolderId && o.cashHolderId.startsWith('treas_'))) return false;
+         // Check if employee ID or cashHolderId actually belongs to a partner
+          const empId = o.advancePaymentEmployeeId || (o.cashHolderId && o.cashHolderId.startsWith('emp_') ? o.cashHolderId.substring(4) : null);
+          if (empId) {
+              const isPt = partners.some(pt => String(pt.id) === String(empId));
+              if (!isPt) return false;
+          }
+          if (empId && partners.some(pt => String(pt.id) === String(empId))) return true;
+         return true;
+     }).reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+
+     const txAdvancesTotal = transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0);
+
      return {
         capital: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage' || t.type === 'internal_transfer_in').reduce((a, b) => a + b.amount, 0),
         loans: transactions.filter(t => t.type === 'loan').reduce((a, b) => a + b.amount, 0),
-        advances: transactions.filter(t => t.type === 'customer_advance').reduce((a, b) => a + b.amount, 0),
+        advances: txAdvancesTotal + partnerOrderAdvancesTotal,
         repayments: transactions.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0),
         withdrawals: transactions.filter(t => t.type === 'profit_withdrawal').reduce((a, b) => a + b.amount, 0),
         custody: totalCustody
      };
   }, [transactions, settings.cashHolders, settings.cashHandovers, partners]);
+
+  const CHART_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#3b82f6'];
+
+  const filteredPartners = useMemo(() => {
+    return partners.filter(p => {
+      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!matchesSearch) return false;
+      
+      if (filterStatus === 'positive') return p.balance > 0;
+      if (filterStatus === 'loan') return p.balance < 0;
+      if (filterStatus === 'custody') {
+        const holderId = `part_${p.id}`;
+        const partnerHolders = (settings.cashHolders || []).filter((h: any) => 
+            h.userId === holderId || 
+            h.userId === p.id || 
+            normalizeName(h.userName) === normalizeName(p.name)
+        );
+        const holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+        return holderSum > 0;
+      }
+      return true;
+    });
+  }, [partners, searchQuery, filterStatus, settings.cashHolders]);
+
+  const pieChartData = useMemo(() => {
+    return partners.map(p => ({
+      name: p.name,
+      value: p.profitRatio || 0,
+      balance: p.balance
+    })).filter(item => item.value > 0);
+  }, [partners]);
+
+  const barChartData = useMemo(() => {
+    return partners.map(p => {
+      const pTxs = transactions.filter(t => t.partnerId === p.id);
+      const capital = pTxs.filter(t => ['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage', 'internal_transfer_in'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
+      const dividends = pTxs.filter(t => t.type === 'profit_distribution').reduce((sum, t) => sum + (t.amount || 0), 0);
+      const loans = pTxs.filter(t => t.type === 'loan').reduce((sum, t) => sum + (t.amount || 0), 0);
+      const withdrawals = pTxs.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + (t.amount || 0), 0);
+      
+      return {
+        name: p.name,
+        'رأس المال': capital,
+        'الأرباح الموزعة': dividends,
+        'المسحوبات والسلف': loans + withdrawals,
+        'الرصيد الصافي': p.balance
+      };
+    });
+  }, [partners, transactions]);
 
   const distributeProfit = () => {
     if (undistributedProfit <= 0) {
@@ -938,7 +1007,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+          <div className="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
             <h2 className="text-xl font-black text-slate-800 dark:text-white flex items-center gap-3">
               توزيع الأرباح التشغيلية
               <div className="text-[10px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full uppercase tracking-wider">حي ومباشر</div>
@@ -1002,7 +1071,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
                     <div className="space-y-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800 pb-2">رأس المال والمدخلات (+)</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800 pb-2">رأس المال والمدخلات (+)</p>
                         <div className="space-y-3">
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-500 font-medium">تكلفة المنتجات (رأس مال مسترد)</span>
@@ -1031,7 +1100,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     </div>
 
                     <div className="space-y-4">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800 pb-2">المسحوبات والمشتريات (-)</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800 pb-2">المسحوبات والمشتريات (-)</p>
                         <div className="space-y-3">
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-500 font-medium">سحب أرباح موزعة</span>
@@ -1299,9 +1368,147 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         </div>
       </div>
 
-      <h2 className="text-2xl font-black text-slate-800 dark:text-white px-2">الشركاء والمركز المالي</h2>
+      {/* 📊 التحليل المالي البصري والرسوم البيانية (Recharts Analytics) */}
+      <div className="my-8 bg-white dark:bg-slate-800 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700/60 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-2xl">
+              <Activity size={24} />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-800 dark:text-white">التحليل البياني والبصري لحصص الشركاء</h3>
+              <p className="text-xs font-bold text-slate-400">رسم بياني توضيحي لنسب ملكية الأرباح والمقارنة الماليّة المباشرة</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowVisualAnalytics(!showVisualAnalytics)}
+            className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-200 font-bold text-xs rounded-xl hover:bg-slate-200 transition-colors"
+          >
+            {showVisualAnalytics ? 'إخفاء الرسوم البيانية' : 'عرض الرسوم البيانية'}
+          </button>
+        </div>
+
+        {showVisualAnalytics && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-2">
+            {/* Donut Chart: Shares */}
+            <div className="bg-slate-50 dark:bg-slate-900/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+              <h4 className="text-sm font-black text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <PieChart size={16} className="text-indigo-600" /> توزيع نسب الشراكة والأرباح (%)
+              </h4>
+              {pieChartData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RePieChart>
+                      <Pie
+                        data={pieChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={85}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {pieChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <ReTooltip
+                        formatter={(value: any) => [`${value}%`, 'نسبة الربح']}
+                        contentStyle={{ backgroundColor: '#1e293b', borderRadius: '12px', border: 'none', color: '#fff' }}
+                      />
+                      <Legend />
+                    </RePieChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-slate-400 text-xs font-bold">لا يوجد بيانات نسب محددة بعد</div>
+              )}
+            </div>
+
+            {/* Bar Chart: Financial Snapshot */}
+            <div className="bg-slate-50 dark:bg-slate-900/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+              <h4 className="text-sm font-black text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                <TrendingUp size={16} className="text-emerald-600" /> مقارنة رؤوس الأموال والأرباح والمسحوبات لكل شريك (ج.م)
+              </h4>
+              {barChartData.length > 0 ? (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ReBarChart data={barChartData}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <ReTooltip
+                        contentStyle={{ backgroundColor: '#1e293b', borderRadius: '12px', border: 'none', color: '#fff' }}
+                      />
+                      <Legend />
+                      <Bar dataKey="رأس المال" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="الأرباح الموزعة" fill="#10b981" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="المسحوبات والسلف" fill="#f43f5e" radius={[6, 6, 0, 0]} />
+                    </ReBarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-slate-400 text-xs font-bold">لا توجد بيانات شركاء مفرزة بعد</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 🔍 شريط البحث والتصفية المتقدم للشركاء */}
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="relative w-full md:w-80">
+          <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="بحث باسم الشريك..."
+            className="w-full pr-11 pl-4 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold outline-none focus:border-indigo-500"
+          />
+        </div>
+
+        <div className="flex bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl w-full md:w-auto overflow-x-auto">
+          <button
+            onClick={() => setFilterStatus('all')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${filterStatus === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+          >
+            الكل ({partners.length})
+          </button>
+          <button
+            onClick={() => setFilterStatus('positive')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${filterStatus === 'positive' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+          >
+            🟢 له مستحقات
+          </button>
+          <button
+            onClick={() => setFilterStatus('loan')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${filterStatus === 'loan' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+          >
+            🔴 عليه سلفة
+          </button>
+          <button
+            onClick={() => setFilterStatus('custody')}
+            className={`px-4 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${filterStatus === 'custody' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+          >
+            🟡 بعهدة نقدية
+          </button>
+        </div>
+      </div>
+
+      <div className="flex justify-between items-center px-2">
+        <h2 className="text-2xl font-black text-slate-800 dark:text-white">الشركاء والمركز المالي</h2>
+        <span className="text-xs font-bold text-slate-400">عرض {filteredPartners.length} من {partners.length} شريك</span>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-12">
-        {partners.map((partner, index) => (
+        {filteredPartners.length === 0 ? (
+          <div className="col-span-full bg-white dark:bg-slate-800 p-12 rounded-3xl text-center space-y-4 border border-slate-200 dark:border-slate-800">
+            <Users2 size={48} className="mx-auto text-slate-400" />
+            <p className="text-slate-500 font-bold">لا يوجد شركاء يطابقون خيارات البحث الحالية.</p>
+          </div>
+        ) : (
+          filteredPartners.map((partner, index) => (
           <motion.div 
             key={partner.id}
             initial={{ opacity: 0, y: 20 }}
@@ -1665,7 +1872,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                           .slice(0, 3)
                           .map(t => (
-                              <div key={t.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100 dark:border-slate-800/50">
+                              <div key={t.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800/50">
                                   <div className="flex items-center gap-3">
                                       <div className={`p-1.5 rounded-lg ${
                                         ['capital_addition', 'repayment', 'supply_funding', 'expense_coverage'].includes(t.type) 
@@ -1700,7 +1907,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 </div>
             </div>
           </motion.div>
-        ))}
+        )))
+        }
       </div>
 
       <h2 className="text-2xl font-black text-slate-800 dark:text-white px-2 mt-8">سجل توزيعات الأرباح السابقة</h2>
@@ -1718,7 +1926,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   <div className="overflow-x-auto">
                       <table className="w-full text-right">
                           <thead>
-                              <tr className="border-b border-slate-100 dark:border-slate-700/50 text-slate-500 text-sm">
+                              <tr className="border-b border-slate-200 dark:border-slate-700/50 text-slate-500 text-sm">
                                   <th className="py-3 px-4 font-bold">التاريخ</th>
                                   <th className="py-3 px-4 font-bold">الشريك</th>
                                   <th className="py-3 px-4 font-bold">المبلغ</th>
@@ -1764,7 +1972,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                </div>
 
                <div className="grid md:grid-cols-2 gap-8">
-                   <div className="space-y-6 bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800/80">
+                   <div className="space-y-6 bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800/80">
                        <div>
                            <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">إجمالي الأرباح المتوقعة (ج.م)</label>
                            <input 
@@ -1815,7 +2023,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                {partners.map(p => {
                                    const share = (distributedAmt * (p.profitRatio || 0)) / 100;
                                    return (
-                                       <div key={p.id} className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50">
+                                       <div key={p.id} className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700/50">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500">
                                                    <User size={14}/>
@@ -1857,7 +2065,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                    <p className="text-slate-500 font-medium">تسجيل عملية نقل حصص استثمارية أو تحويل المديونيات والأرصدة من صندوق شريك لآخر بشكل مباشر دون كاش.</p>
                </div>
 
-               <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800/80 space-y-8">
+               <div className="bg-slate-50 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800/80 space-y-8">
                    <div className="grid md:grid-cols-2 gap-6 relative">
                        {/* Line connector for visual effect */}
                        <div className="hidden md:block absolute top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white dark:bg-slate-800 rounded-full border-2 border-slate-200 dark:border-slate-700 z-10 flex items-center justify-center text-slate-400">
@@ -1951,7 +2159,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
           {/* 🛡️ تقييم المركز المالي الشامل للمشروع */}
           <div className="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 shadow-sm space-y-8">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-700/60 pb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700/60 pb-6">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner">
                   <Sparkles size={28} />
@@ -2021,10 +2229,10 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     const inventoryShare = (inventoryValue * (partner.profitRatio / 100));
 
                     return (
-                      <div key={`val-${partner.id}`} className="bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-800 p-6 rounded-[2rem] hover:border-indigo-300 transition-all group">
+                      <div key={`val-${partner.id}`} className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 p-6 rounded-[2rem] hover:border-indigo-300 transition-all group">
                          <div className="flex justify-between items-center mb-6">
                             <div className="flex items-center gap-3">
-                               <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-xl flex items-center justify-center border border-slate-100 dark:border-slate-700 font-black text-indigo-600">
+                               <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-xl flex items-center justify-center border border-slate-200 dark:border-slate-700 font-black text-indigo-600">
                                   {partner.name.charAt(0)}
                                </div>
                                <div>
@@ -2039,12 +2247,12 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                          </div>
 
                          <div className="grid grid-cols-2 gap-3 text-[11px]">
-                            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
                                <span className="text-slate-400 block mb-1">نصيبه من الكاش والسيولة:</span>
                                <span className="font-black text-slate-800 dark:text-white">{(partner.balance + profitShare).toLocaleString()} ج.م</span>
                                <p className="text-[9px] text-slate-500 mt-1">(رصيد جاري + نصيب أرباح غير موزعة)</p>
                             </div>
-                            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                            <div className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
                                <span className="text-slate-400 block mb-1">نصيبه من قيمة البضاعة:</span>
                                <span className="font-black text-slate-800 dark:text-white">{inventoryShare.toLocaleString()} ج.م</span>
                                <p className="text-[9px] text-slate-500 mt-1">(حصة عينية في المخزن الحالي)</p>
@@ -2113,7 +2321,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       {activeSection === 'summary_table' && (
       <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
           <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-700/60 pb-6">
+             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700/60 pb-6">
                 <div>
                    <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
                      <FileText className="text-indigo-600" /> المركز المالي المجمع وحسابات الشركاء

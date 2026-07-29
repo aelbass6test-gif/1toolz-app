@@ -643,7 +643,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
         <div className="mt-8 grid grid-cols-2 gap-8 border-t border-slate-200 pt-6">
            <div>
-             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-100 pb-1">أرصدة الخزائن والمحافظ المالية</h3>
+             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-200 pb-1">أرصدة الخزائن والمحافظ المالية</h3>
              <div className="space-y-2">
                 {treasury?.accounts.map(acc => (
                   <div key={acc.id} className="flex justify-between text-xs">
@@ -651,14 +651,14 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <span className="font-bold text-slate-900">{acc.balance.toLocaleString()} ج.م</span>
                   </div>
                 ))}
-                <div className="flex justify-between text-xs border-t border-slate-100 pt-1 font-black">
+                <div className="flex justify-between text-xs border-t border-slate-200 pt-1 font-black">
                   <span>إجمالي السيولة المتاحة:</span>
                   <span>{(treasury?.accounts.reduce((sum, a) => sum + a.balance, 0) || 0).toLocaleString()} ج.م</span>
                 </div>
              </div>
            </div>
            <div>
-             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-100 pb-1">ذمم ومسحوبات الشركاء (مديونيات)</h3>
+             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-200 pb-1">ذمم ومسحوبات الشركاء (مديونيات)</h3>
              <div className="space-y-2">
                 {settings.partners?.map(p => (
                   <div key={p.id} className="flex justify-between text-xs">
@@ -666,7 +666,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <span className="font-bold text-slate-900">{p.balance?.toLocaleString() || 0} ج.م</span>
                   </div>
                 ))}
-                <div className="flex justify-between text-xs border-t border-slate-100 pt-1 font-black">
+                <div className="flex justify-between text-xs border-t border-slate-200 pt-1 font-black">
                   <span>إجمالي مديونية الشركاء:</span>
                   <span>{(settings.partners?.reduce((sum, p) => sum + (p.balance || 0), 0) || 0).toLocaleString()} ج.م</span>
                 </div>
@@ -677,7 +677,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
       {dialog && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-slate-100 dark:border-slate-800 text-right animate-in zoom-in-95 duration-200" dir="rtl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl border border-slate-200 dark:border-slate-800 text-right animate-in zoom-in-95 duration-200" dir="rtl">
             <div className="flex items-center gap-3 text-rose-600 dark:text-rose-500">
                <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/50 flex items-center justify-center flex-shrink-0">
                   <AlertCircle size={26} />
@@ -868,7 +868,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   {stats.categoryTotals.map((cat, idx) => {
                     const percentage = ((cat.value / (stats.total || 1)) * 100).toFixed(1);
                     return (
-                      <div key={idx} className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs">
+                      <div key={idx} className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 text-xs">
                         <div className="flex items-center gap-2.5">
                           <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }}></div>
                           <span className="font-extrabold text-slate-700 dark:text-slate-200 truncate max-w-[120px]">{cat.name}</span>
@@ -933,7 +933,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
       {/* Advanced Filter Bar ("اختيار المحفظة في الاختيارات") */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/60 dark:border-slate-800 shadow-sm space-y-4 print:hidden">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-2">
             <Filter className="text-rose-500 w-5 h-5" />
             <h3 className="font-black text-base text-slate-800 dark:text-white">فلترة واختيارات المصروفات</h3>
@@ -1096,7 +1096,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
 
       {/* Expenses List & Display */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h3 className="font-black text-lg text-slate-900 dark:text-white flex items-center gap-2">
               <span>سجل المصروفات المالي</span>
@@ -1122,7 +1122,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           /* Table View */
           <div className="overflow-x-auto">
             <table className="w-full text-right">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs font-black uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
+              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-xs font-black uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4">البيان والتفاصيل</th>
                   <th className="px-6 py-4">التصنيف</th>
@@ -1234,7 +1234,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <h4 className="font-extrabold text-slate-800 dark:text-white text-sm mb-3 leading-relaxed">{exp.note}</h4>
                     
                     {exp.details?.note && exp.details.note !== exp.note && (
-                      <p className="text-xs text-slate-500 bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700 mb-3">
+                      <p className="text-xs text-slate-500 bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 mb-3">
                         {exp.details.note}
                       </p>
                     )}
@@ -1273,7 +1273,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       {/* Enhanced Add Expense Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200 text-right" dir="rtl">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in zoom-in-95 duration-200 text-right" dir="rtl">
             
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 p-6 text-white flex items-center justify-between">
@@ -1499,7 +1499,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
               </div>
 
               {/* Submit / Cancel Footer */}
-              <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button 
                   type="submit" 
                   className="flex-1 py-4 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white rounded-2xl font-black text-base shadow-xl shadow-rose-600/25 transition-all hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex items-center justify-center gap-2"
@@ -1524,7 +1524,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       {editingPayerExp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in print:hidden" dir="rtl">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
               <div className="flex items-center gap-2">
                 <CreditCard className="text-indigo-600 dark:text-indigo-400" size={22} />
                 <h3 className="font-black text-lg text-slate-800 dark:text-white">تعديل مصدر الدفع / جهة السداد</h3>
@@ -1643,7 +1643,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 </div>
               )}
 
-              <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="submit"
                   className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-sm shadow-lg transition-all cursor-pointer"

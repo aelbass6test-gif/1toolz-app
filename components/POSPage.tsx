@@ -904,7 +904,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                                  className="w-full bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-lg transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden"
                                >
                                   <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800 relative group-hover:scale-105 transition-transform duration-300">
+                                  <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-800 relative group-hover:scale-105 transition-transform duration-300">
                                     {product.thumbnail || (product.images && product.images[0]) ? (
                                       <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
                                     ) : (
@@ -937,7 +937,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                              className="w-full flex-1 bg-white dark:bg-slate-800 p-4 rounded-3xl border hover:border-indigo-500 border-slate-200/60 dark:border-slate-700 shadow-sm hover:shadow-lg transition-all text-right flex flex-col gap-2 active:scale-95 group relative overflow-hidden h-full"
                            >
                               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-purple-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-100 dark:border-slate-800 relative group-hover:scale-105 transition-transform duration-300">
+                              <div className="w-full aspect-square bg-slate-100 dark:bg-slate-900 rounded-2xl mb-2 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-800 relative group-hover:scale-105 transition-transform duration-300">
                                 {product.thumbnail || (product.images && product.images[0]) ? (
                                   <img src={product.thumbnail || product.images?.[0]} alt={product.name} className="w-full h-full object-cover mix-blend-multiply dark:mix-blend-normal" />
                                 ) : (
@@ -978,7 +978,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
           {/* Cart & Checkout - Right Side */}
           <div className="w-full lg:w-[420px] flex flex-col bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-2xl shadow-indigo-500/5 overflow-y-auto shrink-0 relative z-10 no-scrollbar">
             {/* Header with Quick Actions */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 flex items-center justify-between">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 flex items-center justify-between">
                <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-3">
                  <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 flex items-center justify-center">
                    <ShoppingCart size={18} />
@@ -1028,7 +1028,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                         animate={{ opacity: 1, y: 0, scale: 1 }} 
                         exit={{ opacity: 0, scale: 0.95, height: 0 }}
                         key={idx} 
-                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/50 rounded-2xl p-3.5 flex flex-col gap-2.5 group transition-all hover:border-indigo-200 dark:hover:border-indigo-900/40"
+                        className="bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/50 rounded-2xl p-3.5 flex flex-col gap-2.5 group transition-all hover:border-indigo-200 dark:hover:border-indigo-900/40"
                       >
                         <div className="flex items-start justify-between">
                           <h4 className="text-xs font-bold text-slate-800 dark:text-white leading-tight flex-1 pl-3">{item.name}</h4>
@@ -1315,7 +1315,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
       {showParkedModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <PauseCircle className="text-amber-500" size={22} />
                 الطلبات المعلقة ({parkedOrders.length})
@@ -1366,7 +1366,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
       {showCustomItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <PlusCircle className="text-indigo-600" size={22} />
                 إضافة صنف أو خدمة غير مسجلة
@@ -1438,7 +1438,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
       {showHotkeysModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" dir="rtl">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <HelpCircle className="text-indigo-500" size={22} />
                 اختصارات لوحة المفاتيح
@@ -1549,7 +1549,7 @@ const ThermalReceiptModal: React.FC<{
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" dir="rtl">
       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden p-6">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
           <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
             <Printer size={18} className="text-indigo-600" /> معاينة الإيصال الحراري
           </h3>
@@ -1898,7 +1898,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
        </div>
 
        {/* Filters */}
-       <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-700/50 mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+       <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-700/50 mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <div className="space-y-1.5">
              <label className="text-[10px] font-black text-slate-400 mr-1 uppercase">البحث برقم الطلب أو العميل</label>
              <div className="relative">
@@ -1960,13 +1960,13 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
           <table className="w-full border-collapse">
              <thead>
                 <tr className="bg-slate-50/80 dark:bg-slate-800/80 sticky top-0 z-10 backdrop-blur-sm">
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">رقم البيع</th>
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">التاريخ</th>
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">العميل</th>
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">بواسطة</th>
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">المستلم</th>
-                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">الإجمالي</th>
-                   <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700">الإجراءات</th>
+                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">رقم البيع</th>
+                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">التاريخ</th>
+                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">العميل</th>
+                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">بواسطة</th>
+                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">المستلم</th>
+                   <th className="p-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">الإجمالي</th>
+                   <th className="p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-700">الإجراءات</th>
                 </tr>
              </thead>
              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -2056,7 +2056,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 className="w-full max-w-md bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
              >
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                    <h3 className="text-xl font-black text-rose-600 dark:text-rose-500 flex items-center gap-2">
                       <Trash2 size={24} />
                       تأكيد حذف حركة البيع
@@ -2076,7 +2076,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                       </p>
                    </div>
 
-                   <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2.5">
+                   <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5">
                       <div className="flex justify-between items-center text-xs font-bold font-sans">
                          <span className="text-slate-400">رقم حركة البيع:</span>
                          <span className="font-black text-slate-700 dark:text-slate-300">#{deleteConfirmSale.saleNumber}</span>
@@ -2087,7 +2087,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                       </div>
                    </div>
                 </div>
-                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex gap-3">
                    <button 
                       onClick={() => {
                          handleDeleteSale(deleteConfirmSale.id);
@@ -2116,7 +2116,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                animate={{ opacity: 1, scale: 1, y: 0 }}
                className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
             >
-               <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+               <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                   <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
                      <Receipt className="text-indigo-500" size={24} />
                      تعديل عملية بيع #{editingSale.saleNumber}
@@ -2131,7 +2131,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                            type="text" 
                            value={editingSale.customerName || ''}
                            onChange={(e) => setEditingSale({...editingSale, customerName: e.target.value})}
-                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 outline-none" 
+                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 outline-none" 
                         />
                      </div>
                      <div className="space-y-1.5">
@@ -2140,7 +2140,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                            type="text" 
                            value={editingSale.customerPhone || ''}
                            onChange={(e) => setEditingSale({...editingSale, customerPhone: e.target.value})}
-                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 outline-none" 
+                           className="w-full h-12 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700/50 rounded-2xl px-5 text-sm font-black focus:border-indigo-500 outline-none" 
                         />
                      </div>
                   </div>
@@ -2149,11 +2149,11 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
                      <textarea 
                         value={editingSale.notes || ''}
                         onChange={(e) => setEditingSale({...editingSale, notes: e.target.value})}
-                        className="w-full h-24 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700/50 rounded-2xl p-5 text-sm font-black focus:border-indigo-500 outline-none resize-none" 
+                        className="w-full h-24 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700/50 rounded-2xl p-5 text-sm font-black focus:border-indigo-500 outline-none resize-none" 
                      />
                   </div>
                </div>
-               <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-3">
+               <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex gap-3">
                   <button 
                      onClick={() => handleUpdateSale(editingSale)}
                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white h-12 rounded-2xl font-black shadow-lg shadow-indigo-600/20 transition-all active:scale-95"

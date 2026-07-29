@@ -122,7 +122,7 @@ const OrderFormEditTotalModal: React.FC<{
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800"
+        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800"
       >
         <div className="p-8 space-y-6">
           <div className="flex justify-between items-center">
@@ -1012,7 +1012,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
       {/* Shipment Type Selector */}
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
               1
@@ -1135,7 +1135,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-all ${
                           isSelected 
                             ? "bg-purple-100/40 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800" 
-                            : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700"
+                            : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -1307,7 +1307,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
       {/* Customer Details Box */}
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black">
               2
@@ -1503,7 +1503,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
         {/* Warehouse & Fulfillment Banner */}
         <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
                 3
@@ -1585,7 +1585,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         {/* Modern Visual Product Catalog & Picker */}
         <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
                 <Sparkles size={20} className="text-amber-500" />
@@ -1856,7 +1856,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         {/* Basket Items List */}
         <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <ShoppingBag size={22} className="text-indigo-600 dark:text-indigo-400" />
               <div>
@@ -2030,7 +2030,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const renderStep3_ShippingAndServices = () => (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
               5
@@ -2114,7 +2114,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         </div>
 
         {/* Extra Shipping Services Grid */}
-        <div className="pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between">
             <div className="space-y-0.5">
               <span className="font-extrabold text-xs text-slate-800 dark:text-white block">سماحية فتح الشحنة ومعاينتها</span>
@@ -2146,7 +2146,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               />
             </div>
             {orderData.isInsured !== false && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-3 animate-in slide-in-from-top-1 duration-200">
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-3 animate-in slide-in-from-top-1 duration-200">
                 {settings.insurancePackages && settings.insurancePackages.length > 0 && (
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
@@ -2251,7 +2251,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
       {/* Financials & Advance Payment Card */}
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
               6
@@ -2407,7 +2407,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
       {/* Staff & Notes Card */}
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
               7

@@ -211,7 +211,7 @@ const EditTotalModal: React.FC<{
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800"
+        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800"
       >
         <div className="p-8 space-y-6">
           <div className="flex justify-between items-center">
@@ -3195,7 +3195,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       {/* Header & Main Actions */}
       <div
-        className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-100 dark:border-slate-800"
+        className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800"
         dir="rtl"
       >
         <div className="flex items-center justify-between w-full lg:w-auto shrink-0">
@@ -3320,7 +3320,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-2xl w-full shadow-2xl max-h-[85vh] overflow-y-auto text-right space-y-4"
                 dir="rtl"
               >
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl">
                       <Info size={20} />
@@ -3635,7 +3635,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     </div>
 
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 text-right relative z-10">
-                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
+                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
                         <div className="flex items-center justify-between mb-3 flex-row-reverse">
                           <div className="p-2 bg-blue-50 dark:bg-blue-500/10 rounded-xl text-blue-600 dark:text-blue-400">
                             <ShoppingBag size={18} />
@@ -3658,7 +3658,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                         </p>
                       </div>
 
-                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
+                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
                         <div className="flex items-center justify-between mb-3 flex-row-reverse">
                           <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400">
                             <Receipt size={18} />
@@ -3681,7 +3681,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                         </p>
                       </div>
 
-                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
+                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group">
                         <div className="flex items-center justify-between mb-3 flex-row-reverse">
                           <div className="p-2 bg-amber-50 dark:bg-amber-500/10 rounded-xl text-amber-600 dark:text-amber-400">
                             <Truck size={18} />
@@ -3701,7 +3701,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                         </p>
                       </div>
 
-                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-100/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 rounded-3xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
                         <div
                           className={`absolute inset-0 opacity-10 ${filteredMetrics.netProfitTotal >= 0 ? "bg-emerald-500" : "bg-rose-500"}`}
                         ></div>
@@ -3743,7 +3743,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                           {filteredMetrics.returnRate.toFixed(1)}%
                         </span>
                       </div>
-                      <div className="bg-white dark:bg-slate-900/80 p-3 px-4 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center flex-row-reverse text-slate-600 dark:text-slate-350">
+                      <div className="bg-white dark:bg-slate-900/80 p-3 px-4 rounded-xl border border-slate-200 dark:border-slate-800 flex justify-between items-center flex-row-reverse text-slate-600 dark:text-slate-350">
                         <span className="font-bold flex items-center gap-1.5 flex-row-reverse">
                           <Briefcase size={14} className="text-slate-400" />
                           إجمالي تكلفة البضائع المعروضة
@@ -3928,7 +3928,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                           </h6>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {govBreakdownData.map((gov, idx) => (
-                              <div key={idx} className="bg-white/40 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                              <div key={idx} className="bg-white/40 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                                 <div className="flex justify-between items-center flex-row-reverse mb-1.5">
                                   <span className="text-[10px] font-black text-slate-700 dark:text-slate-200 truncate max-w-[80px]">{gov.name}</span>
                                   <span className={`text-[10px] font-black ${gov.deliveryRate > 80 ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -4090,7 +4090,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                             {topProductsData.map((p, index) => (
                               <div
                                 key={p.id}
-                                className="flex justify-between items-center flex-row-reverse bg-slate-50/50 dark:bg-slate-800/30 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800/60"
+                                className="flex justify-between items-center flex-row-reverse bg-slate-50/50 dark:bg-slate-800/30 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800/60"
                               >
                                 <div className="flex items-center gap-3 flex-row-reverse">
                                   <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-455 font-black text-xs">
@@ -4269,7 +4269,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                                   </div>
                                 </div>
 
-                                <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl text-center md:text-left min-w-[120px] border border-slate-100 dark:border-slate-800/60">
+                                <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl text-center md:text-left min-w-[120px] border border-slate-200 dark:border-slate-800/60">
                                   <p className="text-[9px] font-bold text-slate-400 mb-1 uppercase tracking-tighter">متوسط التكلفة</p>
                                   <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums">
                                     {(item.fees / (item.total || 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -4541,9 +4541,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           {viewMode === "list" ? (
         <div className="space-y-6">
           {/* Table for Desktop */}
-          <div className="overflow-x-auto hidden lg:block bg-white/70 dark:bg-[#0b0f19]/70 backdrop-blur-2xl rounded-[2rem] border border-slate-200/40 dark:border-white/5 shadow-2xl shadow-indigo-500/[0.02] pb-4 transition-all duration-300">
+          <div className="overflow-x-auto hidden lg:block bg-white dark:bg-[#0b0f19] rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.04)] pb-4 transition-all duration-300">
             <table className="w-full text-right border-collapse whitespace-nowrap">
-              <thead className="bg-slate-50/80 dark:bg-[#0b0f19]/80 backdrop-blur-md text-slate-500 dark:text-slate-400 text-[10px] tracking-widest font-black border-b border-slate-200/50 dark:border-white/5">
+              <thead className="bg-slate-50 dark:bg-[#0e1322] text-slate-500 dark:text-slate-400 text-[10px] tracking-widest font-black border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="p-4 w-12 text-center rounded-tr-[2rem]">
                     <div className="flex items-center justify-center">
@@ -4570,7 +4570,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                   <th className="p-4 text-left rounded-tl-[2rem]">العمليات</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100/50 dark:divide-slate-800/50">
+              <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800">
                 {paginatedOrders.map((order) => (
                   <OrderRow
                     key={order.id}
@@ -4612,7 +4612,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           </div>
 
           {/* Cards for Mobile/Tablet */}
-          <div className="lg:hidden flex items-center justify-between mx-2 px-4 py-3 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-2xl border border-slate-200/50 dark:border-slate-800/50 shadow-sm">
+          <div className="lg:hidden flex items-center justify-between mx-2 px-4 py-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
               <Package size={14} className="text-indigo-500" />
               قائمة الطلبات ({paginatedOrders.length})
@@ -4724,7 +4724,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           </div>
 
           {/* Items Per Page Selector */}
-          <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2 bg-slate-50/50 dark:bg-slate-900/50 px-3 py-1.5 rounded-[1.25rem] border border-slate-200 dark:border-slate-800">
             <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
               عدد الطلبات بالصفحة:
             </span>
@@ -4743,7 +4743,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             </select>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-1.5 rounded-[1.25rem] border border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-1.5 rounded-[1.25rem] border border-slate-200 dark:border-slate-800">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
@@ -4773,8 +4773,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       {/* Report Preview Modal */}
       {reportPreviewHtml && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-7xl h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
                   <FileText size={20} />
@@ -5126,7 +5126,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2.5rem] shadow-2xl p-6 sm:p-8 text-right border border-slate-200 dark:border-slate-800 max-h-[85vh] overflow-y-auto no-scrollbar"
             style={{ direction: "rtl" }}
           >
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-6">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800 mb-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-2xl">
                   <BookOpen size={24} />
@@ -5212,7 +5212,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               })}
             </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
                 onClick={() => setShowStatusGuide(false)}
                 className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
@@ -5436,10 +5436,10 @@ const OrderCard = ({
   return (
     <motion.div
       variants={itemVariants}
-      className={`bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-6 sm:p-8 rounded-[2.5rem] border-2 transition-all relative group shadow-lg hover:shadow-xl ${
+      className={`bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-[2.5rem] border-2 transition-all relative group shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-xl ${
         isSelected
           ? "border-indigo-600 ring-4 ring-indigo-500/10 shadow-indigo-500/20"
-          : "border-slate-100/60 dark:border-slate-800/60 shadow-slate-200/20 dark:shadow-none hover:border-indigo-200 dark:hover:border-indigo-500/30"
+          : "border-slate-200 dark:border-slate-800 shadow-slate-200/10 dark:shadow-none hover:border-indigo-300 dark:hover:border-indigo-500/30"
       }`}
     >
       <div
@@ -5453,7 +5453,7 @@ const OrderCard = ({
             e.stopPropagation();
             onShowAudit();
           }}
-          className="p-2 sm:p-2.5 bg-white dark:bg-slate-800 rounded-xl text-slate-400 hover:text-indigo-600 border border-slate-100/50 dark:border-slate-700/50 shadow-sm transition-all opacity-100 sm:opacity-0 group-hover:opacity-100 active:scale-95"
+          className="p-2 sm:p-2.5 bg-white dark:bg-slate-800 rounded-xl text-slate-400 hover:text-indigo-600 border border-slate-200 dark:border-slate-700 shadow-sm transition-all opacity-100 sm:opacity-0 group-hover:opacity-100 active:scale-95"
           title="سجل النشاط"
         >
           <Shield size={16} />
@@ -5483,7 +5483,7 @@ const OrderCard = ({
               <StatusIcon size={32} />
             </div>
             {order.platform && order.platform !== "system" && (
-              <div className="absolute -bottom-2 -right-2 bg-white dark:bg-slate-800 p-1 rounded-full shadow-md border border-slate-100 dark:border-slate-700">
+              <div className="absolute -bottom-2 -right-2 bg-white dark:bg-slate-800 p-1 rounded-full shadow-md border border-slate-200 dark:border-slate-700">
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black text-white uppercase ${
                     order.platform === "wuilt"
@@ -5608,7 +5608,7 @@ const OrderCard = ({
       </div>
 
       {/* Order Items Micro-view */}
-      <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800/50 mb-8">
+      <div className="p-5 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-200 dark:border-slate-800/50 mb-8">
         <div className="flex items-center justify-between flex-row-reverse mb-4">
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
             محتويات الطلب
@@ -5629,7 +5629,7 @@ const OrderCard = ({
                 key={idx}
                 className="flex gap-3 items-center flex-row-reverse"
               >
-                <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-700 border border-slate-100 dark:border-slate-600 p-1 flex-shrink-0 shadow-sm">
+                <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 p-1 flex-shrink-0 shadow-sm">
                   {product?.thumbnail ? (
                     <img
                       src={product.thumbnail}
@@ -5682,7 +5682,7 @@ const OrderCard = ({
               </h4>
             </div>
             {displayTotal !== standardRequiredTotal && (
-              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-100/50 dark:border-slate-800">
+              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
                 <div className="flex items-center gap-1.5">
                   <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
                   <span className="font-black text-indigo-600 dark:text-indigo-400">
@@ -5729,7 +5729,7 @@ const OrderCard = ({
                 </p>
               )}
               {order.advancePaymentSenderDetails && (
-                <p className="text-[9px] text-slate-400 font-medium bg-slate-50 dark:bg-slate-800/50 px-2 py-0.5 rounded-lg border border-slate-100 dark:border-slate-800 inline-block">
+                <p className="text-[9px] text-slate-400 font-medium bg-slate-50 dark:bg-slate-800/50 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800 inline-block">
                   المحول: {order.advancePaymentSenderDetails}
                 </p>
               )}
@@ -5784,7 +5784,7 @@ const OrderCard = ({
           <button className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-400 hover:text-indigo-600 transition-all shadow-sm">
             <MoreVertical size={18} />
           </button>
-          <div className="absolute bottom-full left-0 mb-3 w-52 bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-slate-800 p-2 hidden group-hover/more-card:block z-20">
+          <div className="absolute bottom-full left-0 mb-3 w-52 bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-slate-200 dark:border-slate-800 p-2 hidden group-hover/more-card:block z-20">
             <button
               onClick={() => {
                 if (
@@ -5854,7 +5854,7 @@ const OrderCard = ({
 
 const ShippingDetailsCard: React.FC<{ order: Order }> = ({ order }) => {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-100 dark:border-slate-800 shadow-xl space-y-4 min-w-[280px] whitespace-normal">
+    <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-xl space-y-4 min-w-[280px] whitespace-normal">
       <div className="flex flex-col items-center text-center space-y-2 pb-2 border-b border-slate-50 dark:border-slate-800">
         <span className="text-sm font-black text-indigo-600 dark:text-indigo-400">
           {order.shippingCompany}
@@ -6019,7 +6019,7 @@ const ProfitBreakdown: React.FC<{
   return (
     <div
       id="profit-breakdown shadow-lg"
-      className="bg-white dark:bg-slate-900 rounded-[32px] p-6 sm:p-8 border border-slate-100 dark:border-slate-800 shadow-xl space-y-6 min-w-[320px] max-w-[420px] whitespace-normal text-right"
+      className="bg-white dark:bg-slate-900 rounded-[32px] p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl space-y-6 min-w-[320px] max-w-[420px] whitespace-normal text-right"
     >
       <h4 className="text-lg font-black text-slate-800 dark:text-white pb-4 border-b border-slate-50 dark:border-slate-800">
         تفاصيل معادلة الربح والخسارة
@@ -6150,7 +6150,7 @@ const ProfitBreakdown: React.FC<{
                     </div>
                   </div>
                 )}
-                <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-100 dark:border-slate-700/50">
+                <div className="flex justify-between items-center flex-row-reverse text-sm bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg mt-2 border border-slate-200 dark:border-slate-700/50">
                   <span className="text-slate-700 dark:text-slate-300 font-black">
                     إجمالي الإيرادات المحسوبة للربح =
                   </span>
@@ -6169,7 +6169,7 @@ const ProfitBreakdown: React.FC<{
             </div>
 
             {/* التكاليف */}
-            <div className="py-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="py-3 border-t border-slate-200 dark:border-slate-800">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 mt-1">
                 المصروفات والتكاليف:
               </p>
@@ -6287,7 +6287,7 @@ const ProfitBreakdown: React.FC<{
               حساب مصروفات الشحن الضائعة:
             </p>
 
-            <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+            <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
               <div className="flex justify-between items-center flex-row-reverse text-sm">
                 <span className="text-slate-500 font-semibold">
                   بوليصة الشحن (الذهاب):
@@ -6469,7 +6469,7 @@ const ProfitBreakdown: React.FC<{
 
         {/* Cash Collection & Advance Payment Breakdown */}
         {!isReturnedOrFailed && (
-          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800/80 space-y-2 mt-4 text-xs font-bold font-sans">
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2 mt-4 text-xs font-bold font-sans">
             <div className="flex justify-between items-center flex-row-reverse">
               <span className="text-slate-500">إجمالي فاتورة العميل:</span>
               <span className="text-slate-700 dark:text-slate-300">
@@ -6481,7 +6481,7 @@ const ProfitBreakdown: React.FC<{
               </span>
             </div>
             {safeAdvance > 0 && (
-              <div className="space-y-1.5 py-1.5 border-y border-slate-100/50 dark:border-slate-800/50 my-1">
+              <div className="space-y-1.5 py-1.5 border-y border-slate-200/50 dark:border-slate-800/50 my-1">
                 <div className="flex justify-between items-center flex-row-reverse text-teal-600 dark:text-teal-400 font-bold">
                   <span>العربون المستلم مقدماً:</span>
                   <span>
@@ -6523,7 +6523,7 @@ const ProfitBreakdown: React.FC<{
 
             {/* Advance Payment History Log - Mini View */}
             {order.advancePaymentHistory && order.advancePaymentHistory.length > 0 && (
-              <div className="mt-3 p-3 bg-white/50 dark:bg-slate-900/40 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+              <div className="mt-3 p-3 bg-white/50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-800/80">
                 <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center justify-end gap-1.5">
                    سجل العربون <History size={10} />
                 </h5>
@@ -6638,7 +6638,7 @@ const ProfitBreakdown: React.FC<{
 
 const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
   return (
-    <div className="bg-slate-50 dark:bg-slate-900/40 rounded-[2.5rem] p-6 border border-slate-100 dark:border-slate-800 shadow-inner w-full max-w-xl mx-auto my-4 space-y-6 whitespace-normal">
+    <div className="bg-slate-50 dark:bg-slate-900/40 rounded-[2.5rem] p-6 border border-slate-200 dark:border-slate-800 shadow-inner w-full max-w-xl mx-auto my-4 space-y-6 whitespace-normal">
       <h5 className="text-sm font-black text-slate-400 flex items-center justify-end gap-2 px-4 italic uppercase tracking-wider">
         تفاصيل المنتجات ({(order.items || []).length}) <Info size={14} />
       </h5>
@@ -6649,7 +6649,7 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
             key={idx}
             className="bg-white dark:bg-slate-900 p-4 rounded-3xl flex items-center gap-4 flex-row-reverse border border-slate-50 dark:border-slate-800 shadow-sm group hover:border-indigo-200 transition-colors"
           >
-            <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden flex-shrink-0 border border-slate-100 dark:border-slate-700">
+            <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-800 overflow-hidden flex-shrink-0 border border-slate-200 dark:border-slate-700">
               {item.thumbnail ? (
                 <img
                   src={item.thumbnail}
@@ -6842,7 +6842,7 @@ const OrderRow = ({
       case "جاري_المراجعة":
         return "bg-indigo-50 text-indigo-650 border-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/20";
       default:
-        return "bg-slate-50 text-slate-650 border-slate-100 dark:bg-slate-500/10 dark:text-slate-405 dark:border-slate-500/20";
+        return "bg-slate-50 text-slate-650 border-slate-200 dark:bg-slate-500/10 dark:text-slate-405 dark:border-slate-500/20";
     }
   };
   const attemptsCount = (order.callAttempts || []).length;
@@ -6890,7 +6890,7 @@ const OrderRow = ({
   return (
     <>
       <tr
-        className={`group transition-all duration-300 ${isSelected ? "bg-indigo-50/50 dark:bg-indigo-500/[0.05]" : "hover:bg-slate-50/50 dark:hover:bg-slate-800/30"} border-b border-slate-100/50 dark:border-white/5 last:border-0 relative`}
+        className={`group transition-all duration-300 ${isSelected ? "bg-indigo-50/40 dark:bg-indigo-500/[0.04]" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"} border-b border-slate-200/80 dark:border-slate-800/60 last:border-0 relative`}
       >
         <td className="p-6 text-center w-12">
           <div className="flex items-center justify-center">
@@ -7112,7 +7112,7 @@ const OrderRow = ({
                 </div>
               )}
               {displayTotal !== standardRequiredTotal && (
-                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-100/50 dark:border-slate-800/50">
+                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
                   <div className="flex items-center gap-1">
                     <span className="font-bold text-[9px]">المطلوب:</span>
                     <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
@@ -7148,7 +7148,7 @@ const OrderRow = ({
         {anyFlexShipEnabled && (
           <td className="p-6 text-right">
             {isFlexShipEnabled ? (
-              <div className="inline-flex flex-col items-end gap-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl">
+              <div className="inline-flex flex-col items-end gap-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
                 <div className="flex items-center gap-1 justify-end">
                   <span
                     className="cursor-help text-slate-300 hover:text-indigo-500 transition-colors"
@@ -7526,7 +7526,7 @@ const OrderRow = ({
 
                     {/* SECTION 3: WHATSAPP API ACTIONS */}
                     {settings.whatsappConfig?.isActive && (
-                      <div className="py-2 space-y-0.5 border-t border-slate-100 dark:border-white/5">
+                      <div className="py-2 space-y-0.5 border-t border-slate-200 dark:border-white/5">
                         <div className="px-3 py-1.5">
                           <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block text-right">
                             💬 WhatsApp API
@@ -7711,7 +7711,7 @@ const KanbanView: React.FC<{
                   {columnOrders.length} طلب
                 </span>
               </div>
-              <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 dark:text-slate-400 pt-1.5 border-t border-slate-100 dark:border-white/5">
+              <div className="flex justify-between items-center text-[11px] font-bold text-slate-500 dark:text-slate-400 pt-1.5 border-t border-slate-200 dark:border-white/5">
                 <span>إجمالي القيمة:</span>
                 <span className="font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
                   {columnTotalSum.toLocaleString()} <span className="text-[10px] font-normal">ج.م</span>
@@ -7789,7 +7789,7 @@ const KanbanView: React.FC<{
                   </p>
 
                   {/* Financial & Location Bottom Bar */}
-                  <div className="flex justify-between items-center flex-row-reverse border-t border-slate-100 dark:border-white/5 pt-3">
+                  <div className="flex justify-between items-center flex-row-reverse border-t border-slate-200 dark:border-white/5 pt-3">
                     <div className="flex items-baseline gap-1">
                       <span className="text-base font-black text-slate-900 dark:text-white tabular-nums">
                         {(order.totalAmountOverride ?? order.productPrice).toLocaleString()}
@@ -7824,7 +7824,7 @@ const KanbanView: React.FC<{
 
                   {/* Assigned Employee Tag if available */}
                   {order.assignedToName && (
-                    <div className="mt-2 pt-2 border-t border-slate-100/60 dark:border-white/5 flex items-center justify-end gap-1.5 text-[10px] font-bold text-slate-400">
+                    <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-white/5 flex items-center justify-end gap-1.5 text-[10px] font-bold text-slate-400">
                       <span>👤 مسؤول التوصيل: <strong className="text-slate-600 dark:text-slate-300">{order.assignedToName}</strong></span>
                     </div>
                   )}
@@ -7998,7 +7998,7 @@ const AssignmentModal: React.FC<{
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800"
+        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800"
       >
         <div className="p-8">
           <div className="flex justify-between items-center mb-6">
@@ -8019,7 +8019,7 @@ const AssignmentModal: React.FC<{
                 <button
                   key={emp.id}
                   onClick={() => onAssign(emp.id, emp.name)}
-                  className={`w-full p-4 rounded-2xl border-2 text-right transition-all flex justify-between items-center ${order.assignedTo === emp.id ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" : "border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800"}`}
+                  className={`w-full p-4 rounded-2xl border-2 text-right transition-all flex justify-between items-center ${order.assignedTo === emp.id ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20" : "border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800"}`}
                 >
                   <span className="font-bold text-slate-800 dark:text-white">
                     {emp.name}
@@ -8319,7 +8319,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
 
         {isOpen && (
           <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-[150] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+            <div className="p-2 border-b border-slate-200 dark:border-slate-700">
               <input
                 autoFocus
                 type="text"
@@ -8779,7 +8779,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
         className="bg-white/95 dark:bg-slate-900/95 w-full max-w-6xl h-[92vh] rounded-[2.5rem] shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)] flex flex-col border border-white/20 dark:border-slate-800/50 backdrop-blur-xl"
       >
         {/* Header Section */}
-        <div className="px-8 py-7 flex justify-between items-center bg-gradient-to-l from-slate-50/80 to-white/80 dark:from-slate-900/80 dark:to-slate-900 rounded-t-[2.5rem] border-b border-slate-100 dark:border-slate-800/50">
+        <div className="px-8 py-7 flex justify-between items-center bg-gradient-to-l from-slate-50/80 to-white/80 dark:from-slate-900/80 dark:to-slate-900 rounded-t-[2.5rem] border-b border-slate-200 dark:border-slate-800/50">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/30 text-white transform -rotate-3">
               <ShoppingBag size={28} strokeWidth={2.5} />
@@ -8805,7 +8805,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
         </div>
 
         {/* Shipment Type Selector - Modern Segmented Control */}
-        <div className="px-8 py-5 border-b border-slate-100 dark:border-slate-800/50 flex flex-wrap gap-2 items-center justify-start bg-white/30 dark:bg-slate-900/30">
+        <div className="px-8 py-5 border-b border-slate-200 dark:border-slate-800/50 flex flex-wrap gap-2 items-center justify-start bg-white/30 dark:bg-slate-900/30">
           <div className="flex p-1.5 bg-slate-100/80 dark:bg-slate-800/80 rounded-[1.25rem] border border-slate-200/50 dark:border-slate-700/50 gap-1 overflow-x-auto no-scrollbar">
             {(() => {
               const compFees = (settings.companySpecificFees?.[
@@ -8909,7 +8909,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                     className="p-4 bg-slate-50/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl w-full focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 outline-none transition-all dark:text-white font-bold"
                   />
                   {isCustomerListOpen && filteredCustomers.length > 0 && (
-                    <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-[1.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-20 max-h-60 overflow-y-auto custom-scrollbar">
+                    <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-[1.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] z-20 max-h-60 overflow-y-auto custom-scrollbar">
                       {filteredCustomers.map((c) => (
                         <div
                           key={c.phone}
@@ -9243,7 +9243,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                   </span>
                 </button>
               </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700/50">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700/50">
                 <p className="text-[11px] text-slate-400 font-bold italic leading-relaxed text-center">
                   إرفاق صور المنتج أو بوليصة الشحن يسهل عملية المتابعة ويقلل من
                   الأخطاء في التوصيل أو الإرجاع.
@@ -9266,7 +9266,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                 </h4>
                 <div className="space-y-5">
                   {(orderData.items || []).length === 0 && (
-                    <div className="p-10 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[2rem] text-center bg-slate-50/30 dark:bg-slate-900/10">
+                    <div className="p-10 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[2rem] text-center bg-slate-50/30 dark:bg-slate-900/10">
                       <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
                         <Package size={28} className="text-slate-300" />
                       </div>
@@ -9303,7 +9303,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         <button
                           type="button"
                           onClick={() => removeItem(index)}
-                          className="absolute -top-3 -left-3 w-8 h-8 bg-white dark:bg-slate-700 text-slate-400 hover:text-red-500 rounded-full flex items-center justify-center shadow-lg border border-slate-100 dark:border-slate-600 opacity-0 group-hover:opacity-100 transition-all z-10"
+                          className="absolute -top-3 -left-3 w-8 h-8 bg-white dark:bg-slate-700 text-slate-400 hover:text-red-500 rounded-full flex items-center justify-center shadow-lg border border-slate-200 dark:border-slate-600 opacity-0 group-hover:opacity-100 transition-all z-10"
                         >
                           <X size={16} />
                         </button>
@@ -9441,7 +9441,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                             </div>
                           </div>
 
-                          <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center justify-center p-4 border border-slate-100 dark:border-slate-700/50">
+                          <div className="bg-slate-100/50 dark:bg-slate-800/50 rounded-2xl flex flex-col items-center justify-center p-4 border border-slate-200 dark:border-slate-700/50">
                             {item.thumbnail ? (
                               <img
                                 src={item.thumbnail}
@@ -9484,7 +9484,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
             {isExchange && (
               <>
                 {/* تفاصيل الشحنة المرسلة جديدة */}
-                <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50 space-y-5 text-right">
+                <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-200 dark:border-slate-700/50 space-y-5 text-right">
                   <div className="flex justify-between items-center pb-3 border-b border-slate-200/50 dark:border-slate-700/50">
                     <h4 className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2 text-sm sm:text-base">
                       <Package size={18} className="text-indigo-500" />
@@ -9765,7 +9765,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
             {(isExchange || isReturn) && (
               <>
                 {/* تفاصيل الشحنة المرتجعة */}
-                <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-700/50 space-y-5 text-right">
+                <div className="p-6 bg-slate-50/50 dark:bg-slate-800/30 rounded-2xl border border-slate-200 dark:border-slate-700/50 space-y-5 text-right">
                   <div className="flex justify-between items-center pb-3 border-b border-slate-200/50 dark:border-slate-700/50">
                     <h4 className="font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-2 text-sm sm:text-base">
                       <RefreshCcw
@@ -9930,7 +9930,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         {orderData.returnImage ? (
                           <div className="relative border border-slate-200 dark:border-slate-850 p-2.5 rounded-xl bg-white dark:bg-slate-900 flex items-center justify-between gap-3 shadow-sm">
                             <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-lg bg-slate-50 dark:bg-slate-800 overflow-hidden border border-slate-100 dark:border-slate-700 flex-shrink-0">
+                              <div className="w-12 h-12 rounded-lg bg-slate-50 dark:bg-slate-800 overflow-hidden border border-slate-200 dark:border-slate-700 flex-shrink-0">
                                 <img
                                   src={orderData.returnImage}
                                   className="w-full h-full object-cover"
@@ -10020,7 +10020,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                           Number(e.target.value),
                         )
                       }
-                      className="w-full p-5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-3xl font-black text-xl text-center text-amber-600 outline-none focus:border-amber-400 transition-all"
+                      className="w-full p-5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-3xl font-black text-xl text-center text-amber-600 outline-none focus:border-amber-400 transition-all"
                       placeholder="0"
                     />
                   </div>
@@ -10171,7 +10171,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         Number(e.target.value),
                       )
                     }
-                    className="w-full p-5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-3xl font-black text-xl text-center text-emerald-600 outline-none focus:border-emerald-400 dark:focus:border-emerald-500/50 transition-all"
+                    className="w-full p-5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-3xl font-black text-xl text-center text-emerald-600 outline-none focus:border-emerald-400 dark:focus:border-emerald-500/50 transition-all"
                     placeholder="0"
                   />
                   <div className="absolute top-[3.25rem] left-5 pointer-events-none text-slate-400 group-focus-within:text-emerald-500 transition-colors text-xs font-black uppercase">
@@ -10304,7 +10304,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                     </h5>
                     <div className="space-y-3 max-h-40 overflow-y-auto no-scrollbar">
                       {orderData.advancePaymentHistory.slice().reverse().map((log: any) => (
-                        <div key={log.id} className="text-right p-3 bg-white dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <div key={log.id} className="text-right p-3 bg-white dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
                           <div className="flex justify-between items-center mb-1">
                             <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
                               log.action === 'created' ? 'bg-emerald-50 text-emerald-600' : 
@@ -10387,7 +10387,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
             {/* Additional Settings - Modernized */}
             <div className="p-8 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm space-y-4">
               <h4 className="font-extrabold text-slate-800 dark:text-white mb-6 flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 border border-slate-100 dark:border-slate-700 shadow-sm">
+                <div className="w-10 h-10 bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 border border-slate-200 dark:border-slate-700 shadow-sm">
                   <SettingsIcon size={18} />
                 </div>
                 إعدادات إضافية
@@ -10401,7 +10401,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                       !orderData.includeInspectionFee,
                     )
                   }
-                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${orderData.includeInspectionFee ? "bg-indigo-50 border-indigo-400 text-indigo-700" : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-400"}`}
+                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${orderData.includeInspectionFee ? "bg-indigo-50 border-indigo-400 text-indigo-700" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"}`}
                 >
                   <div
                     className={`w-6 h-6 rounded-lg flex items-center justify-center ${orderData.includeInspectionFee ? "bg-indigo-600" : "bg-slate-100 dark:bg-slate-800"}`}
@@ -10419,7 +10419,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
                   onClick={() =>
                     handleFieldChange("isInsured", !orderData.isInsured)
                   }
-                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${orderData.isInsured !== false ? "bg-indigo-50 border-indigo-400 text-indigo-700" : "bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 text-slate-400"}`}
+                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${orderData.isInsured !== false ? "bg-indigo-50 border-indigo-400 text-indigo-700" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"}`}
                 >
                   <div
                     className={`w-6 h-6 rounded-lg flex items-center justify-center ${orderData.isInsured !== false ? "bg-indigo-600" : "bg-slate-100 dark:bg-slate-800"}`}
@@ -10449,7 +10449,7 @@ const OrderModal: React.FC<OrderModalProps> = ({
           />
         )}
 
-        <div className="px-10 py-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 flex items-center justify-between rounded-b-[2.5rem] sticky bottom-0 z-50">
+        <div className="px-10 py-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 flex items-center justify-between rounded-b-[2.5rem] sticky bottom-0 z-50">
           <div className="flex items-center gap-10">
             <div className="hidden sm:block text-right">
               <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mb-2 leading-none">
@@ -10600,7 +10600,7 @@ const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({
                 <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase tracking-wider mb-1">
                   سبب تعديل الإجمالي
                 </span>
-                <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800 italic">
+                <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 italic">
                   "{order.totalAmountOverrideReason}"
                 </p>
               </div>

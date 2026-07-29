@@ -271,7 +271,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
-                          className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 overflow-hidden"
+                          className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 overflow-hidden"
                         >
                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                               <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300">
@@ -282,9 +282,9 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                               </div>
                            </div>
 
-                           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                              <table className="w-full text-right text-xs">
-                               <thead className="bg-slate-50 dark:bg-slate-800 text-slate-400 font-black h-10 border-b border-slate-100 dark:border-slate-700">
+                               <thead className="bg-slate-50 dark:bg-slate-800 text-slate-400 font-black h-10 border-b border-slate-200 dark:border-slate-700">
                                  <tr>
                                    <th className="pr-4">الصنف</th>
                                    <th className="px-2">الكمية</th>
@@ -328,7 +328,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
             <div className="lg:col-span-8 space-y-6">
               {/* Setup */}
               <div className="glass-card p-6 rounded-3xl space-y-6">
-                 <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                 <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
                     <Truck size={20} className="text-amber-500" />
                     <h3 className="font-black text-slate-800 dark:text-white">إعداد فاتورة المرتجع</h3>
                  </div>
@@ -372,7 +372,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
 
               {/* Items */}
               <div className="glass-card p-6 rounded-3xl space-y-4">
-                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
                     <h3 className="font-black text-slate-800 dark:text-white">الأصناف المرتجعة</h3>
                     <span className="text-xs font-black text-amber-600 bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full">
                        الإجمالي: {(newReturn.items || []).reduce((acc, i) => acc + (i.quantity * i.costPrice), 0)} ج.م
@@ -380,14 +380,14 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                  </div>
 
                  {(!newReturn.items || newReturn.items.length === 0) ? (
-                   <div className="py-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
+                   <div className="py-12 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
                       <Package size={40} className="mx-auto text-slate-200 dark:text-slate-800 mb-3" />
                       <p className="text-slate-400 font-bold">لم يتم إضافة أصناف للمرتجع</p>
                    </div>
                  ) : (
                    <div className="space-y-3">
                       {newReturn.items.map((item, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl hover:border-amber-100 transition-all">
+                        <div key={idx} className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl hover:border-amber-100 transition-all">
                            <div className="flex-1">
                               <div className="font-black text-slate-800 dark:text-white text-sm">{item.name}</div>
                               <div className="flex items-center gap-3 mt-1">
@@ -423,7 +423,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                    </div>
                  )}
 
-                 <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+                 <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
                     <button 
                       onClick={handleExecuteReturn}
                       className="w-full bg-amber-500 text-white h-14 rounded-2xl font-black shadow-xl shadow-amber-500/20 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-3"
@@ -438,7 +438,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
             {/* Product Pick */}
             <div className="lg:col-span-4">
               <div className="glass-card p-6 rounded-3xl sticky top-6">
-                 <h3 className="font-black text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">إضافة صنف للمرتجع</h3>
+                 <h3 className="font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-4 mb-4">إضافة صنف للمرتجع</h3>
                  <div className="relative mb-6">
                     <input 
                       type="text"
@@ -462,7 +462,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                                key={variant.id}
                                onClick={() => handleAddItem(product, variant)}
                                disabled={newReturn.items?.some(i => i.productId === product.id && i.variantId === variant.id)}
-                               className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-amber-200 text-right flex flex-col items-start gap-1 disabled:opacity-40"
+                               className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-amber-200 text-right flex flex-col items-start gap-1 disabled:opacity-40"
                              >
                                <span className="font-black text-[11px] text-slate-800 dark:text-white line-clamp-1">{product.name}</span>
                                <span className="text-[10px] font-bold text-amber-500">{Object.values(variant.options).join(' / ')}</span>
@@ -473,7 +473,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                            <button
                              onClick={() => handleAddItem(product)}
                              disabled={newReturn.items?.some(i => i.productId === product.id && !i.variantId)}
-                             className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-amber-200 text-right flex flex-col items-start gap-1 disabled:opacity-40"
+                             className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-amber-200 text-right flex flex-col items-start gap-1 disabled:opacity-40"
                            >
                              <span className="font-black text-[11px] text-slate-800 dark:text-white line-clamp-1">{product.name}</span>
                              <span className="text-[9px] font-mono text-slate-400">المخزن: {product.stockQuantity || 0}</span>

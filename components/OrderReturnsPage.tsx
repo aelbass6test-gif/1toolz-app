@@ -238,7 +238,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
 
             {/* Returns Grid */}
             {filteredReturns.length === 0 ? (
-              <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-100 dark:border-slate-800">
+              <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800">
                 <RotateCcw size={48} className="mx-auto text-slate-200 dark:text-slate-800 mb-4" />
                 <p className="text-slate-500 font-bold italic">لا توجد سجلات مرتجعات متاحة</p>
               </div>
@@ -287,7 +287,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-800 overflow-hidden"
+                            className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-800 overflow-hidden"
                           >
                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-400 space-y-1">
@@ -300,7 +300,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
                                </div>
                              </div>
 
-                             <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+                             <div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
                                <table className="w-full text-right text-xs">
                                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-400 font-black h-10 border-b border-slate-200 dark:border-slate-850">
                                    <tr>
@@ -368,7 +368,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
                             <button 
                               key={o.id}
                               onClick={() => handleSelectOrder(o)}
-                              className="text-right p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-900 shadow-sm hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-900 transition-all group"
+                              className="text-right p-4 rounded-3xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-900 shadow-sm hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-900 transition-all group"
                             >
                                <div className="flex items-center justify-between mb-2">
                                   <span className="text-[10px] font-black text-indigo-500 tracking-wider">ORD-{o.orderNumber}</span>
@@ -390,7 +390,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
                     {/* Return Setup Form */}
                     <div className="lg:col-span-7 space-y-6">
                        <div className="glass-card p-6 rounded-3xl space-y-6">
-                          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                          <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
                              <div className="flex items-center gap-3">
                                <Receipt size={20} className="text-rose-500" />
                                <h3 className="font-black text-slate-800 dark:text-white">إعداد فاتورة المرتجع للطلب {selectedOrder.orderNumber}</h3>
@@ -440,13 +440,13 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
                        </div>
 
                        <div className="glass-card p-6 rounded-3xl space-y-4">
-                          <h3 className="font-black text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-4">تحديد الكميات المرتجعة</h3>
+                          <h3 className="font-black text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-800 pb-4">تحديد الكميات المرتجعة</h3>
                           
                           <div className="space-y-3">
                              {selectedOrder.items.map((item, idx) => {
                                const currentRet = returnItems[idx];
                                return (
-                                 <div key={idx} className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 rounded-2xl">
+                                 <div key={idx} className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl">
                                     <div>
                                        <div className="font-black text-slate-800 dark:text-white text-sm">{item.name}</div>
                                        <div className="text-[10px] font-bold text-slate-400 mt-0.5">مباع: {item.quantity} | مرجع: <span className="text-rose-500">{currentRet?.quantity || 0}</span></div>

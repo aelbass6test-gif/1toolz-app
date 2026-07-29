@@ -357,11 +357,11 @@ const EmployeePerformance = ({ orders, currentUser, setNotification, isManager, 
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden"
                     >
-                        <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+                        <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800">
                             <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">أداء فريق التأكيد اليوم</h5>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                                 {stats.allStaff.map((s: any) => (
-                                    <div key={s.id} className={`p-4 rounded-xl border ${s.id === currentUser?.phone ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20 dark:border-indigo-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/40 dark:border-slate-800'} flex items-center justify-between`}>
+                                    <div key={s.id} className={`p-4 rounded-xl border ${s.id === currentUser?.phone ? 'bg-indigo-50 border-indigo-100 dark:bg-indigo-900/20 dark:border-indigo-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-800'} flex items-center justify-between`}>
                                         <div className="min-w-0 pr-2">
                                             <p className="text-xs font-black text-slate-800 dark:text-white truncate">{s.name}</p>
                                             <p className="text-[9px] font-bold text-slate-500 mt-1">{s.total} إجمالي • {s.canceled} ملغي</p>
@@ -1497,7 +1497,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-sm"
                                                 />
                                             </div>
-                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-end">
+                                            <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-end">
                                                 <button 
                                                     onClick={() => { setFilterGovernorate(''); setFilterShippingCompany(''); setSortBy('date_asc'); }}
                                                     className="text-xs text-red-500 hover:text-red-600 font-bold"
@@ -1810,7 +1810,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
 
                             {/* Select All Checkbox */}
                             {isSelectionMode && (
-                                <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3 bg-slate-50/50 dark:bg-slate-800/20">
+                                <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center gap-3 bg-slate-50/50 dark:bg-slate-800/20">
                                     <input 
                                         type="checkbox" 
                                         checked={selectedOrderIds.length === pendingOrders.length && pendingOrders.length > 0}
@@ -1838,13 +1838,13 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                 return (
                                     <div 
                                         key={order.id} 
-                                        className={`w-full text-right flex items-stretch transition-colors border-b border-slate-100 dark:border-slate-800 relative ${activeOrder?.id === order.id ? 'bg-cyan-50 dark:bg-cyan-900/30' : isSelected ? 'bg-indigo-50/50 dark:bg-indigo-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'} ${isAssignedToOther ? 'opacity-50 grayscale cursor-not-allowed bg-slate-100 dark:bg-slate-900' : ''}`}
+                                        className={`w-full text-right flex items-stretch transition-colors border-b border-slate-200 dark:border-slate-800 relative ${activeOrder?.id === order.id ? 'bg-cyan-50 dark:bg-cyan-900/30' : isSelected ? 'bg-indigo-50/50 dark:bg-indigo-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'} ${isAssignedToOther ? 'opacity-50 grayscale cursor-not-allowed bg-slate-100 dark:bg-slate-900' : ''}`}
                                     >
                                         {isHighPriority && !isAssignedToOther && (
                                             <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500" title="طلب قديم - أولوية عالية" />
                                         )}
                                         {isSelectionMode && (
-                                            <div className="p-4 pr-4 flex items-center justify-center border-l border-slate-100 dark:border-slate-800/50">
+                                            <div className="p-4 pr-4 flex items-center justify-center border-l border-slate-200 dark:border-slate-800/50">
                                                 <input 
                                                     type="checkbox" 
                                                     checked={isSelected}
@@ -2103,7 +2103,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                             <>
                                                                 <div className="fixed inset-0 z-40" onClick={() => setWhatsappMenuOpen(false)}></div>
                                                                 <div className="absolute top-full left-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 z-50 overflow-hidden">
-                                                                    <div className="p-2 border-b border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-500 bg-slate-50 dark:bg-slate-900">قوالب سريعة</div>
+                                                                    <div className="p-2 border-b border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500 bg-slate-50 dark:bg-slate-900">قوالب سريعة</div>
                                                                     {QUICK_WA_TEMPLATES.map(template => (
                                                                         <a 
                                                                             key={template.id}
@@ -2118,7 +2118,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                     ))}
                                                                     {(settings.whatsappTemplates && settings.whatsappTemplates.length > 0) && (
                                                                         <>
-                                                                            <div className="p-2 border-y border-slate-100 dark:border-slate-700 text-xs font-bold text-slate-500 bg-slate-50 dark:bg-slate-900">قوالب المتجر</div>
+                                                                            <div className="p-2 border-y border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500 bg-slate-50 dark:bg-slate-900">قوالب المتجر</div>
                                                                             {settings.whatsappTemplates.map(template => (
                                                                                 <a 
                                                                                     key={template.id}
@@ -2137,7 +2137,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                         href={getWhatsAppLink(activeOrder)}
                                                                         target="_blank" 
                                                                         rel="noopener noreferrer"
-                                                                        className="block px-4 py-2 text-sm text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-right font-bold border-t border-slate-100 dark:border-slate-700 bg-emerald-50/50 dark:bg-emerald-900/10"
+                                                                        className="block px-4 py-2 text-sm text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-right font-bold border-t border-slate-200 dark:border-slate-700 bg-emerald-50/50 dark:bg-emerald-900/10"
                                                                         onClick={() => setWhatsappMenuOpen(false)}
                                                                     >
                                                                         رسالة التأكيد الافتراضية
@@ -2451,13 +2451,13 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                         </div>
                                         
                                         {activeOrder.advancePaymentHistory && activeOrder.advancePaymentHistory.length > 0 && (
-                                            <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800 space-y-2 mt-1">
+                                            <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2 mt-1">
                                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5 mb-2">
                                                     <Clock size={10} /> سجل حركة العربون المسبق
                                                 </p>
                                                 <div className="space-y-2">
                                                     {activeOrder.advancePaymentHistory.slice(-3).reverse().map(log => (
-                                                        <div key={log.id} className="text-[10px] flex flex-col gap-0.5 border-b border-slate-100 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
+                                                        <div key={log.id} className="text-[10px] flex flex-col gap-0.5 border-b border-slate-200 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
                                                             <div className="flex justify-between items-center">
                                                                 <span className="font-black text-slate-700 dark:text-slate-300">{log.amount.toLocaleString()} ج.م</span>
                                                                 <span className="text-[8px] text-slate-400">{new Date(log.timestamp).toLocaleDateString('ar-EG')}</span>
@@ -2882,7 +2882,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                         animate={{ opacity: 1, scale: 1 }}
                         className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
                     >
-                        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
                             <h3 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
                                 <ArrowRightLeft className="text-indigo-600" size={20} />
                                 تحويل الطلب لموظف آخر
@@ -3054,14 +3054,14 @@ const AdvanceEditModal = ({ isOpen, onClose, onSave, amount, setAmount, recipien
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
             <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
                     <h3 className="text-xl font-black dark:text-white flex items-center gap-3 text-amber-600"><Coins size={24}/> تسجيل/تحديث العربون</h3>
                     <button onClick={onClose}><XCircle className="text-slate-400 hover:text-red-500"/></button>
                 </div>
                 <div className="p-8 space-y-6">
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">المبلغ (ج.م)</label>
-                        <input type="number" value={amount} onChange={e => setAmount(e.target.value === '' ? '' : Number(e.target.value))} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-black text-2xl text-amber-600 outline-none" placeholder="0.00" />
+                        <input type="number" value={amount} onChange={e => setAmount(e.target.value === '' ? '' : Number(e.target.value))} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-black text-2xl text-amber-600 outline-none" placeholder="0.00" />
                     </div>
                     
                     <div>
@@ -3085,7 +3085,7 @@ const AdvanceEditModal = ({ isOpen, onClose, onSave, amount, setAmount, recipien
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
                                 {recipientType === 'partner' ? 'اختر الشريك' : recipientType === 'treasury' ? 'اختر المحفظة' : 'اختر صاحب العهدة'}
                             </label>
-                            <select value={recipientId} onChange={e => setRecipientId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-2xl font-bold">
+                            <select value={recipientId} onChange={e => setRecipientId(e.target.value)} className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl font-bold">
                                 <option value="">اختر...</option>
                                 {recipientType === 'partner' && settings.partners?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                                 {recipientType === 'treasury' && treasury?.accounts?.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -3115,7 +3115,7 @@ const AdvanceEditModal = ({ isOpen, onClose, onSave, amount, setAmount, recipien
                         <input type="text" value={notes} onChange={e => setNotes(e.target.value)} className="w-full p-3 bg-slate-50 dark:bg-slate-800 rounded-xl text-sm font-bold" placeholder="مثال: عربون مسبق لتأكيد الجدية" />
                     </div>
                 </div>
-                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 font-black">
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 font-black">
                     <button onClick={onClose} className="px-6 py-3 text-slate-500">إلغاء</button>
                     <button onClick={onSave} className="px-8 py-3 bg-amber-600 text-white rounded-2xl shadow-lg shadow-amber-500/20 active:scale-95 transition-transform" disabled={!recipientType || !recipientId || !amount}>حقظ العربون</button>
                 </div>

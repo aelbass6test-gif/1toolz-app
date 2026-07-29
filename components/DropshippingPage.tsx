@@ -518,7 +518,7 @@ export const DropshippingPage: React.FC<DropshippingPageProps> = ({
                     </span>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2 text-xs">
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800 grid grid-cols-2 gap-2 text-xs">
                     <div>
                       <span className="text-[10px] text-slate-400 font-medium block">إجمالي تحصيل الشحنات:</span>
                       <span className="font-black font-mono text-slate-800 dark:text-slate-200">
@@ -554,7 +554,7 @@ export const DropshippingPage: React.FC<DropshippingPageProps> = ({
       {/* TAB 3: DROPSHIP PROFIT CALCULATOR */}
       {activeTab === 'calculator' && (
         <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-6 max-w-2xl mx-auto shadow-sm">
-          <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
             <div className="p-3 bg-amber-500 text-white rounded-2xl">
               <Calculator size={24} />
             </div>

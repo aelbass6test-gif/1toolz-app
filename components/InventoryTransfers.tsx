@@ -370,9 +370,9 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden mt-6 pt-6 border-t border-slate-100 dark:border-slate-800"
+                          className="overflow-hidden mt-6 pt-6 border-t border-slate-200 dark:border-slate-800"
                         >
-                           <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl overflow-hidden border border-slate-100 dark:border-slate-800">
+                           <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
                              <table className="w-full text-right text-xs">
                                <thead>
                                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-500 h-10">
@@ -417,7 +417,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
             <div className="lg:col-span-8 space-y-6">
               {/* Transfer Setup */}
               <div className="glass-card p-6 rounded-3xl space-y-6">
-                <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
                    <WarehouseIcon size={20} className="text-indigo-600" />
                    <h3 className="font-black text-slate-800 dark:text-white">إعدادات عملية التحويل</h3>
                 </div>
@@ -466,7 +466,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
 
               {/* Items Table */}
               <div className="glass-card p-6 rounded-3xl space-y-4">
-                 <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
                     <div className="flex items-center gap-3">
                       <Plus size={20} className="text-indigo-600" />
                       <h3 className="font-black text-slate-800 dark:text-white">المنتجات المراد تحويلها</h3>
@@ -475,7 +475,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                  </div>
 
                  {(!newTransfer.items || newTransfer.items.length === 0) ? (
-                   <div className="py-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl">
+                   <div className="py-12 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
                       <Package size={40} className="mx-auto text-slate-200 dark:text-slate-800 mb-3" />
                       <p className="text-slate-400 font-bold text-sm">لم يتم إضافة منتجات بعد</p>
                       <p className="text-[10px] text-slate-300 mt-1">استخدم محرك ابحث لإضافة المنتجات</p>
@@ -484,7 +484,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                    <div className="overflow-x-auto">
                      <table className="w-full text-right border-collapse">
                        <thead>
-                         <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100 dark:border-slate-800">
+                         <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
                            <th className="pb-4 pt-2">الصنف</th>
                            <th className="pb-4 pt-2 text-center">الكمية المنقولة</th>
                            <th className="pb-4 pt-2 text-center">إجراء</th>
@@ -531,7 +531,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                    </div>
                  )}
 
-                 <div className="pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                 <div className="pt-6 border-t border-slate-200 dark:border-slate-800 flex justify-end">
                     <button 
                        onClick={handleExecuteTransfer}
                        className="bg-indigo-600 text-white px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl shadow-indigo-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
@@ -546,7 +546,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
             {/* Sidebar Search */}
             <div className="lg:col-span-4 space-y-6">
                <div className="glass-card p-6 rounded-3xl sticky top-6">
-                 <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+                 <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-800 pb-4 mb-4">
                     <Search size={20} className="text-indigo-600" />
                     <h3 className="font-black text-slate-800 dark:text-white">إضافة منتج للتحويل</h3>
                  </div>
@@ -574,7 +574,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                                key={variant.id}
                                onClick={() => handleAddItem(product, variant)}
                                disabled={newTransfer.items?.some(i => i.productId === product.id && i.variantId === variant.id)}
-                               className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-all text-right flex flex-col items-start gap-1 disabled:opacity-40"
+                               className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-all text-right flex flex-col items-start gap-1 disabled:opacity-40"
                              >
                                <span className="font-black text-[11px] text-slate-800 dark:text-white line-clamp-1">{product.name}</span>
                                <span className="text-[10px] font-bold text-indigo-500 line-clamp-1">{Object.values(variant.options).join(' / ')}</span>
@@ -588,7 +588,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                            <button
                              onClick={() => handleAddItem(product)}
                              disabled={newTransfer.items?.some(i => i.productId === product.id && !i.variantId)}
-                             className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-all text-right flex flex-col items-start gap-1 disabled:opacity-40"
+                             className="w-full bg-white dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900 transition-all text-right flex flex-col items-start gap-1 disabled:opacity-40"
                            >
                              <span className="font-black text-[11px] text-slate-800 dark:text-white line-clamp-1">{product.name}</span>
                              <div className="flex items-center gap-2 mt-1">

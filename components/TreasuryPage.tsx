@@ -519,7 +519,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               <Landmark className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
             <p className="text-[10px] text-slate-450 dark:text-slate-500 font-medium leading-normal">
               الرصيد الفعلي المتوفر في جميع الخزائن النقدية، الحسابات البنكية، والمحافظ النشطة.
             </p>
@@ -542,7 +542,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
             <p className="text-[10px] text-slate-450 dark:text-slate-500 font-medium leading-normal">
               المبالغ المسندة للمناديب والكاشيرية كعهد نقدية قيد العمل والتسوية.
             </p>
@@ -643,7 +643,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 </div>
                 
                 {acc.type === 'bank' && (
-                  <div className="mb-2 space-y-1.5 bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-100 dark:border-slate-800/60">
+                  <div className="mb-2 space-y-1.5 bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800/60">
                     <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold">{acc.bankName || 'البنك'}</p>
                     <p className="text-xs text-indigo-600 dark:text-indigo-400 font-mono font-bold select-all tracking-tight truncate leading-none">{acc.accountNumber}</p>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">{acc.beneficiaryName}</p>
@@ -651,14 +651,14 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 )}
 
                 {acc.type === 'wallet' && (
-                  <div className="mb-2 space-y-1.5 bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-100 dark:border-slate-800/60">
+                  <div className="mb-2 space-y-1.5 bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800/60">
                     <p className="text-xs text-emerald-600 dark:text-emerald-400 font-mono font-bold select-all tracking-wide truncate leading-none">{acc.walletNumber}</p>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">{acc.walletName || 'صاحب المحفظة'}</p>
                   </div>
                 )}
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+              <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800/80">
                 <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold block mb-1">الرصيد المتوفر</span>
                 <p className="text-xl font-extrabold text-slate-950 dark:text-white tabular-nums tracking-tight">
                   {acc.balance.toLocaleString()}{' '}
@@ -672,7 +672,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
 
       {/* Transaction History Logs */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800/80 shadow-xs overflow-hidden">
-        <div className="p-5 sm:p-6 border-b border-slate-100 dark:border-slate-800/85 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-5 sm:p-6 border-b border-slate-200 dark:border-slate-800/85 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
               <History className="w-5 h-5 text-indigo-500" />
@@ -684,7 +684,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
 
         <div className="overflow-x-auto">
           <table className="w-full text-right border-collapse">
-            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-400 text-xs font-bold border-b border-slate-100 dark:border-slate-800/80">
+            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-400 text-xs font-bold border-b border-slate-200 dark:border-slate-800/80">
               <tr>
                 <th className="p-4 font-black">التاريخ والوقت</th>
                 <th className="p-4 font-black">نوع الحركة</th>
@@ -772,7 +772,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
       {showAddAccountModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md shadow-2xl p-6 border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 text-right">
-            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-5 flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-5 flex items-center gap-2 pb-3 border-b border-slate-200 dark:border-slate-800">
               <Plus className="w-5 h-5 text-indigo-500" />
               إضافة حساب أو خزينة جديدة
             </h3>
@@ -803,7 +803,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               </div>
 
               {accountType === 'bank' && (
-                <div className="space-y-3 pt-1 border-t border-slate-100 dark:border-slate-800/60 mt-1">
+                <div className="space-y-3 pt-1 border-t border-slate-200 dark:border-slate-800/60 mt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">اسم البنك</label>
                     <input 
@@ -843,7 +843,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               )}
 
               {accountType === 'wallet' && (
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 mt-1">
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200 dark:border-slate-800/60 mt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">رقم المحفظة</label>
                     <input 
@@ -904,7 +904,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
       {showTransactionModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-lg shadow-2xl p-6 border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 text-right">
-            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-5 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-5 pb-3 border-b border-slate-200 dark:border-slate-800">
               {transactionType === 'deposit' ? 'تسجيل إيداع / إيراد' : transactionType === 'withdrawal' ? 'تسجيل صرف / مصروف' : transactionType === 'advance' ? 'تسليم عهدة وتشغيل' : 'تحويل أرصدة نقدية'}
             </h3>
             <form onSubmit={handleTransaction} className="space-y-4">
@@ -969,7 +969,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 />
               </div>
 
-              <div className="flex gap-2 pt-4 border-t border-slate-100 dark:border-slate-800/80 mt-2">
+              <div className="flex gap-2 pt-4 border-t border-slate-200 dark:border-slate-800/80 mt-2">
                 <button 
                   type="submit"
                   className={`flex-1 text-white rounded-xl py-2.5 font-black text-xs transition-colors cursor-pointer ${
@@ -997,7 +997,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
       {editingAccount && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-md shadow-2xl p-6 border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 text-right">
-            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-5 pb-3 border-b border-slate-100 dark:border-slate-800">تعديل بيانات الحساب الجاري</h3>
+            <h3 className="text-lg font-black text-slate-900 dark:text-white mb-5 pb-3 border-b border-slate-200 dark:border-slate-800">تعديل بيانات الحساب الجاري</h3>
             <form onSubmit={handleSaveEditAccount} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5">اسم الحساب / الخزينة</label>
@@ -1011,7 +1011,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               </div>
 
               {editingAccount.type === 'bank' && (
-                <div className="space-y-3 pt-1 border-t border-slate-100 dark:border-slate-800/60 mt-1">
+                <div className="space-y-3 pt-1 border-t border-slate-200 dark:border-slate-800/60 mt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">اسم البنك</label>
                     <input 
@@ -1046,7 +1046,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               )}
 
               {editingAccount.type === 'wallet' && (
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60 mt-1">
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200 dark:border-slate-800/60 mt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">رقم المحفظة</label>
                     <input 
@@ -1070,7 +1070,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
                 </div>
               )}
 
-              <div className="flex gap-2 pt-4 border-t border-slate-100 dark:border-slate-800/80 mt-2">
+              <div className="flex gap-2 pt-4 border-t border-slate-200 dark:border-slate-800/80 mt-2">
                 <button 
                   type="submit"
                   className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl py-2.5 font-black text-xs transition-colors cursor-pointer"
@@ -1094,7 +1094,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
       {showDeleteModal && transactionToDelete && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-xl shadow-2xl p-6 border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 text-right">
-            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-3 text-rose-600 dark:text-rose-400 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
               <Trash2 className="w-5 h-5" />
               <h3 className="text-lg font-black">حذف الحركة وتسوية الدفاتر</h3>
             </div>
@@ -1146,7 +1146,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
               </div>
             )}
 
-            <div className="flex gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button 
                 type="button"
                 onClick={handleConfirmDeleteTransaction}

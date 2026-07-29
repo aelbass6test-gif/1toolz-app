@@ -455,7 +455,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     )}
                   </div>
                   <div className="p-6 space-y-6 text-right">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-b border-slate-100 dark:border-white/5 pb-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-b border-slate-200 dark:border-white/5 pb-6">
                       <div>
                         <span className="text-xs font-black text-slate-400 block mb-1.5">الاسم الكامل</span>
                         <p className="text-base font-black text-slate-900 dark:text-white">{order.customerName}</p>
@@ -478,12 +478,12 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="border-b border-slate-100 dark:border-white/5 pb-6">
+                    <div className="border-b border-slate-200 dark:border-white/5 pb-6">
                       <span className="text-xs font-black text-slate-400 block mb-1.5 flex items-center justify-end gap-1.5">
                         <span>العنوان ومكان التوصيل</span>
                         <MapPin size={14} className="text-indigo-500" />
                       </span>
-                      <p className="text-sm font-black text-slate-800 dark:text-slate-200 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <p className="text-sm font-black text-slate-800 dark:text-slate-200 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                         {order.shippingArea || '---'}
                       </p>
                     </div>
@@ -491,19 +491,19 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <div>
                       <span className="text-xs font-black text-slate-400 block mb-3">تفاصيل العنوان الفرعية</span>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-black">
-                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-white/5 text-center">
+                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-white/5 text-center">
                           <span className="text-[10px] text-slate-400 block mb-1">المبنى / العمارة</span>
                           <span className="text-slate-800 dark:text-white">{building}</span>
                         </div>
-                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-white/5 text-center">
+                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-white/5 text-center">
                           <span className="text-[10px] text-slate-400 block mb-1">الدور / الطابق</span>
                           <span className="text-slate-800 dark:text-white">{floor}</span>
                         </div>
-                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-white/5 text-center">
+                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-white/5 text-center">
                           <span className="text-[10px] text-slate-400 block mb-1">رقم الشقة</span>
                           <span className="text-slate-800 dark:text-white">{flat}</span>
                         </div>
-                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-white/5 text-center">
+                        <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-white/5 text-center">
                           <span className="text-[10px] text-slate-400 block mb-1">علامة مميزة</span>
                           <span className="text-slate-800 dark:text-white line-clamp-1">{landmark}</span>
                         </div>
@@ -573,20 +573,20 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
                 {/* Additional Logistics Note Card */}
                 <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-slate-200/80 dark:border-white/10 p-6 shadow-sm space-y-4 text-right">
-                  <h4 className="font-black text-slate-800 dark:text-white text-sm flex items-center justify-end gap-2 border-b border-slate-100 dark:border-white/5 pb-3">
+                  <h4 className="font-black text-slate-800 dark:text-white text-sm flex items-center justify-end gap-2 border-b border-slate-200 dark:border-white/5 pb-3">
                     <span>بيانات لوجستية وملاحظات إضافية</span>
                     <Truck size={16} className="text-indigo-500" />
                   </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-black">
-                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-white/5">
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
                       <span className="text-[10px] text-slate-400 block mb-1">مرجع المنصة / الرقم الأصلي</span>
                       <span className="text-slate-800 dark:text-white font-mono">{order.platformOrderId || order.originalOrderId || '---'}</span>
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-white/5">
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
                       <span className="text-[10px] text-slate-400 block mb-1">مخزن الشحن / الاسترجاع</span>
                       <span className="text-slate-800 dark:text-white">{orderWarehouseName}</span>
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-white/5">
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
                       <span className="text-[10px] text-slate-400 block mb-1">شركة الشحن والتوصيل</span>
                       <span className="text-indigo-600 dark:text-indigo-400">{order.shippingCompany || 'غير محدد'}</span>
                     </div>
@@ -652,7 +652,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
                 {/* Quick Logistics Specs Card */}
                 <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-slate-200/80 dark:border-white/10 p-5 shadow-sm space-y-3 text-right">
-                  <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest pb-2 border-b border-slate-100 dark:border-white/5">
+                  <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest pb-2 border-b border-slate-200 dark:border-white/5">
                     مواصفات الشحن والخدمات
                   </h5>
                   <div className="flex justify-between items-center text-xs font-bold py-1">
@@ -661,11 +661,11 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     </span>
                     <span className="text-slate-600 dark:text-slate-400">فتح الشحنة ومعاينتها؟</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs font-bold py-1 border-t border-slate-100 dark:border-white/5">
+                  <div className="flex justify-between items-center text-xs font-bold py-1 border-t border-slate-200 dark:border-white/5">
                     <span className="text-indigo-600 dark:text-indigo-400 font-black">{Number(flexFeeValue).toLocaleString()} ج.م</span>
                     <span className="text-slate-600 dark:text-slate-400">تطبيق خدمة فليكس شيب</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs font-bold py-1 border-t border-slate-100 dark:border-white/5">
+                  <div className="flex justify-between items-center text-xs font-bold py-1 border-t border-slate-200 dark:border-white/5">
                     <span className="text-slate-800 dark:text-white font-black">{safeProductCost.toLocaleString()} ج.م</span>
                     <span className="text-slate-600 dark:text-slate-400">تكلفة شراء السلع الأصلي</span>
                   </div>
@@ -739,7 +739,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 {/* COLUMN 1: REVENUES (الإيرادات وما يدفعه العميل) */}
                 <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-emerald-500/30 dark:border-emerald-500/20 p-6 shadow-sm space-y-5 text-right relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-2 h-full bg-emerald-500"></div>
-                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-white/5 pb-4 flex-row-reverse">
+                  <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/5 pb-4 flex-row-reverse">
                     <h4 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
                         <ArrowDownRight size={18} />
@@ -814,7 +814,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     )}
                   </div>
 
-                  <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex justify-between items-center flex-row-reverse bg-emerald-500/10 dark:bg-emerald-500/15 p-4 rounded-2xl">
+                  <div className="pt-4 border-t border-slate-200 dark:border-white/5 flex justify-between items-center flex-row-reverse bg-emerald-500/10 dark:bg-emerald-500/15 p-4 rounded-2xl">
                     <span className="font-black text-slate-900 dark:text-white text-sm">
                       {totalAmountToCollect === 0 ? "الأوردر مدفوع بالكامل" : "إجمالي المطلوب تحصيله عند الاستلام:"}
                     </span>
@@ -827,7 +827,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 {/* COLUMN 2: EXPENSES (المصروفات والتكاليف التشغيلية) */}
                 <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-rose-500/30 dark:border-rose-500/20 p-6 shadow-sm space-y-5 text-right relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-2 h-full bg-rose-500"></div>
-                  <div className="flex justify-between items-center border-b border-slate-100 dark:border-white/5 pb-4 flex-row-reverse">
+                  <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/5 pb-4 flex-row-reverse">
                     <h4 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
                         <ArrowUpRight size={18} />
@@ -891,7 +891,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     )}
                   </div>
 
-                  <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex justify-between items-center flex-row-reverse bg-rose-500/10 dark:bg-rose-500/15 p-4 rounded-2xl">
+                  <div className="pt-4 border-t border-slate-200 dark:border-white/5 flex justify-between items-center flex-row-reverse bg-rose-500/10 dark:bg-rose-500/15 p-4 rounded-2xl">
                     <span className="font-black text-slate-900 dark:text-white text-sm">إجمالي المصروفات التشغيلية =</span>
                     <span className="font-black text-rose-600 dark:text-rose-400 text-lg tabular-nums">
                       -{(safeProductCost + carrierFees).toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-xs font-bold">ج.م</span>
@@ -1105,7 +1105,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
               {/* Detailed Audit Logs Timeline Feed */}
               <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-slate-200/80 dark:border-white/10 p-6 shadow-sm space-y-6 text-right">
-                <div className="flex justify-between items-center border-b border-slate-100 dark:border-white/5 pb-4 flex-row-reverse">
+                <div className="flex justify-between items-center border-b border-slate-200 dark:border-white/5 pb-4 flex-row-reverse">
                   <h4 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2">
                     <FileSearch size={18} className="text-indigo-500" />
                     <span>سجل التدقيق والنشاطات التفصيلي (Audit Trail)</span>

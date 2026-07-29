@@ -617,7 +617,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           
           {/* Section 1: Subdomain (النطاق الفرعي المجاني) */}
           <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
               <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">1</span>
               <span>النطاق الفرعي المجاني من المنصة</span>
             </h2>
@@ -715,7 +715,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
           {/* Section 2: Custom Domain (النطاق المخصص الخاص بك) */}
           <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
               <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
               <span>ربط نطاق مخصص (GoDaddy, Cloudflare, Hostinger)</span>
             </h2>
@@ -765,7 +765,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               animate={{ opacity: 1, y: 0 }}
               className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6"
             >
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                     <RefreshCw size={18} />
@@ -840,8 +840,8 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                 </div>
 
                 {/* DNS Records Table */}
-                <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
-                  <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-100 dark:border-slate-800">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
+                  <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-200 dark:border-slate-800">
                     <div>النوع</div>
                     <div>الاسم</div>
                     <div>القيمة / Target</div>
@@ -849,7 +849,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   </div>
 
                   {/* Record 1: CNAME for root (@) */}
-                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-100 dark:border-slate-800 items-center">
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
                     <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
                     <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
                     <div className="flex items-center justify-center gap-2">
@@ -867,7 +867,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   </div>
 
                   {/* Record 2: CNAME for www */}
-                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-100 dark:border-slate-800 items-center">
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
                     <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
                     <div className="font-mono text-slate-600 dark:text-slate-400">www</div>
                     <div className="flex items-center justify-center gap-2">
@@ -889,7 +889,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <>
                       {/* Record 3: Ownership Verification TXT */}
                       {(cfDetails?.ownership_verification || settings.domainDNSRecords?.ownership_verification) && (
-                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
+                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
                           <div className="font-mono text-indigo-700 dark:text-indigo-400 font-bold text-[10px]">TXT (الملكية)</div>
                           <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
                             {(cfDetails?.ownership_verification?.name || settings.domainDNSRecords?.ownership_verification?.name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
@@ -911,7 +911,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
                       {/* SSL Verification TXT Records */}
                       {(cfDetails?.ssl?.validation_records || settings.domainDNSRecords?.ssl?.validation_records || []).map((record: any, idx: number) => (
-                        <div key={`ssl-rec-${idx}`} className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-pink-50/20 dark:bg-pink-900/10">
+                        <div key={`ssl-rec-${idx}`} className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-pink-900/10">
                           <div className="font-mono text-pink-700 dark:text-pink-400 font-bold text-[10px]">TXT (SSL {idx + 1})</div>
                           <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
                             {(record?.txt_name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
@@ -958,7 +958,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         <div className="space-y-6">
           {/* Section 3: Admin Security */}
           <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 self-start">
-            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-100 dark:border-slate-800">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
               <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">3</span>
               <span>🔒 إعدادات الأمان</span>
             </h2>
@@ -985,7 +985,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               animate={{ opacity: 1, y: 0 }}
               className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6"
             >
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                     <RefreshCw size={18} />
@@ -1060,8 +1060,8 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                 </div>
 
                 {/* DNS Records Table */}
-                <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
-                  <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-100 dark:border-slate-800">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
+                  <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-200 dark:border-slate-800">
                     <div>النوع</div>
                     <div>الاسم</div>
                     <div>القيمة / Target</div>
@@ -1069,7 +1069,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   </div>
 
                   {/* Record 1: CNAME for root (@) */}
-                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-100 dark:border-slate-800 items-center">
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
                     <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
                     <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
                     <div className="flex items-center justify-center gap-2">
@@ -1087,7 +1087,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   </div>
 
                   {/* Record 2: CNAME for www */}
-                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-100 dark:border-slate-800 items-center">
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
                     <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
                     <div className="font-mono text-slate-600 dark:text-slate-400">www</div>
                     <div className="flex items-center justify-center gap-2">
@@ -1109,7 +1109,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     <>
                       {/* Record 3: Ownership Verification TXT */}
                       {(cfDetails?.ownership_verification || settings.domainDNSRecords?.ownership_verification) && (
-                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
+                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
                           <div className="font-mono text-indigo-700 dark:text-indigo-400 font-bold text-[10px]">TXT (الملكية)</div>
                           <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
                             {(cfDetails?.ownership_verification?.name || settings.domainDNSRecords?.ownership_verification?.name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
@@ -1131,7 +1131,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
                       {/* SSL Verification TXT Records */}
                       {(cfDetails?.ssl?.validation_records || settings.domainDNSRecords?.ssl?.validation_records || []).map((record: any, idx: number) => (
-                        <div key={`ssl-rec-${idx}`} className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-100 dark:border-slate-800 bg-pink-50/20 dark:bg-pink-900/10">
+                        <div key={`ssl-rec-${idx}`} className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-pink-900/10">
                           <div className="font-mono text-pink-700 dark:text-pink-400 font-bold text-[10px]">TXT (SSL {idx + 1})</div>
                           <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
                             {(record?.txt_name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
@@ -1250,12 +1250,12 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
             </h3>
 
             <div className="space-y-3.5 text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
-              <div className="border-b border-slate-100 dark:border-slate-800/80 pb-2">
+              <div className="border-b border-slate-200 dark:border-slate-800/80 pb-2">
                 <p className="font-bold text-slate-705 dark:text-slate-350">أين أجد سجلات DNS؟</p>
                 <p>ابحث عن خيار باسم DNS Management أو Name Servers أو Manage DNS في حساب الشركة التي اشتريت منها الدومين.</p>
               </div>
 
-              <div className="border-b border-slate-100 dark:border-slate-800/80 pb-2">
+              <div className="border-b border-slate-200 dark:border-slate-800/80 pb-2">
                 <p className="font-bold text-slate-705 dark:text-slate-350">هل يمكنني ربط دومين فرعي؟</p>
                 <p>نعم، بكل تأكيد! يمكنك إدخال دومين مثل <span className="font-bold" dir="ltr">shop.example.com</span> وإكمال الخطوات بنجاح.</p>
               </div>
@@ -1315,7 +1315,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                 </div>
 
                 {/* Alarm Ringing Animation Indicator with Custom Sprung Bell */}
-                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-100 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-200 dark:border-slate-800 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
                   <span>تنبيه داخلي نشط</span>
                   <motion.span

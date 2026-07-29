@@ -108,7 +108,7 @@ export const AddCustomerModal: React.FC<Props> = ({ isOpen, onClose, onSave }) =
           onClick={e => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-6 md:p-8 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent flex items-center justify-between">
+          <div className="p-6 md:p-8 border-b border-slate-200 dark:border-slate-800 bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30">
                 <User size={24} />
@@ -201,7 +201,7 @@ export const AddCustomerModal: React.FC<Props> = ({ isOpen, onClose, onSave }) =
             </div>
 
             {/* Financial Balances */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-3xl border border-slate-100 dark:border-slate-800">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-3xl border border-slate-200 dark:border-slate-800">
               <div>
                 <label className="block text-xs font-black text-rose-600 dark:text-rose-400 uppercase mb-2 flex items-center gap-1.5">
                   <DollarSign size={14} /> رصيد المديونية الافتتاحي (ج.م)
@@ -290,7 +290,7 @@ export const AddCustomerModal: React.FC<Props> = ({ isOpen, onClose, onSave }) =
             </div>
 
             {/* Footer Buttons */}
-            <div className="flex items-center gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex items-center gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="submit"
                 className="flex-1 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/20 hover:scale-[1.01] active:scale-95 transition-all flex items-center justify-center gap-2 text-base"

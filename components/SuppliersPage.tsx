@@ -2112,7 +2112,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
   return (
     <div className="w-full max-w-[1900px] mx-auto space-y-8 pb-16 px-4 sm:px-6 md:px-8 lg:px-10" dir="rtl">
       {/* Premium Elegant Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2 mb-2">
             <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
@@ -2128,7 +2128,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
 
       {/* 4 Superb Visual Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
           <div className="absolute top-0 left-0 w-2 h-full bg-rose-500"></div>
           <div className="flex justify-between items-start">
             <div>
@@ -2144,7 +2144,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           <p className="text-[10px] text-slate-400 mt-3 font-semibold">مستحقات معلقة للموردين تسدد لاحقاً</p>
         </div>
 
-        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
           <div className="absolute top-0 left-0 w-2 h-full bg-emerald-550 bg-emerald-500"></div>
           <div className="flex justify-between items-start">
             <div>
@@ -2160,7 +2160,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           <p className="text-[10px] text-slate-400 mt-3 font-semibold">إجمالي تقييم تكلفة السلع المتواجدة بالمخزن</p>
         </div>
 
-        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
           <div className="absolute top-0 left-0 w-2 h-full bg-indigo-500"></div>
           <div className="flex justify-between items-start">
             <div>
@@ -2176,7 +2176,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           <p className="text-[10px] text-slate-400 mt-3 font-semibold">إدارة بيانات وجهات الموردين وتواصلهم</p>
         </div>
 
-        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
+        <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300">
           <div className="absolute top-0 left-0 w-2 h-full bg-amber-500"></div>
           <div className="flex justify-between items-start">
             <div>
@@ -2300,7 +2300,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
 
           <div className="grid gap-5">
             {(!settings.supplyOrders || settings.supplyOrders.length === 0) ? (
-              <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-100 dark:border-slate-800/80 space-y-4">
+              <div className="bg-white dark:bg-slate-900 p-12 text-center rounded-[2rem] border border-slate-200 dark:border-slate-800/80 space-y-4">
                 <div className="p-4 bg-indigo-50 dark:bg-slate-800/60 text-indigo-500 w-fit mx-auto rounded-full shadow-sm">
                   <Package size={40} />
                 </div>
@@ -2358,7 +2358,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                 }, 0);
 
                 return (
-                  <div key={order.id} className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200/80 dark:hover:border-slate-700/80 transition-all duration-300 overflow-hidden">
+                  <div key={order.id} className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200/80 dark:hover:border-slate-700/80 transition-all duration-300 overflow-hidden">
                     {/* Main Card Header Row */}
                     <div className="p-5 sm:p-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-5">
                       <div className="space-y-3 flex-1">
@@ -2424,7 +2424,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black flex items-center gap-1 border ${
                             order.costUpdateMethod === 'weighted_average'
                               ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/30'
-                              : 'bg-slate-50 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-800'
+                              : 'bg-slate-50 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
                           }`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${
                               order.costUpdateMethod === 'weighted_average' ? 'bg-blue-500' : 'bg-slate-400 dark:bg-slate-500'
@@ -2441,7 +2441,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                         </div>
                       </div>
 
-                      <div className="flex w-full lg:w-auto items-center justify-between lg:justify-end gap-5 border-t lg:border-0 pt-4 lg:pt-0 border-slate-100 dark:border-slate-800">
+                      <div className="flex w-full lg:w-auto items-center justify-between lg:justify-end gap-5 border-t lg:border-0 pt-4 lg:pt-0 border-slate-200 dark:border-slate-800">
                         {/* Products visual thumbnails pile */}
                         <div 
                           onClick={() => toggleExpandOrder(order.id)} 
@@ -2484,7 +2484,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                           </div>
                         </div>
 
-                        <div className="flex gap-1 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-100/50 dark:border-slate-800/40 shrink-0">
+                        <div className="flex gap-1 bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-800/40 shrink-0">
                           <button 
                             onClick={() => setViewingOrderDetails(order)} 
                             className="p-2 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-xl transition-all cursor-pointer shadow-none hover:shadow-sm"
@@ -2541,7 +2541,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
 
                     {/* Expandable Inline Items Table */}
                     {isExpanded && (
-                      <div className="bg-slate-50/80 dark:bg-slate-850/60 border-t border-slate-100 dark:border-slate-800 p-4 sm:p-6 space-y-4 animate-fadeIn">
+                      <div className="bg-slate-50/80 dark:bg-slate-850/60 border-t border-slate-200 dark:border-slate-800 p-4 sm:p-6 space-y-4 animate-fadeIn">
                         <div className="flex items-center justify-between">
                           <h4 className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-2">
                             <Package size={14} className="text-indigo-500" />
@@ -2941,7 +2941,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           </div>
 
           {/* Dynamic Table of Inventory Details */}
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-right text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 font-black border-b border-secondary">
@@ -3031,7 +3031,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                       return (
                         <tr key={item.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition-all">
                           <td className="px-5 py-3">
-                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center border border-slate-100 dark:border-slate-800">
+                            <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 overflow-hidden shrink-0 flex items-center justify-center border border-slate-200 dark:border-slate-800">
                               {item.thumbnail ? (
                                 <img src={item.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                               ) : <Package size={15} className="text-slate-400" />}
@@ -3057,7 +3057,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                                 if (qtyInWh <= 0) return null;
                                 
                                 return (
-                                  <span key={wh.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-750 text-[9px] font-bold text-slate-500 dark:text-slate-400 rounded">
+                                  <span key={wh.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-750 text-[9px] font-bold text-slate-500 dark:text-slate-400 rounded">
                                     {wh.name}: {qtyInWh}
                                   </span>
                                 );
@@ -3121,7 +3121,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
         >
           {/* Dynamic Scorecard Totals overview */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
               <span className="text-xs font-bold text-slate-400 block mb-1">الرأس المالي المتدفق للمشتريات</span>
               <div className="flex items-center gap-3">
                 <span className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl shrink-0">
@@ -3136,7 +3136,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               </div>
             </div>
 
-            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
               <span className="text-xs font-bold text-slate-400 block mb-1">إجمالي القطع الواردة المستلمة</span>
               <div className="flex items-center gap-3">
                 <span className="p-3 bg-emerald-50 dark:bg-emerald-900/10 text-emerald-600 dark:text-emerald-400 rounded-2xl shrink-0">
@@ -3151,7 +3151,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               </div>
             </div>
 
-            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
+            <div className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 p-6 rounded-3xl shadow-sm">
               <span className="text-xs font-bold text-slate-400 block mb-1">المديونية الإجمالية القائمة للموردين</span>
               <div className="flex items-center gap-3">
                 <span className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-455 rounded-2xl shrink-0">
@@ -3170,7 +3170,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           {/* Interactive Recharts visual layouts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Chart 1: Payments Breakdown Pie */}
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
               <h4 className="font-extrabold text-slate-800 dark:text-white text-sm mb-4 flex items-center gap-1.5">
                 <LucidePieChart size={16} className="text-indigo-500" />
                 توزيع المشتريات والتوريد حسب طريقة السداد
@@ -3203,7 +3203,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             </div>
 
             {/* Chart 2: Top Products Bar */}
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col">
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col">
               <h4 className="font-extrabold text-slate-800 dark:text-white text-sm mb-4 flex items-center gap-1.5">
                 <BarChart2 size={16} className="text-teal-500" />
                 أكثر البضائع سحباً وتوريداً من الموردين (إجمالي الكمية المدخلة)
@@ -3226,8 +3226,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           </div>
 
           {/* Detailed Suppliers Performance scorecard table */}
-          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
+          <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
               <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <span className="w-1 px-0.5 h-4 bg-teal-500 rounded-full"></span>
                 مقياس الكفاءة والذمة المالية لشركاء التوريد الماليين
@@ -3499,7 +3499,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
       {/* Return Products from Purchase Invoice Modal Dialog */}
       {showReturnModal && selectedOrderForReturn && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200 flex flex-col my-8">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200 flex flex-col my-8">
             <div className="bg-slate-900 dark:bg-black p-6 text-white flex justify-between items-center select-none shrink-0">
               <div className="text-right">
                 <h3 className="text-base font-black flex items-center gap-2">
@@ -3519,7 +3519,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
             </div>
             
             <div className="p-6 space-y-5 text-right overflow-y-auto max-h-[60vh] custom-scrollbar">
-              <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+              <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800/80">
                 <div>
                   <span className="text-slate-400 block mb-0.5">اسم المورد:</span>
                   <span className="font-extrabold text-slate-800 dark:text-white block text-sm">
@@ -3550,10 +3550,10 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                     return (
                       <div 
                         key={idx} 
-                        className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-slate-200 dark:hover:border-slate-700 transition-all shadow-sm"
+                        className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-slate-200 dark:hover:border-slate-700 transition-all shadow-sm"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex-shrink-0 overflow-hidden border border-slate-100 dark:border-slate-800 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex-shrink-0 overflow-hidden border border-slate-200 dark:border-slate-800 flex items-center justify-center">
                             {product?.thumbnail ? (
                               <img src={product.thumbnail} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             ) : <Package size={18} className="text-slate-400" />}
@@ -3736,7 +3736,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
       {/* Payment Supplier settlement Modal Dialog */}
       {showPaymentModal && selectedSupplierForPayment && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-100 dark:border-slate-800 animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200">
             <div className="bg-slate-900 dark:bg-black p-5 text-white flex justify-between items-center">
               <h3 className="text-base font-black">تسجيل دفعة سداد للمورد</h3>
               <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
@@ -4095,7 +4095,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                         <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
                           {grandTotal.toLocaleString()} <span className="text-xs font-bold">ج.م</span>
                         </div>
-                        <div className="text-[10px] text-slate-500 font-bold mt-1 pt-1.5 border-t border-slate-100 dark:border-slate-800">
+                        <div className="text-[10px] text-slate-500 font-bold mt-1 pt-1.5 border-t border-slate-200 dark:border-slate-800">
                           💡 التفكيك المالي: ({viewingOrderItemsSubtotal.toLocaleString()} ج.م بضاعة {totalFees > 0 ? `+ ${totalFees.toLocaleString()} ج.م رسوم/مصاريف` : ''} = {grandTotal.toLocaleString()} ج.م الإجمالي)
                         </div>
                       </div>
@@ -4206,7 +4206,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                 </div>
 
                 {/* Alarm Ringing Animation Indicator with Custom Sprung Bell */}
-                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-100 dark:border-slate-800 shadow-sm">
+                <div className="flex items-center gap-1.5 mb-2 px-3.5 py-1.5 rounded-full bg-slate-50 dark:bg-slate-800/60 text-[10.5px] text-slate-500 dark:text-slate-400 font-black tracking-wider border border-slate-200 dark:border-slate-800 shadow-sm">
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></span>
                   <span>تنبيه داخلي نشط</span>
                   <motion.span

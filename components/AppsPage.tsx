@@ -773,7 +773,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                   <div key={app.id} className={`flex flex-col bg-white dark:bg-slate-800 rounded-xl overflow-hidden transition-all duration-200 shadow-sm border ${isConnected ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'}`}>
                     <div className="p-5 pb-4">
                        <div className="flex items-start justify-between">
-                           <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center p-2 shadow-sm border border-slate-100">
+                           <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center p-2 shadow-sm border border-slate-200">
                                {app.logo.endsWith('svg') || app.logo.endsWith('png') ? (
                                   <img src={app.logo} alt={app.name} className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
                                ) : (
@@ -803,7 +803,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                            ))}
                         </div>
                     </div>
-                    <div className="pt-0 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
+                    <div className="pt-0 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
                        {isConnected ? (
                            <div className="space-y-2">
                               <div className="grid grid-cols-2 gap-2">
@@ -931,7 +931,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                  )}
 
                  {excelImportResult && (
-                    <div className="p-4 rounded-xl border space-y-2 text-sm bg-slate-50 dark:bg-slate-900/30 border-slate-100 dark:border-slate-700/80">
+                    <div className="p-4 rounded-xl border space-y-2 text-sm bg-slate-50 dark:bg-slate-900/30 border-slate-200 dark:border-slate-700/80">
                        <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
                           <CheckCircle className="w-5 h-5" />
                           <span>اكتملت المعالجة بنجاح مذهل!</span>
@@ -947,7 +947,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                        {excelImportResult.errors.length > 0 && (
                           <div className="space-y-1 pt-2">
                              <p className="text-xs font-bold text-rose-500">سجل التخطي والتحذيرات:</p>
-                             <div className="max-h-24 overflow-y-auto text-[11px] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-2 rounded-lg text-slate-400 font-mono space-y-1">
+                             <div className="max-h-24 overflow-y-auto text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2 rounded-lg text-slate-400 font-mono space-y-1">
                                 {excelImportResult.errors.map((err, idx) => (
                                    <div key={idx} className="flex items-center gap-1">
                                       <span className="text-rose-400">●</span> {err}
@@ -1024,7 +1024,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                  </button>
 
                  {geminiOutput && (
-                    <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-700/80">
+                    <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700/80">
                        <div className="flex items-center justify-between text-xs text-slate-500">
                           <span className="font-bold flex items-center gap-1 text-slate-700 dark:text-slate-300">
                              <FileText className="w-3.5 h-3.5" />
@@ -1041,7 +1041,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                              نسخ كـ نص
                           </button>
                        </div>
-                       <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700/80 rounded-xl text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap font-sans max-h-56 overflow-y-auto" dir="rtl">
+                       <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap font-sans max-h-56 overflow-y-auto" dir="rtl">
                           {geminiOutput}
                        </div>
                        
@@ -1084,7 +1084,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                     </div>
 
                     {barcodeSelectedProdId ? (
-                       <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-100 dark:border-slate-700 rounded-xl flex flex-col items-center justify-center space-y-4">
+                       <div className="p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl flex flex-col items-center justify-center space-y-4">
                           <div className="bg-white p-4 rounded-lg border border-slate-200/80">
                              <svg id="barcode-canvas" ref={svgRef} className="mx-auto max-w-full h-auto"></svg>
                           </div>
@@ -1216,7 +1216,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                         />
                      </div>
 
-                     <div className="pt-3 border-t border-slate-100 dark:border-slate-700 space-y-3">
+                     <div className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-3">
                         <div className="flex items-center justify-between">
                            <span className="font-bold text-slate-700 dark:text-slate-300">صوت ترحيبي عند الدخول (Welcome Sound):</span>
                            <label className="relative inline-flex items-center cursor-pointer">
@@ -1359,7 +1359,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                         )}
                      </div>
 
-                     <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+                     <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
                         <p className="font-bold text-slate-700 dark:text-slate-300 mb-2 font-sans">اختر واختبر مظهر الانفجار الفني الافتراضي (محدد حالياً: {confettiTheme === 'rainbow' ? 'المطر القوسي' : confettiTheme === 'gold' ? 'مطر الذهب' : 'ألعاب نارية'}):</p>
                         <div className="grid grid-cols-3 gap-2">
                            <button 
@@ -1387,7 +1387,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                      </div>
 
                      {/* قائمة الأحداث لتشغيل الاحتفالات تلقائياً */}
-                     <div className="pt-3 border-t border-slate-100 dark:border-slate-700 space-y-2">
+                     <div className="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
                         <p className="font-bold text-slate-700 dark:text-slate-300 mb-1">اختر العمليات التي تطلق الاحتفال تلقائياً عند إتمامها بنجاح:</p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                            {[
@@ -1399,7 +1399,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                               { id: 'wallet_withdraw', label: 'طلب سحب رصيد مالي 💰' },
                               { id: 'save_settings', label: 'تحديث وحفظ الإعدادات العامة ⚙️' },
                            ].map((evt) => (
-                              <label key={evt.id} className="flex items-center gap-2 p-2.5 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100 dark:border-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors">
+                              <label key={evt.id} className="flex items-center gap-2 p-2.5 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-200 dark:border-slate-800/60 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors">
                                  <input 
                                     type="checkbox"
                                     checked={enabledEvents.includes(evt.id)}
@@ -1418,7 +1418,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                         </div>
                      </div>
 
-                     <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
+                     <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
                         <button
                            onClick={saveConfettiTunerSettings}
                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs transition-colors shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 border-none cursor-pointer"
@@ -1438,7 +1438,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" dir="rtl">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
                   
-                  <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700">
                      <div className="flex items-center gap-3">
                         <img src={selectedApp.logo} alt={selectedApp.name} className="w-10 h-10 object-contain bg-white rounded-lg p-1.5 border" referrerPolicy="no-referrer" />
                         <div>
@@ -1473,7 +1473,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                            <h4 className="font-bold text-sm uppercase tracking-wider">إعدادات الـ API</h4>
                         </div>
                         
-                        <div className="space-y-4 p-5 bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 rounded-xl">
+                        <div className="space-y-4 p-5 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl">
                            <div className="space-y-1.5">
                               <label className="text-xs font-black text-slate-600 dark:text-slate-400 block mr-1">معرف المتجر (Store ID)</label>
                               <input 
@@ -1501,7 +1501,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                      </div>
 
                      {/* Webhook Configuration Section */}
-                     <div className={`space-y-4 pt-2 border-t border-slate-100 dark:border-slate-700 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                     <div className={`space-y-4 pt-2 border-t border-slate-200 dark:border-slate-700 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                         <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 ">
                            <Webhook className="w-4 h-4" />
                            <h4 className="font-bold text-sm uppercase tracking-wider">إعدادات الـ Webhook (للاستقبال اللحظي)</h4>
@@ -1532,7 +1532,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                      </div>
                   </div>
 
-                  <div className="p-5 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3 items-center">
+                  <div className="p-5 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3 items-center">
                      <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 transition-all">
                         إلغاء
                      </button>
@@ -1624,7 +1624,7 @@ const SelectiveSyncModal: React.FC<SelectiveSyncModalProps> = ({
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh]">
-        <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <h3 className="text-xl font-bold dark:text-white flex items-center gap-2"><ListChecks size={20} className="text-indigo-500" /> اختيار منتجات للمزامنة</h3>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"><XCircle size={24} className="text-slate-400 dark:text-slate-600" /></button>
         </div>
@@ -1647,7 +1647,7 @@ const SelectiveSyncModal: React.FC<SelectiveSyncModalProps> = ({
               <div 
                 key={product.id} 
                 onClick={() => toggleProduct(product.id)}
-                className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${selectedIds.has(product.id) ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20' : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'}`}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${selectedIds.has(product.id) ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20' : 'border-slate-200 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'}`}
               >
                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${selectedIds.has(product.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                   {selectedIds.has(product.id) && <CheckCircle size={14} />}
