@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { 
   X, Copy, MapPin, Phone, User as UserIcon, Package, AlertCircle, 
   Wallet as WalletIcon, Plus, CheckCircle2, Clock, Truck, ShieldAlert, ArrowRightLeft, 
   FileText, DollarSign, Calculator, ChevronRight, Share2, Printer, 
   ExternalLink, Sparkles, History, Check, AlertTriangle, HelpCircle,
-  TrendingUp, TrendingDown, Layers, FileSearch, ArrowDownRight, ArrowUpRight
+  TrendingUp, TrendingDown, Layers, FileSearch, ArrowDownRight, ArrowUpRight,
+  RotateCcw, RefreshCcw
 } from 'lucide-react';
 import { Order, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
@@ -34,6 +36,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   onAddTransaction,
   onSendWhatsAppAPI
 }) => {
+  const navigate = useNavigate();
+  const { storeId } = useParams<{ storeId: string }>();
+  
   const [activeTab, setActiveTab] = useState<'details' | 'financials' | 'tracking'>('details');
   const [showAdjustmentForm, setShowAdjustmentForm] = useState(false);
   const [adjAmount, setAdjAmount] = useState('');
@@ -41,6 +46,46 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   if (!settings) return null;
+
+  const handleExchangeItem = (item: any, idx: number) => {
+    onClose();
+    const storePrefix = storeId ? `/store/${storeId}` : '';
+    const creditAmount = (item.price || 0) * (item.quantity || 1);
+
+    navigate(`${storePrefix}/orders/new`, {
+      state: {
+        exchangeData: {
+          customerName: order.customerName,
+          customerPhone: order.customerPhone,
+          customerAddress: order.customerAddress,
+          shippingCompany: order.shippingCompany,
+          shippingArea: order.shippingArea,
+          governorate: order.governorate,
+          city: order.city,
+          orderType: "exchange",
+          shipmentType: "exchange",
+          originalOrderId: order.orderNumber || order.id,
+          creditAmount: creditAmount,
+          originalOrderItems: order.items || [],
+          exchangedItems: (order.items || []).map((it, i) => ({
+            ...it,
+            selected: i === idx,
+          })),
+        },
+      },
+    });
+  };
+
+  const handleReturnItem = (item: any, idx: number) => {
+    onClose();
+    const storePrefix = storeId ? `/store/${storeId}` : '';
+    navigate(`${storePrefix}/returns`, {
+      state: {
+        selectOrder: order,
+        selectItemIndex: idx
+      }
+    });
+  };
 
   const isFlexShipCovered = !!(order.flexShipFeePaidByCustomer || (order.enableFlexShip && order.flexShipFeePaidByCustomer));
   
@@ -126,6 +171,52 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
   const successRateText = customerSuccessRate === -1 ? '' : (customerSuccessRate < 40 ? 'عميل نسبة استلامه منخفضة' : (customerSuccessRate > 80 ? 'عميل نشط وموثوق جداً' : 'نسبة استلام متوسطة'));
   const successRateColor = customerSuccessRate === -1 ? '' : (customerSuccessRate < 40 ? 'text-rose-600 bg-rose-50 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800' : (customerSuccessRate > 80 ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800' : 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800'));
+
+  // Duplicate detection
+  let duplicateOrder: Order | null = null;
+  let duplicateReason = "";
+  if (allOrders && allOrders.length > 1) {
+    const normalizedPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, "") : "";
+    const normalizedName = order.customerName ? order.customerName.trim().toLowerCase() : "";
+
+    for (const other of allOrders) {
+      if (other.id === order.id) continue;
+      if (other.status === "ملغي" || order.status === "ملغي") continue;
+
+      const otherPhone = other.customerPhone ? other.customerPhone.replace(/\D/g, "") : "";
+      const otherName = other.customerName ? other.customerName.trim().toLowerCase() : "";
+
+      const phoneMatch = normalizedPhone && normalizedPhone.length >= 7 && normalizedPhone === otherPhone;
+      const nameMatch = normalizedName && normalizedName === otherName;
+
+      if (phoneMatch || nameMatch) {
+        // Check identical items
+        const oItems = order.items || [];
+        const otherItems = other.items || [];
+        const isSameItems = oItems.length === otherItems.length && oItems.every((item, idx) => {
+          const otherItem = otherItems[idx];
+          return otherItem && otherItem.productId === item.productId && otherItem.quantity === item.quantity;
+        });
+
+        const timeDiffMs = Math.abs(new Date(order.date).getTime() - new Date(other.date).getTime());
+        const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+        if (isSameItems && timeDiffHours <= 168) {
+          duplicateOrder = other;
+          duplicateReason = "نفس المنتجات مكررة خلال أسبوع";
+          break;
+        } else if (Math.abs(Number(order.totalPrice || 0) - Number(other.totalPrice || 0)) < 10 && timeDiffHours <= 48) {
+          duplicateOrder = other;
+          duplicateReason = "نفس القيمة الإجمالية خلال 48 ساعة";
+          break;
+        } else if (timeDiffHours <= 24) {
+          duplicateOrder = other;
+          duplicateReason = "طلب متقارب جداً خلال 24 ساعة";
+          break;
+        }
+      }
+    }
+  }
 
   // Wallet logic calculations
   const isWalletSettled = order.paymentStatus === 'مدفوع';
@@ -462,6 +553,25 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                         {customerCompleted > 0 && (
                           <p className="text-[11px] font-bold text-slate-500 mt-1">سجل سابق: استلم {customerCompleted} من أصل {customerTotal} طلبات</p>
                         )}
+                        
+                        {duplicateOrder && (
+                          <div className="mt-3 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-100 dark:border-rose-900/30 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 flex flex-col gap-1 text-right animate-pulse">
+                            <span className="flex items-center justify-end gap-1 font-black">
+                              <AlertTriangle size={12} className="text-rose-600 dark:text-rose-400" />
+                              <span>تحذير: احتمال أوردر مكرر!</span>
+                            </span>
+                            <span className="font-normal opacity-90 leading-relaxed">
+                              يوجد طلب آخر نشط للعميل برقم #{duplicateOrder.orderNumber || duplicateOrder.id.slice(0, 6)} ({duplicateReason})
+                            </span>
+                          </div>
+                        )}
+
+                        {!duplicateOrder && customerTotal > 1 && (
+                          <div className="mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 dark:bg-purple-950/30 border border-purple-100/50 dark:border-purple-900/30 rounded-xl text-[10px] font-black text-purple-600 dark:text-purple-400">
+                            <RefreshCcw size={10} className="animate-spin-slow" />
+                            <span>عميل مكرر (لديه {customerTotal} طلبات)</span>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <span className="text-xs font-black text-slate-400 block mb-1.5">رقم الهاتف</span>
@@ -527,6 +637,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <table className="w-full text-right text-sm">
                       <thead className="bg-slate-50/50 dark:bg-slate-800/30 text-slate-400 font-black text-xs border-b border-slate-200/60 dark:border-white/5">
                         <tr>
+                          <th className="py-3.5 px-6 font-black text-center">خيارات الاستبدال / الإرجاع</th>
                           <th className="py-3.5 px-6 font-black">الإجمالي</th>
                           <th className="py-3.5 px-6 font-black">سعر الوحدة</th>
                           <th className="py-3.5 px-6 font-black">الكمية</th>
@@ -536,6 +647,26 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                         {order.items?.map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                            <td className="py-4 px-6 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => handleExchangeItem(item, idx)}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-xl text-xs font-black transition-all border border-purple-100/50 dark:border-purple-900/30 active:scale-95 cursor-pointer"
+                                  title="استبدال هذا المنتج"
+                                >
+                                  <ArrowRightLeft size={13} />
+                                  <span>استبدال</span>
+                                </button>
+                                <button
+                                  onClick={() => handleReturnItem(item, idx)}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-black transition-all border border-rose-100/50 dark:border-rose-900/30 active:scale-95 cursor-pointer"
+                                  title="إرجاع هذا المنتج"
+                                >
+                                  <RotateCcw size={13} />
+                                  <span>مرتجع</span>
+                                </button>
+                              </div>
+                            </td>
                             <td className="py-4 px-6 font-black text-indigo-600 dark:text-indigo-400">
                               {((item.price || 0) * (item.quantity || 1)).toLocaleString()} <span className="text-[10px] font-normal">ج.م</span>
                             </td>
@@ -563,7 +694,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                           </tr>
                         )) || (
                           <tr>
-                            <td colSpan={4} className="py-8 text-center text-slate-400 font-bold">لا توجد منتجات مسجلة في هذا الطلب</td>
+                            <td colSpan={5} className="py-8 text-center text-slate-400 font-bold">لا توجد منتجات مسجلة في هذا الطلب</td>
                           </tr>
                         )}
                       </tbody>

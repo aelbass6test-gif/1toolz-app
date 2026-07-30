@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   RotateCcw, 
@@ -49,6 +50,35 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
 
   const warehouses = settings.warehouses || [];
   const returns = settings.orderReturns || [];
+
+  const location = useLocation();
+
+  useEffect(() => {
+    const state = location.state as { selectOrder?: Order; selectItemIndex?: number };
+    if (state?.selectOrder) {
+      setActiveTab('create');
+      const order = state.selectOrder;
+      setSelectedOrder(order);
+      
+      const initialReturnItems = order.items.map((item, idx) => ({
+        productId: item.productId,
+        variantId: item.variantId,
+        name: item.name,
+        quantity: state.selectItemIndex !== undefined 
+          ? (idx === state.selectItemIndex ? item.quantity : 0)
+          : item.quantity,
+        price: item.price,
+        cost: item.cost
+      }));
+      
+      setReturnItems(initialReturnItems);
+      setReturnDetail(prev => ({
+        ...prev,
+        warehouseId: order.warehouseId || warehouses.find(w => w.isDefault)?.id || '',
+        totalRefund: initialReturnItems.reduce((acc, i) => acc + (i.price * i.quantity), 0)
+      }));
+    }
+  }, [location.state, warehouses]);
 
   // Handle Order Selection
   const handleSelectOrder = (order: Order) => {

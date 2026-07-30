@@ -1457,7 +1457,11 @@ CREATE TABLE IF NOT EXISTS cash_handovers (
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
     notes TEXT,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    is_virtual BOOLEAN DEFAULT FALSE,
+    isVirtual BOOLEAN DEFAULT FALSE,
+    order_number TEXT,
+    orderNumber TEXT
 );
 
 -- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)

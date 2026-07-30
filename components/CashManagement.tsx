@@ -31,6 +31,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { Settings, CashHolder, CashHandover, Treasury, TreasuryTransaction } from '../types';
+import { getVirtualOrderHandovers } from '../utils/financials';
 
 interface CashManagementProps {
   settings: Settings;
@@ -40,6 +41,7 @@ interface CashManagementProps {
   setTreasury?: (updater: any) => void;
   wallet?: any;
   setWallet?: (updater: any) => void;
+  orders?: any[];
 }
 
 const normalizeName = (name: string): string => {
@@ -61,7 +63,7 @@ const normalizeName = (name: string): string => {
   return normalized;
 };
 
-const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSettings, currentUser, treasury, setTreasury, wallet, setWallet }) => {
+const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSettings, currentUser, treasury, setTreasury, wallet, setWallet, orders = [] }) => {
   const [activeTab, setActiveTab] = useState<'balances' | 'handovers'>('balances');
   const [searchQuery, setSearchQuery] = useState('');
   const [showHandoverModal, setShowHandoverModal] = useState(false);
@@ -84,6 +86,13 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
   const [treasuryNotes, setTreasuryNotes] = useState('');
 
   const [dialog, setDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void, isWarning?: boolean} | null>(null);
+
+  const handovers = useMemo(() => {
+    const base = settings.cashHandovers || [];
+    const virtuals = getVirtualOrderHandovers(orders, settings, treasury);
+    const combined = [...base, ...virtuals];
+    return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [settings.cashHandovers, orders, settings, treasury]);
 
   const holders = useMemo(() => {
     const rawHolders = settings.cashHolders || [];
@@ -117,7 +126,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         );
         const partnerUserIds = [holderId, partner.id, ...partnerHolders.map(h => h.userId)];
 
-        const partnerHandovers = (settings.cashHandovers || []).filter(h => 
+        const partnerHandovers = handovers.filter(h => 
             partnerUserIds.includes(h.fromUserId) || 
             partnerUserIds.includes(h.toUserId) || 
             h.toUserId === partner.id || 
@@ -165,15 +174,13 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     });
     
     return Object.values(grouped);
-  }, [settings.cashHolders, settings.partners, settings.cashHandovers]);
+  }, [settings.cashHolders, settings.partners, handovers]);
 
   const filteredHolders = useMemo(() => {
     if (!searchQuery.trim()) return holders;
     const query = searchQuery.toLowerCase().trim();
     return holders.filter(h => h.userName.toLowerCase().includes(query));
   }, [holders, searchQuery]);
-
-  const handovers = useMemo(() => settings.cashHandovers || [], [settings.cashHandovers]);
   
   const filteredHandovers = useMemo(() => {
     if (!searchQuery.trim()) return handovers;
@@ -274,7 +281,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         updateSettings({
           ...settings,
           cashHolders: updatedHolders,
-          cashHandovers: handovers.filter(h => h.id !== handoverId),
+          cashHandovers: (settings.cashHandovers || []).filter(h => h.id !== handoverId),
           activityLogs: [
             {
               id: `log-${Date.now()}`,
@@ -424,7 +431,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     updateSettings({
       ...settings,
       cashHolders: updatedHolders,
-      cashHandovers: [handoverData, ...handovers],
+      cashHandovers: [handoverData, ...(settings.cashHandovers || [])],
       activityLogs: [
         {
           id: `log-${Date.now()}`,
@@ -544,7 +551,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     updateSettings({
       ...settings,
       cashHolders: updatedHolders,
-      cashHandovers: [handoverData, ...handovers],
+      cashHandovers: [handoverData, ...(settings.cashHandovers || [])],
       activityLogs: [
         {
           id: `log-${Date.now()}`,
@@ -931,11 +938,21 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                             <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-500 rotate-180 shrink-0" />
                             <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">{h.toUserName}</span>
                           </div>
-                          <div className="flex items-center gap-3 mt-1">
+                          <div className="flex items-center gap-3 mt-1 flex-wrap">
                             <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
                               <Clock className="w-3 h-3 text-slate-400" />
                               {new Date(h.date).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' })}
                             </span>
+                            {h.isVirtual && (
+                              <span className="text-[9px] font-black text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/30 px-2 py-0.5 rounded-md">
+                                عهدة أوتوماتيكية
+                              </span>
+                            )}
+                            {h.orderNumber && (
+                              <span className="text-[9px] font-black text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/30 px-2 py-0.5 rounded-md">
+                                طلب #{h.orderNumber}
+                              </span>
+                            )}
                             {(h.notes || (h as any).note) && (
                               <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 px-2.5 py-0.5 rounded-md truncate max-w-xs">
                                 "{h.notes || (h as any).note}"

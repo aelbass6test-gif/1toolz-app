@@ -1086,3 +1086,76 @@ export const generateSupplyOrderInvoiceHTML = (order: SupplyOrder, settings: Set
   `;
 };
 
+export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, treasury?: any): any[] => {
+  if (!Array.isArray(orders) || orders.length === 0) return [];
+  
+  const existingHandovers = Array.isArray(settings?.cashHandovers) ? settings.cashHandovers : [];
+  const virtualHandovers: any[] = [];
+
+  const isBankOrTreasuryAccount = (name: string): boolean => {
+    if (!name) return false;
+    const norm = name.toLowerCase().trim();
+    return norm.includes('بنك') || norm.includes('bank') || norm.includes('cib') || norm.includes('المحفظة') || norm.includes('محفظة') || norm.includes('فودافون كاش') || norm.includes('انستا باي') || norm.includes('حساب بنكي');
+  };
+
+  orders.forEach((o: any) => {
+    const advance = Number(o.advancePayment) || 0;
+    const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || (typeof o.shippingCompany === 'string' && o.shippingCompany.includes('كاشير'));
+    const isCollectedPos = isPosOrder && ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);
+
+    if (advance > 0 || isCollectedPos) {
+      const holderLabel = getAdvancePaymentCustodyName(o, settings, treasury);
+      if (!holderLabel || holderLabel === "---" || holderLabel.includes("أودعت في المحفظة العامة")) return;
+
+      let recipientName = "";
+      if (holderLabel.includes(': ')) {
+        const parts = holderLabel.split(': ')[1].split(' (');
+        recipientName = parts[0].trim();
+      } else if (holderLabel.includes('المدير')) {
+        recipientName = "المدير";
+      } else {
+        recipientName = holderLabel.replace(/^(🤝 عهدة شريك:|👤 عهدة موظف:|👤 عهدة:|🏦 خزينة \/ بنك:)/g, '').trim();
+      }
+
+      if (!recipientName || isBankOrTreasuryAccount(recipientName)) return;
+
+      const orderNumStr = String(o.orderNumber || o.id || '').trim();
+
+      // Check if this advance payment or POS collection is ALREADY in cashHandovers
+      const existsInHandovers = existingHandovers.some((h: any) => {
+        const notes = String(h.notes || '');
+        const matchesNum = orderNumStr && notes.includes(orderNumStr);
+        const matchesType = (advance > 0 && (notes.includes('عربون') || notes.includes('دفع مقدم'))) || (isCollectedPos && (notes.includes('كاشير') || notes.includes('POS')));
+        return matchesNum && matchesType;
+      });
+
+      if (!existsInHandovers) {
+        const amountToReport = advance > 0 ? advance : ((Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) + (Number(o.tax) || 0) - (Number(o.discount) || 0));
+        
+        let toId = o.advancePaymentPartnerId ? `part_${o.advancePaymentPartnerId}` :
+                   o.advancePaymentEmployeeId ? `emp_${o.advancePaymentEmployeeId}` :
+                   o.advancePaymentTreasuryId ? `treas_${o.advancePaymentTreasuryId}` :
+                   o.cashHolderId || `custody_${recipientName}`;
+
+        virtualHandovers.push({
+          id: `virtual-adv-${o.id || orderNumStr}`,
+          fromUserId: 'customer',
+          fromUserName: o.customerName || 'العميل',
+          toUserId: toId,
+          toUserName: recipientName,
+          amount: amountToReport,
+          date: o.date || o.createdAt || new Date().toISOString(),
+          notes: advance > 0 ? `عربون / دفع مقدم للطلب #${orderNumStr}` : `مبيعات كاشير - طلب #${orderNumStr}`,
+          status: 'completed',
+          isVirtual: true,
+          orderId: o.id,
+          orderNumber: orderNumStr
+        });
+      }
+    }
+  });
+
+  return virtualHandovers;
+};
+
+

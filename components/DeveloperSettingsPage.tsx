@@ -556,7 +556,11 @@ CREATE TABLE IF NOT EXISTS cash_handovers (
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
     notes TEXT,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    is_virtual BOOLEAN DEFAULT FALSE,
+    isVirtual BOOLEAN DEFAULT FALSE,
+    order_number TEXT,
+    orderNumber TEXT
 );
 
 -- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)
@@ -854,6 +858,10 @@ ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "isVirtual" BOOLEAN DEFAULT FALSE;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "is_virtual" BOOLEAN DEFAULT FALSE;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "order_number" TEXT;
 
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
@@ -1474,6 +1482,10 @@ ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "date" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "notes" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "status" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "isVirtual" BOOLEAN DEFAULT FALSE;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "is_virtual" BOOLEAN DEFAULT FALSE;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "order_number" TEXT;
 
 -- 9. جداول الحركات والمديونيات الجديدة
 CREATE TABLE IF NOT EXISTS customer_transactions (
@@ -1654,6 +1666,10 @@ ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "isVirtual" BOOLEAN DEFAULT FALSE;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "is_virtual" BOOLEAN DEFAULT FALSE;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "order_number" TEXT;
 
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updated_at" TEXT;

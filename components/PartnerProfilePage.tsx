@@ -5,7 +5,7 @@ import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, H
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
-import { calculateOrderProfitLoss, calculateWalletLiveBalance } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 
 import { Treasury } from '../types';
 
@@ -62,7 +62,12 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     );
     const partnerUserIds = [holderId, partner.id, ...partnerHolders.map(h => h.userId)];
 
-    return (settings.cashHandovers || [])
+    const allHandovers = [
+      ...(settings.cashHandovers || []),
+      ...getVirtualOrderHandovers(orders, settings, treasury)
+    ];
+
+    return allHandovers
       .filter(h => 
         partnerUserIds.includes(h.fromUserId) || 
         partnerUserIds.includes(h.toUserId) || 
@@ -84,7 +89,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           note: h.notes || (isGive ? 'تسليم عهدة تشغيلية للشريك' : 'تسوية واسترداد عهدة من الشريك'),
         } as any;
       });
-  }, [settings.cashHandovers, settings.cashHolders, partner]);
+  }, [settings.cashHandovers, settings.cashHolders, partner, orders, treasury, settings]);
 
   const mergedTransactions = useMemo(() => {
     const list = [...transactions, ...handoversForPartner];

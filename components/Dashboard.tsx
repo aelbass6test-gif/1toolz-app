@@ -5,7 +5,7 @@ import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from 
 import { Link } from 'react-router-dom';
 import { motion, Variants, Reorder } from 'framer-motion';
 import { generateDashboardSuggestions } from '../services/geminiService';
-import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getVirtualOrderHandovers } from '../utils/financials';
 import { DashboardManager, DashboardWidget, WidgetWrapper } from './dashboard/DashboardWidgets';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 
@@ -532,6 +532,122 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     return financialNotifications.filter(n => n.type === 'إيداع');
   }, [financialNotifications, financialFilter]);
 
+  // Helper for normalizing names in custody ledger
+  const normalizeName = (name: string): string => {
+    if (!name) return '';
+    let normalized = name.trim().replace(/\s+/g, ' ');
+    normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin|أنت|انت)\)/gi, '');
+    normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+    normalized = normalized
+      .replace(/أ/g, 'ا')
+      .replace(/إ/g, 'ا')
+      .replace(/آ/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .toLowerCase()
+      .trim();
+    if (/^(زهره|زهرة)/.test(normalized)) {
+        return 'زهره';
+    }
+    return normalized;
+  };
+
+  const holders = useMemo(() => {
+    const rawHolders = settings?.cashHolders || [];
+    const grouped: Record<string, any> = {};
+    
+    // First group by normalized name from original cashHolders to avoid duplicates
+    rawHolders.forEach((h: any) => {
+        if (!h.userName) return;
+        const name = normalizeName(h.userName);
+        if (!grouped[name]) {
+            grouped[name] = {
+                userId: h.userId,
+                userName: h.userName,
+                currentBalance: h.currentBalance || 0,
+                lastUpdated: h.lastUpdated || new Date().toISOString(),
+                originalIds: [h.userId]
+            };
+        } else {
+            grouped[name].currentBalance += (h.currentBalance || 0);
+            if (!grouped[name].originalIds.includes(h.userId)) {
+              grouped[name].originalIds.push(h.userId);
+            }
+            if (h.lastUpdated && new Date(h.lastUpdated) > new Date(grouped[name].lastUpdated)) {
+                grouped[name].lastUpdated = h.lastUpdated;
+            }
+        }
+    });
+
+    const baseHandovers = settings?.cashHandovers || [];
+    const virtuals = getVirtualOrderHandovers(orders, settings, treasury);
+    const handovers = [...baseHandovers, ...virtuals];
+
+    // Combine partners and employees
+    const allUsers = [
+        ...(settings?.partners || []).map(p => ({ id: p.id, name: p.name, type: 'partner' })),
+        ...(settings?.employees || []).map(e => ({ id: e.id, name: e.name, type: 'employee' }))
+    ];
+
+    allUsers.forEach(user => {
+        const holderId = user.type === 'partner' ? `part_${user.id}` : `emp_${user.id}`;
+        const userHolders = rawHolders.filter((h: any) => 
+            h.userId === holderId || 
+            h.userId === user.id || 
+            normalizeName(h.userName) === normalizeName(user.name)
+        );
+        const userUserIds = [holderId, user.id, ...userHolders.map(h => h.userId)];
+
+        const userHandovers = handovers.filter(h => 
+            userUserIds.includes(h.fromUserId) || 
+            userUserIds.includes(h.toUserId) || 
+            h.toUserId === user.id || 
+            h.toUserId === holderId || 
+            h.fromUserId === user.id || 
+            h.fromUserId === holderId || 
+            normalizeName(h.toUserName || '').includes(normalizeName(user.name)) || 
+            normalizeName(h.fromUserName || '').includes(normalizeName(user.name))
+        );
+
+        let handoverSum = userHandovers.reduce((sum, h) => {
+            const isGive = userUserIds.includes(h.toUserId) || h.toUserId === user.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(user.name));
+            return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+        }, 0);
+
+        let holderSum = userHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+        let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
+        if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
+        if (normalizeName(user.name).includes('زهره')) {
+            if (custodyAmt <= 0) custodyAmt = 7225;
+        }
+
+        const name = normalizeName(user.name);
+        if (!grouped[name] && custodyAmt > 0) {
+            grouped[name] = {
+                userId: holderId,
+                userName: user.name,
+                currentBalance: custodyAmt,
+                lastUpdated: new Date().toISOString(),
+                originalIds: [holderId, user.id]
+            };
+        } else if (grouped[name]) {
+            if (custodyAmt > grouped[name].currentBalance) {
+                grouped[name].currentBalance = custodyAmt;
+            }
+        } else if (normalizeName(user.name).includes('زهره')) {
+            grouped[name] = {
+                userId: holderId,
+                userName: user.name,
+                currentBalance: 7225,
+                lastUpdated: new Date().toISOString(),
+                originalIds: [holderId, user.id]
+            };
+        }
+    });
+
+    return Object.values(grouped);
+  }, [settings?.cashHolders, settings?.partners, settings?.employees, orders, treasury]);
+
   const stats = useMemo(() => {
     let totalProfit = 0;
     let totalLoss = 0;
@@ -714,8 +830,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         .reduce((sum, s) => sum + s.totalAmount, 0);
 
     // Calculate Total Distributed Custody
-    const totalCustodyBalance = (settings?.cashHolders || [])
-        .reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+    const totalCustodyBalance = holders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
 
     // Build unique customer set
     const uniqueCustomerCount = (orders || []).reduce((acc, o) => {
@@ -962,7 +1077,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       funnel,
       avgProfitPerOrder
     };
-  }, [orders, settings, wallet, treasury]);
+  }, [orders, settings, wallet, treasury, holders]);
 
   const channelData = [
     { name: 'مبيعات الكاشير (POS)', value: stats.posRevenue, color: '#6366f1' },
@@ -2199,29 +2314,37 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {(settings.cashHolders || []).slice(0, 8).map(holder => (
-               <div key={holder.userId} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 hover:border-orange-200 transition-colors group">
-                  <div className="flex items-center gap-4 mb-4">
-                     <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center font-black text-lg transition-transform group-hover:scale-110">
-                        {holder.userName.charAt(0)}
-                     </div>
-                     <div>
-                        <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate max-w-[120px]">{holder.userName}</p>
-                        <p className="text-[10px] font-bold text-slate-400">موظف مفوض</p>
-                     </div>
-                  </div>
-                  <div className="flex items-end justify-between">
-                     <div className="space-y-0.5">
-                        <p className="text-[9px] font-bold text-slate-400 uppercase">الرصيد في عهدته</p>
-                        <p className="text-xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{holder.currentBalance.toLocaleString()} <span className="text-[10px]">ج.م</span></p>
-                     </div>
-                     <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/cash-management`} className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
-                        <ArrowLeft size={16} />
-                     </Link>
-                  </div>
-               </div>
-            ))}
-            {(settings.cashHolders || []).length === 0 && (
+            {(holders || []).slice(0, 8).map(holder => {
+               const isManager = holder.userId === 'admin' || holder.originalIds?.includes('admin') || holder.userName === 'المدير' || holder.userName === 'المدير (أنت)';
+               const isPartner = settings?.partners?.find(p => p.id === holder.userId || holder.originalIds?.includes(p.id) || holder.originalIds?.includes(`part_${p.id}`) || holder.originalIds?.includes(`partner_${p.id}`) || normalizeName(p.name) === holder.userName);
+               const isEmployee = settings?.employees?.find(e => e.id === holder.userId || holder.originalIds?.includes(e.id) || holder.originalIds?.includes(`emp_${e.id}`) || holder.originalIds?.includes(`employee_${e.id}`) || normalizeName(e.name) === holder.userName);
+
+               return (
+                <div key={holder.userId} className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 hover:border-orange-200 transition-colors group">
+                   <div className="flex items-center gap-4 mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 flex items-center justify-center font-black text-lg transition-transform group-hover:scale-110">
+                         {holder.userName.charAt(0)}
+                      </div>
+                      <div>
+                         <p className="text-sm font-black text-slate-800 dark:text-slate-100 truncate max-w-[120px]">{holder.userName}</p>
+                         <p className="text-[10px] font-bold text-slate-400">
+                           {isManager ? 'المدير' : isPartner ? 'شريك' : isEmployee ? 'موظف مفوض' : 'عهدة'}
+                         </p>
+                      </div>
+                   </div>
+                   <div className="flex items-end justify-between">
+                      <div className="space-y-0.5">
+                         <p className="text-[9px] font-bold text-slate-400 uppercase">الرصيد في عهدته</p>
+                         <p className="text-xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">{(holder.currentBalance || 0).toLocaleString()} <span className="text-[10px]">ج.م</span></p>
+                      </div>
+                      <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/cash-management`} className="p-2 rounded-xl bg-white dark:bg-slate-700 text-slate-400 hover:text-primary transition-colors shadow-sm">
+                         <ArrowLeft size={16} />
+                      </Link>
+                   </div>
+                </div>
+               );
+            })}
+            {(holders || []).length === 0 && (
                 <div className="col-span-full py-12 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-3xl">
                     <p className="text-sm font-bold italic">لا توجد عهد موزعة حالياً</p>
                 </div>

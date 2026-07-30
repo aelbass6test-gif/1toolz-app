@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -27,6 +27,7 @@ import {
   History,
   CheckCircle,
   RefreshCcw,
+  RotateCcw,
   Briefcase,
   ChevronLeft,
   ChevronRight,
@@ -387,6 +388,192 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   const [showSummaryModal, setShowSummaryModal] = useState<Order | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState<Order | null>(null);
+
+  const customerHistoryMap = useMemo(() => {
+    const map: Record<string, {
+      totalCount: number;
+      orders: any[];
+    }> = {};
+
+    // Group active/all orders by customer phone (and name as fallback)
+    (orders || []).forEach((o) => {
+      const phone = o.customerPhone ? o.customerPhone.replace(/\D/g, "") : "";
+      const name = o.customerName ? o.customerName.trim().toLowerCase() : "";
+      
+      const key = phone.length >= 7 ? `phone:${phone}` : name ? `name:${name}` : null;
+      if (!key) return;
+
+      if (!map[key]) {
+        map[key] = { totalCount: 0, orders: [] };
+      }
+      map[key].totalCount += 1;
+      map[key].orders.push(o);
+    });
+
+    // Now, let's identify duplicate relationships
+    const duplicateMap: Record<string, {
+      isDuplicate: boolean;
+      otherOrderNumber?: string;
+      otherOrderId?: string;
+      reason?: string;
+      totalOrdersCount: number;
+    }> = {};
+
+    (orders || []).forEach((o) => {
+      const phone = o.customerPhone ? o.customerPhone.replace(/\D/g, "") : "";
+      const name = o.customerName ? o.customerName.trim().toLowerCase() : "";
+      const key = phone.length >= 7 ? `phone:${phone}` : name ? `name:${name}` : null;
+
+      if (!key || !map[key]) {
+        duplicateMap[o.id] = { isDuplicate: false, totalOrdersCount: 1 };
+        return;
+      }
+
+      const clientOrders = map[key].orders;
+      const totalCount = map[key].totalCount;
+
+      // Find if there is a suspected duplicate order
+      let duplicateRelation: any = null;
+
+      for (const other of clientOrders) {
+        if (other.id === o.id) continue;
+
+        // Skip if either is cancelled (so we don't spam warnings for orders already handled)
+        if (other.status === "ملغي" || o.status === "ملغي") continue;
+
+        // Check if items are identical
+        const oItems = o.items || [];
+        const otherItems = other.items || [];
+        const isSameItems = oItems.length === otherItems.length && oItems.every((item, idx) => {
+          const otherItem = otherItems[idx];
+          return otherItem && otherItem.productId === item.productId && otherItem.quantity === item.quantity;
+        });
+
+        // Time difference in hours
+        const timeDiffMs = Math.abs(new Date(o.date).getTime() - new Date(other.date).getTime());
+        const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+        // Suspicion criteria:
+        // 1. Same items and within 7 days
+        // 2. Same total value and within 48 hours
+        // 3. Any order within 24 hours (very likely double click or double submission)
+        let suspicionReason = "";
+        if (isSameItems && timeDiffHours <= 168) {
+          suspicionReason = "نفس المنتجات مكررة خلال أسبوع";
+        } else if (Math.abs(Number(o.totalPrice || 0) - Number(other.totalPrice || 0)) < 10 && timeDiffHours <= 48) {
+          suspicionReason = "نفس القيمة الإجمالية خلال 48 ساعة";
+        } else if (timeDiffHours <= 24) {
+          suspicionReason = "أوردر متقارب جداً خلال 24 ساعة";
+        }
+
+        if (suspicionReason) {
+          duplicateRelation = {
+            isDuplicate: true,
+            otherOrderNumber: other.orderNumber || other.id.substring(0, 6),
+            otherOrderId: other.id,
+            reason: suspicionReason,
+          };
+          break; // Stop at first match
+        }
+      }
+
+      duplicateMap[o.id] = {
+        isDuplicate: !!duplicateRelation,
+        otherOrderNumber: duplicateRelation?.otherOrderNumber,
+        otherOrderId: duplicateRelation?.otherOrderId,
+        reason: duplicateRelation?.reason,
+        totalOrdersCount: totalCount,
+      };
+    });
+
+    return duplicateMap;
+  }, [orders]);
+
+  const [showDuplicateFinder, setShowDuplicateFinder] = useState(false);
+
+  const duplicateGroups = useMemo(() => {
+    const groups: Array<{
+      key: string;
+      customerName: string;
+      customerPhone: string;
+      orders: Order[];
+      hasSuspectedDuplicate: boolean;
+    }> = [];
+
+    const map: Record<string, {
+      customerName: string;
+      customerPhone: string;
+      orders: Order[];
+      hasSuspectedDuplicate: boolean;
+    }> = {};
+
+    (orders || []).forEach((o) => {
+      const phone = o.customerPhone ? o.customerPhone.replace(/\D/g, "") : "";
+      const name = o.customerName ? o.customerName.trim() : "";
+      
+      const key = phone.length >= 7 ? `phone:${phone}` : name ? `name:${name.toLowerCase()}` : null;
+      if (!key) return;
+
+      if (!map[key]) {
+        map[key] = {
+          customerName: o.customerName,
+          customerPhone: o.customerPhone,
+          orders: [],
+          hasSuspectedDuplicate: false,
+        };
+      }
+      map[key].orders.push(o);
+    });
+
+    Object.entries(map).forEach(([key, group]) => {
+      if (group.orders.length > 1) {
+        let hasSuspectedDuplicate = false;
+        
+        group.orders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        for (let i = 0; i < group.orders.length; i++) {
+          for (let j = i + 1; j < group.orders.length; j++) {
+            const o = group.orders[i];
+            const other = group.orders[j];
+
+            if (o.status === "ملغي" || other.status === "ملغي") continue;
+
+            const oItems = o.items || [];
+            const otherItems = other.items || [];
+            const isSameItems = oItems.length === otherItems.length && oItems.every((item, idx) => {
+              const otherItem = otherItems[idx];
+              return otherItem && otherItem.productId === item.productId && otherItem.quantity === item.quantity;
+            });
+
+            const timeDiffMs = Math.abs(new Date(o.date).getTime() - new Date(other.date).getTime());
+            const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+            if (
+              (isSameItems && timeDiffHours <= 168) || 
+              (Math.abs(Number(o.totalPrice || 0) - Number(other.totalPrice || 0)) < 10 && timeDiffHours <= 48) ||
+              (timeDiffHours <= 24)
+            ) {
+              hasSuspectedDuplicate = true;
+              break;
+            }
+          }
+          if (hasSuspectedDuplicate) break;
+        }
+
+        group.hasSuspectedDuplicate = hasSuspectedDuplicate;
+        groups.push({
+          key,
+          ...group
+        });
+      }
+    });
+
+    return groups.sort((a, b) => {
+      if (a.hasSuspectedDuplicate && !b.hasSuspectedDuplicate) return -1;
+      if (!a.hasSuspectedDuplicate && b.hasSuspectedDuplicate) return 1;
+      return b.orders.length - a.orders.length;
+    });
+  }, [orders]);
   useEffect(() => {
     const interval = setInterval(() => {
       if (onRefresh && document.visibilityState === "visible") {
@@ -3238,6 +3425,32 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
           <div className="flex items-center gap-2 shrink-0">
             <button
+              onClick={() => setShowDuplicateFinder(true)}
+              className={`flex items-center gap-1.5 px-4 py-3 rounded-2xl border transition-all font-bold text-xs cursor-pointer relative ${
+                duplicateGroups.some(g => g.hasSuspectedDuplicate)
+                  ? "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40"
+                  : "bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/50 hover:bg-purple-100 dark:hover:bg-purple-900/40"
+              }`}
+              title="كشف الطلبات المكررة والعملاء ذوي الطلبات المتعددة"
+            >
+              {duplicateGroups.some(g => g.hasSuspectedDuplicate) ? (
+                <>
+                  <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 animate-pulse" />
+                  <span>👥 كاشف التكرار ({duplicateGroups.filter(g => g.hasSuspectedDuplicate).length})</span>
+                  <span className="absolute -top-1.5 -left-1.5 flex h-3.5 w-3.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 text-[8px] font-black text-white items-center justify-center">!</span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <Users size={18} className="text-purple-600 dark:text-purple-400" />
+                  <span>👥 العملاء المكررين ({duplicateGroups.length})</span>
+                </>
+              )}
+            </button>
+
+            <button
               onClick={() => setShowStatusGuide(true)}
               className="flex items-center gap-1.5 px-4 py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 transition-all font-bold text-xs"
               title="شرح مبسط لحالات الطلبات"
@@ -4605,6 +4818,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     whatsappLink={getWhatsAppLink(order)}
                     settings={settings}
                     storePrefix={storePrefix}
+                    customerHistory={customerHistoryMap[order.id]}
                   />
                 ))}
               </tbody>
@@ -4663,6 +4877,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 whatsappLink={getWhatsAppLink(order)}
                 settings={settings}
                 storePrefix={storePrefix}
+                customerHistory={customerHistoryMap[order.id]}
               />
             ))}
           </div>
@@ -4861,6 +5076,244 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       )}
 
       {/* Modals */}
+
+      {/* Duplicate Finder Modal */}
+      <AnimatePresence>
+        {showDuplicateFinder && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowDuplicateFinder(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 max-w-4xl w-full shadow-2xl max-h-[90vh] overflow-hidden flex flex-col text-right"
+              dir="rtl"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4 flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-xl">
+                    <AlertTriangle size={22} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white">🔎 كاشف الطلبات المكررة والعملاء النشطين</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-bold">
+                      تصفية ومطابقة الطلبات التي قد تكون مكررة بالخطأ أو لعملاء لديهم سجل طلبات متعددة.
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setShowDuplicateFinder(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-slate-400 cursor-pointer">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Info summary row */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4 flex-shrink-0">
+                <div className="p-3.5 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/20 rounded-2xl">
+                  <div className="text-xs text-slate-400 font-bold mb-1">الاشتباه في التكرار</div>
+                  <div className="text-lg font-black text-rose-600 dark:text-rose-400">
+                    {duplicateGroups.filter(g => g.hasSuspectedDuplicate).length} عملاء مشتبه بهم
+                  </div>
+                </div>
+                <div className="p-3.5 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/20 rounded-2xl">
+                  <div className="text-xs text-slate-400 font-bold mb-1">العملاء ذوي الطلبات المتعددة</div>
+                  <div className="text-lg font-black text-purple-600 dark:text-purple-400">
+                    {duplicateGroups.length} عملاء مكررين
+                  </div>
+                </div>
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200/50 dark:border-slate-800 rounded-2xl">
+                  <div className="text-xs text-slate-400 font-bold mb-1">إجمالي الطلبات النشطة لهم</div>
+                  <div className="text-lg font-black text-slate-700 dark:text-slate-300">
+                    {duplicateGroups.reduce((acc, g) => acc + g.orders.length, 0)} طلبات
+                  </div>
+                </div>
+              </div>
+
+              {/* Scrollable list */}
+              <div className="flex-1 overflow-y-auto pr-1 pl-3 space-y-4 py-2 min-h-[200px]">
+                {duplicateGroups.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                    <CheckCircle size={48} className="text-emerald-500 mb-3" />
+                    <p className="text-sm font-black">لا يوجد عملاء مكررين أو طلبات مكررة حالياً في القائمة</p>
+                    <p className="text-xs opacity-75 mt-1">كل الطلبات لعملاء فريدين حالياً.</p>
+                  </div>
+                ) : (
+                  duplicateGroups.map((group) => (
+                    <div 
+                      key={group.key}
+                      className={`p-4 rounded-3xl border transition-all ${
+                        group.hasSuspectedDuplicate
+                          ? "bg-rose-50/20 dark:bg-rose-950/10 border-rose-200/80 dark:border-rose-900/30 shadow-md shadow-rose-500/5"
+                          : "bg-slate-50 dark:bg-slate-800/30 border-slate-200 dark:border-slate-800"
+                      }`}
+                    >
+                      {/* Client details header */}
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-200/60 dark:border-slate-800/60 pb-3 mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-base font-black text-slate-900 dark:text-white">
+                              {group.customerName || "عميل غير مسمى"}
+                            </span>
+                            {group.hasSuspectedDuplicate && (
+                              <span className="px-2 py-0.5 bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-400 rounded-lg text-[10px] font-black border border-rose-200/40 dark:border-rose-900/40 animate-pulse">
+                                اشتباه تكرار عالي
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 rounded-lg text-[10px] font-black border border-indigo-100 dark:border-indigo-900/40">
+                              {group.orders.length} طلبات
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="flex items-center gap-1 font-bold">
+                              <Phone size={11} />
+                              <span className="tabular-nums select-all">{group.customerPhone || "بدون رقم هاتف"}</span>
+                            </span>
+                            {group.orders[0]?.city && (
+                              <>
+                                <span className="opacity-40">•</span>
+                                <span>📍 {group.orders[0].governorate}، {group.orders[0].city}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Quick WhatsApp or call link */}
+                        {group.customerPhone && (
+                          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                            <a
+                              href={`https://wa.me/${group.customerPhone.replace(/\D/g, "")}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-100/50 dark:border-emerald-900/20 text-xs font-black transition-all flex items-center gap-1"
+                            >
+                              <MessageCircle size={14} />
+                              <span>واتساب</span>
+                            </a>
+                            <a
+                              href={`tel:${group.customerPhone}`}
+                              className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl border border-slate-200/50 dark:border-slate-700/50 text-xs font-black transition-all flex items-center gap-1"
+                            >
+                              <Phone size={14} />
+                              <span>اتصال</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Group Orders Timeline / List */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {group.orders.map((o) => {
+                          const oStatusInfo = ORDER_STATUS_METADATA[o.status] || { label: o.status, color: "text-slate-600 bg-slate-100 border-slate-200" };
+                          
+                          let isFlagged = false;
+                          let oReason = "";
+                          const otherActiveOrders = group.orders.filter(item => item.id !== o.id && item.status !== "ملغي" && o.status !== "ملغي");
+                          
+                          for (const other of otherActiveOrders) {
+                            const oItems = o.items || [];
+                            const otherItems = other.items || [];
+                            const isSameItems = oItems.length === otherItems.length && oItems.every((it, idx) => {
+                              const otherItem = otherItems[idx];
+                              return otherItem && otherItem.productId === it.productId && otherItem.quantity === it.quantity;
+                            });
+
+                            const timeDiffMs = Math.abs(new Date(o.date).getTime() - new Date(other.date).getTime());
+                            const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
+
+                            if (isSameItems && timeDiffHours <= 168) {
+                              isFlagged = true;
+                              oReason = `نفس المنتجات مكررة مع الطلب #${other.orderNumber || other.id.slice(0, 6)} خلال أسبوع`;
+                              break;
+                            } else if (Math.abs(Number(o.totalPrice || 0) - Number(other.totalPrice || 0)) < 10 && timeDiffHours <= 48) {
+                              isFlagged = true;
+                              oReason = `نفس القيمة مع الطلب #${other.orderNumber || other.id.slice(0, 6)} خلال 48 ساعة`;
+                              break;
+                            } else if (timeDiffHours <= 24) {
+                              isFlagged = true;
+                              oReason = `طلب متقارب جداً مع الطلب #${other.orderNumber || other.id.slice(0, 6)} خلال 24 ساعة`;
+                              break;
+                            }
+                          }
+
+                          return (
+                            <div
+                              key={o.id}
+                              onClick={() => setShowDetailsModal(o)}
+                              className={`p-3.5 rounded-2xl border text-right cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-600 transition-all flex flex-col justify-between gap-2 relative group/item overflow-hidden ${
+                                isFlagged
+                                  ? "bg-rose-50/40 dark:bg-rose-950/20 border-rose-200/60 dark:border-rose-900/20"
+                                  : "bg-white dark:bg-slate-900/50 border-slate-200 dark:border-slate-800"
+                              }`}
+                            >
+                              <div className="absolute top-0 left-0 bottom-0 w-1 bg-indigo-500 opacity-0 group-hover/item:opacity-100 transition-opacity" />
+                              
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-black text-slate-800 dark:text-white">
+                                    #{o.orderNumber || o.id.slice(0, 6)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold tabular-nums">
+                                    {new Date(o.date).toLocaleDateString("ar-EG", {
+                                      month: "short",
+                                      day: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black border ${oStatusInfo.color}`}>
+                                  {oStatusInfo.label}
+                                </span>
+                              </div>
+
+                              <div className="text-xs font-bold text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-1 bg-slate-50 dark:bg-slate-800/40 px-2 py-1 rounded-xl">
+                                📦 {o.productName || "طلب مخصص"}
+                                {o.items && o.items.length > 0 && (
+                                  <span className="text-[10px] text-slate-400 dark:text-slate-500 mr-1">
+                                    ({o.items.map(it => `${it.name} x${it.quantity}`).join("، ")})
+                                  </span>
+                                )}
+                              </div>
+
+                              {isFlagged && (
+                                <div className="text-[9px] font-black text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                  <AlertTriangle size={10} className="shrink-0" />
+                                  <span className="leading-tight">{oReason}</span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-2 mt-1">
+                                <span className="text-[10px] font-bold text-slate-400">
+                                  بواسطة: {o.createdBy || "غير محدد"}
+                                </span>
+                                <div className="flex items-center gap-1 text-xs font-black text-indigo-600 dark:text-indigo-400">
+                                  <span>{o.totalPrice} ج.م</span>
+                                  <ExternalLink size={11} className="opacity-0 group-hover/item:opacity-100 transition-opacity ml-1" />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between border-t border-slate-200 dark:border-slate-800 pt-4 mt-3 flex-shrink-0 text-xs text-slate-400 font-bold">
+                <span>💡 اضغط على أي كارت طلب لفتح تفاصيله وإدارته أو إلغائه مباشرة.</span>
+                <button
+                  onClick={() => setShowDuplicateFinder(false)}
+                  className="px-5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 rounded-xl font-black transition-all cursor-pointer"
+                >
+                  إغلاق النافذة
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {showDetailsModal && (
         <OrderDetailsModal
@@ -5320,6 +5773,7 @@ const OrderCard = ({
   whatsappLink,
   settings,
   storePrefix = "",
+  customerHistory,
 }: {
   order: Order;
   isSelected: boolean;
@@ -5341,6 +5795,13 @@ const OrderCard = ({
   settings: Settings;
   storePrefix?: string;
   key?: any;
+  customerHistory?: {
+    isDuplicate: boolean;
+    otherOrderNumber?: string;
+    otherOrderId?: string;
+    reason?: string;
+    totalOrdersCount: number;
+  };
 }) => {
   const navigate = useNavigate();
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
@@ -5551,9 +6012,21 @@ const OrderCard = ({
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">
               العميل
             </p>
-            <h4 className="text-sm font-black text-slate-800 dark:text-white">
+            <h4 className="text-sm font-black text-slate-800 dark:text-white flex items-center justify-end gap-1.5 flex-wrap">
               {order.customerName}
             </h4>
+            {customerHistory?.isDuplicate && (
+              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30 animate-pulse">
+                <AlertTriangle size={9} />
+                <span>طلب مكرر! (#{customerHistory.otherOrderNumber})</span>
+              </div>
+            )}
+            {!customerHistory?.isDuplicate && customerHistory && customerHistory.totalOrdersCount > 1 && (
+              <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-100/50 dark:border-purple-900/30">
+                <RefreshCcw size={9} className="animate-spin-slow" />
+                <span>عميل مكرر ({customerHistory.totalOrdersCount})</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -6637,6 +7110,45 @@ const ProfitBreakdown: React.FC<{
 };
 
 const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
+  const navigate = useNavigate();
+  const { storeId } = useParams<{ storeId: string }>();
+  const storePrefix = storeId ? `/store/${storeId}` : '';
+
+  const handleExchangeItem = (item: any, idx: number) => {
+    const creditAmount = (item.price || 0) * (item.quantity || 1);
+    navigate(`${storePrefix}/orders/new`, {
+      state: {
+        exchangeData: {
+          customerName: order.customerName,
+          customerPhone: order.customerPhone,
+          customerAddress: order.customerAddress,
+          shippingCompany: order.shippingCompany,
+          shippingArea: order.shippingArea,
+          governorate: order.governorate,
+          city: order.city,
+          orderType: "exchange",
+          shipmentType: "exchange",
+          originalOrderId: order.orderNumber || order.id,
+          creditAmount: creditAmount,
+          originalOrderItems: order.items || [],
+          exchangedItems: (order.items || []).map((it, i) => ({
+            ...it,
+            selected: i === idx,
+          })),
+        },
+      },
+    });
+  };
+
+  const handleReturnItem = (item: any, idx: number) => {
+    navigate(`${storePrefix}/returns`, {
+      state: {
+        selectOrder: order,
+        selectItemIndex: idx
+      }
+    });
+  };
+
   return (
     <div className="bg-slate-50 dark:bg-slate-900/40 rounded-[2.5rem] p-6 border border-slate-200 dark:border-slate-800 shadow-inner w-full max-w-xl mx-auto my-4 space-y-6 whitespace-normal">
       <h5 className="text-sm font-black text-slate-400 flex items-center justify-end gap-2 px-4 italic uppercase tracking-wider">
@@ -6677,6 +7189,26 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
                 </span>
               </div>
             </div>
+
+            {/* Compact Action Buttons on the Left */}
+            <div className="flex flex-col gap-1.5 justify-center flex-shrink-0 mr-auto pl-1">
+              <button
+                onClick={() => handleExchangeItem(item, idx)}
+                className="flex items-center justify-center gap-1 px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-900/40 text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-black transition-all border border-purple-100/50 dark:border-purple-900/30 cursor-pointer active:scale-95"
+                title="استبدال هذا المنتج"
+              >
+                <ArrowRightLeft size={11} />
+                <span>استبدال</span>
+              </button>
+              <button
+                onClick={() => handleReturnItem(item, idx)}
+                className="flex items-center justify-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 rounded-xl text-[10px] font-black transition-all border border-rose-100/50 dark:border-rose-900/30 cursor-pointer active:scale-95"
+                title="مرتجع هذا المنتج"
+              >
+                <RotateCcw size={11} />
+                <span>مرتجع</span>
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -6708,6 +7240,7 @@ const OrderRow = ({
   anyFlexShipEnabled,
   treasury,
   storePrefix = "",
+  customerHistory,
 }: {
   order: Order;
   isSelected: boolean;
@@ -6733,6 +7266,13 @@ const OrderRow = ({
   treasury?: any;
   storePrefix?: string;
   key?: any;
+  customerHistory?: {
+    isDuplicate: boolean;
+    otherOrderNumber?: string;
+    otherOrderId?: string;
+    reason?: string;
+    totalOrdersCount: number;
+  };
 }) => {
   const navigate = useNavigate();
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
@@ -7014,7 +7554,19 @@ const OrderRow = ({
                 })()}
               </div>
               <div className="group/customer relative inline-block text-right">
-                <div className="flex items-center gap-1.5 mt-0.5">
+                <div className="flex items-center justify-end gap-1.5 mt-0.5 flex-wrap">
+                  {customerHistory?.isDuplicate && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30 animate-pulse" title={`تكرار محتمل مع طلب رقم #${customerHistory.otherOrderNumber} بسبب: ${customerHistory.reason}`}>
+                      <AlertTriangle size={9} />
+                      <span>طلب مكرر! (#{customerHistory.otherOrderNumber})</span>
+                    </span>
+                  )}
+                  {!customerHistory?.isDuplicate && customerHistory && customerHistory.totalOrdersCount > 1 && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] font-black bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-100/50 dark:border-purple-900/30" title={`هذا العميل لديه ${customerHistory.totalOrdersCount} طلبات في النظام`}>
+                      <RefreshCcw size={9} className="animate-spin-slow" />
+                      <span>عميل مكرر ({customerHistory.totalOrdersCount})</span>
+                    </span>
+                  )}
                   {order.recordedAsDebt && (
                     <div className="flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-lg text-[9px] font-black border border-rose-100 dark:border-rose-500/20">
                       <Banknote size={10} />

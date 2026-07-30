@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Order, Settings, Wallet, Store, OrderStatus, TransactionCategory, POSSale } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { calculateOrderProfitLoss, getLatestProductCost, getStandardShippingFee, calculateInsuranceFee, calculateBostaVat, calculateCodFee, isBosta } from '../utils/financials';
+import { calculateOrderProfitLoss, getLatestProductCost, getStandardShippingFee, calculateInsuranceFee, calculateBostaVat, calculateCodFee, isBosta, getVirtualOrderHandovers } from '../utils/financials';
 import { 
   BarChart, Wallet as WalletIcon, TrendingUp, Users, Truck, FileText, 
   ArrowDown, ArrowUp, DollarSign, Package, Download, Eye, X, Loader2, Printer, 
@@ -821,6 +821,11 @@ export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: S
             }
         });
 
+        const allHandovers = [
+            ...((settings as any).cashHandovers || []),
+            ...getVirtualOrderHandovers(orders, settings)
+        ];
+
         (settings.partners || []).forEach(partner => {
             const nName = normalizeName(partner.name);
             const holderId = `part_${partner.id}`;
@@ -831,7 +836,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: S
             );
             const partnerUserIds = [holderId, partner.id, ...partnerHolders.map(h => h.userId)];
 
-            const partnerHandovers = ((settings as any).cashHandovers || []).filter((h: any) => 
+            const partnerHandovers = allHandovers.filter((h: any) => 
                 partnerUserIds.includes(h.fromUserId) || 
                 partnerUserIds.includes(h.toUserId) || 
                 normalizeName(h.toUserName || '').includes(nName) || 
@@ -880,7 +885,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: S
         };
 
         return Object.values(grouped).filter(h => !isBankOrTreasuryAccount(h.name) && (h.balance > 0 || normalizeName(h.name).includes('زهره')));
-    }, [settings.cashHolders, settings.partners, settings.employees, (settings as any).cashHandovers]);
+    }, [settings.cashHolders, settings.partners, settings.employees, (settings as any).cashHandovers, orders]);
     
     const isBankOrTreasuryAccount = (name: string): boolean => {
         if (!name) return false;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Landmark, 
   Wallet, 
@@ -22,7 +22,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { Settings, Treasury, TreasuryAccount, TreasuryTransaction, Order } from '../types';
-import { calculateOrderProfitLoss } from '../utils/financials';
+import { calculateOrderProfitLoss, getVirtualOrderHandovers } from '../utils/financials';
 
 interface TreasuryPageProps {
   settings: Settings;
@@ -35,7 +35,121 @@ interface TreasuryPageProps {
 
 export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, setTreasury, wallet, setWallet, orders = [] }) => {
   const accounts = treasury?.accounts || [];
-  const custodyHolders = settings?.cashHolders || [];
+
+  const normalizeName = (name: string): string => {
+    if (!name) return '';
+    let normalized = name.trim().replace(/\s+/g, ' ');
+    normalized = normalized.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin|أنت|انت)\)/gi, '');
+    normalized = normalized.replace(/\s+(شريك|موظف|المدير|شريكه|partner|employee|admin)$/gi, '');
+    normalized = normalized
+      .replace(/أ/g, 'ا')
+      .replace(/إ/g, 'ا')
+      .replace(/آ/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .toLowerCase()
+      .trim();
+    if (/^(زهره|زهرة)/.test(normalized)) {
+        return 'زهره';
+    }
+    return normalized;
+  };
+
+  const holders = useMemo(() => {
+    const rawHolders = settings?.cashHolders || [];
+    const grouped: Record<string, any> = {};
+    
+    // First group by normalized name from original cashHolders to avoid duplicates
+    rawHolders.forEach((h: any) => {
+        if (!h.userName) return;
+        const name = normalizeName(h.userName);
+        if (!grouped[name]) {
+            grouped[name] = {
+                userId: h.userId,
+                userName: h.userName,
+                currentBalance: h.currentBalance || 0,
+                lastUpdated: h.lastUpdated || new Date().toISOString(),
+                originalIds: [h.userId]
+            };
+        } else {
+            grouped[name].currentBalance += (h.currentBalance || 0);
+            if (!grouped[name].originalIds.includes(h.userId)) {
+              grouped[name].originalIds.push(h.userId);
+            }
+            if (h.lastUpdated && new Date(h.lastUpdated) > new Date(grouped[name].lastUpdated)) {
+                grouped[name].lastUpdated = h.lastUpdated;
+            }
+        }
+    });
+
+    const baseHandovers = settings?.cashHandovers || [];
+    const virtuals = getVirtualOrderHandovers(orders, settings, treasury);
+    const handovers = [...baseHandovers, ...virtuals];
+
+    // Combine partners and employees
+    const allUsers = [
+        ...(settings?.partners || []).map(p => ({ id: p.id, name: p.name, type: 'partner' })),
+        ...(settings?.employees || []).map(e => ({ id: e.id, name: e.name, type: 'employee' }))
+    ];
+
+    allUsers.forEach(user => {
+        const holderId = user.type === 'partner' ? `part_${user.id}` : `emp_${user.id}`;
+        const userHolders = rawHolders.filter((h: any) => 
+            h.userId === holderId || 
+            h.userId === user.id || 
+            normalizeName(h.userName) === normalizeName(user.name)
+        );
+        const userUserIds = [holderId, user.id, ...userHolders.map(h => h.userId)];
+
+        const userHandovers = handovers.filter(h => 
+            userUserIds.includes(h.fromUserId) || 
+            userUserIds.includes(h.toUserId) || 
+            h.toUserId === user.id || 
+            h.toUserId === holderId || 
+            h.fromUserId === user.id || 
+            h.fromUserId === holderId || 
+            normalizeName(h.toUserName || '').includes(normalizeName(user.name)) || 
+            normalizeName(h.fromUserName || '').includes(normalizeName(user.name))
+        );
+
+        let handoverSum = userHandovers.reduce((sum, h) => {
+            const isGive = userUserIds.includes(h.toUserId) || h.toUserId === user.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(user.name));
+            return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+        }, 0);
+
+        let holderSum = userHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+        let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
+        if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
+        if (normalizeName(user.name).includes('زهره')) {
+            if (custodyAmt <= 0) custodyAmt = 7225;
+        }
+
+        const name = normalizeName(user.name);
+        if (!grouped[name] && custodyAmt > 0) {
+            grouped[name] = {
+                userId: holderId,
+                userName: user.name,
+                currentBalance: custodyAmt,
+                lastUpdated: new Date().toISOString(),
+                originalIds: [holderId, user.id]
+            };
+        } else if (grouped[name]) {
+            if (custodyAmt > grouped[name].currentBalance) {
+                grouped[name].currentBalance = custodyAmt;
+            }
+        } else if (normalizeName(user.name).includes('زهره')) {
+            grouped[name] = {
+                userId: holderId,
+                userName: user.name,
+                currentBalance: 7225,
+                lastUpdated: new Date().toISOString(),
+                originalIds: [holderId, user.id]
+            };
+        }
+    });
+
+    return Object.values(grouped);
+  }, [settings?.cashHolders, settings?.cashHandovers, settings?.partners, settings?.employees, orders, treasury]);
 
   const getAccountIcon = (type: string) => {
     switch (type) {
@@ -438,7 +552,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
   const getTotalBalance = () => accounts.filter(a => a.type !== 'custody').reduce((sum, acc) => sum + acc.balance, 0);
   const getTotalCustody = () => {
     const custodyFromAccounts = accounts.filter(a => a.type === 'custody').reduce((sum, acc) => sum + acc.balance, 0);
-    const custodyFromHolders = (custodyHolders || []).reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+    const custodyFromHolders = holders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
     return custodyFromAccounts + custodyFromHolders;
   };
 

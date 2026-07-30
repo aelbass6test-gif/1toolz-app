@@ -988,7 +988,11 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             amount: Number(cleanItem.amount ?? 0),
                             date: cleanItem.date || '',
                             notes: cleanItem.notes || '',
-                            status: cleanItem.status || 'completed'
+                            status: cleanItem.status || 'completed',
+                            is_virtual: cleanItem.isVirtual !== undefined ? Boolean(cleanItem.isVirtual) : false,
+                            isvirtual: cleanItem.isVirtual !== undefined ? Boolean(cleanItem.isVirtual) : false,
+                            order_number: cleanItem.orderNumber || cleanItem.order_number || '',
+                            ordernumber: cleanItem.orderNumber || cleanItem.order_number || ''
                         };
                     } else if (table === 'partners') {
                         mappedItem = {
