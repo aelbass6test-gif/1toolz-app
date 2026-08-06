@@ -1,7 +1,7 @@
 {
   "name": "منظومة عبدو ميديا لإدارة الأنشطة التجارية المتكاملة",
   "description": "نظام إدارة متكامل لتجارتك، فواتيرك، حسابات الخزينة وعمليات المزامنة والأمان السحابي من أي مكان.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

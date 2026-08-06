@@ -21,6 +21,31 @@ export const getCompanySpecificFees = (settings?: Settings, companyName?: string
     return undefined;
 };
 
+export const findProductInSettings = (item: any, settings?: Settings) => {
+    if (!settings?.products || !item) return undefined;
+    
+    // 1. Try matching by ID or variant ID
+    let found = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+    if (found) return found;
+    
+    // 2. Try matching by exact name (trimming whitespace and normalizing arabic characters)
+    const norm = (str: string) => str.trim().toLowerCase().replace(/ة/g, 'ه').replace(/أ|إ|آ/g, 'ا').replace(/\s+/g, ' ');
+    if (item.name) {
+        const itemNormName = norm(item.name);
+        found = settings.products.find(p => p.name && norm(p.name) === itemNormName);
+        if (found) return found;
+    }
+    
+    // 3. Try matching by SKU
+    if (item.sku || item.skuCode || item.productId) {
+        const itemSku = (item.sku || item.skuCode || item.productId).trim().toLowerCase();
+        found = settings.products.find(p => (p.sku && p.sku.trim().toLowerCase() === itemSku) || p.variants?.some(v => v.sku && v.sku.trim().toLowerCase() === itemSku));
+        if (found) return found;
+    }
+    
+    return undefined;
+};
+
 export const getOrderProductCost = (order: Order, settings?: Settings): number => {
     if (order.maintenanceItemValue && order.maintenanceItemValue > 0) {
         return order.maintenanceItemValue;
@@ -135,14 +160,43 @@ export const getStandardShippingFee = (order: Order, settings?: Settings): numbe
     return totalFee;
 };
 
+export const resolveItemCatalogPrice = (item: any, product: any, actualCost: number): number => {
+    if (item.basePrice !== undefined && item.basePrice > 0) {
+        return Number(item.basePrice);
+    }
+    const comm = Number(item.commissionPercentage ?? product?.commissionPercentage ?? 0);
+    const isComm = item.profitMode === 'commission' || product?.profitMode === 'commission' || (comm > 0 && comm < 100);
+    if (isComm && actualCost > 0 && comm > 0 && comm < 100) {
+        const calcBase = Math.round((actualCost / (1 - comm / 100)) * 100) / 100;
+        if (item.price >= calcBase) {
+            return calcBase;
+        }
+    }
+    const variant = product?.variants?.find((v: any) => v.id === item.productId || v.id === item.variantId);
+    if (product?.profitMode === 'commission' && product.basePrice !== undefined && product.basePrice > 0) {
+        return Number(product.basePrice);
+    }
+    if (product?.basePrice !== undefined && product.basePrice > 0) {
+        return Number(product.basePrice);
+    }
+    if (variant && variant.price !== undefined && variant.price > 0) {
+        return Number(variant.price);
+    }
+    if (product && product.price !== undefined && product.price > 0) {
+        return Number(product.price);
+    }
+    return Number(item.price || 0);
+};
+
 export const getOrderBasePrice = (order: Order, settings?: Settings): number => {
     if (order.maintenanceItemValue && order.maintenanceItemValue > 0) {
         return order.maintenanceItemValue;
     }
     if (order.items && order.items.length > 0 && settings?.products) {
         return order.items.reduce((sum, item) => {
-            const product = settings.products.find(p => p.id === item.productId || p.sku === item.productId || p.variants?.some(v => v.id === item.productId));
-            const base = product?.basePrice ?? product?.price ?? item.price;
+            const product = findProductInSettings(item, settings);
+            const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(item.productId, settings) || item.cost || 0);
+            const base = resolveItemCatalogPrice(item, product, actualCost);
             return sum + (base * (item.quantity || 1));
         }, 0);
     }
@@ -342,10 +396,10 @@ export const calculateCodFee = (order: Order, settings: Settings): number => {
 
 export const getLatestProductCost = (productId: string, settings: Settings): number => {
     if (!settings) return 0;
-    const latestItem = settings.supplyOrders
-        .filter(so => so.status === 'completed')
-        .flatMap(so => so.items.map(item => ({ ...item, date: so.date })))
-        .filter(item => item.productId === productId)
+    const latestItem = (settings.supplyOrders || [])
+        .filter(so => so && so.status === 'completed')
+        .flatMap(so => (so.items || []).map(item => ({ ...item, date: so.date })))
+        .filter(item => item && item.productId === productId)
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
     
     if (latestItem) {

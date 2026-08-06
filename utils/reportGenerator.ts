@@ -237,7 +237,7 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
     `;
 };
 
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getAdvancePaymentCustodyName, resolveCashHolderName } from './financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getAdvancePaymentCustodyName, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from './financials';
 
 export const renderFlexShipAndCompensationBadges = (
   order: Order, 
@@ -2464,6 +2464,20 @@ export interface ComprehensiveReportSections {
     showExtraServicesRow?: boolean;
     showFlexShipAmount?: boolean;
     supplyOrders?: any[];
+    showColProducts?: boolean;
+    showColPrice?: boolean;
+    showColPriceAfterDiscount?: boolean;
+    showColCost?: boolean;
+    showColSurplusProfit?: boolean;
+    showColPercentageProfit?: boolean;
+    showColTotalProfitBeforeExpenses?: boolean;
+    showColDiscounts?: boolean;
+    showColShipping?: boolean;
+    showColInsurance?: boolean;
+    showColTax?: boolean;
+    showColInspection?: boolean;
+    showColCod?: boolean;
+    showColNetProfit?: boolean;
 }
 
 export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury, sections?: ComprehensiveReportSections): string => {
@@ -2482,6 +2496,20 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         showInventoryValue: sections?.showInventoryValue !== false,
         includeMarkupsInProductRevenue: sections?.includeMarkupsInProductRevenue === true,
         showExtraServicesRow: sections?.showExtraServicesRow !== false,
+        showColProducts: sections?.showColProducts !== false,
+        showColPrice: sections?.showColPrice !== false,
+        showColPriceAfterDiscount: sections?.showColPriceAfterDiscount !== false,
+        showColCost: sections?.showColCost !== false,
+        showColSurplusProfit: sections?.showColSurplusProfit !== false,
+        showColPercentageProfit: sections?.showColPercentageProfit !== false,
+        showColTotalProfitBeforeExpenses: sections?.showColTotalProfitBeforeExpenses !== false,
+        showColDiscounts: sections?.showColDiscounts !== false,
+        showColShipping: sections?.showColShipping !== false,
+        showColInsurance: sections?.showColInsurance !== false,
+        showColTax: sections?.showColTax !== false,
+        showColInspection: sections?.showColInspection !== false,
+        showColCod: sections?.showColCod !== false,
+        showColNetProfit: sections?.showColNetProfit !== false,
     };
     const failedOrders = (orders || []).filter(o => {
         const { loss, net } = calculateOrderProfitLoss(o, settings);
@@ -2539,9 +2567,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let sumCollectedTax = 0;
 
     let ship_sumProductPrice = 0;
+    let ship_sumPriceAfterDiscount = 0;
     let ship_sumShippingFee = 0;
     let ship_sumTax = 0;
     let ship_totalCogs = 0;
+    let ship_totalSurplusProfit = 0;
+    let ship_totalPercentageProfit = 0;
+    let ship_totalProfitBeforeExpenses = 0;
+    let ship_sumDiscounts = 0;
     let ship_totalInsurance = 0;
     let ship_totalInspection = 0;
     let ship_totalCod = 0;
@@ -2549,9 +2582,14 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let ship_totalExcluded = 0;
 
     let pos_sumProductPrice = 0;
+    let pos_sumPriceAfterDiscount = 0;
     let pos_sumShippingFee = 0;
     let pos_sumTax = 0;
     let pos_totalCogs = 0;
+    let pos_totalSurplusProfit = 0;
+    let pos_totalPercentageProfit = 0;
+    let pos_totalProfitBeforeExpenses = 0;
+    let pos_sumDiscounts = 0;
     let pos_totalInsurance = 0;
     let pos_totalInspection = 0;
     let pos_totalCod = 0;
@@ -2604,36 +2642,43 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         let orderBaseRevenue = 0;
         let orderProductExtraMarkup = 0;
+        let orderPercentageProfit = 0;
+        let orderSurplusProfit = 0;
 
         order.items.forEach(item => {
-            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-            const variant = product?.variants?.find(v => v.id === item.productId);
-            const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const product = findProductInSettings(item, settings);
+            const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+            const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
             const itemProfit = (item.price - actualCost) * item.quantity;
 
-            const catalogPrice = (product?.profitMode === 'commission' && product.basePrice !== undefined) ? product.basePrice :
-                                 (product?.basePrice !== undefined && product.basePrice > 0) ? product.basePrice :
-                                 ((variant && variant.price !== undefined) ? variant.price : ((product && product.price !== undefined) ? product.price : item.price));
-
+            let basePercentageProfit = itemProfit;
             if (item.price > catalogPrice) {
                 orderBaseRevenue += catalogPrice * item.quantity;
-                orderProductExtraMarkup += (item.price - catalogPrice) * item.quantity;
+                const extra = (item.price - catalogPrice) * item.quantity;
+                orderProductExtraMarkup += extra;
+                orderSurplusProfit += extra;
+                basePercentageProfit = Math.max(0, (catalogPrice - actualCost) * item.quantity);
+                orderPercentageProfit += basePercentageProfit;
             } else {
                 orderBaseRevenue += item.price * item.quantity;
+                orderPercentageProfit += Math.max(0, itemProfit);
             }
 
             if (product?.profitMode === 'commission') {
-                totalCommissionProfit += itemProfit;
+                totalCommissionProfit += basePercentageProfit;
             } else {
-                totalPercentageProfit += itemProfit;
+                totalPercentageProfit += basePercentageProfit;
             }
         });
+
+        const displaySurplusProfit = orderSurplusProfit;
 
         const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
         const currentCogs = (order.items || []).reduce((sum, item) => {
-            const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const product = findProductInSettings(item, settings);
+            const costVal = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
             return sum + (costVal * item.quantity);
         }, 0);
 
@@ -2664,18 +2709,25 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         // Subtotals for Shipping Table
         ship_sumProductPrice += safeProductPrice;
+        ship_sumPriceAfterDiscount += (safeProductPrice - safeDiscount - (closingDifference < 0 ? Math.abs(closingDifference) : 0));
         ship_totalExcluded += excludedForOrder;
         ship_sumShippingFee += order.shippingFee;
         ship_sumTax += (bostaVat + safeTax);
         ship_totalCogs += currentCogs;
+        ship_totalSurplusProfit += displaySurplusProfit;
+        ship_totalPercentageProfit += orderPercentageProfit;
+        ship_totalProfitBeforeExpenses += (displaySurplusProfit + orderPercentageProfit);
+        ship_sumDiscounts += (safeDiscount + (closingDifference < 0 ? Math.abs(closingDifference) : 0));
         ship_totalInsurance += insuranceFee;
         ship_totalInspection += inspectionAdjustment;
         ship_totalCod += codFee;
         ship_totalProfit += displayOrderProfit;
 
         const productDetails = order.items.map(item => {
-            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-            const isMulti = product?.profitMode === 'commission' && product.basePrice !== undefined && item.price > product.basePrice;
+            const product = findProductInSettings(item, settings);
+            const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+            const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
+            const isMulti = item.price > catalogPrice;
             return `
                 <div style="margin-bottom: 4px; line-height: 1.4;">
                     <strong>${item.name}</strong> (${item.quantity})
@@ -2685,6 +2737,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         }).join('');
         
         const taxDisplay = (bostaVat + safeTax) > 0 ? (bostaVat + safeTax).toLocaleString() : '-';
+
+        const totalOrderDiscounts = safeDiscount + (closingDifference < 0 ? Math.abs(closingDifference) : 0);
+        const orderPriceAfterDiscount = safeProductPrice - totalOrderDiscounts;
+        const totalProfitBeforeExp = displaySurplusProfit + orderPercentageProfit;
 
         return `
             <tr style="${rowStyle}">
@@ -2699,32 +2755,27 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     عربون مدفوع: ${safeAdvance.toLocaleString()}
                   </div>` : ''}
                 </td>
-                <td class="col-products">${productDetails}</td>
-                <td>
+                ${s.showColProducts ? `<td class="col-products">${productDetails}</td>` : ''}
+                ${s.showColPrice ? `<td>
                   <div>${safeProductPrice.toLocaleString()}</div>
                   ${excludedForOrder > 0 ? `
                   <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
                     مستبعد فرق وتسويات: ${excludedForOrder.toLocaleString()} ج.م
                   </div>
                   ` : ''}
-                  ${order.discount > 0 ? `
-                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
-                    خصم: ${order.discount.toLocaleString()} ج.م
-                  </div>
-                  ` : ''}
-                  ${closingDifference < 0 ? `
-                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
-                    خصم تعديل: ${Math.abs(closingDifference).toLocaleString()} ج.م
-                  </div>
-                  ` : ''}
-                </td>
-                <td>${order.shippingFee.toLocaleString()}</td>
-                <td>${taxDisplay}</td>
-                <td>${productCost.toLocaleString()}</td>
-                <td>${insuranceFee.toLocaleString()}</td>
-                <td>${inspectionAdjustment.toLocaleString()}</td>
-                <td>${codFee.toLocaleString()}</td>
-                <td style="color: #15803d; font-weight: bold;">${fmt(displayOrderProfit)}</td>
+                </td>` : ''}
+                ${s.showColDiscounts ? `<td>${totalOrderDiscounts.toLocaleString()}</td>` : ''}
+                ${s.showColPriceAfterDiscount ? `<td>${orderPriceAfterDiscount.toLocaleString()}</td>` : ''}
+                ${s.showColCost ? `<td>${productCost.toLocaleString()}</td>` : ''}
+                ${s.showColSurplusProfit ? `<td style="text-align: center; font-weight: bold; color: ${displaySurplusProfit > 0 ? '#0284c7' : '#ef4444'};">${displaySurplusProfit > 0 ? fmt(displaySurplusProfit) : '&empty;'}</td>` : ''}
+                ${s.showColPercentageProfit ? `<td style="text-align: center; font-weight: bold; color: #4f46e5;">${fmt(orderPercentageProfit)}</td>` : ''}
+                ${s.showColTotalProfitBeforeExpenses ? `<td style="text-align: center; font-weight: bold; color: #059669;">${fmt(totalProfitBeforeExp)}</td>` : ''}
+                ${s.showColShipping ? `<td>${order.shippingFee.toLocaleString()}</td>` : ''}
+                ${s.showColInsurance ? `<td>${insuranceFee.toLocaleString()}</td>` : ''}
+                ${s.showColTax ? `<td>${taxDisplay}</td>` : ''}
+                ${s.showColInspection ? `<td>${inspectionAdjustment.toLocaleString()}</td>` : ''}
+                ${s.showColCod ? `<td>${codFee.toLocaleString()}</td>` : ''}
+                ${s.showColNetProfit ? `<td style="color: #15803d; font-weight: bold;">${fmt(displayOrderProfit)}</td>` : ''}
             </tr>`;
     }).join('');
 
@@ -2750,36 +2801,43 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         let orderBaseRevenue = 0;
         let orderProductExtraMarkup = 0;
+        let orderPercentageProfit = 0;
+        let orderSurplusProfit = 0;
 
         order.items.forEach(item => {
-            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-            const variant = product?.variants?.find(v => v.id === item.productId);
-            const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const product = findProductInSettings(item, settings);
+            const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+            const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
             const itemProfit = (item.price - actualCost) * item.quantity;
 
-            const catalogPrice = (product?.profitMode === 'commission' && product.basePrice !== undefined) ? product.basePrice :
-                                 (product?.basePrice !== undefined && product.basePrice > 0) ? product.basePrice :
-                                 ((variant && variant.price !== undefined) ? variant.price : ((product && product.price !== undefined) ? product.price : item.price));
-
+            let basePercentageProfit = itemProfit;
             if (item.price > catalogPrice) {
                 orderBaseRevenue += catalogPrice * item.quantity;
-                orderProductExtraMarkup += (item.price - catalogPrice) * item.quantity;
+                const extra = (item.price - catalogPrice) * item.quantity;
+                orderProductExtraMarkup += extra;
+                orderSurplusProfit += extra;
+                basePercentageProfit = Math.max(0, (catalogPrice - actualCost) * item.quantity);
+                orderPercentageProfit += basePercentageProfit;
             } else {
                 orderBaseRevenue += item.price * item.quantity;
+                orderPercentageProfit += Math.max(0, itemProfit);
             }
 
             if (product?.profitMode === 'commission') {
-                totalCommissionProfit += itemProfit;
+                totalCommissionProfit += basePercentageProfit;
             } else {
-                totalPercentageProfit += itemProfit;
+                totalPercentageProfit += basePercentageProfit;
             }
         });
+
+        const displaySurplusProfit = orderSurplusProfit;
 
         const isMultiProfitOrder = orderProductExtraMarkup > 0;
         const rowStyle = isMultiProfitOrder ? 'background-color: #f0f9ff !important; border-right: 4px solid #0ea5e9;' : '';
 
         const currentCogs = (order.items || []).reduce((sum, item) => {
-            const costVal = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const product = findProductInSettings(item, settings);
+            const costVal = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
             return sum + (costVal * item.quantity);
         }, 0);
 
@@ -2805,15 +2863,22 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         // Subtotals POS
         pos_sumProductPrice += safeProductPrice;
+        pos_sumPriceAfterDiscount += (safeProductPrice - safeDiscount - (closingDifference < 0 ? Math.abs(closingDifference) : 0));
         pos_totalExcluded += posExcludedForOrder;
         pos_sumShippingFee += order.shippingFee;
         pos_sumTax += safeTax;
         pos_totalCogs += currentCogs;
+        pos_totalSurplusProfit += displaySurplusProfit;
+        pos_totalPercentageProfit += orderPercentageProfit;
+        pos_totalProfitBeforeExpenses += (displaySurplusProfit + orderPercentageProfit);
+        pos_sumDiscounts += (safeDiscount + (closingDifference < 0 ? Math.abs(closingDifference) : 0));
         pos_totalProfit += displayOrderProfit;
 
         const productDetails = order.items.map(item => {
-            const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-            const isMulti = product?.profitMode === 'commission' && product.basePrice !== undefined && item.price > product.basePrice;
+            const product = findProductInSettings(item, settings);
+            const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+            const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
+            const isMulti = item.price > catalogPrice;
             return `
                 <div style="margin-bottom: 4px; line-height: 1.4;">
                     <strong>${item.name}</strong> (${item.quantity})
@@ -2821,6 +2886,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 </div>
             `;
         }).join('');
+
+        const totalOrderDiscounts = safeDiscount + (closingDifference < 0 ? Math.abs(closingDifference) : 0);
+        const orderPriceAfterDiscount = safeProductPrice - totalOrderDiscounts;
+        const totalProfitBeforeExp = displaySurplusProfit + orderPercentageProfit;
 
         return `
             <tr style="${rowStyle}">
@@ -2837,27 +2906,22 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     ثمن المنتج (تحصيل نقدي): ${safeAdvance.toLocaleString()} ج.م
                   </div>` : ''}
                 </td>
-                <td class="col-products">${productDetails}</td>
-                <td>
+                ${s.showColProducts ? `<td class="col-products">${productDetails}</td>` : ''}
+                ${s.showColPrice ? `<td>
                   <div>${safeProductPrice.toLocaleString()}</div>
                   ${posExcludedForOrder > 0 ? `
                   <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
                     مستبعد فرق وتسويات: ${posExcludedForOrder.toLocaleString()} ج.م
                   </div>
                   ` : ''}
-                  ${order.discount > 0 ? `
-                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
-                    خصم: ${order.discount.toLocaleString()} ج.م
-                  </div>
-                  ` : ''}
-                  ${closingDifference < 0 ? `
-                  <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: bold; white-space: nowrap;">
-                    خصم تعديل: ${Math.abs(closingDifference).toLocaleString()} ج.م
-                  </div>
-                  ` : ''}
-                </td>
-                <td>${productCost.toLocaleString()}</td>
-                <td style="color: #15803d; font-weight: bold;">${fmt(displayOrderProfit)}</td>
+                </td>` : ''}
+                ${s.showColDiscounts ? `<td>${totalOrderDiscounts.toLocaleString()}</td>` : ''}
+                ${s.showColPriceAfterDiscount ? `<td>${orderPriceAfterDiscount.toLocaleString()}</td>` : ''}
+                ${s.showColCost ? `<td>${productCost.toLocaleString()}</td>` : ''}
+                ${s.showColSurplusProfit ? `<td style="text-align: center; font-weight: bold; color: ${displaySurplusProfit > 0 ? '#0284c7' : '#ef4444'};">${displaySurplusProfit > 0 ? fmt(displaySurplusProfit) : '&empty;'}</td>` : ''}
+                ${s.showColPercentageProfit ? `<td style="text-align: center; font-weight: bold; color: #4f46e5;">${fmt(orderPercentageProfit)}</td>` : ''}
+                ${s.showColTotalProfitBeforeExpenses ? `<td style="text-align: center; font-weight: bold; color: #059669;">${fmt(totalProfitBeforeExp)}</td>` : ''}
+                ${s.showColNetProfit ? `<td style="color: #15803d; font-weight: bold;">${fmt(displayOrderProfit)}</td>` : ''}
             </tr>`;
     }).join('');
 
@@ -2949,7 +3013,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let extraPosCOGS = 0;
     extraPosSales.forEach(s => {
         (s.items || []).forEach(item => {
-            const cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+            const cost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(item.productId, settings) || item.cost || 0);
             extraPosCOGS += (cost * (item.quantity || 1));
             extraPosRevenue += (item.price * (item.quantity || 1));
             const itemProfit = (item.price - cost) * (item.quantity || 1);
@@ -2996,14 +3060,16 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         o.items.forEach(item => {
             if (!productStats[item.name]) productStats[item.name] = { revenue: 0, extra: 0, cost: 0, sold: 0, returns: 0 };
             if (['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status)) {
-                const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-                if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
-                    productStats[item.name].revenue += product.basePrice * item.quantity;
-                    productStats[item.name].extra += (item.price - product.basePrice) * item.quantity;
+                const product = findProductInSettings(item, settings);
+                const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+                const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
+                if (item.price > catalogPrice) {
+                    productStats[item.name].revenue += catalogPrice * item.quantity;
+                    productStats[item.name].extra += (item.price - catalogPrice) * item.quantity;
                 } else {
                     productStats[item.name].revenue += item.price * item.quantity;
                 }
-                productStats[item.name].cost += (getLatestProductCost(item.productId, settings) || item.cost || 0) * item.quantity;
+                productStats[item.name].cost += actualCost * item.quantity;
                 productStats[item.name].sold += item.quantity;
             } else if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن', 'تم_الاستبدال'].includes(o.status)) {
                 productStats[item.name].returns += item.quantity;
@@ -3258,8 +3324,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     <div class="wf-step">
                         <div class="wf-circle bg-rose">4</div>
                         <div class="wf-info">
-                            <span class="wf-title">المصاريف والخسائر</span>
-                            <span class="wf-amount rose">-${fmt(totalOutflowExpenses)} ج.م</span>
+                            <span class="wf-title">المصاريف والخسائر والتسويات</span>
+                            <span class="wf-amount rose">-${fmt(displayProductGrossProfit - finalNet)} ج.م</span>
                         </div>
                     </div>
                     <div class="wf-arrow">←</div>
@@ -3363,23 +3429,50 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             collectionLogHtml += `
             <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي - الشحن (Shipping Collection Log)</h2>
             <table class="modern-table">
-                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>الشحن</th><th>ضريبة</th><th>التكلفة</th><th>تأمين</th><th>معاينة</th><th>COD</th><th>الصافي</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th style="text-align: right;">العميل</th>
+                        ${s.showColProducts ? '<th>المنتجات</th>' : ''}
+                        ${s.showColPrice ? '<th>السعر</th>' : ''}
+                        ${s.showColDiscounts ? '<th>الخصومات</th>' : ''}
+                        ${s.showColPriceAfterDiscount ? '<th>السعر بعد الخصم</th>' : ''}
+                        ${s.showColCost ? '<th>التكلفة</th>' : ''}
+                        ${s.showColSurplusProfit ? '<th>ربح الزيادة</th>' : ''}
+                        ${s.showColPercentageProfit ? '<th>ربح النسبة</th>' : ''}
+                        ${s.showColTotalProfitBeforeExpenses ? '<th>إجمالي الربح (قبل المصاريف)</th>' : ''}
+                        ${s.showColShipping ? '<th>الشحن</th>' : ''}
+                        ${s.showColInsurance ? '<th>تأمين</th>' : ''}
+                        ${s.showColTax ? '<th>ضريبة</th>' : ''}
+                        ${s.showColInspection ? '<th>معاينة</th>' : ''}
+                        ${s.showColCod ? '<th>COD</th>' : ''}
+                        ${s.showColNetProfit ? '<th>الصافي</th>' : ''}
+                    </tr>
+                </thead>
                 <tbody>
                     ${shippingCollectedRows}
                     <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
                         <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">-</td>
-                        <td colspan="2" style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
+                        <td style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
+                        ${s.showColProducts ? '<td style="background-color: #f1f5f9;"></td>' : ''}
+                        ${s.showColPrice ? `
                         <td style="background-color: #f1f5f9;">
                            ${fmt(ship_sumProductPrice)}
-                           ${ship_totalExcluded > 0 ? `<div style="font-size: 9px; color: #b91c1c; margin-top: 2px;">خصم: ${fmt(ship_totalExcluded)}</div>` : ''}
+                           ${ship_totalExcluded > 0 ? `<div style="font-size: 9px; color: #b91c1c; margin-top: 2px;">مستبعد: ${fmt(ship_totalExcluded)}</div>` : ''}
                         </td>
-                        <td style="background-color: #f1f5f9;">${fmt(ship_sumShippingFee)}</td>
-                        <td style="background-color: #f1f5f9;">${fmt(ship_sumTax)}</td>
-                        <td style="background-color: #f1f5f9;">${fmt(ship_totalCogs)}</td>
-                        <td style="background-color: #f1f5f9;">${fmt(ship_totalInsurance)}</td>
-                        <td style="background-color: #f1f5f9;">${fmt(ship_totalInspection)}</td>
-                        <td style="background-color: #f1f5f9;">${fmt(ship_totalCod)}</td>
-                        <td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${fmt(ship_totalProfit)}</td>
+                        ` : ''}
+                        ${s.showColDiscounts ? `<td style="background-color: #f1f5f9; color: #b91c1c;">${fmt(ship_sumDiscounts)}</td>` : ''}
+                        ${s.showColPriceAfterDiscount ? `<td style="background-color: #f1f5f9;">${fmt(ship_sumPriceAfterDiscount)}</td>` : ''}
+                        ${s.showColCost ? `<td style="background-color: #f1f5f9;">${fmt(ship_totalCogs)}</td>` : ''}
+                        ${s.showColSurplusProfit ? `<td style="background-color: #f1f5f9; color: #0284c7; font-weight: bold;">${fmt(ship_totalSurplusProfit)}</td>` : ''}
+                        ${s.showColPercentageProfit ? `<td style="background-color: #f1f5f9; color: #4f46e5; font-weight: bold;">${fmt(ship_totalPercentageProfit)}</td>` : ''}
+                        ${s.showColTotalProfitBeforeExpenses ? `<td style="background-color: #f1f5f9; color: #059669; font-weight: bold;">${fmt(ship_totalProfitBeforeExpenses)}</td>` : ''}
+                        ${s.showColShipping ? `<td style="background-color: #f1f5f9;">${fmt(ship_sumShippingFee)}</td>` : ''}
+                        ${s.showColInsurance ? `<td style="background-color: #f1f5f9;">${fmt(ship_totalInsurance)}</td>` : ''}
+                        ${s.showColTax ? `<td style="background-color: #f1f5f9;">${fmt(ship_sumTax)}</td>` : ''}
+                        ${s.showColInspection ? `<td style="background-color: #f1f5f9;">${fmt(ship_totalInspection)}</td>` : ''}
+                        ${s.showColCod ? `<td style="background-color: #f1f5f9;">${fmt(ship_totalCod)}</td>` : ''}
+                        ${s.showColNetProfit ? `<td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${fmt(ship_totalProfit)}</td>` : ''}
                     </tr>
                 </tbody>
             </table>`;
@@ -3389,18 +3482,40 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             collectionLogHtml += `
             <h2 class="section-header">${sectionCounter++}. سجل التحصيل المالي - نقاط البيع (POS Collection Log)</h2>
             <table class="modern-table">
-                <thead><tr><th>#</th><th style="text-align: right;">العميل</th><th>المنتجات</th><th>السعر</th><th>التكلفة</th><th>الصافي</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th style="text-align: right;">العميل</th>
+                        ${s.showColProducts ? '<th>المنتجات</th>' : ''}
+                        ${s.showColPrice ? '<th>السعر</th>' : ''}
+                        ${s.showColDiscounts ? '<th>الخصومات</th>' : ''}
+                        ${s.showColPriceAfterDiscount ? '<th>السعر بعد الخصم</th>' : ''}
+                        ${s.showColCost ? '<th>التكلفة</th>' : ''}
+                        ${s.showColSurplusProfit ? '<th>ربح الزيادة</th>' : ''}
+                        ${s.showColPercentageProfit ? '<th>ربح النسبة</th>' : ''}
+                        ${s.showColTotalProfitBeforeExpenses ? '<th>إجمالي الربح (قبل المصاريف)</th>' : ''}
+                        ${s.showColNetProfit ? '<th>الصافي</th>' : ''}
+                    </tr>
+                </thead>
                 <tbody>
                     ${posCollectedRows}
                     <tr class="total-row" style="background-color: #f1f5f9; font-weight: bold; border-top: 2px solid #cbd5e1;">
                         <td style="text-align: center; font-weight: bold; background-color: #f1f5f9;">-</td>
-                        <td colspan="2" style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
+                        <td style="text-align: right; font-weight: bold; background-color: #f1f5f9;">الإجمالي</td>
+                        ${s.showColProducts ? '<td style="background-color: #f1f5f9;"></td>' : ''}
+                        ${s.showColPrice ? `
                         <td style="background-color: #f1f5f9;">
                            ${fmt(pos_sumProductPrice)}
-                           ${pos_totalExcluded > 0 ? `<div style="font-size: 9px; color: #b91c1c; margin-top: 2px;">خصم: ${fmt(pos_totalExcluded)}</div>` : ''}
+                           ${pos_totalExcluded > 0 ? `<div style="font-size: 9px; color: #b91c1c; margin-top: 2px;">مستبعد: ${fmt(pos_totalExcluded)}</div>` : ''}
                         </td>
-                        <td style="background-color: #f1f5f9;">${fmt(pos_totalCogs)}</td>
-                        <td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${fmt(pos_totalProfit)}</td>
+                        ` : ''}
+                        ${s.showColDiscounts ? `<td style="background-color: #f1f5f9; color: #b91c1c;">${fmt(pos_sumDiscounts)}</td>` : ''}
+                        ${s.showColPriceAfterDiscount ? `<td style="background-color: #f1f5f9;">${fmt(pos_sumPriceAfterDiscount)}</td>` : ''}
+                        ${s.showColCost ? `<td style="background-color: #f1f5f9;">${fmt(pos_totalCogs)}</td>` : ''}
+                        ${s.showColSurplusProfit ? `<td style="background-color: #f1f5f9; color: #0284c7; font-weight: bold;">${fmt(pos_totalSurplusProfit)}</td>` : ''}
+                        ${s.showColPercentageProfit ? `<td style="background-color: #f1f5f9; color: #4f46e5; font-weight: bold;">${fmt(pos_totalPercentageProfit)}</td>` : ''}
+                        ${s.showColTotalProfitBeforeExpenses ? `<td style="background-color: #f1f5f9; color: #059669; font-weight: bold;">${fmt(pos_totalProfitBeforeExpenses)}</td>` : ''}
+                        ${s.showColNetProfit ? `<td style="color: #15803d; font-weight: bold; background-color: #f1f5f9;">${fmt(pos_totalProfit)}</td>` : ''}
                     </tr>
                 </tbody>
             </table>`;

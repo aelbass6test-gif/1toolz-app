@@ -944,8 +944,10 @@ export interface InventoryAuditItemDiscrepancy {
   variance: number;
   costPrice: number;
   varianceValue: number;
-  method: 'correction' | 'scrap' | 'surplus'; // تصفية المخزن أو هالك أو بضاعة زائدة
+  method: 'correction' | 'scrap' | 'surplus' | 'gift' | 'missing'; // تصفية المخزن أو هالك أو بضاعة زائدة أو هدية أو مفقود
   notes?: string;
+  zone?: string; // الرف أو القطاع
+  proofImage?: string; // صورة إثبات التلف كـ Base64
 }
 
 export interface InventoryAuditSession {
@@ -959,6 +961,7 @@ export interface InventoryAuditSession {
   totalActualQty: number;
   totalVarianceQty: number;
   totalVarianceValue: number;
+  totalItemsAudited: number;
   discrepancies: InventoryAuditItemDiscrepancy[];
   notes?: string;
 }

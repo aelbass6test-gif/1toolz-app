@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command, X, FileText, MessageSquare, ClipboardList, Send, Trash2 } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
@@ -72,6 +72,7 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
+    const navigate = useNavigate();
     const [isSyncMenuOpen, setIsSyncMenuOpen] = useState(false);
     const [isTestingPing, setIsTestingPing] = useState(false);
     const [isUnsavedModalOpen, setIsUnsavedModalOpen] = useState(false);
@@ -79,6 +80,101 @@ const Header: React.FC<HeaderProps> = ({
     const alertsMenuRef = useRef<HTMLDivElement>(null);
     const syncMenuRef = useRef<HTMLDivElement>(null);
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+
+    // Notification filtering & dismiss state
+    const [activeNotificationTab, setActiveNotificationTab] = useState<'all' | 'audit' | 'orders' | 'finance' | 'messages'>('all');
+    const [notificationSearch, setNotificationSearch] = useState('');
+    const [dismissedIds, setDismissedIds] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem('wuilt_dismissed_alerts');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) {
+            return [];
+        }
+    });
+
+    const handleDismissAlert = (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        const updated = [...dismissedIds, id];
+        setDismissedIds(updated);
+        try {
+            localStorage.setItem('wuilt_dismissed_alerts', JSON.stringify(updated));
+        } catch (err) {}
+    };
+
+    const handleClearAllAlerts = () => {
+        const allIds = inventoryAlerts.map(a => a.id);
+        const updated = Array.from(new Set([...dismissedIds, ...allIds]));
+        setDismissedIds(updated);
+        try {
+            localStorage.setItem('wuilt_dismissed_alerts', JSON.stringify(updated));
+        } catch (err) {}
+    };
+
+    const visibleAlerts = useMemo(() => {
+        return inventoryAlerts.filter(a => !dismissedIds.includes(a.id));
+    }, [inventoryAlerts, dismissedIds]);
+
+    const tabCounts = useMemo(() => {
+        const counts = { all: visibleAlerts.length, audit: 0, orders: 0, finance: 0, messages: 0 };
+        visibleAlerts.forEach(a => {
+            const cat = a.category || 'audit';
+            if (cat === 'audit') counts.audit++;
+            else if (cat === 'orders') counts.orders++;
+            else if (cat === 'finance') counts.finance++;
+            else if (cat === 'messages') counts.messages++;
+        });
+        return counts;
+    }, [visibleAlerts]);
+
+    const filteredAlerts = useMemo(() => {
+        let result = visibleAlerts;
+        if (activeNotificationTab !== 'all') {
+            result = result.filter(a => (a.category || 'audit') === activeNotificationTab);
+        }
+        if (notificationSearch.trim()) {
+            const q = notificationSearch.toLowerCase();
+            result = result.filter(a =>
+                (a.title || '').toLowerCase().includes(q) ||
+                (a.message || '').toLowerCase().includes(q)
+            );
+        }
+        return result;
+    }, [visibleAlerts, activeNotificationTab, notificationSearch]);
+
+    const handleAlertItemClick = (alertItem: any) => {
+        setIsAlertsOpen(false);
+        const rawLink = alertItem.link || '/inventory-audit';
+        
+        if (activeStore?.id) {
+            let targetPath = rawLink;
+            if (targetPath === '/inventory-audit') {
+                targetPath = `/store/${activeStore.id}/suppliers?tab=audit`;
+            } else if (!targetPath.startsWith(`/store/${activeStore.id}`)) {
+                if (targetPath.startsWith('/store/')) {
+                    // Already starts with store prefix, keep as is
+                } else {
+                    targetPath = `/store/${activeStore.id}${targetPath}`;
+                }
+            }
+            navigate(targetPath);
+        } else if (currentUser?.stores && currentUser.stores.length > 0) {
+            const firstStoreId = currentUser.stores[0].id;
+            let targetPath = rawLink;
+            if (targetPath === '/inventory-audit') {
+                targetPath = `/store/${firstStoreId}/suppliers?tab=audit`;
+            } else if (!targetPath.startsWith(`/store/${firstStoreId}`)) {
+                if (targetPath.startsWith('/store/')) {
+                    // Already starts with store prefix
+                } else {
+                    targetPath = `/store/${firstStoreId}${targetPath}`;
+                }
+            }
+            navigate(targetPath);
+        } else {
+            navigate(rawLink);
+        }
+    };
 
     useEffect(() => {
         const handleOpen = () => setIsCommandPaletteOpen(true);
@@ -189,7 +285,6 @@ const Header: React.FC<HeaderProps> = ({
     }, [pingMs, isTestingPing, isOnline]);
 
     const location = useLocation();
-    const navigate = useNavigate();
     const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
 
     const isStoreManagementOrCreationPage = useMemo(() => {
@@ -601,80 +696,248 @@ const Header: React.FC<HeaderProps> = ({
                                 onClick={() => setIsAlertsOpen(!isAlertsOpen)}
                                 className={`p-2 rounded-xl transition-all relative ${isAlertsOpen ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                             >
-                                <Bell size={20} className={inventoryAlerts.length > 0 ? "animate-swing" : ""} />
-                                {inventoryAlerts.length > 0 && (
-                                    <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
-                                        {inventoryAlerts.length}
+                                <Bell size={20} className={visibleAlerts.length > 0 ? "animate-swing" : ""} />
+                                {visibleAlerts.length > 0 && (
+                                    <span className="absolute top-1.5 right-1.5 min-w-[18px] h-4 px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm">
+                                        {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
                                     </span>
                                 )}
                             </button>
                             {isAlertsOpen && (
-                                <div className="absolute left-0 top-14 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 z-[60] overflow-hidden">
-                                    <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
-                                        <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
-                                            <Bell size={16} className="text-amber-500" />
-                                            تنبيهات المخزون والجرد
-                                        </h3>
-                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full">
-                                            {inventoryAlerts.length} تنبيه
-                                        </span>
+                                <div className="absolute left-0 top-14 w-80 sm:w-[420px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 z-[60] overflow-hidden flex flex-col max-h-[85vh]">
+                                    {/* Header */}
+                                    <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/40 flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg">
+                                                <Bell size={18} />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-black text-slate-800 dark:text-white text-xs sm:text-sm">
+                                                    مركز التنبيهات والرسائل
+                                                </h3>
+                                                <p className="text-[10px] text-slate-400 font-medium">متابعة إشعارات الجرد والطلبات والمالية والمحادثات</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {visibleAlerts.length > 0 && (
+                                                <button
+                                                    onClick={handleClearAllAlerts}
+                                                    title="مسح الكل"
+                                                    className="px-2 py-1 bg-slate-200/60 dark:bg-slate-800 hover:bg-rose-100 dark:hover:bg-rose-900/30 text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 text-[10px] font-bold rounded-lg transition-colors flex items-center gap-1"
+                                                >
+                                                    <Trash2 size={12} />
+                                                    <span>مسح الكل</span>
+                                                </button>
+                                            )}
+                                            <span className="text-[10px] font-black px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded-full">
+                                                {visibleAlerts.length}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="max-h-96 overflow-y-auto p-2 space-y-2">
-                                        {inventoryAlerts.length === 0 ? (
-                                            <div className="py-8 text-center space-y-2">
+
+                                    {/* Search input */}
+                                    <div className="px-3 pt-2 pb-1 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800/60">
+                                        <div className="relative">
+                                            <Search size={14} className="absolute right-3 top-2.5 text-slate-400" />
+                                            <input
+                                                type="text"
+                                                value={notificationSearch}
+                                                onChange={e => setNotificationSearch(e.target.value)}
+                                                placeholder="البحث في التنبيهات..."
+                                                className="w-full pr-8 pl-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-xs text-slate-800 dark:text-white rounded-xl border-none focus:ring-1 focus:ring-amber-500 outline-none"
+                                            />
+                                            {notificationSearch && (
+                                                <button
+                                                    onClick={() => setNotificationSearch('')}
+                                                    className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Category Filter Tabs */}
+                                    <div className="flex items-center gap-1 p-1.5 bg-slate-100/70 dark:bg-slate-950/60 border-b border-slate-200/80 dark:border-slate-800 overflow-x-auto no-scrollbar">
+                                        <button
+                                            onClick={() => setActiveNotificationTab('all')}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all flex items-center gap-1 ${
+                                                activeNotificationTab === 'all'
+                                                    ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                                            }`}
+                                        >
+                                            <span>الكل</span>
+                                            {tabCounts.all > 0 && (
+                                                <span className="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded-full text-[9px]">
+                                                    {tabCounts.all}
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={() => setActiveNotificationTab('audit')}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all flex items-center gap-1 ${
+                                                activeNotificationTab === 'audit'
+                                                    ? 'bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                                            }`}
+                                        >
+                                            <Package size={12} />
+                                            <span>الجرد والمخزن</span>
+                                            {tabCounts.audit > 0 && (
+                                                <span className="px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[9px]">
+                                                    {tabCounts.audit}
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={() => setActiveNotificationTab('orders')}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all flex items-center gap-1 ${
+                                                activeNotificationTab === 'orders'
+                                                    ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                                            }`}
+                                        >
+                                            <ShoppingCart size={12} />
+                                            <span>الطلبات</span>
+                                            {tabCounts.orders > 0 && (
+                                                <span className="px-1.5 py-0.2 bg-blue-500 text-white rounded-full text-[9px]">
+                                                    {tabCounts.orders}
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={() => setActiveNotificationTab('finance')}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all flex items-center gap-1 ${
+                                                activeNotificationTab === 'finance'
+                                                    ? 'bg-white dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                                            }`}
+                                        >
+                                            <HandCoins size={12} />
+                                            <span>المالية</span>
+                                            {tabCounts.finance > 0 && (
+                                                <span className="px-1.5 py-0.2 bg-emerald-500 text-white rounded-full text-[9px]">
+                                                    {tabCounts.finance}
+                                                </span>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={() => setActiveNotificationTab('messages')}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all flex items-center gap-1 ${
+                                                activeNotificationTab === 'messages'
+                                                    ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+                                                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                                            }`}
+                                        >
+                                            <MessageSquare size={12} />
+                                            <span>المحادثات</span>
+                                            {tabCounts.messages > 0 && (
+                                                <span className="px-1.5 py-0.2 bg-purple-500 text-white rounded-full text-[9px]">
+                                                    {tabCounts.messages}
+                                                </span>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {/* List */}
+                                    <div className="max-h-[360px] overflow-y-auto p-2 space-y-2 no-scrollbar">
+                                        {filteredAlerts.length === 0 ? (
+                                            <div className="py-10 text-center space-y-2">
                                                 <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
                                                     <CheckCircle size={24} />
                                                 </div>
-                                                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">لا توجد تنبيهات حالياً</p>
-                                                <p className="text-[10px] text-slate-400">كل شيء يبدو على ما يرام في المخزن!</p>
+                                                <p className="text-sm font-bold text-slate-600 dark:text-slate-400">لا توجد إشعارات حالياً</p>
+                                                <p className="text-[11px] text-slate-400">كل الأمور مستقرة ومحدثة في هذا القسم!</p>
                                             </div>
                                         ) : (
-                                            inventoryAlerts.map(alert => (
+                                            filteredAlerts.map(alert => (
                                                 <div 
                                                     key={alert.id} 
-                                                    className={`p-3 rounded-xl border flex gap-3 transition-all ${
+                                                    onClick={() => handleAlertItemClick(alert)}
+                                                    className={`p-3 rounded-xl border flex gap-3 transition-all cursor-pointer relative group hover:shadow-md ${
                                                         alert.severity === 'critical' 
-                                                            ? 'bg-rose-50 border-rose-100 dark:bg-rose-900/10 dark:border-rose-900/30' 
+                                                            ? 'bg-rose-50/90 border-rose-200 dark:bg-rose-950/20 dark:border-rose-900/40 hover:bg-rose-100/90' 
+                                                            : alert.category === 'messages' || alert.type === 'team_message'
+                                                                ? 'bg-purple-50/90 border-purple-200 dark:bg-purple-950/20 dark:border-purple-900/40 hover:bg-purple-100/90'
+                                                            : alert.category === 'finance'
+                                                                ? 'bg-emerald-50/90 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/40 hover:bg-emerald-100/90'
                                                             : alert.type === 'audit_overdue' || alert.type === 'pending_order'
-                                                                ? 'bg-blue-50 border-blue-100 dark:bg-blue-900/10 dark:border-blue-900/30'
-                                                                : 'bg-amber-50 border-amber-100 dark:bg-amber-900/10 dark:border-amber-900/30'
+                                                                ? 'bg-blue-50/90 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900/40 hover:bg-blue-100/90'
+                                                            : 'bg-amber-50/90 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/40 hover:bg-amber-100/90'
                                                     }`}
                                                 >
-                                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                                                        alert.severity === 'critical' ? 'bg-rose-500 text-white shadow-lg shadow-rose-200 dark:shadow-none' :
-                                                        alert.type === 'audit_overdue' || alert.type === 'abandoned_cart' ? 'bg-blue-500 text-white shadow-lg shadow-blue-200 dark:shadow-none' :
-                                                        alert.type === 'pending_order' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-200 dark:shadow-none' :
-                                                        alert.type === 'expiry' || alert.type === 'expiry_expired' ? 'bg-rose-600 text-white shadow-lg shadow-rose-200' :
-                                                        alert.type === 'cash_balance' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200' :
-                                                        'bg-amber-500 text-white shadow-lg shadow-amber-200 dark:shadow-none'
+                                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${
+                                                        alert.severity === 'critical' ? 'bg-rose-500 text-white' :
+                                                        alert.category === 'messages' || alert.type === 'team_message' ? 'bg-purple-600 text-white' :
+                                                        alert.type === 'shared_audit_submitted' ? 'bg-indigo-600 text-white' :
+                                                        alert.type === 'shared_audit_rejected' ? 'bg-rose-600 text-white' :
+                                                        alert.type === 'shared_audit_pending' ? 'bg-amber-500 text-white' :
+                                                        alert.category === 'finance' ? 'bg-emerald-600 text-white' :
+                                                        alert.category === 'orders' ? 'bg-blue-600 text-white' :
+                                                        'bg-amber-500 text-white'
                                                     }`}>
-                                                        {alert.type === 'low_stock' ? <Package size={16} /> : 
-                                                         alert.type === 'pending_order' ? <Activity size={16} /> :
-                                                         alert.type === 'supplier_debt' ? <Database size={16} /> :
-                                                         alert.type === 'expiry' || alert.type === 'expiry_expired' ? <Calendar size={16} /> :
-                                                         alert.type === 'cash_balance' ? <HandCoins size={16} /> :
-                                                         alert.type === 'abandoned_cart' ? <ShoppingCart size={16} /> :
-                                                         <Clock size={16} />}
+                                                        {alert.type === 'low_stock' ? <Package size={17} /> : 
+                                                         alert.type === 'team_message' ? <MessageSquare size={17} /> :
+                                                         alert.type === 'shared_audit_submitted' ? <Send size={17} /> :
+                                                         alert.type === 'shared_audit_rejected' ? <ShieldAlert size={17} /> :
+                                                         alert.type === 'shared_audit_pending' ? <ClipboardList size={17} /> :
+                                                         alert.type === 'pending_order' ? <Activity size={17} /> :
+                                                         alert.type === 'supplier_debt' ? <Database size={17} /> :
+                                                         alert.type === 'expiry' || alert.type === 'expiry_expired' ? <Calendar size={17} /> :
+                                                         alert.type === 'cash_balance' ? <HandCoins size={17} /> :
+                                                         alert.type === 'abandoned_cart' ? <ShoppingCart size={17} /> :
+                                                         <Bell size={17} />}
                                                     </div>
-                                                    <div className="flex-1 text-right">
-                                                        <h4 className="text-xs font-black text-slate-800 dark:text-white mb-0.5">{alert.title}</h4>
-                                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{alert.message}</p>
+                                                    <div className="flex-1 text-right pl-6">
+                                                        <div className="flex items-center justify-between gap-2 mb-0.5">
+                                                            <h4 className="text-xs font-black text-slate-800 dark:text-white leading-snug">{alert.title}</h4>
+                                                            {alert.category && (
+                                                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                    {alert.category === 'audit' ? 'الجرد والمخزن' :
+                                                                     alert.category === 'orders' ? 'الطلبات' :
+                                                                     alert.category === 'finance' ? 'المالية' :
+                                                                     alert.category === 'messages' ? 'المحادثات' : 'تنبيه'}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[11px] text-slate-600 dark:text-slate-300 font-medium leading-relaxed">{alert.message}</p>
                                                     </div>
+                                                    <button
+                                                        onClick={(e) => handleDismissAlert(alert.id, e)}
+                                                        title="إخفاء التنبيه"
+                                                        className="absolute top-2 left-2 p-1 text-slate-400 hover:text-rose-500 rounded-md hover:bg-white/60 dark:hover:bg-slate-800 transition-colors opacity-0 group-hover:opacity-100"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
                                                 </div>
                                             ))
                                         )}
                                     </div>
-                                    {inventoryAlerts.length > 0 && (
-                                        <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border-t border-slate-200 dark:border-slate-800">
-                                            <Link 
-                                                to="inventory-audit" 
-                                                onClick={() => setIsAlertsOpen(false)}
-                                                className="w-full py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center block hover:bg-slate-100 transition-colors"
-                                            >
-                                                انتقل لصفحة الجرد والمخزن
-                                            </Link>
-                                        </div>
-                                    )}
+
+                                    {/* Footer */}
+                                    <div className="p-2.5 bg-slate-50 dark:bg-slate-950/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                                        <Link 
+                                            to={activeStore ? `/store/${activeStore.id}/suppliers?tab=audit` : "/inventory-audit"} 
+                                            onClick={() => setIsAlertsOpen(false)}
+                                            className="flex-1 py-1.5 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center transition-all flex items-center justify-center gap-1.5"
+                                        >
+                                            <Package size={13} />
+                                            <span>صفحة الجرد والمخازن</span>
+                                        </Link>
+                                        <Link 
+                                            to={activeStore ? `/store/${activeStore.id}/team-chat` : "/team-chat"} 
+                                            onClick={() => setIsAlertsOpen(false)}
+                                            className="flex-1 py-1.5 px-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:text-purple-600 text-slate-700 dark:text-slate-300 rounded-xl text-[11px] font-black text-center transition-all flex items-center justify-center gap-1.5"
+                                        >
+                                            <MessageSquare size={13} />
+                                            <span>دردشة الفريق</span>
+                                        </Link>
+                                    </div>
                                 </div>
                             )}
                         </div>

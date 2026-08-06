@@ -126,7 +126,14 @@ class AudioSynthEngine {
       
       // Select best Arabic speech voice if loaded
       const voices = window.speechSynthesis.getVoices();
-      const arVoice = voices.find(v => v.lang.includes('ar') || v.name.toLowerCase().includes('arabic'));
+      
+      // Prioritize high-quality voices (Google, Natural, etc.)
+      const arVoice = voices.find(v => v.lang.includes('ar') && (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Premium')))
+                   || voices.find(v => (v.lang.includes('ar-EG') || v.name.toLowerCase().includes('egypt')) && !v.name.toLowerCase().includes('cloud')) 
+                   || voices.find(v => v.lang.includes('ar-XA')) // High quality neural voice
+                   || voices.find(v => v.lang.includes('ar') && !v.name.toLowerCase().includes('cloud'))
+                   || voices.find(v => v.lang.includes('ar'));
+      
       if (arVoice) {
         utterance.voice = arVoice;
       }

@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
 import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck } from 'lucide-react';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import * as htmlToImage from 'html-to-image';
@@ -1311,7 +1311,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             totalShippingMarkup += shippingMarkup;
 
             totalCogs += (order.items || []).reduce((sum, item) => {
-                const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                const product = findProductInSettings(item, settings);
+                const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
                 return sum + (actualCost * item.quantity);
             }, 0);
             totalInsuranceFees += insuranceFee;
@@ -1323,26 +1324,26 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             let orderProductExtraMarkup = 0;
             let orderBaseRevenue = 0;
             order.items.forEach(item => {
-                const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
+                const product = findProductInSettings(item, settings);
                 const variant = product?.variants?.find(v => v.id === item.productId);
-                const actualCost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
                 const itemProfit = (item.price - actualCost) * item.quantity;
                 
-                const catalogPrice = (product?.profitMode === 'commission' && product.basePrice !== undefined) ? product.basePrice :
-                                     (product?.basePrice !== undefined && product.basePrice > 0) ? product.basePrice :
-                                     ((variant && variant.price !== undefined) ? variant.price : ((product && product.price !== undefined) ? product.price : item.price));
+                const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
 
+                let basePercentageProfit = itemProfit;
                 if (item.price > catalogPrice) {
                     orderBaseRevenue += catalogPrice * item.quantity;
                     orderProductExtraMarkup += (item.price - catalogPrice) * item.quantity;
+                    basePercentageProfit = Math.max(0, (catalogPrice - actualCost) * item.quantity);
                 } else {
                     orderBaseRevenue += item.price * item.quantity;
                 }
 
                 if (product?.profitMode === 'commission') {
-                    totalCommissionProfit += itemProfit;
+                    totalCommissionProfit += basePercentageProfit;
                 } else {
-                    totalPercentageProfit += itemProfit;
+                    totalPercentageProfit += basePercentageProfit;
                 }
             });
             totalProductRevenue += orderBaseRevenue;
@@ -1466,14 +1467,16 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             o.items.forEach(item => {
                 if (!productStats[item.name]) productStats[item.name] = { revenue: 0, extra: 0, cost: 0, sold: 0, returns: 0 };
                 if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة') {
-                    const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-                    if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
-                        productStats[item.name].revenue += product.basePrice * item.quantity;
-                        productStats[item.name].extra += (item.price - product.basePrice) * item.quantity;
+                    const product = findProductInSettings(item, settings);
+                    const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+                    const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
+                    if (item.price > catalogPrice) {
+                        productStats[item.name].revenue += catalogPrice * item.quantity;
+                        productStats[item.name].extra += (item.price - catalogPrice) * item.quantity;
                     } else {
                         productStats[item.name].revenue += item.price * item.quantity;
                     }
-                    productStats[item.name].cost += item.cost * item.quantity;
+                    productStats[item.name].cost += actualCost * item.quantity;
                     productStats[item.name].sold += item.quantity;
                 } else if (['مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status)) {
                     productStats[item.name].returns += item.quantity;
@@ -1824,6 +1827,50 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     </button>
                                 );
                             })}
+                        </div>
+                        
+                        <div className="pt-2">
+                            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">أعمدة سجل التحصيل (تخصيص):</h4>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                                {[
+                                    { key: 'showColProducts', label: 'المنتجات' },
+                                    { key: 'showColPrice', label: 'السعر' },
+                                    { key: 'showColDiscounts', label: 'الخصومات' },
+                                    { key: 'showColPriceAfterDiscount', label: 'السعر بعد الخصم' },
+                                    { key: 'showColCost', label: 'التكلفة' },
+                                    { key: 'showColSurplusProfit', label: 'ربح الزيادة' },
+                                    { key: 'showColPercentageProfit', label: 'ربح النسبة' },
+                                    { key: 'showColTotalProfitBeforeExpenses', label: 'الربح (قبل المصاريف)' },
+                                    { key: 'showColShipping', label: 'الشحن' },
+                                    { key: 'showColInsurance', label: 'تأمين' },
+                                    { key: 'showColTax', label: 'ضريبة' },
+                                    { key: 'showColInspection', label: 'معاينة' },
+                                    { key: 'showColCod', label: 'COD' },
+                                    { key: 'showColNetProfit', label: 'الصافي' },
+                                ].map((sec) => {
+                                    const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
+                                    return (
+                                        <button
+                                            key={sec.key}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setReportSections(prev => ({
+                                                    ...prev,
+                                                    [sec.key]: !isSelected
+                                                }));
+                                            }}
+                                            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                                                isSelected 
+                                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-700 dark:text-emerald-300 shadow-sm' 
+                                                    : 'bg-slate-50 border-slate-200 text-slate-500 dark:bg-slate-800/50 dark:border-slate-700 dark:text-slate-400 hover:bg-slate-100 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <div className={`w-3.5 h-3.5 shrink-0 rounded flex items-center justify-center text-[9px] transition-colors ${isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-transparent'}`}>✓</div>
+                                            <span className="text-right flex-1">{sec.label}</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -2190,7 +2237,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8 text-sm text-slate-500" title="الربح الأساسي من نظام العمولة.">تفصيل الربح: ربح العمولة</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold text-sm">+{(stats.totalCommissionProfit - stats.totalProductExtraMarkup).toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-emerald-600 font-bold text-sm">+{stats.totalCommissionProfit.toLocaleString()} ج.م</td>
                             </tr>
                             <tr>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8 text-sm text-slate-500" title="الأرباح الناتجة عن تعلية سعر المنتجات وتعديل السعر اليدوي.">تفصيل الربح: الزيادة في السعر</td>
@@ -2206,7 +2253,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </tr>
                             <tr className="bg-blue-100 dark:bg-blue-900/40 font-bold">
                                 <td className="p-3 border border-slate-200 dark:border-slate-700" title="مجموع الأرباح التشغيلية.">(=) إجمالي الربح التشغيلي</td>
-                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-blue-700 dark:text-blue-300">{(stats.totalCommissionProfit + stats.totalPercentageProfit + stats.totalShippingMarkup).toLocaleString()} ج.م</td>
+                                <td className="p-3 border border-slate-200 dark:border-slate-700 text-blue-700 dark:text-blue-300">{(stats.totalCommissionProfit + stats.totalPercentageProfit + stats.totalShippingMarkup + stats.totalProductExtraMarkup).toLocaleString()} ج.م</td>
                             </tr>
 
                             <tr className="bg-red-50 dark:bg-red-900/20 font-bold">
@@ -2224,6 +2271,22 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="إجمالي المصروفات الإدارية المسجلة في المحفظة.">(-) إجمالي المصروفات الإدارية (إعلانات، رواتب...)</td>
                                 <td className="p-3 border border-slate-200 dark:border-slate-700 text-red-600 font-bold">-${stats.totalExpenses.toLocaleString()} ج.م</td>
                             </tr>
+                            {(() => {
+                                const otherAdjustments = (stats.totalCommissionProfit + stats.totalPercentageProfit + stats.totalShippingMarkup + stats.totalProductExtraMarkup) - (stats.totalInsuranceFees + stats.totalInspectionFees + stats.totalCodFees) - stats.totalLoss - stats.totalExpenses - stats.finalNet;
+                                if (Math.abs(otherAdjustments) > 0.01) {
+                                    return (
+                                        <tr>
+                                            <td className="p-3 border border-slate-200 dark:border-slate-700 pr-8" title="تسويات تقفيل الطلبات وفروقات أسعار الخدمات الإضافية وتعديلات فرق التقفيل اليدوي.">
+                                                {otherAdjustments > 0 ? '(-) تسويات وفروقات تقفيل يدوي وخدمات إضافية' : '(+) فروقات تسويات وتسجيلات إيجابية'}
+                                            </td>
+                                            <td className={`p-3 border border-slate-200 dark:border-slate-700 font-bold ${otherAdjustments > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                {otherAdjustments > 0 ? '-' : '+'}{Math.abs(otherAdjustments).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} ج.م
+                                            </td>
+                                        </tr>
+                                    );
+                                }
+                                return null;
+                            })()}
 
                             <tr className="bg-indigo-600 text-white font-black text-lg">
                                 <td className="p-4 border border-indigo-700" title="الربح النهائي بعد خصم جميع التكاليف والخسائر والمصروفات.">(=) صافي الربح النهائي (Net Profit)</td>
@@ -2390,9 +2453,11 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     const { profit } = calculateOrderProfitLoss(order, settings);
                                     let orderExtraMarkup = 0;
                                     order.items.forEach(item => {
-                                        const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-                                        if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
-                                            orderExtraMarkup += Math.max(0, (item.price - product.basePrice) * item.quantity);
+                                        const product = findProductInSettings(item, settings);
+                                        const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+                                        const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
+                                        if (item.price > catalogPrice) {
+                                            orderExtraMarkup += Math.max(0, (item.price - catalogPrice) * item.quantity);
                                         }
                                     });
                                     const isMultiProfit = orderExtraMarkup > 0;
@@ -2402,8 +2467,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                             <td className="p-2 border border-slate-100 dark:border-slate-800">{order.customerName}</td>
                                             <td className="p-2 border border-slate-100 dark:border-slate-800">
                                                 {order.items.map((item, idx) => {
-                                                    const p = settings.products.find(prod => prod.id === item.productId || prod.variants?.some(v => v.id === item.productId));
-                                                    const isItemMulti = p?.profitMode === 'commission' && p.basePrice !== undefined && item.price > p.basePrice;
+                                                    const p = findProductInSettings(item, settings);
+                                                    const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(p?.id || item.productId, settings) || item.cost || 0);
+                                                    const catalogPrice = resolveItemCatalogPrice(item, p, actualCost);
+                                                    const isItemMulti = item.price > catalogPrice;
                                                     return (
                                                         <div key={`${order.id}-${item.productId}-${idx}`} className="mb-1">
                                                             {item.name} ({item.quantity})
@@ -3833,9 +3900,11 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             totalManualAdjustments += (netRevenue - baseExpectedRevenue);
             
             (order.items || []).forEach(item => {
-                const product = settings.products.find(p => p.id === item.productId || p.variants?.some(v => v.id === item.productId));
-                if (product?.profitMode === 'commission' && product.basePrice !== undefined) {
-                    totalExtraMarkup += (item.price - product.basePrice) * item.quantity;
+                const product = findProductInSettings(item, settings);
+                const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(product?.id || item.productId, settings) || item.cost || 0);
+                const catalogPrice = resolveItemCatalogPrice(item, product, actualCost);
+                if (item.price > catalogPrice) {
+                    totalExtraMarkup += (item.price - catalogPrice) * item.quantity;
                 }
             });
 

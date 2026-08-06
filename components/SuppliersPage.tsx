@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Settings, Supplier, SupplyOrder, Transaction, PurchaseReturn, PurchaseReturnItem } from '../types';
 import { 
   UserPlus, Truck, Save, Plus, Package, Calendar, DollarSign, User, Trash2, 
@@ -34,7 +35,27 @@ interface SuppliersPageProps {
 
 const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wallet, setWallet, treasury, setTreasury, currentUser, orders }) => {
   const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
-  const [activeTab, setActiveTab] = useState<'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses'>('orders');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryTab = searchParams.get('tab');
+  
+  const [activeTab, setActiveTabInternal] = useState<'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses'>(
+    (queryTab as any) || 'orders'
+  );
+
+  useEffect(() => {
+    if (queryTab && ['suppliers', 'orders', 'inventory', 'analytics', 'audit', 'warehouses'].includes(queryTab)) {
+      setActiveTabInternal(queryTab as any);
+    }
+  }, [queryTab]);
+
+  const setActiveTab = (tab: 'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses') => {
+    setActiveTabInternal(tab);
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev);
+      newParams.set('tab', tab);
+      return newParams;
+    });
+  };
   
   if (!settings) return null;
 

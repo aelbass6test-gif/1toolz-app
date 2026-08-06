@@ -86,6 +86,7 @@ import UniversalInstallPrompt from './components/UniversalInstallPrompt';
 import { FailedDeliveryCompensationPage } from './components/FailedDeliveryCompensationPage';
 import { DropshippingPage } from './components/DropshippingPage';
 import CreateDropshippingOrderPage from './components/CreateDropshippingOrderPage';
+import WarehouseSubmitPage from './components/WarehouseSubmitPage';
 
 interface EmployeeRegisterRequestData {
   fullName: string;
@@ -145,6 +146,68 @@ const MainLayout = ({
 
     const effectiveActiveStore = isStoreManagementOrCreationPage ? undefined : activeStore;
 
+    const [sharedAudits, setSharedAudits] = useState<any[]>([]);
+    const [chatMessages, setChatMessages] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (!activeStore?.id) {
+            setSharedAudits([]);
+            setChatMessages([]);
+            return;
+        }
+
+        let unsubAudit: (() => void) | undefined;
+        let unsubChat: (() => void) | undefined;
+
+        try {
+            const qAudit = query(
+                collection(firebaseDb, 'shared_audits'),
+                where('storeId', '==', activeStore.id)
+            );
+            unsubAudit = onSnapshot(qAudit, (snapshot) => {
+                const list: any[] = [];
+                snapshot.forEach(docSnap => {
+                    list.push({ id: docSnap.id, ...docSnap.data() });
+                });
+                setSharedAudits(list);
+            }, (err) => {
+                console.error('[Notification] Error fetching shared_audits snapshot:', err);
+            });
+        } catch (e) {
+            console.error('[Notification] shared_audits subscription error:', e);
+        }
+
+        try {
+            const qChat = query(
+                collection(firebaseDb, 'chat_messages'),
+                where('storeId', '==', activeStore.id)
+            );
+            unsubChat = onSnapshot(qChat, (snapshot) => {
+                const list: any[] = [];
+                snapshot.forEach(docSnap => {
+                    const d = docSnap.data();
+                    list.push({
+                        id: docSnap.id,
+                        senderId: d.senderId,
+                        receiverId: d.receiverId,
+                        content: d.content,
+                        createdAt: d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
+                    });
+                });
+                setChatMessages(list);
+            }, (err) => {
+                console.error('[Notification] Error fetching chat_messages snapshot:', err);
+            });
+        } catch (e) {
+            console.error('[Notification] chat_messages subscription error:', e);
+        }
+
+        return () => {
+            if (unsubAudit) unsubAudit();
+            if (unsubChat) unsubChat();
+        };
+    }, [activeStore?.id]);
+
     const inventoryAlerts = useMemo(() => {
         if (!settings) return [];
         
@@ -155,7 +218,45 @@ const MainLayout = ({
         
         const now = new Date();
 
-        // 1. Check Low Stock, Audits & Expiry
+        // 0. Shared Audit Sessions & Warehouse Responses (Category: 'audit', Link: '/inventory-audit')
+        sharedAudits.forEach(audit => {
+            if (audit.status === 'submitted') {
+                alerts.push({
+                    type: 'shared_audit_submitted',
+                    category: 'audit',
+                    id: `shared-audit-submitted-${audit.id}`,
+                    title: `📬 تم تسليم جرد ميداني: ${audit.title || 'جلسة جرد'}`,
+                    message: `قام مسؤول الجرد (${audit.managerName || 'المسؤول'}) بتسليم الكميات الفعلية للمستودع (${audit.warehouseName || 'الرئيسي'}). بانتظار مراجعتك والاعتماد المالي.`,
+                    severity: 'warning',
+                    link: '/inventory-audit',
+                    date: audit.submittedAt || audit.createdAt || now.toISOString()
+                });
+            } else if (audit.status === 'rejected') {
+                alerts.push({
+                    type: 'shared_audit_rejected',
+                    category: 'audit',
+                    id: `shared-audit-rejected-${audit.id}`,
+                    title: `❌ جلسة جرد مرفوضة: ${audit.title || 'جلسة جرد'}`,
+                    message: `تم رفض الجرد وتسجيل السبب: ${audit.rejectReason || 'يرجى إعادة العد الفعلي'}.`,
+                    severity: 'critical',
+                    link: '/inventory-audit',
+                    date: audit.rejectedAt || audit.createdAt || now.toISOString()
+                });
+            } else if (audit.status === 'pending') {
+                alerts.push({
+                    type: 'shared_audit_pending',
+                    category: 'audit',
+                    id: `shared-audit-pending-${audit.id}`,
+                    title: `📋 جرد مفتوح بالمستودع: ${audit.title || 'جلسة جرد'}`,
+                    message: `رابط الجرد النشط يعمل الآن في المستودع (${audit.warehouseName || 'الرئيسي'}) لحصر ${audit.items?.length || 0} صنف.`,
+                    severity: 'info',
+                    link: '/inventory-audit',
+                    date: audit.createdAt || now.toISOString()
+                });
+            }
+        });
+
+        // 1. Check Low Stock, Audits & Expiry (Category: 'audit', Link: '/inventory-audit')
         products.forEach(p => {
             if (p.hasVariants && p.variants) {
                 p.variants.forEach(v => {
@@ -164,10 +265,12 @@ const MainLayout = ({
                     if (minStock > 0 && stock <= minStock) {
                         alerts.push({
                             type: 'low_stock',
+                            category: 'audit',
                             id: `lowstock-${p.id}-${v.id}`,
                             title: 'مخزون منخفض',
-                            message: `المنتج "${p.name} - ${Object.values(v.options).join(' ')}" وصل للحد الأدنى (المتاح: ${stock})`,
-                            severity: stock === 0 ? 'critical' : 'warning'
+                            message: `المنتج "${p.name} - ${Object.values(v.options || {}).join(' ')}" وصل للحد الأدنى (المتاح: ${stock})`,
+                            severity: stock === 0 ? 'critical' : 'warning',
+                            link: '/inventory-audit'
                         });
                     }
                     
@@ -178,18 +281,22 @@ const MainLayout = ({
                         if (daysToExpiry <= 30 && daysToExpiry > 0) {
                             alerts.push({
                                 type: 'expiry',
+                                category: 'audit',
                                 id: `expiry-${p.id}-${v.id}`,
                                 title: 'اقتراب تاريخ الانتهاء',
-                                message: `المنتج "${p.name} - ${Object.values(v.options).join(' ')}" سينتهي خلال ${daysToExpiry} يوم.`,
-                                severity: daysToExpiry <= 7 ? 'critical' : 'warning'
+                                message: `المنتج "${p.name} - ${Object.values(v.options || {}).join(' ')}" سينتهي خلال ${daysToExpiry} يوم.`,
+                                severity: daysToExpiry <= 7 ? 'critical' : 'warning',
+                                link: '/inventory-audit'
                             });
                         } else if (daysToExpiry <= 0) {
                             alerts.push({
                                 type: 'expiry_expired',
+                                category: 'audit',
                                 id: `expired-${p.id}-${v.id}`,
                                 title: 'منتج منتهي الصلاحية',
-                                message: `المنتج "${p.name} - ${Object.values(v.options).join(' ')}" منتهي الصلاحية منذ ${Math.abs(daysToExpiry)} يوم.`,
-                                severity: 'critical'
+                                message: `المنتج "${p.name} - ${Object.values(v.options || {}).join(' ')}" منتهي الصلاحية منذ ${Math.abs(daysToExpiry)} يوم.`,
+                                severity: 'critical',
+                                link: '/inventory-audit'
                             });
                         }
                     }
@@ -200,10 +307,12 @@ const MainLayout = ({
                 if (minStock > 0 && stock <= minStock) {
                     alerts.push({
                         type: 'low_stock',
+                        category: 'audit',
                         id: `lowstock-${p.id}`,
                         title: 'مخزون منخفض',
                         message: `المنتج "${p.name}" وصل للحد الأدنى (المتاح: ${stock})`,
-                        severity: stock === 0 ? 'critical' : 'warning'
+                        severity: stock === 0 ? 'critical' : 'warning',
+                        link: '/inventory-audit'
                     });
                 }
 
@@ -214,18 +323,22 @@ const MainLayout = ({
                     if (daysToExpiry <= 30 && daysToExpiry > 0) {
                         alerts.push({
                             type: 'expiry',
+                            category: 'audit',
                             id: `expiry-${p.id}`,
                             title: 'اقتراب تاريخ الانتهاء',
                             message: `المنتج "${p.name}" سينتهي خلال ${daysToExpiry} يوم.`,
-                            severity: daysToExpiry <= 7 ? 'critical' : 'warning'
+                            severity: daysToExpiry <= 7 ? 'critical' : 'warning',
+                            link: '/inventory-audit'
                         });
                     } else if (daysToExpiry <= 0) {
                         alerts.push({
                             type: 'expiry_expired',
+                            category: 'audit',
                             id: `expired-${p.id}`,
                             title: 'منتج منتهي الصلاحية',
                             message: `المنتج "${p.name}" منتهي الصلاحية منذ ${Math.abs(daysToExpiry)} يوم.`,
-                            severity: 'critical'
+                            severity: 'critical',
+                            link: '/inventory-audit'
                         });
                     }
                 }
@@ -241,16 +354,18 @@ const MainLayout = ({
                 if (diffDays >= auditAlertDays) {
                     alerts.push({
                         type: 'audit_overdue',
+                        category: 'audit',
                         id: `audit-${p.id}`,
                         title: 'جرد متأخر',
                         message: `المنتج "${p.name}" لم يتم جرده منذ ${diffDays} يوم.`,
-                        severity: 'info'
+                        severity: 'info',
+                        link: '/inventory-audit'
                     });
                 }
             }
         });
 
-        // 2. Check Pending Orders (Older than 24 hours)
+        // 2. Check Pending Orders (Category: 'orders', Link: '/orders')
         orders.forEach(order => {
             if (order.status === 'pending') {
                 const orderDate = new Date(order.date);
@@ -258,29 +373,33 @@ const MainLayout = ({
                 if (hoursDiff >= 24) {
                     alerts.push({
                         type: 'pending_order',
+                        category: 'orders',
                         id: `pending-${order.id}`,
                         title: 'أوردر معلق متأخر',
                         message: `الأوردر #${order.orderNumber || order.id.slice(-6)} ينتظر التأكيد منذ ${Math.floor(hoursDiff)} ساعة.`,
-                        severity: 'warning'
+                        severity: 'warning',
+                        link: '/orders'
                     });
                 }
             }
         });
 
-        // 3. Check High Supplier Debts (Threshold: 5000)
+        // 3. Check High Supplier Debts (Category: 'finance', Link: '/treasury')
         suppliers.forEach(sup => {
             if ((sup.balance || 0) >= 5000) {
                 alerts.push({
                     type: 'supplier_debt',
+                    category: 'finance',
                     id: `debt-${sup.id}`,
                     title: 'مديونية مورد مرتفعة',
                     message: `المورد "${sup.name}" لديه مديونية مستحقة بقيمة ${(sup.balance ?? 0).toLocaleString()} ج.م`,
-                    severity: 'warning'
+                    severity: 'warning',
+                    link: '/treasury'
                 });
             }
         });
 
-        // 4. Check High Cash Holder Balances (Threshold: 5000)
+        // 4. Check High Cash Holder Balances (Category: 'finance', Link: '/treasury')
         const cashHolders = settings.cashHolders || [];
         const groupedHolders = new Map<string, { userName: string, totalBalance: number, ids: string[] }>();
         cashHolders.forEach(ch => {
@@ -304,15 +423,17 @@ const MainLayout = ({
                 const titleRole = isPartner ? 'الشريك' : 'الموظف';
                 alerts.push({
                     type: 'cash_balance',
+                    category: 'finance',
                     id: `cash-group-${normName}`,
                     title: 'عهدة نقدية مرتفعة',
                     message: `${titleRole} "${data.userName.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '')}" يحمل عهدة نقدية كبيرة بقيمة ${data.totalBalance.toLocaleString()} ج.م`,
-                    severity: 'warning'
+                    severity: 'warning',
+                    link: '/treasury'
                 });
             }
         });
 
-        // 5. Check Abandoned Carts (High value: 2000+)
+        // 5. Check Abandoned Carts (Category: 'orders', Link: '/orders')
         const abandonedCarts = settings.abandonedCarts || [];
         abandonedCarts.forEach(cart => {
             if ((cart.totalValue || 0) >= 2000) {
@@ -321,17 +442,44 @@ const MainLayout = ({
                 if (hoursDiff <= 48) { // Only alert for recent ones
                     alerts.push({
                         type: 'abandoned_cart',
+                        category: 'orders',
                         id: `abandoned-${cart.id}`,
                         title: 'سلة متروكة هامة',
                         message: `العميل "${cart.customerName}" ترك سلة بقيمة ${(cart.totalValue ?? 0).toLocaleString()} ج.م`,
-                        severity: 'info'
+                        severity: 'info',
+                        link: '/orders'
                     });
                 }
             }
         });
 
+        // 6. Check Team Chat Messages (Category: 'messages', Link: '/team-chat')
+        if (chatMessages && chatMessages.length > 0) {
+            const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const recentTeamMsgs = chatMessages.filter(m => {
+                const mDate = new Date(m.createdAt);
+                return mDate >= last24h && m.senderId !== currentUser?.phone;
+            });
+
+            if (recentTeamMsgs.length > 0) {
+                const sortedMsgs = [...recentTeamMsgs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                sortedMsgs.slice(0, 5).forEach((msg, idx) => {
+                    alerts.push({
+                        type: 'team_message',
+                        category: 'messages',
+                        id: `chat-msg-${msg.id || idx}`,
+                        title: '💬 رسالة جديدة من طاقم العمل',
+                        message: msg.content ? (msg.content.length > 60 ? msg.content.substring(0, 60) + '...' : msg.content) : 'رسالة جديدة في دردشة الفريق',
+                        severity: 'info',
+                        link: '/team-chat',
+                        date: msg.createdAt
+                    });
+                });
+            }
+        }
+
         return alerts;
-    }, [settings, orders]);
+    }, [settings, orders, sharedAudits, chatMessages, currentUser]);
 
     return (
         <div className="flex flex-col h-screen bg-slate-100/70 dark:bg-[#030712] text-slate-900 dark:text-slate-50 transition-colors duration-500 overflow-hidden relative" dir="rtl">
@@ -1425,7 +1573,7 @@ export const AppComponent = () => {
             const mainDomains = ['app.abdomedi.com', 'abdomedi.com', 'fallback.abdomedi.com', 'localhost', '127.0.0.1'];
             
             // Refined isMainDomain check: exact match for root domains or the dev/preview pages
-            const isExactMainDomain = mainDomains.includes(hostNoWww) || hostNoWww.includes('run.app') || hostNoWww.includes('pages.dev');
+            const isExactMainDomain = mainDomains.includes(hostNoWww) || hostNoWww.includes('run.app') || hostNoWww.includes('pages.dev') || hostNoWww.includes('aistudio.google') || hostNoWww.includes('web-preview');
             
             // Support for forcing storefront view in development via query param
             const urlParams = new URLSearchParams(window.location.search);
@@ -2745,6 +2893,7 @@ export const AppComponent = () => {
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />
                 <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} />} />
                 <Route path="/shared-report/:id" element={<SharedReportView />} />
+                <Route path="/shared-audit/:auditId" element={<WarehouseSubmitPage />} />
                 
                 <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
