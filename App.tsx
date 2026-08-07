@@ -2596,26 +2596,6 @@ export const AppComponent = () => {
                     });
                     
                     finalSettings.cashHolders = adjustedHolders;
-
-                    // Add fake transaction to cashHandovers so it shows up in history at the top
-                    const existingHandovers = finalSettings.cashHandovers || [];
-                    const fakeTxId = 'handover_fake_zahra_300_custody';
-                    if (!existingHandovers.find((h: any) => h.id === fakeTxId)) {
-                        finalSettings.cashHandovers = [
-                            {
-                                id: fakeTxId,
-                                fromUserId: 'treasury',
-                                fromUserName: 'النظام',
-                                toUserId: zahraIds[0],
-                                toUserName: 'زهره',
-                                amount: 300,
-                                date: new Date().toISOString(), // Use current date so it appears at the top
-                                status: 'completed',
-                                notes: 'تسوية رصيد عهدة سابق (مضاف برمجياً)'
-                            },
-                            ...existingHandovers
-                        ];
-                    }
                 }
             }
             return finalSettings;

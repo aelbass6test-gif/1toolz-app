@@ -126,6 +126,14 @@ async function generateContentWithRobustRetry(params: {
   }
 
   // All attempts failed
+  const lastMsg = lastError?.message || String(lastError || "");
+  if (lastMsg.toLowerCase().includes("resource_exhausted") || lastMsg.toLowerCase().includes("quota") || lastMsg.toLowerCase().includes("429")) {
+    console.log("[GEMINI-ROBUST] Quota exhausted detected. Providing graceful fallback response.");
+    return {
+      text: "عذراً، تم استنفاد رصيد أو حصة طلبات الذكاء الاصطناعي الحالية (Quota Exceeded). يمكنك المتابعة بشكل طبيعي باستخدام المزايا والخصائص الأخرى للنظام أو التحقق من خطة الحساب ومفتاح الـ API."
+    };
+  }
+
   throw lastError || new Error("Failed to generate content after attempting multiple models and retries");
 }
 

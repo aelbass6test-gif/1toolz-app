@@ -30,6 +30,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if true;
     }
+    match /shared_audits/{auditId} {
+      allow read, write: if true;
+    }
+    
     match /{allPaths=**} {
       allow read, write: if true;
     }

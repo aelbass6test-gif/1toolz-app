@@ -934,6 +934,105 @@ export interface OrderReturn {
   notes?: string;
 }
 
+export type SharedAuditProtocol = 'standard' | 'blind' | 'fast' | 'periodic' | 'location' | 'double' | 'audit';
+
+export interface SharedAuditPresence {
+  userId: string;
+  userName: string;
+  status: 'online' | 'offline' | 'idle';
+  activeProductId?: string;
+  lastActive: string;
+  deviceInfo?: string;
+}
+
+export interface SharedAuditAssignment {
+  userId: string;
+  userName: string;
+  scopeType: 'warehouse' | 'zone' | 'rack' | 'shelf' | 'category';
+  scopeValue: string;
+}
+
+export interface SharedAuditConflict {
+  productId: string;
+  variantId?: string;
+  itemName: string;
+  counts: {
+    userId: string;
+    userName: string;
+    qty: number;
+    timestamp: string;
+  }[];
+  status: 'pending' | 'resolved';
+  resolvedQty?: number;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  resolutionReason?: string;
+}
+
+export interface SharedAuditLogEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  action: string;
+  details?: string;
+  type: 'info' | 'warning' | 'error' | 'success' | 'protocol_change' | 'count_confirm' | 'submission' | 'access' | 'unlock' | 'conflict' | 'assignment' | 'presence';
+  metadata?: any;
+}
+
+export interface SharedAuditItem {
+  productId: string;
+  variantId?: string;
+  name: string;
+  sku: string;
+  barcode?: string;
+  systemQty: number;
+  actualQty?: number;
+  isCounted: boolean;
+  notes?: string;
+  proofImage?: string;
+  location?: string;
+  zone?: string;
+  rack?: string;
+  shelf?: string;
+  lockedBy?: string; // userId of person currently counting
+  lockedAt?: string;
+  lastCountedBy?: string;
+}
+
+export interface SharedAudit {
+  id: string;
+  title: string;
+  warehouseId: string;
+  warehouseName?: string;
+  protocol: SharedAuditProtocol;
+  isProtocolLocked: boolean;
+  status: 'pending' | 'submitted' | 'approved' | 'rejected';
+  createdAt: string;
+  submittedAt?: string;
+  passcode: string;
+  managerName?: string;
+  managerId?: string;
+  items: SharedAuditItem[];
+  logs: SharedAuditLogEntry[];
+  assignments: SharedAuditAssignment[];
+  presence: Record<string, SharedAuditPresence>;
+  conflicts: SharedAuditConflict[];
+  unlockReason?: string;
+  unlockedBy?: string;
+  unlockedAt?: string;
+  notes?: string;
+  signatureData?: string;
+  isBlindCount?: boolean;
+  workerSignature?: string;
+  managerSignature?: string;
+  rejectReason?: string;
+  progress: number;
+  accuracyScore?: number;
+  healthScore?: number;
+}
+
 export interface InventoryAuditItemDiscrepancy {
   productId: string;
   variantId?: string;

@@ -7,42 +7,21 @@ import {
     Lock, ArrowLeft, Info, HelpCircle, Loader2, RefreshCw, User, FileText, 
     ChevronRight, PenTool, RotateCcw, Sparkles, Filter, AlertTriangle,
     Camera, Mic, Zap, Target, Volume2, VolumeX, MapPin, XCircle, Trash2,
-    Fingerprint, X, ChevronLeft, BarChart3, Clock, TrendingDown, TrendingUp, Check, ThumbsUp, Activity, FileCheck2, Wallet, Boxes, Calendar
+    Fingerprint, X, ChevronLeft, BarChart3, Clock, TrendingDown, TrendingUp, Check, ThumbsUp, Activity, FileCheck2, Wallet, Boxes, Calendar, Users
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { audioSynth } from '../utils/audioSynth';
 import confetti from 'canvas-confetti';
 import { Html5Qrcode } from 'html5-qrcode';
+import { SharedAudit, SharedAuditItem } from '../types';
 
-interface SharedAuditItem {
-    productId: string;
-    variantId?: string;
-    name: string;
-    sku: string;
-    systemQty: number;
-    actualQty?: number;
-    notes?: string;
-}
-
-interface SharedAudit {
-    id: string;
-    storeId: string;
-    title: string;
-    warehouseId: string;
-    warehouseName?: string;
-    scope: string;
-    status: 'pending' | 'submitted' | 'approved' | 'rejected';
-    createdAt: string;
-    submittedAt?: string;
-    rejectedAt?: string;
-    passcode?: string;
-    managerName?: string;
-    rejectReason?: string;
-    signatureData?: string;
-    isBlindCount?: boolean;
-    items: SharedAuditItem[];
-    notes?: string;
-}
+// Import newly modularized audit subcomponents
+import SharedAuditHome from './audit/SharedAuditHome';
+import SharedCountingExperience from './audit/SharedCountingExperience';
+import SharedSupervisorFeatures from './audit/SharedSupervisorFeatures';
+import SharedNotificationCenter from './audit/SharedNotificationCenter';
+import SharedAuditReports from './audit/SharedAuditReports';
+import { useLiveCollaboration } from '../src/hooks/useLiveCollaboration';
 
 export default function WarehouseSubmitPage() {
     const { auditId } = useParams<{ auditId: string }>();
@@ -71,27 +50,61 @@ export default function WarehouseSubmitPage() {
     const [savedToastKey, setSavedToastKey] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterMode, setFilterMode] = useState<'all' | 'discrepancy' | 'uncounted'>('all');
+    const [isOnline, setIsOnline] = useState(typeof window !== 'undefined' ? navigator.onLine : true);
     
     // New tabbed interface states for comprehensive warehouse audit upgrades
-    const [activeTab, setActiveTab] = useState<'worksheet' | 'dashboard' | 'notifications' | 'sessions'>('worksheet');
+    const [activeTab, setActiveTab] = useState<'worksheet' | 'dashboard' | 'notifications' | 'sessions' | 'reports'>('dashboard');
     const [liveLogs, setLiveLogs] = useState<{ id: string; text: string; time: string; type: 'scan' | 'save' | 'system' | 'warn' }[]>([]);
 
+    // Shared collaboration state
+    const collaboration = useLiveCollaboration(auditId || '', managerName || 'Responsible');
+    
+    // Sync local audit state with collaboration audit data
+    useEffect(() => {
+        if (collaboration.auditData) {
+            setAudit(collaboration.auditData);
+        }
+    }, [collaboration.auditData]);
+
+    const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            e.preventDefault();
+            const nextInput = document.getElementById(`count-input-${index + 1}`);
+            if (nextInput) {
+                (nextInput as HTMLInputElement).focus();
+                (nextInput as HTMLInputElement).select();
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prevInput = document.getElementById(`count-input-${index - 1}`);
+            if (prevInput) {
+                (prevInput as HTMLInputElement).focus();
+                (prevInput as HTMLInputElement).select();
+            }
+        }
+    };
+
     const handleConfirmItem = async (key: string, val: number) => {
-        const newCounts = { ...counts, [key]: val };
+        let newCounts = { ...counts };
+        if (key !== 'draft_save_dummy') {
+            newCounts[key] = val;
+        }
         setCounts(newCounts);
         
-        // Log action in the live activity log
-        const itemObj = audit?.items?.find(it => (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) === key);
-        const itemName = itemObj ? itemObj.name : 'صنف جرد';
-        setLiveLogs(prev => [
-            {
-                id: 'log-' + Math.random().toString(36).substring(7),
-                text: `تم تأكيد عد [${itemName}] بكمية ${val} قطعة في قطاع [${activeZone || 'الرف العام'}]`,
-                time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                type: 'save' as const
-            },
-            ...prev
-        ]);
+        // Log action in the live activity log - skip for dummy draft saves
+        if (key !== 'draft_save_dummy') {
+            const itemObj = audit?.items?.find(it => (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) === key);
+            const itemName = itemObj ? itemObj.name : 'صنف جرد';
+            setLiveLogs(prev => [
+                {
+                    id: 'log-' + Math.random().toString(36).substring(7),
+                    text: `تم تأكيد عد [${itemName}] بكمية ${val} قطعة في قطاع [${activeZone || 'الرف العام'}]`,
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    type: 'save' as const
+                },
+                ...prev
+            ]);
+        }
         
         try {
             localStorage.setItem(`audit_draft_counts_${auditId}`, JSON.stringify(newCounts));
@@ -140,7 +153,6 @@ export default function WarehouseSubmitPage() {
     const [activeZone, setActiveZone] = useState('');
     const [recentScans, setRecentScans] = useState<{name: string, time: string}[]>([]);
     const [milestonesReached, setMilestonesReached] = useState<number[]>([]);
-    const [otherActiveSessions, setOtherActiveSessions] = useState<any[]>([]);
 
     // Voice Synthesis with Egyptian Phrasing
     const speak = (text: string) => {
@@ -375,6 +387,42 @@ export default function WarehouseSubmitPage() {
             }
         };
     }, [isScannerOpen]);
+
+    useEffect(() => {
+        const handleOnline = () => {
+            setIsOnline(true);
+            speak("الإنترنت متصل الآن، سيتم مزامنة أي فوارق معلقة تلقائياً");
+            setLiveLogs(prev => [
+                {
+                    id: 'log-' + Math.random().toString(36).substring(7),
+                    text: `📡 تم استعادة الاتصال بالإنترنت بنجاح. جاري المزامنة السحابية...`,
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    type: 'system'
+                },
+                ...prev
+            ]);
+        };
+        const handleOffline = () => {
+            setIsOnline(false);
+            speak("تم فقدان الاتصال بالإنترنت، نظام طابور الحفظ المحلي مفعل الآن");
+            setLiveLogs(prev => [
+                {
+                    id: 'log-' + Math.random().toString(36).substring(7),
+                    text: `🚨 انقطع الاتصال بالإنترنت! تم تفعيل طابور الحفظ المحلي غير المتصل.`,
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    type: 'warn'
+                },
+                ...prev
+            ]);
+        };
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
     // Custom UI Dialog States
     const [confirmDialog, setConfirmDialog] = useState<{
@@ -786,65 +834,7 @@ export default function WarehouseSubmitPage() {
         }
     };
 
-    // Session Tracking
-    useEffect(() => {
-        if (!auditId || !deviceId || !isUnlocked) return;
-
-        const sessionCollection = collection(db, 'shared_audits', auditId, 'sessions');
-        const unsubscribeSessions = onSnapshot(sessionCollection, (snapshot) => {
-            const others: any[] = [];
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                if (doc.id !== deviceId && data.isOnline) {
-                    const lastActive = data.lastActive?.toDate?.() || new Date();
-                    if ((new Date().getTime() - lastActive.getTime()) < 60000) {
-                        others.push({ id: doc.id, ...data });
-                    }
-                }
-            });
-            setOtherActiveSessions(others);
-        });
-
-        const trackSession = async () => {
-            try {
-                const ua = navigator.userAgent;
-                let deviceName = 'جهاز غير معروف';
-                if (ua.includes('iPhone')) deviceName = 'iPhone';
-                else if (ua.includes('iPad')) deviceName = 'iPad';
-                else if (ua.includes('Android')) {
-                    const match = ua.match(/Android [^;]+; ([^;)]+)/);
-                    deviceName = match ? match[1] : 'Android Device';
-                } else if (ua.includes('Windows')) deviceName = 'Windows PC';
-                else if (ua.includes('Macintosh')) deviceName = 'MacBook';
-
-                const sessionRef = doc(db, 'shared_audits', auditId, 'sessions', deviceId);
-                await setDoc(sessionRef, {
-                    deviceId,
-                    deviceName,
-                    userAgent: ua,
-                    managerName: managerName || 'مجهول',
-                    lastActive: serverTimestamp(),
-                    isOnline: true,
-                    location: userLocation,
-                    platform: navigator.platform,
-                    language: navigator.language
-                }, { merge: true });
-            } catch (err) {
-                console.error('Error tracking session:', err);
-            }
-        };
-
-        trackSession();
-        const interval = setInterval(trackSession, 30000); // Heartbeat every 30s
-
-        // Cleanup: set offline
-        return () => {
-            clearInterval(interval);
-            unsubscribeSessions();
-            const sessionRef = doc(db, 'shared_audits', auditId, 'sessions', deviceId);
-            setDoc(sessionRef, { isOnline: false, lastActive: serverTimestamp() }, { merge: true }).catch(() => {});
-        };
-    }, [auditId, deviceId, isUnlocked, managerName, userLocation]);
+    // Removed redundant session tracking logic as it is now handled by SharedCountingExperience subcomponent
 
     // Save identity changes
     useEffect(() => {
@@ -984,6 +974,21 @@ export default function WarehouseSubmitPage() {
             handleActualSubmit,
             'warning'
         );
+    };
+
+    const handleUpdateAuditStatus = async (newStatus: 'pending' | 'submitted' | 'approved' | 'rejected') => {
+        try {
+            setLoading(true);
+            const docRef = doc(db, 'shared_audits', auditId!);
+            await updateDoc(docRef, { status: newStatus });
+            setAudit(prev => prev ? { ...prev, status: newStatus } : null);
+            customAlert('تم تحديث الحالة', `تم تحديث حالة الجرد بنجاح إلى: ${newStatus === 'approved' ? 'معتمد' : newStatus === 'rejected' ? 'مرفوض/إعادة عد' : 'قيد الانتظار'}`, 'success');
+        } catch (err: any) {
+            console.error('Error updating status:', err);
+            customAlert('خطأ', 'حدث خطأ أثناء تحديث حالة الجرد', 'danger');
+        } finally {
+            setLoading(false);
+        }
     };
 
     if (loading) {
@@ -1276,25 +1281,129 @@ export default function WarehouseSubmitPage() {
                     </span>
                 </div>
 
-                <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
-                    {/* Other Sessions Warning */}
+                {isUnlocked && (
+                    <>
+                        {/* Redesigned Sticky Header */}
+                        <div className="sticky top-0 z-[60] backdrop-blur-md bg-white/95 dark:bg-slate-900/95 border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all duration-300">
+                            <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 bg-indigo-600 text-white rounded-xl flex items-center justify-center font-black shadow-md shadow-indigo-600/10">
+                                        <ClipboardList size={18} />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xs font-black text-slate-800 dark:text-white line-clamp-1">{audit?.title || "رابط جرد خارجي"}</h2>
+                                        <p className="text-[9px] text-slate-400 font-bold flex items-center gap-1">
+                                            <MapPin size={10} className="text-indigo-500" />
+                                            {audit?.warehouseName || 'المخزن الرئيسي'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Connection & Status Badges */}
+                                <div className="flex items-center gap-2">
+                                    {isOnline ? (
+                                        <span className="px-2 py-1 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 text-[9px] font-black rounded-lg flex items-center gap-1 border border-emerald-150 dark:border-emerald-900/30">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                            متصل بالإنترنت • سحابي متزامن ✅
+                                        </span>
+                                    ) : (
+                                        <span className="px-2 py-1 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 text-[9px] font-black rounded-lg flex items-center gap-1 border border-rose-150 dark:border-rose-900/30 animate-pulse">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                            غير متصل • الحفظ التلقائي محلي نشط 💾
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Floating Progress Pill */}
+                        {isEditable && (
+                            <div className="fixed bottom-24 left-4 z-40 pointer-events-none md:pointer-events-auto">
+                                <div className="bg-slate-900 text-white dark:bg-indigo-950 dark:text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-800 dark:border-indigo-850 flex items-center gap-3">
+                                    <div className="relative w-10 h-10 flex items-center justify-center bg-indigo-600 text-white font-black rounded-xl text-xs">
+                                        {progressPercentage}%
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <span className="text-[9px] text-slate-400 block font-black uppercase">تقدم العد الفعلي</span>
+                                        <span className="text-xs font-black block">تم إنجاز {countedCount} من {audit?.items?.length || 0} صنف</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Bottom Action Bar */}
+                        {isEditable && (
+                            <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 py-3 px-4 shadow-lg flex items-center justify-between gap-4 max-w-4xl mx-auto rounded-t-3xl">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 hidden sm:inline">تقدم العد: {progressPercentage}%</span>
+                                    <div className="w-24 h-2 bg-slate-100 dark:bg-slate-850 rounded-full overflow-hidden p-0.5 shadow-inner hidden sm:block">
+                                        <div className="h-full bg-emerald-500 rounded-full transition-all duration-500" style={{ width: `${progressPercentage}%` }} />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 flex-1 justify-end">
+                                    {/* Barcode Quick Scan button in center */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsScannerOpen(true);
+                                            playBeepSound();
+                                        }}
+                                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-indigo-600/15 transition-all active:scale-95"
+                                    >
+                                        <Zap size={14} className="animate-pulse text-amber-300" />
+                                        مسح سريع للباركود 🎯
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            // Save Draft
+                                            await handleConfirmItem("draft_save_dummy", 0);
+                                            playSuccessSound();
+                                            customAlert("تم الحفظ", "تم حفظ مسودة الجرد بنجاح في السحابة ومحلياً.", "success");
+                                        }}
+                                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-850 dark:text-slate-350 text-slate-700 rounded-xl text-xs font-black transition-all active:scale-95"
+                                    >
+                                        حفظ مسودة
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const element = document.getElementById("final-submit-section");
+                                            if (element) {
+                                                element.scrollIntoView({ behavior: 'smooth' });
+                                            }
+                                        }}
+                                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-sm transition-all active:scale-95"
+                                    >
+                                        إنهاء وتسليم الجرد 🏁
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+
+                <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6 pb-24">
+                    {/* Collaborators Info Banner */}
                     <AnimatePresence>
-                        {otherActiveSessions.length > 0 && (
+                        {collaboration.collaborators.length > 0 && (
                             <motion.div 
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
                                 className="overflow-hidden mb-4"
                             >
-                                <div className="bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-200 dark:border-amber-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
-                                    <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center shrink-0">
-                                        <AlertTriangle size={20} />
+                                <div className="bg-indigo-50 dark:bg-indigo-950/20 border-2 border-indigo-200 dark:border-indigo-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+                                    <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center shrink-0">
+                                        <Users size={20} />
                                     </div>
                                     <div className="space-y-1">
-                                        <h3 className="text-sm font-black text-amber-800 dark:text-amber-200">تنبيه: الجلسة مفتوحة في مكان آخر</h3>
-                                        <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold leading-relaxed">
-                                            تم رصد {otherActiveSessions.length} جهاز آخر يحاول الوصول لهذا الرابط الآن ({otherActiveSessions[0].deviceName}). 
-                                            يرجى التأكد من عدم مشاركة الرابط مع أشخاص غير مخولين.
+                                        <h3 className="text-sm font-black text-indigo-800 dark:text-indigo-200">فريق الجرد الميداني نشط</h3>
+                                        <p className="text-[10px] text-indigo-700 dark:text-indigo-400 font-bold leading-relaxed">
+                                            يوجد {collaboration.collaborators.length} زملاء آخرين يعملون معك حالياً على نفس ورقة الجرد. يتم مزامنة التغييرات والباركود فوراً.
                                         </p>
                                     </div>
                                 </div>
@@ -1460,19 +1569,7 @@ export default function WarehouseSubmitPage() {
                     </div>
 
                     {/* Modern Dynamic Tab Selector */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/80 rounded-2xl p-1 shadow-sm gap-1 overflow-x-auto scrollbar-none dir-rtl">
-                        <button
-                            type="button"
-                            onClick={() => { setActiveTab('worksheet'); playChangeSound(); }}
-                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
-                                activeTab === 'worksheet'
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
-                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
-                            }`}
-                        >
-                            <ClipboardList size={16} />
-                            <span>ورقة الجرد ({audit.items.length})</span>
-                        </button>
+                    <div className="flex bg-slate-100 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/80 rounded-2xl p-1 shadow-sm gap-1 overflow-x-auto scrollbar-none dir-rtl mb-6">
                         <button
                             type="button"
                             onClick={() => { setActiveTab('dashboard'); playChangeSound(); }}
@@ -1483,7 +1580,31 @@ export default function WarehouseSubmitPage() {
                             }`}
                         >
                             <BarChart3 size={16} />
-                            <span>داش بورد التحليلات</span>
+                            <span>نظرة عامة والسرعة 🎯</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setActiveTab('worksheet'); playChangeSound(); }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
+                                activeTab === 'worksheet'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <ClipboardList size={16} />
+                            <span>واجهة جرد الكميات 🔢 ({audit.items.length})</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setActiveTab('sessions'); playChangeSound(); }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
+                                activeTab === 'sessions'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <Lock size={16} />
+                            <span>القرارات والمشرفين 🛡️</span>
                         </button>
                         <button
                             type="button"
@@ -1495,7 +1616,7 @@ export default function WarehouseSubmitPage() {
                             }`}
                         >
                             <AlertCircle size={16} />
-                            <span>مركز التنبيهات</span>
+                            <span>مركز التنبيهات 🔔</span>
                             {/* Dynamic indicator badge for notifications count */}
                             {((audit.status === 'rejected' ? 1 : 0) + 
                               (audit.items.some(item => {
@@ -1508,20 +1629,106 @@ export default function WarehouseSubmitPage() {
                         </button>
                         <button
                             type="button"
-                            onClick={() => { setActiveTab('sessions'); playChangeSound(); }}
+                            onClick={() => { setActiveTab('reports'); playChangeSound(); }}
                             className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
-                                activeTab === 'sessions'
+                                activeTab === 'reports'
                                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
                                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
                             }`}
                         >
                             <Activity size={16} />
-                            <span>الفرق والنشاط المباشر</span>
+                            <span>التحليلات والمطابقة 📊</span>
                         </button>
                     </div>
 
                     {/* Conditional Worksheet View Render */}
                     {activeTab === 'worksheet' && (
+                        <div className="space-y-6">
+                            <SharedCountingExperience 
+                                audit={audit}
+                                counts={counts}
+                                setCounts={setCounts}
+                                itemNotes={itemNotes}
+                                setItemNotes={setItemNotes}
+                                itemPhotos={itemPhotos}
+                                setItemPhotos={setItemPhotos}
+                                activeZone={activeZone}
+                                setActiveZone={setActiveZone}
+                                speak={speak}
+                                triggerHaptic={triggerHaptic}
+                                onPhotoCapture={handlePhotoCapture}
+                                isListening={isListening}
+                                activeVoiceField={activeVoiceField}
+                                handleVoiceInput={handleVoiceInput}
+                                showSystemQty={showSystemQty}
+                                onStartScanner={() => {
+                                    setIsScannerOpen(true);
+                                    playBeepSound();
+                                }}
+                                collaboration={collaboration}
+                            />
+
+                            {/* Redesigned Unified Signature and Final Submission Card */}
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6 text-right dir-rtl">
+                                <div className="flex items-center gap-3 border-b border-slate-150 dark:border-slate-850 pb-4">
+                                    <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                                        <CheckCircle2 size={20} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black text-slate-800 dark:text-white text-sm">تسليم واعتماد الجلسة</h3>
+                                        <p className="text-[10px] text-slate-400 font-bold">يرجى كتابة الملاحظات الختامية للتسليم النهائي والمطابقة</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-4">
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-2xl">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase">مسؤول المخزن المُقر:</p>
+                                            <p className="font-black text-slate-800 dark:text-white flex items-center gap-2 mt-1">
+                                                <User size={16} className="text-indigo-500" />
+                                                {managerName || "مسؤول معتمد"}
+                                            </p>
+                                            {(managerSignature || audit.signatureData) && (
+                                                <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60 flex justify-center">
+                                                    <img src={managerSignature || audit.signatureData} alt="Signature" className="h-12 object-contain opacity-90" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-xs text-slate-500 dark:text-slate-400 font-bold block mb-1">ملاحظات عامة حول جرد اليوم (اختياري)</label>
+                                        <textarea 
+                                            value={managerNotes}
+                                            onChange={e => setManagerNotes(e.target.value)}
+                                            placeholder="أية ملاحظات ختامية للتاجر حول البضائع، الترتيب أو حالة الأرفف..."
+                                            className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-150 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-xs font-bold dark:text-white h-24 resize-none transition-all"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="pt-4 border-t border-slate-150 dark:border-slate-850 flex flex-col sm:flex-row justify-between items-center gap-4">
+                                    <div className="text-right space-y-1">
+                                        <span className="text-xs text-slate-400 font-bold block">إجمالي تقدم عملية العد الميداني والتوقيع</span>
+                                        <span className="text-xs font-black text-slate-800 dark:text-white block">
+                                            تم إحصاء <strong className="text-indigo-600 font-mono text-sm">{countedCount}</strong> من أصل <strong className="font-mono text-sm">{audit.items.length}</strong> صنوف بالكامل
+                                        </span>
+                                    </div>
+
+                                    <button 
+                                        onClick={handleSubmit}
+                                        className="w-full sm:w-auto px-7 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer"
+                                    >
+                                        <Save size={16} />
+                                        إرسال وتسليم عهدة الجرد والتوقيع للتاجر
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Legacy worksheet render deactivated */}
+                    {false && (
                         <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
                             {/* Zone & Search Bar - Re-styled */}
                             <div className="flex flex-col lg:flex-row gap-4 p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] shadow-sm relative overflow-hidden group">
@@ -1849,6 +2056,7 @@ export default function WarehouseSubmitPage() {
                                                             -
                                                         </button>
                                                         <input 
+                                                            id={`count-input-${index}`}
                                                             type="number"
                                                             min="0"
                                                             disabled={!isEditable}
@@ -1857,6 +2065,7 @@ export default function WarehouseSubmitPage() {
                                                                 const val = e.target.value === '' ? 0 : Math.max(0, Number(e.target.value));
                                                                 setCounts(prev => ({ ...prev, [key]: val }));
                                                             }}
+                                                            onKeyDown={e => handleKeyDown(e, index)}
                                                             className="w-20 h-12 bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl text-center text-lg font-black dark:text-white outline-none focus:border-indigo-500 transition-all"
                                                         />
                                                         <button
@@ -2040,6 +2249,23 @@ export default function WarehouseSubmitPage() {
 
                     {/* Dashboard Tab */}
                     {activeTab === 'dashboard' && (
+                        <div className="space-y-6">
+                            <SharedAuditHome 
+                                audit={audit} 
+                                countedCount={countedCount}
+                                progressPercentage={progressPercentage}
+                                managerName={managerName || "مسؤول مخزن معتمد"}
+                                onContinue={() => {
+                                    setActiveTab('worksheet');
+                                    playChangeSound();
+                                }}
+                                speak={speak}
+                            />
+                        </div>
+                    )}
+
+                    {/* Legacy dashboard render deactivated */}
+                    {activeTab === 'dashboard' && false && (
                         <div className="space-y-6 animate-in fade-in duration-300 dir-rtl text-right">
                             {/* Real-time Summary Cards */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2249,6 +2475,21 @@ export default function WarehouseSubmitPage() {
 
                     {/* Notifications Tab */}
                     {activeTab === 'notifications' && (
+                        <div className="space-y-4">
+                            <SharedNotificationCenter 
+                                audit={audit} 
+                                counts={counts} 
+                                isOnline={isOnline}
+                                onGoToCounting={() => {
+                                    setActiveTab('worksheet');
+                                    playChangeSound();
+                                }}
+                            />
+                        </div>
+                    )}
+
+                    {/* Legacy notifications render deactivated */}
+                    {activeTab === 'notifications' && false && (
                         <div className="space-y-4 animate-in fade-in duration-300 dir-rtl text-right">
                             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
                                 <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -2353,82 +2594,28 @@ export default function WarehouseSubmitPage() {
 
                     {/* Sessions Tab */}
                     {activeTab === 'sessions' && (
-                        <div className="space-y-6 animate-in fade-in duration-300 dir-rtl text-right">
-                            {/* Active team members */}
-                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
-                                <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
-                                    <Activity size={18} className="text-emerald-500" />
-                                    فريق جرد المستودع المتصل الآن
-                                </h3>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* Ourselves */}
-                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 rounded-full flex items-center justify-center font-black">
-                                                {managerName ? managerName.slice(0, 2) : 'أن'}
-                                            </div>
-                                            <div>
-                                                <h4 className="font-black text-slate-800 dark:text-white text-xs">{managerName || 'مسؤول مخزن معتمد'} (أنت)</h4>
-                                                <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
-                                                    <MapPin size={10} />
-                                                    القطاع الحالي: {activeZone || 'الرف الرئيسي'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg animate-pulse">متصل وجاهز</span>
-                                    </div>
+                        <div className="space-y-6">
+                            <SharedSupervisorFeatures 
+                                audit={audit}
+                                counts={counts}
+                                onApprove={async (reason) => {
+                                    await handleUpdateAuditStatus('approved');
+                                }}
+                                onReject={async (reason) => {
+                                    await handleUpdateAuditStatus('rejected');
+                                }}
+                                collaboration={collaboration}
+                            />
+                        </div>
+                    )}
 
-                                    {/* Other devices */}
-                                    {otherActiveSessions.length === 0 ? (
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs text-slate-400 font-bold">
-                                            لا توجد أجهزة متزامنة أخرى متصلة حالياً. جرد فردي آمن.
-                                        </div>
-                                    ) : (
-                                        otherActiveSessions.map((session, idx) => (
-                                            <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 rounded-full flex items-center justify-center font-black">
-                                                        {session.managerName ? session.managerName.slice(0, 2) : 'زم'}
-                                                    </div>
-                                                    <div>
-                                                        <h4 className="font-black text-slate-800 dark:text-white text-xs">{session.managerName || 'مسؤول مخزن زميل'}</h4>
-                                                        <p className="text-[10px] text-slate-400 font-bold">{session.deviceName || 'جهاز خارجي'}</p>
-                                                    </div>
-                                                </div>
-                                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-lg">متصل</span>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Rolling Live Logs */}
-                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
-                                <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
-                                    <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
-                                        <Clock size={18} className="text-indigo-600" />
-                                        سجل حركات العد الميداني المباشر
-                                    </h3>
-                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black">تحديث مستمر...</span>
-                                </div>
-
-                                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
-                                    {liveLogs.map((log) => (
-                                        <div key={log.id} className="p-3 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-xl flex justify-between items-center text-xs">
-                                            <div className="flex items-center gap-2.5">
-                                                <span className={`w-2 h-2 rounded-full shrink-0 ${
-                                                    log.type === 'scan' ? 'bg-indigo-500' :
-                                                    log.type === 'save' ? 'bg-emerald-500' :
-                                                    log.type === 'warn' ? 'bg-rose-500' : 'bg-slate-400'
-                                                }`} />
-                                                <span className="font-black text-slate-700 dark:text-slate-300 leading-relaxed">{log.text}</span>
-                                            </div>
-                                            <span className="text-[10px] font-mono font-bold text-slate-400 shrink-0">{log.time}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+                    {/* Reports Tab */}
+                    {activeTab === 'reports' && (
+                        <div className="space-y-6">
+                            <SharedAuditReports 
+                                audit={audit} 
+                                counts={counts} 
+                            />
                         </div>
                     )}
                         </div>

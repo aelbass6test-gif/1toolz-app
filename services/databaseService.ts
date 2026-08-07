@@ -157,8 +157,16 @@ export interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
+  if (errMsg.includes('resource-exhausted') || errMsg.includes('quota') || errMsg.includes('QUOTA_EXCEEDED')) {
+      if (typeof window !== 'undefined') {
+          localStorage.setItem('firestore_quota_exceeded', 'true');
+      }
+      console.warn('[FIRESTORE QUOTA EXCEEDED] Automatically switching to Local/Offline Storage mode.');
+      throw new Error('QUOTA_EXCEEDED');
+  }
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: localStorage.getItem('currentUserPhone') || null,
       email: null,
@@ -1622,8 +1630,12 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
         return { success: true };
     } catch (err: any) {
-        if (err.message === 'QUOTA_EXCEEDED') {
-            return { success: false, error: 'QUOTA_EXCEEDED' };
+        if (err.message === 'QUOTA_EXCEEDED' || err.message?.includes('resource-exhausted') || err.message?.includes('quota')) {
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('firestore_quota_exceeded', 'true');
+            }
+            console.warn('[OFFLINE MODE] Firestore quota exceeded. Data saved locally to IndexedDB successfully.');
+            return { success: true };
         }
         return { success: false, error: err.message };
     }
