@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../services/firebaseClient';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { 
-    ClipboardList, CheckCircle2, AlertCircle, Search, Save, Package, 
+    ClipboardList, CheckCircle, CheckCircle2, AlertCircle, Search, Save, Package, 
     Lock, ArrowLeft, Info, HelpCircle, Loader2, RefreshCw, User, FileText, 
     ChevronRight, PenTool, RotateCcw, Sparkles, Filter, AlertTriangle,
     Camera, Mic, Zap, Target, Volume2, VolumeX, MapPin, XCircle, Trash2,
-    Fingerprint, X, ChevronLeft
+    Fingerprint, X, ChevronLeft, BarChart3, Clock, TrendingDown, TrendingUp, Check, ThumbsUp, Activity, FileCheck2, Wallet, Boxes, Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { audioSynth } from '../utils/audioSynth';
@@ -68,8 +68,59 @@ export default function WarehouseSubmitPage() {
     const [counts, setCounts] = useState<Record<string, number>>({});
     const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
     const [itemPhotos, setItemPhotos] = useState<Record<string, string>>({});
+    const [savedToastKey, setSavedToastKey] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [filterMode, setFilterMode] = useState<'all' | 'discrepancy' | 'uncounted'>('all');
+    
+    // New tabbed interface states for comprehensive warehouse audit upgrades
+    const [activeTab, setActiveTab] = useState<'worksheet' | 'dashboard' | 'notifications' | 'sessions'>('worksheet');
+    const [liveLogs, setLiveLogs] = useState<{ id: string; text: string; time: string; type: 'scan' | 'save' | 'system' | 'warn' }[]>([]);
+
+    const handleConfirmItem = async (key: string, val: number) => {
+        const newCounts = { ...counts, [key]: val };
+        setCounts(newCounts);
+        
+        // Log action in the live activity log
+        const itemObj = audit?.items?.find(it => (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) === key);
+        const itemName = itemObj ? itemObj.name : 'صنف جرد';
+        setLiveLogs(prev => [
+            {
+                id: 'log-' + Math.random().toString(36).substring(7),
+                text: `تم تأكيد عد [${itemName}] بكمية ${val} قطعة في قطاع [${activeZone || 'الرف العام'}]`,
+                time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                type: 'save' as const
+            },
+            ...prev
+        ]);
+        
+        try {
+            localStorage.setItem(`audit_draft_counts_${auditId}`, JSON.stringify(newCounts));
+            if (Object.keys(itemNotes).length > 0) {
+                localStorage.setItem(`audit_draft_notes_${auditId}`, JSON.stringify(itemNotes));
+            }
+        } catch (e) {
+            console.warn("LocalStorage draft save error:", e);
+        }
+
+        audioSynth.playTone('success');
+        triggerHaptic();
+
+        setSavedToastKey(key);
+        setTimeout(() => setSavedToastKey(null), 2500);
+
+        if (auditId) {
+            try {
+                const docRef = doc(db, 'shared_audits', auditId);
+                await updateDoc(docRef, {
+                    draftCounts: newCounts,
+                    draftNotes: itemNotes,
+                    lastSavedAt: serverTimestamp()
+                });
+            } catch (err) {
+                console.warn('Firestore draft update error:', err);
+            }
+        }
+    };
 
     // Voice Input State
     const [isListening, setIsListening] = useState(false);
@@ -84,9 +135,12 @@ export default function WarehouseSubmitPage() {
     const [scannerError, setScannerError] = useState<string | null>(null);
     const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
     const [isFocusMode, setIsFocusMode] = useState(false);
+    const [deviceId, setDeviceId] = useState('');
+    const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
     const [activeZone, setActiveZone] = useState('');
     const [recentScans, setRecentScans] = useState<{name: string, time: string}[]>([]);
     const [milestonesReached, setMilestonesReached] = useState<number[]>([]);
+    const [otherActiveSessions, setOtherActiveSessions] = useState<any[]>([]);
 
     // Voice Synthesis with Egyptian Phrasing
     const speak = (text: string) => {
@@ -262,10 +316,30 @@ export default function WarehouseSubmitPage() {
                 { name: match.name, time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) },
                 ...prev
             ].slice(0, 5));
+
+            setLiveLogs(prev => [
+                {
+                    id: 'log-' + Math.random().toString(36).substring(7),
+                    text: `مسح باركود ناجح: [${match.name}] في قطاع [${activeZone || 'الرف العام'}] (+1 قطع)`,
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    type: 'scan' as const
+                },
+                ...prev
+            ]);
         } else {
             audioSynth.playTone('error');
             triggerHaptic();
             speak('الصنف ده مش موجود في كشف الجرد');
+
+            setLiveLogs(prev => [
+                {
+                    id: 'log-' + Math.random().toString(36).substring(7),
+                    text: `⚠️ محاولة مسح باركود غير معرف: [${cleanedText}]`,
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                    type: 'warn' as const
+                },
+                ...prev
+            ]);
         }
     };
 
@@ -404,8 +478,12 @@ export default function WarehouseSubmitPage() {
                 const data = docSnap.data() as SharedAudit;
                 setAudit(data);
                 
-                // Initialize form values from loaded data
-                setManagerName(data.managerName || '');
+                // Initialize form values from loaded data (preserve saved local identity if Firestore data is empty)
+                const savedLocalName = (auditId && localStorage.getItem(`audit_manager_name_${auditId}`)) || localStorage.getItem('audit_manager_name') || '';
+                const nameToUse = data.managerName || savedLocalName;
+                if (nameToUse) {
+                    setManagerName(nameToUse);
+                }
                 setManagerNotes(data.notes || '');
                 
                 const initialCounts: Record<string, number> = {};
@@ -419,8 +497,33 @@ export default function WarehouseSubmitPage() {
                     initialNotes[key] = item.notes || '';
                 });
                 
-                setCounts(initialCounts);
-                setItemNotes(initialNotes);
+                // Retrieve local draft counts & notes from localStorage
+                let localCounts: Record<string, number> = {};
+                try {
+                    const savedCountsStr = localStorage.getItem(`audit_draft_counts_${auditId}`);
+                    if (savedCountsStr) localCounts = JSON.parse(savedCountsStr);
+                } catch(e) {}
+
+                let localNotes: Record<string, string> = {};
+                try {
+                    const savedNotesStr = localStorage.getItem(`audit_draft_notes_${auditId}`);
+                    if (savedNotesStr) localNotes = JSON.parse(savedNotesStr);
+                } catch(e) {}
+
+                // Retrieve cloud draft counts & notes from Firestore
+                const firestoreDraftCounts = (data as any).draftCounts || {};
+                const firestoreDraftNotes = (data as any).draftNotes || {};
+
+                // Merge all sources: local drafts > cloud drafts > initial submitted counts
+                const mergedCounts = { ...initialCounts, ...firestoreDraftCounts, ...localCounts };
+                const mergedNotes = { ...initialNotes, ...firestoreDraftNotes, ...localNotes };
+
+                setCounts(mergedCounts);
+                setItemNotes(mergedNotes);
+
+                if (Object.keys(mergedCounts).length > 0) {
+                    localStorage.setItem(`audit_draft_counts_${auditId}`, JSON.stringify(mergedCounts));
+                }
 
                 // Initialize photos if any (though usually empty for new audits)
                 const initialPhotos: Record<string, string> = {};
@@ -458,6 +561,36 @@ export default function WarehouseSubmitPage() {
     useEffect(() => {
         fetchAudit();
         
+        // Initialize Device ID
+        let id = localStorage.getItem('audit_device_id');
+        if (!id) {
+            id = 'dev_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            localStorage.setItem('audit_device_id', id);
+        }
+        setDeviceId(id);
+
+        // Load persisted identity & unlocked session
+        const savedName = (auditId && localStorage.getItem(`audit_manager_name_${auditId}`)) || localStorage.getItem('audit_manager_name');
+        const savedSig = (auditId && localStorage.getItem(`audit_manager_signature_${auditId}`)) || localStorage.getItem('audit_manager_signature');
+        const savedUnlocked = localStorage.getItem(`audit_unlocked_${auditId}`);
+        if (savedName) setManagerName(savedName);
+        if (savedSig) {
+            setManagerSignature(savedSig);
+            setHasSigned(true);
+        }
+        if (savedUnlocked === 'true' && savedName && savedSig) {
+            setIsUnlocked(true);
+            setIsIdentified(true);
+        }
+
+        // Get Location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+                (err) => console.warn('Location access denied', err)
+            );
+        }
+
         // Check for biometric support
         if (window.PublicKeyCredential && 
             window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -466,34 +599,68 @@ export default function WarehouseSubmitPage() {
             });
         }
 
-        // Check if user has seen tutorial
+        // Check if user has disabled tutorial permanently or seen it
+        const tutorialDisabled = localStorage.getItem('tutorial_disabled_permanently');
         const hasSeen = localStorage.getItem(`tutorial_seen_${auditId}`);
-        if (!hasSeen) {
+        if (!tutorialDisabled && !hasSeen) {
             setShowTutorial(true);
         }
     }, [auditId]);
+
+    // Initialize live logs once unlocked and loaded
+    useEffect(() => {
+        if (isUnlocked && audit && liveLogs.length === 0) {
+            const initialLogs: { id: string; text: string; time: string; type: 'scan' | 'save' | 'system' | 'warn' }[] = [
+                {
+                    id: 'init-1',
+                    text: `📡 تم الاتصال الآمن بالمستودع الموحد: ${audit.warehouseName || 'المخزن الرئيسي'}`,
+                    time: new Date(Date.now() - 60000).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+                    type: 'system' as const
+                },
+                {
+                    id: 'init-2',
+                    text: `👥 انضمام المسؤول الميداني [${managerName || 'مسؤول مخزن'}] للجلسة المفتوحة.`,
+                    time: new Date(Date.now() - 40000).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+                    type: 'system' as const
+                },
+                {
+                    id: 'init-3',
+                    text: `✅ جاري تتبع الفروقات الميدانية ومزامنة التغييرات تلقائياً مع التاجر الإداري.`,
+                    time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+                    type: 'system' as const
+                }
+            ];
+            
+            if (audit.status === 'rejected') {
+                initialLogs.unshift({
+                    id: 'init-warn',
+                    text: `⚠️ تنبيه جرد: تم إعادة فتح ورقة الجرد الميداني بعد الرفض والتعليق من قبل التاجر.`,
+                    time: new Date(Date.now() - 30000).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+                    type: 'warn' as const
+                });
+            }
+            setLiveLogs(initialLogs);
+        }
+    }, [isUnlocked, audit, managerName, liveLogs.length]);
 
     // Auto-advance tutorial based on real actions
     useEffect(() => {
         if (!showTutorial) return;
 
-        if (tutorialStep === 1 && passcode.length === 4) {
-            setTutorialStep(2);
-            speak("عاش يا بطل، دلوقت اضغط على زرار فتح الجلسة عشان ندخل");
-        }
-        if (tutorialStep === 2 && isUnlocked) {
-            setTutorialStep(3);
-            speak("منور، اكتب اسمك ووقع في المربع ده عشان نبدأ نعد");
-        }
-        if (tutorialStep === 3 && isIdentified) {
-            setTutorialStep(4);
-            speak("تمام جداً، اضغط بقى على زرار بدأ الجرد عشان نشوف الأصناف");
-        }
-        if (tutorialStep === 4 && isFocusMode) {
+        if (tutorialStep === 4 && isUnlocked) {
              setTutorialStep(5);
-             speak("هنا تقدر تستخدم الكاميرا لو حابب تمسح باركود الصنف بسرعة");
+             speak("ممتاز! تم فتح الجلسة بنجاح. هذه لوحة نتائج الجرد المباشرة لمتابعة المجرود والمتبقي.");
+        } else if (tutorialStep === 5 && (isScannerOpen || searchQuery.length > 0 || filterMode === 'uncounted')) {
+             setTutorialStep(6);
+             speak("تقدر تمسح باركود الصنف بالكاميرا أو تبحث عنه بسهولة هنا");
+        } else if (tutorialStep === 6 && countedCount > 0) {
+             setTutorialStep(7);
+             speak("سجل العدد الفعلي للصنف على الرف ودوس علامة الصح الخضراء");
+        } else if (tutorialStep === 7 && countedCount === (audit?.items?.length || 0)) {
+             setTutorialStep(8);
+             speak("أخر خطوة، لما تخلص كل الأصناف دوس على زرار تسليم الجرد نهائياً");
         }
-    }, [passcode, isUnlocked, isIdentified, isFocusMode, tutorialStep, showTutorial, auditId]);
+    }, [isUnlocked, tutorialStep, showTutorial, auditId, isScannerOpen, searchQuery, filterMode, countedCount, audit?.items?.length]);
 
     const handleBiometricAuth = async () => {
         try {
@@ -569,42 +736,163 @@ export default function WarehouseSubmitPage() {
         }
     };
 
-    // Handle unlocking via passcode
+    // Handle unlocking via passcode, name, and signature together
     const handleUnlock = (e: React.FormEvent) => {
         e.preventDefault();
-        if (audit && passcode === audit.passcode) {
-            setIsUnlocked(true);
-            setPasscodeError(false);
-            audioSynth.playTone('success');
-        } else {
+        if (!audit) return;
+
+        // 1. Passcode check
+        if (audit.passcode && passcode !== audit.passcode) {
             setPasscodeError(true);
             audioSynth.playTone('error');
-            setTimeout(() => setPasscodeError(false), 500);
+            customAlert('رمز المرور خاطئ', 'رمز المرور غير صحيح، يرجى التأكد من الرمز المكون من 4 أرقام المرسل إليك من التاجر.', 'danger');
+            return;
+        }
+
+        // 2. Manager Name check
+        if (!managerName.trim()) {
+            audioSynth.playTone('warning');
+            customAlert('اسم المسؤول إجباري', 'يرجى كتابة اسم مسؤول المخزن بالكامل قبل فتح الجلسة.', 'warning');
+            return;
+        }
+
+        // 3. Signature check
+        let signatureBase64 = managerSignature;
+        if (!signatureBase64 && canvasRef.current && hasSigned) {
+            signatureBase64 = canvasRef.current.toDataURL('image/png');
+            setManagerSignature(signatureBase64);
+        }
+
+        if (!signatureBase64 && !hasSigned) {
+            audioSynth.playTone('warning');
+            customAlert('التوقيع إجباري', 'يرجى وضع توقيعك الرقمي في المربع المخصص قبل فتح الجلسة.', 'warning');
+            return;
+        }
+
+        setIsUnlocked(true);
+        setIsIdentified(true);
+        setPasscodeError(false);
+        audioSynth.playTone('success');
+
+        if (auditId) {
+            localStorage.setItem(`audit_unlocked_${auditId}`, 'true');
+            localStorage.setItem('audit_manager_name', managerName.trim());
+            if (signatureBase64) localStorage.setItem('audit_manager_signature', signatureBase64);
+        }
+
+        speak('تم فتح الجلسة بنجاح، يمكنك الآن البدء في جرد وحصر الأصناف.');
+        if (showTutorial && tutorialStep < 5) {
+            setTutorialStep(5);
         }
     };
 
-    // Persistence: Save/Load counts from localStorage
+    // Session Tracking
+    useEffect(() => {
+        if (!auditId || !deviceId || !isUnlocked) return;
+
+        const sessionCollection = collection(db, 'shared_audits', auditId, 'sessions');
+        const unsubscribeSessions = onSnapshot(sessionCollection, (snapshot) => {
+            const others: any[] = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (doc.id !== deviceId && data.isOnline) {
+                    const lastActive = data.lastActive?.toDate?.() || new Date();
+                    if ((new Date().getTime() - lastActive.getTime()) < 60000) {
+                        others.push({ id: doc.id, ...data });
+                    }
+                }
+            });
+            setOtherActiveSessions(others);
+        });
+
+        const trackSession = async () => {
+            try {
+                const ua = navigator.userAgent;
+                let deviceName = 'جهاز غير معروف';
+                if (ua.includes('iPhone')) deviceName = 'iPhone';
+                else if (ua.includes('iPad')) deviceName = 'iPad';
+                else if (ua.includes('Android')) {
+                    const match = ua.match(/Android [^;]+; ([^;)]+)/);
+                    deviceName = match ? match[1] : 'Android Device';
+                } else if (ua.includes('Windows')) deviceName = 'Windows PC';
+                else if (ua.includes('Macintosh')) deviceName = 'MacBook';
+
+                const sessionRef = doc(db, 'shared_audits', auditId, 'sessions', deviceId);
+                await setDoc(sessionRef, {
+                    deviceId,
+                    deviceName,
+                    userAgent: ua,
+                    managerName: managerName || 'مجهول',
+                    lastActive: serverTimestamp(),
+                    isOnline: true,
+                    location: userLocation,
+                    platform: navigator.platform,
+                    language: navigator.language
+                }, { merge: true });
+            } catch (err) {
+                console.error('Error tracking session:', err);
+            }
+        };
+
+        trackSession();
+        const interval = setInterval(trackSession, 30000); // Heartbeat every 30s
+
+        // Cleanup: set offline
+        return () => {
+            clearInterval(interval);
+            unsubscribeSessions();
+            const sessionRef = doc(db, 'shared_audits', auditId, 'sessions', deviceId);
+            setDoc(sessionRef, { isOnline: false, lastActive: serverTimestamp() }, { merge: true }).catch(() => {});
+        };
+    }, [auditId, deviceId, isUnlocked, managerName, userLocation]);
+
+    // Save identity changes
+    useEffect(() => {
+        if (managerName) {
+            localStorage.setItem('audit_manager_name', managerName);
+            if (auditId) localStorage.setItem(`audit_manager_name_${auditId}`, managerName);
+        }
+    }, [managerName, auditId]);
+
+    useEffect(() => {
+        if (managerSignature) {
+            localStorage.setItem('audit_manager_signature', managerSignature);
+            if (auditId) localStorage.setItem(`audit_manager_signature_${auditId}`, managerSignature);
+        }
+    }, [managerSignature, auditId]);
+
+    // Persistence: Save/Load session data from localStorage
     useEffect(() => {
         if (!auditId) return;
         try {
-            const saved = localStorage.getItem(`audit_draft_${auditId}`);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                setCounts(prev => ({ ...prev, ...parsed }));
-            }
+            const savedCounts = localStorage.getItem(`audit_draft_counts_${auditId}`);
+            if (savedCounts) setCounts(JSON.parse(savedCounts));
+
+            const savedNotes = localStorage.getItem(`audit_draft_notes_${auditId}`);
+            if (savedNotes) setItemNotes(JSON.parse(savedNotes));
+
+            const savedPhotos = localStorage.getItem(`audit_draft_photos_${auditId}`);
+            if (savedPhotos) setItemPhotos(JSON.parse(savedPhotos));
         } catch (e) {
             console.warn("LocalStorage access failed: ", e);
         }
     }, [auditId]);
 
+    // Persistence: Save session data on change
     useEffect(() => {
-        if (!auditId || Object.keys(counts).length === 0) return;
-        try {
-            localStorage.setItem(`audit_draft_${auditId}`, JSON.stringify(counts));
-        } catch (e) {
-            console.warn("LocalStorage saving failed: ", e);
-        }
+        if (!auditId) return;
+        if (Object.keys(counts).length > 0) localStorage.setItem(`audit_draft_counts_${auditId}`, JSON.stringify(counts));
     }, [counts, auditId]);
+
+    useEffect(() => {
+        if (!auditId) return;
+        if (Object.keys(itemNotes).length > 0) localStorage.setItem(`audit_draft_notes_${auditId}`, JSON.stringify(itemNotes));
+    }, [itemNotes, auditId]);
+
+    useEffect(() => {
+        if (!auditId) return;
+        if (Object.keys(itemPhotos).length > 0) localStorage.setItem(`audit_draft_photos_${auditId}`, JSON.stringify(itemPhotos));
+    }, [itemPhotos, auditId]);
 
     const handleActualSubmit = async () => {
         try {
@@ -669,7 +957,7 @@ export default function WarehouseSubmitPage() {
         }
 
         const uncountedCount = audit.items.filter(item => {
-            const key = `${item.sku}_${item.name}`;
+            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
             return counts[key] === undefined;
         }).length;
 
@@ -729,121 +1017,81 @@ export default function WarehouseSubmitPage() {
         );
     }
 
-    // Passcode Lock Screen View
+    // Passcode Lock & Identification Unified Screen View
     if (!isUnlocked && audit) {
         return (
             <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 dir-rtl">
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-sm max-w-md w-full text-center space-y-6">
-                    <div className="mx-auto w-16 h-16 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center shadow-inner">
-                        <Lock size={30} />
-                    </div>
-                    <div className="space-y-1">
-                        <h2 className="text-xl font-black text-slate-800 dark:text-white">رمز حماية الجلسة</h2>
-                        <p className="text-xs text-slate-400 font-medium">هذه الجلسة محمية برمز مرور. يرجى إدخال الرمز المرسل إليك من التاجر للدخول.</p>
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl max-w-lg w-full text-right space-y-6 animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex items-center gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                        <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center shrink-0 shadow-inner">
+                            <Lock size={28} />
+                        </div>
+                        <div className="space-y-1 flex-1">
+                            <h2 className="text-xl font-black text-slate-800 dark:text-white">دخول وتوثيق جلسة الجرد</h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 font-bold">أدخل كلمة السر واسمك وتوقيعك للبدء مباشرة</p>
+                        </div>
                         <button 
+                            type="button"
                             onClick={() => { setShowTutorial(true); setTutorialStep(0); }}
-                            className="mt-2 text-indigo-600 dark:text-indigo-400 text-[10px] font-black underline underline-offset-4 flex items-center gap-1 mx-auto hover:text-indigo-700 transition-colors"
+                            className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-black hover:scale-105 transition-all flex items-center gap-1 shrink-0"
+                            title="عرض المساعد الذكي للشرح"
                         >
-                            <HelpCircle size={12} /> مش عارف تعمل إيه؟ اضغط هنا للشرح
+                            <HelpCircle size={16} />
+                            <span className="hidden sm:inline">الشرح الذكي</span>
                         </button>
                     </div>
 
-                    <form onSubmit={handleUnlock} className="space-y-4">
-                        <input 
-                            id="passcode-input"
-                            type="password"
-                            required
-                            value={passcode}
-                            onChange={e => setPasscode(e.target.value)}
-                            placeholder="أدخل رمز المرور المكون من 4 أرقام"
-                            className={`w-full p-4 text-center bg-slate-50 dark:bg-slate-800 border rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-lg font-black tracking-widest dark:text-white transition-all ${passcodeError ? 'border-red-500 ring-4 ring-red-500/15' : 'border-slate-200 dark:border-slate-700'}`}
-                        />
-                        {passcodeError && (
-                            <p className="text-rose-500 text-xs font-bold animate-shake">رمز المرور غير صحيح، يرجى المحاولة مجدداً</p>
-                        )}
-                        
-                        <div className="flex flex-col sm:flex-row gap-3">
-                            <button 
-                                id="unlock-session-btn"
-                                type="submit" 
-                                className="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-black shadow-lg shadow-indigo-600/10 hover:shadow-indigo-600/20 active:scale-[0.98] transition-all"
-                            >
-                                فتح الجلسة
-                            </button>
-
-                            {isBiometricSupported && (
-                                <button 
-                                    type="button"
-                                    onClick={handleBiometricAuth}
-                                    className="p-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-black hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 border border-slate-200 dark:border-slate-700"
-                                    title="الدخول بالبصمة أو الوجه"
-                                >
-                                    <Fingerprint size={20} className="text-indigo-600" />
-                                    <span>بصمة</span>
-                                </button>
-                            )}
-                        </div>
-                    </form>
-                </div>
-            </div>
-        );
-    }
-
-    // Identification Screen (Name & Signature mandatory before counting)
-    if (isUnlocked && !isIdentified && audit && (audit.status === 'pending' || audit.status === 'rejected')) {
-        return (
-            <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 dir-rtl">
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl max-w-lg w-full space-y-6 animate-in fade-in zoom-in-95 duration-300 text-right" dir="rtl">
-                    <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-                        <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-2xl">
-                            <User size={24} />
-                        </div>
-                        <div className="space-y-0.5">
-                            <h2 className="text-xl font-black text-slate-800 dark:text-white">إقرار وبدء جرد ميداني</h2>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">خطوة إجبارية لتحديد المسؤولية القانونية</p>
-                            <button 
-                                onClick={() => { setShowTutorial(true); setTutorialStep(3); }}
-                                className="text-indigo-600 dark:text-indigo-400 text-[9px] font-black flex items-center gap-1 hover:underline"
-                            >
-                                <HelpCircle size={10} /> شرح الخطوة دي
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="space-y-5">
-                        <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 text-[11px] text-amber-700 dark:text-amber-400 flex gap-3">
-                            <AlertCircle size={20} className="shrink-0" />
-                            <p className="leading-relaxed font-bold">بموجب توقيعك أدناه، تقر بأنك ستقوم بعملية العد الفعلي بدقة للأصناف الموكلة إليك، وتتحمل مسؤولية مطابقة الكميات الميدانية مع نظام التاجر.</p>
+                    <form onSubmit={handleUnlock} className="space-y-5">
+                        {/* 1. Passcode Input */}
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                                <span>1. رمز المرور المعتمد للجلسة (4 أرقام) *</span>
+                                {passcodeError && <span className="text-rose-500 text-[11px] font-bold">رمز غير صحيح</span>}
+                            </label>
+                            <input 
+                                id="passcode-input"
+                                type="password"
+                                required
+                                value={passcode}
+                                onChange={e => setPasscode(e.target.value)}
+                                placeholder="••••"
+                                maxLength={8}
+                                className={`w-full p-3.5 text-center bg-slate-50 dark:bg-slate-800/80 border rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-xl font-black tracking-widest dark:text-white transition-all ${passcodeError ? 'border-red-500 ring-4 ring-red-500/15' : 'border-slate-200 dark:border-slate-700'}`}
+                            />
                         </div>
 
-                        <div>
-                            <label className="text-xs text-slate-500 dark:text-slate-400 font-bold block mb-1.5">اسم مسؤول المخزن بالكامل *</label>
+                        {/* 2. Manager Full Name Input */}
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
+                                2. اسم مسؤول المخزن القائم بالجرد *
+                            </label>
                             <input 
                                 id="manager-name-input"
                                 type="text"
                                 required
                                 value={managerName}
                                 onChange={e => setManagerName(e.target.value)}
-                                placeholder="يرجى كتابة الاسم الثلاثي"
-                                className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-bold dark:text-white transition-all"
+                                placeholder="اكتب اسمك الثلاثي بالكامل"
+                                className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-bold dark:text-white transition-all"
                             />
                         </div>
 
+                        {/* 3. Signature Pad */}
                         <div className="space-y-2">
                             <div className="flex justify-between items-center">
-                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1">
                                     <PenTool size={14} className="text-indigo-600" />
-                                    التوقيع الرقمي المعتمد *
+                                    3. التوقيع الرقمي المعتمد *
                                 </label>
-                                <button onClick={clearSignature} className="text-[10px] font-bold text-rose-500 hover:text-rose-600 flex items-center gap-1 transition-colors">
+                                <button type="button" onClick={clearSignature} className="text-[10px] font-bold text-rose-500 hover:text-rose-600 flex items-center gap-1 transition-colors">
                                     <RotateCcw size={12} /> مسح وإعادة الرسم
                                 </button>
                             </div>
-                            <div id="signature-pad-container" className="relative border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 overflow-hidden touch-none">
+                            <div id="signature-pad-container" className="relative border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 overflow-hidden touch-none">
                                 <canvas
                                     ref={canvasRef}
                                     width={500}
-                                    height={140}
+                                    height={130}
                                     onMouseDown={startDrawing}
                                     onMouseMove={draw}
                                     onMouseUp={stopDrawing}
@@ -851,51 +1099,41 @@ export default function WarehouseSubmitPage() {
                                     onTouchStart={startDrawing}
                                     onTouchMove={draw}
                                     onTouchEnd={stopDrawing}
-                                    className="w-full h-36 cursor-crosshair block"
+                                    className="w-full h-32 cursor-crosshair block"
                                 />
-                                {!hasSigned && (
-                                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 text-xs font-black gap-2">
-                                        <Zap size={20} className="opacity-20" />
-                                        <span>وقع بإصبعك هنا للمتابعة</span>
+                                {!hasSigned && !managerSignature && (
+                                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-xs font-black gap-1.5">
+                                        <Zap size={20} className="opacity-40 text-indigo-500" />
+                                        <span>وقع بإصبعك أو بالماوس هنا</span>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        <button 
-                            id="start-counting-btn"
-                            onClick={async () => {
-                                if (!managerName.trim() || !hasSigned) {
-                                    audioSynth.playTone('error');
-                                    customAlert('بيانات ناقصة', 'يا بطل، لازم تكتب اسمك وتوقع عشان نقدر نفتحلك قائمة الأصناف ونبدأ الجرد.', 'warning');
-                                    return;
-                                }
+                        {/* Submit Button */}
+                        <div className="pt-2 flex flex-col sm:flex-row gap-3">
+                            <button 
+                                id="unlock-session-btn"
+                                type="submit" 
+                                className={`flex-1 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group ${tutorialStep === 4 ? 'ring-4 ring-indigo-500 animate-pulse' : ''}`}
+                            >
+                                <span>فتح الجلسة وبدء العد الميداني</span>
+                                <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                            </button>
 
-                                // Capture signature before switching screens
-                                if (canvasRef.current) {
-                                    const signatureData = canvasRef.current.toDataURL('image/png');
-                                    setManagerSignature(signatureData);
-                                }
-
-                                if (isBiometricSupported) {
-                                    // Optional but recommended biometric verification on start
-                                    try {
-                                        await handleBiometricVerifyIdentity();
-                                    } catch (e) {
-                                        console.warn("Biometric verification skipped or failed during identification step");
-                                    }
-                                }
-
-                                setIsIdentified(true);
-                                audioSynth.playTone('success');
-                                speak('تمام يا وحش، تقدر تبدأ الجرد دلوقتي وتعد الأصناف بدقة.');
-                            }}
-                            className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black shadow-lg shadow-indigo-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group"
-                        >
-                            فتح قائمة الأصناف وبدء العد
-                            <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                        </button>
-                    </div>
+                            {isBiometricSupported && (
+                                <button 
+                                    type="button"
+                                    onClick={handleBiometricAuth}
+                                    className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-sm font-black hover:bg-slate-200 dark:hover:bg-slate-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 border border-slate-200 dark:border-slate-700 shrink-0"
+                                    title="الدخول السريع بالبصمة"
+                                >
+                                    <Fingerprint size={20} className="text-indigo-600" />
+                                    <span className="hidden sm:inline">البصمة</span>
+                                </button>
+                            )}
+                        </div>
+                    </form>
                 </div>
             </div>
         );
@@ -1039,6 +1277,31 @@ export default function WarehouseSubmitPage() {
                 </div>
 
                 <div className="max-w-4xl mx-auto px-4 mt-6 space-y-6">
+                    {/* Other Sessions Warning */}
+                    <AnimatePresence>
+                        {otherActiveSessions.length > 0 && (
+                            <motion.div 
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden mb-4"
+                            >
+                                <div className="bg-amber-50 dark:bg-amber-950/20 border-2 border-amber-200 dark:border-amber-900/50 rounded-2xl p-4 flex items-start gap-3 shadow-sm">
+                                    <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center shrink-0">
+                                        <AlertTriangle size={20} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <h3 className="text-sm font-black text-amber-800 dark:text-amber-200">تنبيه: الجلسة مفتوحة في مكان آخر</h3>
+                                        <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold leading-relaxed">
+                                            تم رصد {otherActiveSessions.length} جهاز آخر يحاول الوصول لهذا الرابط الآن ({otherActiveSessions[0].deviceName}). 
+                                            يرجى التأكد من عدم مشاركة الرابط مع أشخاص غير مخولين.
+                                        </p>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
                     <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl flex items-center justify-center">
@@ -1062,32 +1325,47 @@ export default function WarehouseSubmitPage() {
 
                     {/* Rejection Notice Banner if rejected */}
                     {audit.status === 'rejected' && (
-                        <div className="bg-rose-500/10 border-2 border-rose-500/30 dark:border-rose-500/20 rounded-2xl p-5 shadow-lg space-y-3 animate-in fade-in zoom-in-95 duration-200">
-                            <div className="flex items-center gap-2.5 text-rose-600 dark:text-rose-400">
-                                <div className="p-2 bg-rose-100 dark:bg-rose-950/50 rounded-xl shrink-0">
-                                    <AlertTriangle size={24} />
+                        <div className="relative overflow-hidden bg-gradient-to-br from-rose-500/10 to-rose-600/5 dark:from-rose-500/5 dark:to-rose-600/5 border border-rose-200 dark:border-rose-900/50 rounded-[2rem] p-6 sm:p-8 shadow-sm space-y-5 group animate-in slide-in-from-top-4 duration-500">
+                            <div className="absolute top-0 left-0 p-8 opacity-[0.03] pointer-events-none group-hover:scale-110 transition-transform duration-700">
+                                <AlertTriangle size={160} />
+                            </div>
+                            
+                            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                                <div className="w-16 h-16 bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ring-4 ring-rose-50 dark:ring-rose-900/20">
+                                    <AlertTriangle size={32} className="animate-pulse" />
                                 </div>
-                                <div>
-                                    <h3 className="font-black text-sm">تم رفض تسليم الجرد السابق بواسطة إدارة التاجر</h3>
-                                    <p className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                                        يرجى الاطلاع على الملاحظات أدناه والتأكد من إعادة الحصر الفعلي ثم إعادة التسليم والتوقيع.
+                                <div className="space-y-1.5 flex-1">
+                                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-rose-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest shadow-sm">
+                                        <RotateCcw size={12} />
+                                        جرد مُعاد ومرفوض
+                                    </div>
+                                    <h3 className="text-xl font-black text-slate-800 dark:text-white">
+                                        تم رفض تسليم الجرد من قبل إدارة التاجر
+                                    </h3>
+                                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                                        يرجى مراجعة سبب الرفض أدناه، وإعادة التحقق من الأرصدة والمخزون الفعلي، ثم إعادة إرسال الجرد للمراجعة مرة أخرى.
                                     </p>
                                 </div>
                             </div>
                             
-                            <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-rose-200/80 dark:border-rose-950/60 shadow-inner space-y-1">
-                                <span className="text-[11px] text-rose-500 dark:text-rose-400 font-extrabold block">
-                                    سبب الرفض وملاحظات التاجر المالي:
-                                </span>
-                                <p className="text-xs font-black text-slate-800 dark:text-rose-100 leading-relaxed">
-                                    "{audit.rejectReason || 'توجد فروقات غير مبررة، يرجى إعادة العد الدقيق بالقطعة وتأكيد الكميات.'}"
+                            <div className="relative z-10 p-5 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm rounded-2xl border border-rose-100 dark:border-rose-900/30 space-y-2">
+                                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                                    <FileText size={16} />
+                                    <span className="text-[11px] font-black uppercase tracking-widest">
+                                        سبب الرفض وملاحظات التاجر المالي:
+                                    </span>
+                                </div>
+                                <p className="text-sm font-black text-slate-800 dark:text-slate-200 leading-relaxed pr-6 border-r-2 border-rose-200 dark:border-rose-800">
+                                    "{audit.rejectReason || 'توجد فروقات غير مبررة في المخزون، يرجى إعادة العد الدقيق بالقطعة وتأكيد الكميات الفعلية ومطابقتها.'}"
                                 </p>
                             </div>
                         </div>
                     )}
 
-                    {/* Header Info Card */}
-                    <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
+                    {isEditable ? (
+                        <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-500">
+                            {/* Header Info Card */}
+                            <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
                         <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] p-8 shadow-sm space-y-4 relative overflow-hidden group">
                             <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-500/5 rounded-full -translate-x-16 -translate-y-16 group-hover:scale-110 transition-transform duration-700" />
                             <div className="flex items-center gap-3 relative">
@@ -1171,7 +1449,7 @@ export default function WarehouseSubmitPage() {
                                             setIsScannerOpen(true);
                                             playBeepSound();
                                         }}
-                                        className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-white text-indigo-600 rounded-2xl font-black text-sm shadow-md hover:scale-[1.02] active:scale-95 transition-all"
+                                        className={`flex-1 flex items-center justify-center gap-2 py-3.5 bg-white text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 rounded-2xl font-black text-sm shadow-md hover:scale-[1.02] active:scale-95 transition-all border border-slate-200 dark:border-slate-700 ${tutorialStep === 6 ? 'ring-4 ring-indigo-500 animate-pulse' : ''}`}
                                     >
                                         <Camera size={20}/>
                                         فتح الكاميرا
@@ -1181,8 +1459,72 @@ export default function WarehouseSubmitPage() {
                         </div>
                     </div>
 
-                    {/* Zone & Search Bar - Re-styled */}
-                    <div className="flex flex-col lg:flex-row gap-4 p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] shadow-sm relative overflow-hidden group">
+                    {/* Modern Dynamic Tab Selector */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/80 rounded-2xl p-1 shadow-sm gap-1 overflow-x-auto scrollbar-none dir-rtl">
+                        <button
+                            type="button"
+                            onClick={() => { setActiveTab('worksheet'); playChangeSound(); }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
+                                activeTab === 'worksheet'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <ClipboardList size={16} />
+                            <span>ورقة الجرد ({audit.items.length})</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setActiveTab('dashboard'); playChangeSound(); }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
+                                activeTab === 'dashboard'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <BarChart3 size={16} />
+                            <span>داش بورد التحليلات</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setActiveTab('notifications'); playChangeSound(); }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap relative ${
+                                activeTab === 'notifications'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <AlertCircle size={16} />
+                            <span>مركز التنبيهات</span>
+                            {/* Dynamic indicator badge for notifications count */}
+                            {((audit.status === 'rejected' ? 1 : 0) + 
+                              (audit.items.some(item => {
+                                  const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                  return counts[key] !== undefined && Math.abs(counts[key] - item.systemQty) >= 10;
+                              }) ? 1 : 0) + 
+                              ((audit.items.length - countedCount) > 0 ? 1 : 0)) > 0 && (
+                                <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setActiveTab('sessions'); playChangeSound(); }}
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
+                                activeTab === 'sessions'
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
+                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <Activity size={16} />
+                            <span>الفرق والنشاط المباشر</span>
+                        </button>
+                    </div>
+
+                    {/* Conditional Worksheet View Render */}
+                    {activeTab === 'worksheet' && (
+                        <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
+                            {/* Zone & Search Bar - Re-styled */}
+                            <div className="flex flex-col lg:flex-row gap-4 p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] shadow-sm relative overflow-hidden group">
                         {isFocusMode && <div className="absolute inset-0 bg-indigo-600/5 animate-pulse pointer-events-none" />}
                         
                         <div className="flex items-center gap-4 flex-1">
@@ -1220,92 +1562,130 @@ export default function WarehouseSubmitPage() {
                         </div>
                     </div>
 
-                    {/* Manager Name & Signature Section */}
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-5">
-                        <h3 className="font-bold text-slate-800 dark:text-white text-sm flex items-center gap-1.5 pb-2 border-b border-slate-100 dark:border-slate-800">
-                            <User size={16} className="text-indigo-600" />
-                            بيانات وإقرار وتوقيع مسؤول المخزن القائم بالجرد
-                        </h3>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs text-slate-500 dark:text-slate-400 font-bold block mb-1">اسم مسؤول المخزن (القائم بعملية العد الميداني) *</label>
-                                <input 
-                                    type="text"
-                                    required
-                                    disabled={!isEditable}
-                                    value={managerName}
-                                    onChange={e => setManagerName(e.target.value)}
-                                    placeholder="يرجى كتابة الاسم الثلاثي بالكامل"
-                                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-bold dark:text-white disabled:opacity-75 disabled:bg-slate-100 dark:disabled:bg-slate-900"
-                                />
+                    {/* Locked Identity Badge (Grayed Out Read-Only After Login) */}
+                    <div className="bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl p-4 sm:p-5 shadow-inner space-y-3 dir-rtl text-right">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-700/80">
+                            <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-extrabold text-xs">
+                                <Lock size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                <span>هوية مسؤول الجرد المعتمدة للجلسة (مقفولة بالرمادي وغير قابلة للتعديل)</span>
                             </div>
-
-                            <div>
-                                <label className="text-xs text-slate-500 dark:text-slate-400 font-bold block mb-1">ملاحظات عامة حول عملية جرد هذا اليوم (اختياري)</label>
-                                <input 
-                                    type="text"
-                                    disabled={!isEditable}
-                                    value={managerNotes}
-                                    onChange={e => setManagerNotes(e.target.value)}
-                                    placeholder="أية ملاحظات عامة حول البضائع، الترتيب أو حالة الأرفف"
-                                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-sm font-bold dark:text-white disabled:opacity-75 disabled:bg-slate-100 dark:disabled:bg-slate-900"
-                                />
-                            </div>
+                            <span className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-black rounded-lg border border-slate-300 dark:border-slate-600 flex items-center gap-1">
+                                <CheckCircle size={12} className="text-emerald-500" /> موثقة ومحفوظة
+                            </span>
                         </div>
-
-                        {/* Interactive Digital Signature Pad */}
-                        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                            <div className="flex justify-between items-center">
-                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                    <PenTool size={14} className="text-indigo-600" />
-                                    الإمضاء والتوقيع الرقمي الموثق لمسؤول الجرد *
-                                </label>
-                                {isEditable && (
-                                    <button
-                                        type="button"
-                                        onClick={clearSignature}
-                                        className="text-[11px] font-bold text-slate-400 hover:text-rose-500 transition-all flex items-center gap-1"
-                                    >
-                                        <RotateCcw size={12} />
-                                        مسح التوقيع وإعادة الرسم
-                                    </button>
-                                )}
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                            <div className="space-y-1">
+                                <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">اسم المسؤول القائم بالجرد *</label>
+                                <input 
+                                    type="text"
+                                    disabled
+                                    readOnly
+                                    value={managerName || (auditId && localStorage.getItem(`audit_manager_name_${auditId}`)) || localStorage.getItem('audit_manager_name') || 'مسؤول مخزن معتمد'}
+                                    className="w-full p-3 bg-slate-200/70 dark:bg-slate-900/80 border border-slate-300/80 dark:border-slate-700 rounded-xl text-sm font-black text-slate-600 dark:text-slate-400 cursor-not-allowed select-none"
+                                />
                             </div>
 
-                            {isEditable ? (
-                                <div className="relative border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl bg-slate-50/50 dark:bg-slate-800/30 overflow-hidden touch-none">
-                                    <canvas
-                                        ref={canvasRef}
-                                        width={600}
-                                        height={140}
-                                        onMouseDown={startDrawing}
-                                        onMouseMove={draw}
-                                        onMouseUp={stopDrawing}
-                                        onMouseLeave={stopDrawing}
-                                        onTouchStart={startDrawing}
-                                        onTouchMove={draw}
-                                        onTouchEnd={stopDrawing}
-                                        className="w-full h-36 cursor-crosshair block"
-                                    />
-                                    {!hasSigned && !audit.signatureData && (
-                                        <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center text-slate-400 text-xs font-bold gap-1">
-                                            <PenTool size={20} className="opacity-40" />
-                                            <span>وقع بإصبعك أو الماوس هنا لإقرار صحة الكميات</span>
-                                        </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">التوقيع الرقمي الموثق بالجلسة *</label>
+                                <div className="p-2 bg-slate-200/70 dark:bg-slate-900/80 border border-slate-300/80 dark:border-slate-700 rounded-xl flex items-center justify-between h-12">
+                                    <span className="text-[10px] font-bold text-slate-500 mr-2">التوقيع الإلكتروني:</span>
+                                    {(managerSignature || audit.signatureData) ? (
+                                        <img src={managerSignature || audit.signatureData} alt="التوقيع الرقمي" className="h-8 max-w-[160px] object-contain bg-white rounded p-0.5 border" />
+                                    ) : (
+                                        <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">تم التوقيع المعتمد ✍️</span>
                                     )}
                                 </div>
-                            ) : (
-                                audit.signatureData ? (
-                                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                                        <span className="text-xs font-bold text-slate-500">التوقيع المسجل للجلسة:</span>
-                                        <img src={audit.signatureData} alt="التوقيع الرقمي" className="h-14 max-w-[200px] object-contain bg-white rounded-lg p-1 border" />
-                                    </div>
-                                ) : (
-                                    <p className="text-xs text-slate-400 font-bold italic">لم يتم إرفاق توقيع لهذه الجلسة.</p>
-                                )
-                            )}
+                            </div>
                         </div>
+                    </div>
+
+                    {/* Live Audit Tracker & Missing Items ("ناقص إيه") Smart Results Card */}
+                    <div id="inventory-summary-card" className="bg-white dark:bg-slate-900 border-2 border-indigo-500/20 dark:border-indigo-500/30 rounded-3xl p-5 shadow-xl space-y-4 dir-rtl text-right">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+                                    <BarChart3 size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-black text-slate-800 dark:text-white text-sm">نتائج الجرد المباشرة (حصر الكميات والمتبقي)</h3>
+                                    <p className="text-[10px] text-slate-400 font-bold">متابعة فورية لحظة بلحظة للقطائع والأصناف المجرودة والمتبقية</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-1.5 rounded-xl">
+                                <span>النسبة الإجمالية:</span>
+                                <span>{progressPercentage}%</span>
+                            </div>
+                        </div>
+
+                        {/* 4 Interactive Key Metric Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            {/* Card 1: Total Items */}
+                            <button 
+                                type="button"
+                                onClick={() => setFilterMode('all')}
+                                className={`p-3.5 rounded-2xl border text-right transition-all hover:scale-[1.02] ${filterMode === 'all' ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/30' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'}`}
+                            >
+                                <span className="text-[10px] text-slate-500 font-bold block mb-1">إجمالي الأصناف</span>
+                                <div className="text-xl font-black text-slate-800 dark:text-white">{audit.items.length}</div>
+                                <span className="text-[9px] text-indigo-600 dark:text-indigo-400 font-bold">عرض الكل</span>
+                            </button>
+
+                            {/* Card 2: Counted Items */}
+                            <div className="p-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 rounded-2xl text-right">
+                                <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold block mb-1">تم حصرها</span>
+                                <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">{countedCount}</div>
+                                <span className="text-[9px] text-emerald-600/80 font-bold">{progressPercentage}% إنجاز</span>
+                            </div>
+
+                            {/* Card 3: Remaining Items ("ناقص إيه") */}
+                            <button 
+                                type="button"
+                                onClick={() => {
+                                    setFilterMode('uncounted');
+                                    speak("عرض الأصناف المتبقية ناقص إيه");
+                                }}
+                                className={`p-3.5 rounded-2xl border text-right transition-all hover:scale-[1.02] relative overflow-hidden ${
+                                    (audit.items.length - countedCount) > 0 ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/30' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'
+                                }`}
+                            >
+                                <span className="text-[10px] text-amber-700 dark:text-amber-400 font-black block mb-1 flex items-center justify-between">
+                                    <span>ناقص إيه؟ (متبقي)</span>
+                                    {(audit.items.length - countedCount) > 0 && <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />}
+                                </span>
+                                <div className="text-xl font-black text-amber-600 dark:text-amber-400">
+                                    {audit.items.length - countedCount}
+                                </div>
+                                <span className="text-[9px] text-amber-700 dark:text-amber-400 font-black underline">اضغط لعرض المتبقي فقط 🔍</span>
+                            </button>
+
+                            {/* Card 4: Total Physical Units Entered */}
+                            <div className="p-3.5 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-900/40 rounded-2xl text-right">
+                                <span className="text-[10px] text-purple-700 dark:text-purple-400 font-bold block mb-1">إجمالي القطع الفعلية</span>
+                                <div className="text-xl font-black text-purple-600 dark:text-purple-400">
+                                    {Object.values(counts).reduce((acc, curr) => acc + (Number(curr) || 0), 0)}
+                                </div>
+                                <span className="text-[9px] text-purple-600/80 font-bold">وحدة محصورة</span>
+                            </div>
+                        </div>
+
+                        {/* Interactive Banner to view missing items */}
+                        {(audit.items.length - countedCount) > 0 && filterMode !== 'uncounted' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFilterMode('uncounted');
+                                    speak("تم تصفية القائمة لعرض الأصناف المتبقية ناقص إيه");
+                                }}
+                                className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl text-xs font-black shadow-md hover:brightness-105 transition-all flex items-center justify-between"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <AlertCircle size={16} />
+                                    تنبيه: فاضل {audit.items.length - countedCount} صنف في القائمة لم يتم عدّهم بعد
+                                </span>
+                                <span className="bg-white/20 px-3 py-1 rounded-lg text-[10px] font-black underline">عرض الأصناف المتبقية (ناقص إيه)</span>
+                            </button>
+                        )}
                     </div>
 
                     {/* Products Count List container */}
@@ -1555,24 +1935,41 @@ export default function WarehouseSubmitPage() {
                                                             </div>
                                                         )}
                                                         
-                                                        {/* Manual Confirm Button */}
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                if (counts[key] === undefined) {
-                                                                    setCounts(prev => ({ ...prev, [key]: 0 }));
-                                                                }
-                                                                audioSynth.playTone('success');
-                                                            }}
-                                                            className={`p-3 rounded-2xl transition-all shadow-sm flex items-center justify-center ${
-                                                                counts[key] !== undefined 
-                                                                    ? 'bg-emerald-600 text-white shadow-emerald-500/20' 
-                                                                    : 'bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-600'
-                                                            }`}
-                                                            title={counts[key] !== undefined ? 'تم جرد هذا الصنف' : 'تأكيد جرد هذا الصنف (حتى لو صفر)'}
-                                                        >
-                                                            <CheckCircle2 size={18} />
-                                                        </button>
+                                                        {/* Manual Confirm & Save Button */}
+                                                        <div className="relative">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const currentVal = counts[key] !== undefined ? counts[key] : (countValue || 0);
+                                                                    handleConfirmItem(key, currentVal);
+                                                                }}
+                                                                className={`p-3 rounded-2xl transition-all shadow-sm flex items-center justify-center gap-1.5 ${
+                                                                    counts[key] !== undefined 
+                                                                        ? 'bg-emerald-600 text-white shadow-emerald-500/20 ring-2 ring-emerald-500/30 hover:bg-emerald-700' 
+                                                                        : 'bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-600 hover:text-emerald-600'
+                                                                }`}
+                                                                title={counts[key] !== undefined ? 'تم جرد وحفظ هذا الصنف (اضغط لتحديث الحفظ)' : 'تأكيد جرد هذا الصنف وحفظه الآن'}
+                                                            >
+                                                                <CheckCircle2 size={18} />
+                                                                {counts[key] !== undefined && (
+                                                                    <span className="text-[10px] font-black pl-0.5 hidden sm:inline">محفوظ</span>
+                                                                )}
+                                                            </button>
+                                                            
+                                                            <AnimatePresence>
+                                                                {savedToastKey === key && (
+                                                                    <motion.div
+                                                                        initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                                                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                                        exit={{ opacity: 0, y: -8 }}
+                                                                        className="absolute -top-10 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[10px] font-black px-3 py-1 rounded-xl shadow-xl whitespace-nowrap z-30 flex items-center gap-1"
+                                                                    >
+                                                                        <CheckCircle size={12} />
+                                                                        تم حفظ الجرد! 🟢
+                                                                    </motion.div>
+                                                                )}
+                                                            </AnimatePresence>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1584,8 +1981,7 @@ export default function WarehouseSubmitPage() {
                     </div>
 
                     {/* Submit Actions Footer */}
-                    {isEditable ? (
-                        <div id="final-submit-section" className="space-y-6">
+                    <div id="final-submit-section" className="space-y-6">
                             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6">
                                 <div className="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
                                     <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl">
@@ -1639,18 +2035,597 @@ export default function WarehouseSubmitPage() {
                                 </button>
                             </div>
                         </div>
-                    ) : (
-                        <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-950/40 rounded-2xl p-6 text-center space-y-3">
-                            <div className="mx-auto w-10 h-10 bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center">
-                                <CheckCircle2 size={20} />
+                    </div>
+                    )}
+
+                    {/* Dashboard Tab */}
+                    {activeTab === 'dashboard' && (
+                        <div className="space-y-6 animate-in fade-in duration-300 dir-rtl text-right">
+                            {/* Real-time Summary Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {/* Accuracy card */}
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase block">نسبة مطابقة الأرصدة الميدانية</span>
+                                        <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
+                                            {audit.items.length > 0 ? Math.round((audit.items.filter(item => {
+                                                const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                return counts[key] !== undefined && counts[key] === item.systemQty;
+                                            }).length / audit.items.length) * 100) : 0}%
+                                        </div>
+                                        <span className="text-[10px] text-slate-400 font-medium">الأصناف المطابقة للكمية الدفترية بدقة</span>
+                                    </div>
+                                    <div className="w-14 h-14 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center">
+                                        <FileCheck2 size={28} />
+                                    </div>
+                                </div>
+
+                                {/* Total surplus/deficit metric */}
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase block">صافي الفروقات الكلية</span>
+                                        <div className={`text-3xl font-black ${
+                                            Object.entries(counts).reduce((acc, [k, val]) => {
+                                                const itemObj = audit.items.find(it => (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) === k);
+                                                if (!itemObj) return acc;
+                                                return acc + (val - itemObj.systemQty);
+                                            }, 0) >= 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-rose-600 dark:text-rose-400'
+                                        }`}>
+                                            {Object.entries(counts).reduce((acc, [k, val]) => {
+                                                const itemObj = audit.items.find(it => (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) === k);
+                                                if (!itemObj) return acc;
+                                                return acc + (val - itemObj.systemQty);
+                                            }, 0) > 0 ? '+' : ''}
+                                            {Object.entries(counts).reduce((acc, [k, val]) => {
+                                                const itemObj = audit.items.find(it => (it.variantId ? `${it.productId}_${it.variantId}` : it.productId) === k);
+                                                if (!itemObj) return acc;
+                                                return acc + (val - itemObj.systemQty);
+                                            }, 0)} <span className="text-xs font-black">قطعة</span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-400 font-medium">الفرق الميداني الإجمالي مقارنة بالنظام</span>
+                                    </div>
+                                    <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center">
+                                        <Boxes size={28} />
+                                    </div>
+                                </div>
+
+                                {/* Uncounted counter */}
+                                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase block">الأصناف المتبقية (ناقصة)</span>
+                                        <div className="text-3xl font-black text-amber-500">
+                                            {audit.items.length - countedCount} <span className="text-xs font-black">صنف</span>
+                                        </div>
+                                        <span className="text-[10px] text-slate-400 font-medium">أصناف متبقية تحتاج للعد والتسجيل</span>
+                                    </div>
+                                    <div className="w-14 h-14 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-2xl flex items-center justify-center">
+                                        <Clock size={28} />
+                                    </div>
+                                </div>
                             </div>
-                            <div className="space-y-1">
-                                <h3 className="font-black text-emerald-800 dark:text-emerald-400 text-sm">تم تسليم وحفظ هذا التقرير وتوقيعه</h3>
-                                <p className="text-xs text-emerald-600 dark:text-emerald-500/80 max-w-md mx-auto">
-                                    قام المستودع بتسليم عملية الجرد بنجاح في {audit.submittedAt ? new Date(audit.submittedAt).toLocaleDateString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : ''} بواسطة القائم بالجرد: <strong>{audit.managerName}</strong>. وهي الآن قيد المراجعة والاعتماد المالي لدى التاجر.
-                                </p>
+
+                            {/* Detailed Charts Grid */}
+                            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                                {/* Ring donut analysis */}
+                                <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                                    <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+                                        <Activity size={18} className="text-indigo-600" />
+                                        التحليل الهيكلي لحالة الجرد
+                                    </h3>
+                                    
+                                    <div className="flex flex-col items-center justify-center py-4 space-y-4">
+                                        {/* Raw SVG Donut Chart */}
+                                        <div className="relative w-40 h-40">
+                                            <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                                {/* Background circle */}
+                                                <circle cx="50" cy="50" r="40" fill="transparent" stroke="#f1f5f9" strokeWidth="12" className="dark:stroke-slate-800" />
+                                                
+                                                {/* Matched portion */}
+                                                <circle 
+                                                    cx="50" 
+                                                    cy="50" 
+                                                    r="40" 
+                                                    fill="transparent" 
+                                                    stroke="#10b981" 
+                                                    strokeWidth="12" 
+                                                    strokeDasharray={2 * Math.PI * 40}
+                                                    strokeDashoffset={2 * Math.PI * 40 * (1 - (audit.items.length > 0 ? audit.items.filter(item => {
+                                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                        return counts[key] !== undefined && counts[key] === item.systemQty;
+                                                    }).length : 0) / audit.items.length)}
+                                                    className="transition-all duration-1000"
+                                                />
+                                            </svg>
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                                                <span className="text-2xl font-black text-slate-800 dark:text-white">{progressPercentage}%</span>
+                                                <span className="text-[9px] text-slate-400 font-bold">نسبة التغطية</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="w-full space-y-2 text-xs">
+                                            <div className="flex items-center justify-between">
+                                                <span className="flex items-center gap-1.5 text-slate-500 font-bold">
+                                                    <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                                                    مطابق تماماً للدفتر
+                                                </span>
+                                                <span className="font-black text-slate-800 dark:text-white font-mono">
+                                                    {audit.items.filter(item => {
+                                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                        return counts[key] !== undefined && counts[key] === item.systemQty;
+                                                    }).length} صنف ({audit.items.length > 0 ? Math.round((audit.items.filter(item => {
+                                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                        return counts[key] !== undefined && counts[key] === item.systemQty;
+                                                    }).length / audit.items.length) * 100) : 0}%)
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="flex items-center gap-1.5 text-slate-500 font-bold">
+                                                    <span className="w-3 h-3 rounded-full bg-rose-500" />
+                                                    أصناف بها عجز أو زيادة
+                                                </span>
+                                                <span className="font-black text-slate-800 dark:text-white font-mono">
+                                                    {audit.items.filter(item => {
+                                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                        return counts[key] !== undefined && counts[key] !== item.systemQty;
+                                                    }).length} صنف ({audit.items.length > 0 ? Math.round((audit.items.filter(item => {
+                                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                        return counts[key] !== undefined && counts[key] !== item.systemQty;
+                                                    }).length / audit.items.length) * 105 - 105) : 0}%)
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <span className="flex items-center gap-1.5 text-slate-500 font-bold">
+                                                    <span className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                                    لم يتم عدّه بعد (ناقص)
+                                                </span>
+                                                <span className="font-black text-slate-800 dark:text-white font-mono">
+                                                    {audit.items.length - countedCount} صنف ({audit.items.length > 0 ? Math.round(((audit.items.length - countedCount) / audit.items.length) * 100) : 0}%)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* List of discrepancies */}
+                                <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                                        <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+                                            <AlertTriangle size={18} className="text-rose-500" />
+                                            رصد الفروقات والعيوب (أولاً بأول)
+                                        </h3>
+                                        <span className="px-2 py-1 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-[10px] font-black rounded-lg">
+                                            المتبقي: {audit.items.filter(item => {
+                                                const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                return counts[key] !== undefined && counts[key] !== item.systemQty;
+                                            }).length} صنف به عجز/زيادة
+                                        </span>
+                                    </div>
+
+                                    <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
+                                        {audit.items.filter(item => {
+                                            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                            return counts[key] !== undefined && counts[key] !== item.systemQty;
+                                        }).length === 0 ? (
+                                            <div className="py-12 text-center text-slate-400 text-xs font-bold space-y-2">
+                                                <CheckCircle className="mx-auto text-emerald-500 opacity-60" size={32} />
+                                                <p>لا توجد فروقات مرصودة حتى الآن. إما لم تبدأ الجرد، أو كل ما جردته مطابق تماماً للسيستم!</p>
+                                            </div>
+                                        ) : (
+                                            audit.items.filter(item => {
+                                                const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                return counts[key] !== undefined && counts[key] !== item.systemQty;
+                                            }).map(item => {
+                                                const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                const actual = counts[key];
+                                                const diff = actual - item.systemQty;
+                                                return (
+                                                    <div key={key} className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                                                        <div className="space-y-1">
+                                                            <h4 className="font-black text-slate-800 dark:text-white">{item.name}</h4>
+                                                            <p className="text-[10px] text-slate-400 font-bold font-mono">SKU: {item.sku}</p>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="text-right">
+                                                                <span className="text-[10px] text-slate-400 block">الفعلي vs الدفتري</span>
+                                                                <span className="font-black text-slate-700 dark:text-slate-300 font-mono">{actual} من {item.systemQty}</span>
+                                                            </div>
+                                                            <span className={`px-2.5 py-1 rounded-lg font-black font-mono text-xs ${
+                                                                diff > 0 
+                                                                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' 
+                                                                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
+                                                            }`}>
+                                                                {diff > 0 ? `+${diff} زيادة` : `${diff} عجز`}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </div>
+                    )}
+
+                    {/* Notifications Tab */}
+                    {activeTab === 'notifications' && (
+                        <div className="space-y-4 animate-in fade-in duration-300 dir-rtl text-right">
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+                                <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-2 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                                            <AlertCircle size={18} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-black text-sm text-slate-800 dark:text-white">مركز التنبيهات والإشعارات الميدانية</h3>
+                                            <p className="text-[10px] text-slate-400 font-bold">تنبيهات فورية مبنية على حالة ورقة الجرد الفعلية والقرارات</p>
+                                        </div>
+                                    </div>
+                                    <span className="px-2.5 py-1 bg-indigo-600 text-white text-[10px] font-black rounded-lg">تحديث حي ⚡</span>
+                                </div>
+
+                                <div className="mt-4 space-y-3">
+                                    {/* Rejection Notification if any */}
+                                    {audit.status === 'rejected' && (
+                                        <div className="p-4 bg-rose-500/10 border border-rose-200 dark:border-rose-900/40 rounded-xl flex items-start gap-3">
+                                            <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={18} />
+                                            <div className="space-y-1">
+                                                <h4 className="font-black text-rose-800 dark:text-rose-300 text-xs">⚠️ عاجل: تم رفض الجرد السابق بواسطة التاجر</h4>
+                                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-bold">
+                                                    سبب الرفض: "{audit.rejectReason || 'توجد فروقات غير مبررة في الكميات الميدانية.'}"
+                                                </p>
+                                                <span className="text-[9px] text-rose-500 font-black block mt-1">💡 يرجى إعادة مراجعة الأصناف المطروحة وتسجيل أعدادها الفعلية بدقة.</span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* High Discrepancy Notification */}
+                                    {audit.items.some(item => {
+                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                        return counts[key] !== undefined && Math.abs(counts[key] - item.systemQty) >= 10;
+                                    }) && (
+                                        <div className="p-4 bg-amber-500/10 border border-amber-200 dark:border-amber-900/40 rounded-xl flex items-start gap-3">
+                                            <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                                            <div className="space-y-1">
+                                                <h4 className="font-black text-amber-800 dark:text-amber-300 text-xs">⚠️ رصد فروقات كمية حرجة (أكثر من 10 قطع)</h4>
+                                                <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                                                    تم الكشف عن تباين كبير بين الكمية الفعلية والدفترية في بعض الأصناف. يرجى مراجعة وتأكيد الكميات للأصناف التالية:
+                                                </p>
+                                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                                    {audit.items.filter(item => {
+                                                        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                                        return counts[key] !== undefined && Math.abs(counts[key] - item.systemQty) >= 10;
+                                                    }).slice(0, 3).map(item => (
+                                                        <span key={item.productId} className="px-2 py-0.5 bg-amber-500/20 text-amber-800 dark:text-amber-300 text-[10px] rounded font-bold">
+                                                            {item.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Remaining uncounted alert */}
+                                    {(audit.items.length - countedCount) > 0 ? (
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-xl flex items-start gap-3">
+                                            <ClipboardList className="text-indigo-600 shrink-0 mt-0.5" size={18} />
+                                            <div className="space-y-1">
+                                                <h4 className="font-black text-slate-800 dark:text-white text-xs">📋 تذكير: متبقي {audit.items.length - countedCount} أصناف لم تُجرد</h4>
+                                                <p className="text-[11px] text-slate-500 font-medium">
+                                                    لم يتم عد أو تسجيل أي كميات لـ {audit.items.length - countedCount} صنف حتى الآن. يمكنك تصفية الأصناف من التبويب الرئيسي لإنهاء جردها بسرعة.
+                                                </p>
+                                                <button 
+                                                    onClick={() => { setActiveTab('worksheet'); setFilterMode('uncounted'); }}
+                                                    className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 underline block mt-1"
+                                                >
+                                                    انقر هنا لتصفية القائمة على الأصناف المتبقية فقط 🔍
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 bg-emerald-500/10 border border-emerald-200 dark:border-emerald-900/40 rounded-xl flex items-start gap-3">
+                                            <CheckCircle className="text-emerald-600 shrink-0 mt-0.5" size={18} />
+                                            <div className="space-y-1">
+                                                <h4 className="font-black text-emerald-800 dark:text-emerald-300 text-xs">🎉 رائع! تم تغطية جرد جميع الأصناف بالكامل</h4>
+                                                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
+                                                    تم جرد وحفظ 100% من السلع المدرجة بقطاع المستودع بنجاح. يمكنك الآن المضي قدماً وتسليم التوقيع والنتائج للإدارة.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* General tips cards */}
+                                    <div className="p-4 bg-indigo-500/5 border border-indigo-100 dark:border-indigo-950/50 rounded-xl space-y-2">
+                                        <h4 className="font-black text-indigo-700 dark:text-indigo-400 text-xs flex items-center gap-1">
+                                            <Sparkles size={14} />
+                                            نصائح الجرد الميداني السريع:
+                                        </h4>
+                                        <ul className="list-disc list-inside text-[11px] text-slate-500 dark:text-slate-400 font-medium space-y-1 pr-2">
+                                            <li>استخدم <strong>وضع التركيز (Focus Mode)</strong> لقفل الكاميرا والاستمرار في مسح الباركود SKU تلو الآخر دون توقف.</li>
+                                            <li>المساعد الصوتي يقوم بنطق اسم السلعة فور التعرف عليها لتقليل الاحتياج للنظر للشاشة.</li>
+                                            <li>التقاط صور للبضائع التالفة أو التي تعاني من عجز يساعد التاجر المالي على قبول وتبرير العجز بسرعة.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Sessions Tab */}
+                    {activeTab === 'sessions' && (
+                        <div className="space-y-6 animate-in fade-in duration-300 dir-rtl text-right">
+                            {/* Active team members */}
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                                <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+                                    <Activity size={18} className="text-emerald-500" />
+                                    فريق جرد المستودع المتصل الآن
+                                </h3>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Ourselves */}
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 rounded-full flex items-center justify-center font-black">
+                                                {managerName ? managerName.slice(0, 2) : 'أن'}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-black text-slate-800 dark:text-white text-xs">{managerName || 'مسؤول مخزن معتمد'} (أنت)</h4>
+                                                <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                                                    <MapPin size={10} />
+                                                    القطاع الحالي: {activeZone || 'الرف الرئيسي'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg animate-pulse">متصل وجاهز</span>
+                                    </div>
+
+                                    {/* Other devices */}
+                                    {otherActiveSessions.length === 0 ? (
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs text-slate-400 font-bold">
+                                            لا توجد أجهزة متزامنة أخرى متصلة حالياً. جرد فردي آمن.
+                                        </div>
+                                    ) : (
+                                        otherActiveSessions.map((session, idx) => (
+                                            <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 rounded-full flex items-center justify-center font-black">
+                                                        {session.managerName ? session.managerName.slice(0, 2) : 'زم'}
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-black text-slate-800 dark:text-white text-xs">{session.managerName || 'مسؤول مخزن زميل'}</h4>
+                                                        <p className="text-[10px] text-slate-400 font-bold">{session.deviceName || 'جهاز خارجي'}</p>
+                                                    </div>
+                                                </div>
+                                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-lg">متصل</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Rolling Live Logs */}
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-4">
+                                <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                                    <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
+                                        <Clock size={18} className="text-indigo-600" />
+                                        سجل حركات العد الميداني المباشر
+                                    </h3>
+                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black">تحديث مستمر...</span>
+                                </div>
+
+                                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                                    {liveLogs.map((log) => (
+                                        <div key={log.id} className="p-3 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 rounded-xl flex justify-between items-center text-xs">
+                                            <div className="flex items-center gap-2.5">
+                                                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                                    log.type === 'scan' ? 'bg-indigo-500' :
+                                                    log.type === 'save' ? 'bg-emerald-500' :
+                                                    log.type === 'warn' ? 'bg-rose-500' : 'bg-slate-400'
+                                                }`} />
+                                                <span className="font-black text-slate-700 dark:text-slate-300 leading-relaxed">{log.text}</span>
+                                            </div>
+                                            <span className="text-[10px] font-mono font-bold text-slate-400 shrink-0">{log.time}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                        </div>
+                    ) : (
+                        (() => {
+                            let totalSystemQty = 0;
+                            let totalActualQty = 0;
+                            let totalMissingQty = 0;
+                            let totalExtraQty = 0;
+                            let totalMissingItems = 0;
+                            let totalExtraItems = 0;
+                            let totalMatchedItems = 0;
+                            
+                            audit.items.forEach(item => {
+                                totalSystemQty += item.systemQty;
+                                const actual = item.actualQty ?? 0;
+                                totalActualQty += actual;
+                                
+                                if (actual < item.systemQty) {
+                                    totalMissingQty += (item.systemQty - actual);
+                                    totalMissingItems++;
+                                } else if (actual > item.systemQty) {
+                                    totalExtraQty += (actual - item.systemQty);
+                                    totalExtraItems++;
+                                } else {
+                                    totalMatchedItems++;
+                                }
+                            });
+                            
+                            const isPerfect = totalMissingItems === 0 && totalExtraItems === 0;
+
+                            return (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
+                                    {/* Header Banner */}
+                                    <div className={`relative overflow-hidden rounded-3xl p-8 sm:p-10 shadow-lg ${
+                                        audit.status === 'approved' 
+                                            ? 'bg-gradient-to-br from-emerald-600 to-emerald-900 text-white shadow-emerald-900/20' 
+                                            : 'bg-gradient-to-br from-indigo-600 to-indigo-900 text-white shadow-indigo-900/20'
+                                    }`}>
+                                        <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                                            {audit.status === 'approved' ? <FileCheck2 size={160} /> : <Clock size={160} />}
+                                        </div>
+                                        <div className="relative z-10 flex flex-col items-center text-center space-y-4">
+                                            <div className={`w-20 h-20 rounded-full flex items-center justify-center border-4 shadow-2xl ${
+                                                audit.status === 'approved' 
+                                                    ? 'bg-emerald-500 border-emerald-400/50 text-white shadow-emerald-900/50' 
+                                                    : 'bg-indigo-500 border-indigo-400/50 text-white shadow-indigo-900/50'
+                                            }`}>
+                                                {audit.status === 'approved' ? <CheckCircle size={40} /> : <Clock size={40} className="animate-pulse" />}
+                                            </div>
+                                            <div className="space-y-4 max-w-2xl flex flex-col items-center">
+                                                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-white/20 rounded-full text-xs font-black backdrop-blur-sm border border-white/20">
+                                                    <ClipboardList size={14} />
+                                                    {audit.title}
+                                                    <span className="opacity-50 mx-1">•</span>
+                                                    <MapPin size={14} />
+                                                    {audit.warehouseName || 'المخزن الرئيسي'}
+                                                </div>
+                                                <h2 className="text-3xl sm:text-4xl font-black tracking-tight mt-2">
+                                                    {audit.status === 'approved' ? 'تم اعتماد الجرد مالياً بنجاح!' : 'تم إرسال تقرير الجرد بنجاح'}
+                                                </h2>
+                                                <p className="text-sm sm:text-base font-medium opacity-90 leading-relaxed">
+                                                    {audit.status === 'approved' 
+                                                        ? 'قام التاجر المالي بمراجعة الجرد واعتماده، وتم تسوية وتحديث جميع الأرصدة في النظام بناءً على الحصر الميداني الخاص بك. شكراً لمجهودك!' 
+                                                        : 'تم تسليم الجرد الخاص بك وهو الآن قيد المراجعة من قبل الإدارة أو التاجر المالي. سيتم إشعارك فور الاعتماد.'}
+                                                </p>
+                                            </div>
+                                            <div className="inline-flex flex-wrap justify-center items-center gap-2 px-5 py-2.5 mt-2 bg-black/20 rounded-full text-xs font-bold backdrop-blur-md border border-white/10">
+                                                <User size={14} />
+                                                بواسطة: {audit.managerName || 'مسؤول مخزن'}
+                                                <span className="opacity-50 mx-1">•</span>
+                                                <Calendar size={14} />
+                                                {audit.submittedAt ? new Date(audit.submittedAt).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'غير محدد'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Results Grid */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl">
+                                                    <Boxes size={24} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg">إجمالي الأصناف</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">{audit.items.length}</div>
+                                                <div className="text-xs font-bold text-slate-500">صنف تم حصره ميدانياً</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="p-3 bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+                                                    <Check size={24} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded-lg">المتطابق</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">{totalMatchedItems}</div>
+                                                <div className="text-xs font-bold text-slate-500">صنف سليم وبدون أي فروقات</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="p-3 bg-rose-100 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-2xl">
+                                                    <TrendingDown size={24} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-900/30 px-2 py-1 rounded-lg">عجز (نواقص)</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">{totalMissingItems}</div>
+                                                <div className="text-xs font-bold text-slate-500">إجمالي <span className="text-rose-600 dark:text-rose-400 font-black">{totalMissingQty}</span> قطعة ناقصة عن النظام</div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="p-3 bg-blue-100 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 rounded-2xl">
+                                                    <TrendingUp size={24} />
+                                                </div>
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-lg">زيادة (فائض)</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-3xl font-black text-slate-900 dark:text-white mb-1">{totalExtraItems}</div>
+                                                <div className="text-xs font-bold text-slate-500">إجمالي <span className="text-blue-600 dark:text-blue-400 font-black">{totalExtraQty}</span> قطعة زيادة عن النظام</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Perfect Audit Banner */}
+                                    {isPerfect && (
+                                        <div className="bg-gradient-to-r from-amber-200 to-amber-400 dark:from-amber-700 dark:to-amber-900 rounded-3xl p-1 shadow-lg transform hover:scale-[1.01] transition-transform">
+                                            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl rounded-[1.4rem] p-6 flex flex-col sm:flex-row items-center gap-6 text-center sm:text-right">
+                                                <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center text-white shadow-lg shrink-0">
+                                                    <Sparkles size={32} />
+                                                </div>
+                                                <div className="flex-1 space-y-2">
+                                                    <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center justify-center sm:justify-start gap-2">
+                                                        جرد أسطوري ومطابق 100% <span className="text-2xl">🏆</span>
+                                                    </h3>
+                                                    <p className="text-sm text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                                                        عاش جداً! لم يتم تسجيل أي حالة عجز أو زيادة في هذا الجرد. كل الأرصدة الميدانية مطابقة تماماً لأرصدة النظام. عمل ممتاز من مسؤول المخزن.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Manager Info & Notes */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+                                            <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                                                <Fingerprint className="text-indigo-500" size={24} />
+                                                <h3 className="text-base font-black text-slate-800 dark:text-white">توثيق الجلسة المعتمد</h3>
+                                            </div>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <p className="text-[10px] uppercase font-black text-slate-400 mb-1">اسم المسؤول (المُقر)</p>
+                                                    <p className="text-sm font-bold text-slate-900 dark:text-white">{audit.managerName}</p>
+                                                </div>
+                                                {audit.signatureData && (
+                                                    <div>
+                                                        <p className="text-[10px] uppercase font-black text-slate-400 mb-2">التوقيع الإلكتروني</p>
+                                                        <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 flex justify-center">
+                                                            <img src={audit.signatureData} alt="Manager Signature" className="h-16 object-contain opacity-80" />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm space-y-6">
+                                            <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                                                <FileText className="text-slate-500" size={24} />
+                                                <h3 className="text-base font-black text-slate-800 dark:text-white">ملاحظات المستودع</h3>
+                                            </div>
+                                            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 h-full min-h-[120px]">
+                                                {audit.notes ? (
+                                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
+                                                        {audit.notes}
+                                                    </p>
+                                                ) : (
+                                                    <div className="flex flex-col items-center justify-center h-full text-slate-400 space-y-2">
+                                                        <FileText size={32} className="opacity-20" />
+                                                        <p className="text-xs font-bold">لا توجد ملاحظات عامة مرفقة مع هذا الجرد</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                            );
+                        })()
                     )}
                 </div>
 
@@ -1755,126 +2730,170 @@ export default function WarehouseSubmitPage() {
                     </div>
                 )}
 
-                {/* Onboarding Tour Overlay */}
+                {/* Interactive Onboarding Tour (Floating Tooltips) */}
                 <AnimatePresence>
                     {showTutorial && (
-                        <div className="fixed inset-0 z-[500] pointer-events-none overflow-hidden">
-                            {/* Backdrop with hole */}
+                        <div className="fixed inset-0 z-[500] pointer-events-none">
+                            {/* Simple Backdrop without blur */}
                             <motion.div 
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 exit={{ opacity: 0 }}
-                                className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm pointer-events-auto"
-                                style={{
-                                    clipPath: (() => {
-                                        const ids = ['passcode-input', 'unlock-session-btn', 'manager-name-input', 'signature-pad-container', 'start-counting-btn', 'scanner-button', 'first-product-item', 'final-submit-section'];
-                                        const targetId = ids[tutorialStep - 1];
-                                        const el = targetId ? document.getElementById(targetId) : null;
-                                        if (!el || tutorialStep === 0) return 'none';
-                                        const rect = el.getBoundingClientRect();
-                                        const padding = 10;
-                                        return `polygon(0% 0%, 0% 100%, ${rect.left - padding}px 100%, ${rect.left - padding}px ${rect.top - padding}px, ${rect.right + padding}px ${rect.top - padding}px, ${rect.right + padding}px ${rect.bottom + padding}px, ${rect.left - padding}px ${rect.bottom + padding}px, ${rect.left - padding}px 100%, 100% 100%, 100% 0%)`;
-                                    })()
-                                }}
+                                className="absolute inset-0 bg-slate-950/20"
                             />
 
-                            {/* Tutorial Content */}
-                            <div className="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
+                            {/* Glowing Highlight Ring */}
+                            {tutorialStep > 0 && (
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 1.2 }}
+                                    animate={{ 
+                                        opacity: 1, 
+                                        scale: 1,
+                                        ...(() => {
+                                            const ids = [
+                                                'passcode-input',         // 1
+                                                'manager-name-input',     // 2
+                                                'signature-pad-container',// 3
+                                                'unlock-session-btn',     // 4
+                                                'inventory-summary-card', // 5
+                                                'scanner-button',         // 6
+                                                'first-product-item',     // 7
+                                                'final-submit-section'    // 8
+                                            ];
+                                            const targetId = ids[tutorialStep - 1];
+                                            const el = targetId ? document.getElementById(targetId) : null;
+                                            if (!el) return { display: 'none' };
+                                            const rect = el.getBoundingClientRect();
+                                            const padding = 4;
+                                            return {
+                                                top: rect.top - padding,
+                                                left: rect.left - padding,
+                                                width: rect.width + (padding * 2),
+                                                height: rect.height + (padding * 2),
+                                            };
+                                        })()
+                                    }}
+                                    className="absolute border-4 border-indigo-500 rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.6)] z-[501]"
+                                />
+                            )}
+
+                            {/* Floating Guidance Card */}
+                            <div className="absolute inset-0 flex items-end justify-center sm:items-center p-6 pb-12 sm:pb-6">
                                 <motion.div 
                                     key={tutorialStep}
-                                    initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                                    initial={{ opacity: 0, y: 50, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                                    exit={{ opacity: 0, y: -20, scale: 0.9 }}
-                                    className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 sm:p-10 shadow-2xl max-w-md w-full pointer-events-auto border border-slate-200 dark:border-slate-800 text-right"
+                                    exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                                    className="bg-white dark:bg-slate-900 rounded-[1.5rem] p-5 shadow-2xl max-w-sm w-full pointer-events-auto border-2 border-indigo-500/20 dark:border-indigo-400/20 text-right relative z-[502]"
                                     dir="rtl"
                                 >
                                     {tutorialStep === 0 ? (
-                                        <div className="space-y-6">
-                                            <div className="w-20 h-20 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-[2rem] flex items-center justify-center mx-auto shadow-inner">
-                                                <Zap size={40} className="animate-pulse" />
+                                        <div className="space-y-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center shrink-0">
+                                                    <Zap size={24} className="animate-pulse" />
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-lg font-black text-slate-800 dark:text-white">دليل وشرح طريقة الجرد والدخول</h3>
+                                                    <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-black">شرح خطوة بخطوة من قبل الدخول حتى تسليم التقرير</p>
+                                                </div>
                                             </div>
-                                            <div className="text-center space-y-2">
-                                                <h3 className="text-2xl font-black text-slate-800 dark:text-white">أهلاً بك في نظام الجرد الذكي</h3>
-                                                <p className="text-sm text-slate-500 font-bold leading-relaxed">يسعدنا انضمامك! لنأخذ جولة سريعة لنعرفك على خطوات الجرد الصحيحة لضمان دقة بيانات مخزنك.</p>
-                                            </div>
-                                            <div className="flex flex-col gap-3 pt-2">
+                                            <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                                                أهلاً بك! سنشرح لك أولاً **طريقة الدخول وتوثيق هويتك قبل البدء** عبر (رمز المرور، اسمك الثلاثي، وتوقيعك الرقمي)، ثم طريقة حصر البضائع والباركود والمتبقي (ناقص إيه).
+                                            </p>
+                                            <div className="flex flex-col gap-2">
                                                 <button 
-                                                    onClick={() => setTutorialStep(1)}
-                                                    className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-indigo-600/20 hover:scale-[1.02] active:scale-95 transition-all"
+                                                    onClick={() => {
+                                                        setTutorialStep(1);
+                                                        speak("الخطوة الأولى: أدخل رمز المرور المعتمد من التاجر للتحقق من صلاحية الجلسة");
+                                                    }}
+                                                    className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black text-sm shadow-lg shadow-indigo-600/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
                                                 >
-                                                    ابدأ الجولة التعليمية
+                                                    <span>بدء شرح خطوات الدخول والجرد 🚀</span>
                                                 </button>
                                                 <button 
                                                     onClick={() => {
                                                         setShowTutorial(false);
+                                                        localStorage.setItem('tutorial_disabled_permanently', 'true');
                                                         localStorage.setItem(`tutorial_seen_${auditId}`, 'true');
                                                     }}
-                                                    className="w-full py-3 text-slate-400 font-bold text-xs hover:text-slate-600 transition-colors"
+                                                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 font-black text-[11px] rounded-xl transition-all"
                                                 >
-                                                    تخطي الشرح، أنا أعرف النظام
+                                                    🚫 إخفاء الشرح نهائياً (حتى لو أعدت تحميل الصفحة)
                                                 </button>
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="space-y-6">
-                                            <div className="flex justify-between items-center">
-                                                <span className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-widest">خطوة {tutorialStep} من 7</span>
+                                        <div className="space-y-4">
+                                            <div className="flex justify-between items-start">
+                                                <div className="space-y-1">
+                                                    <div className="inline-block px-2.5 py-0.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-md mb-1">
+                                                        {tutorialStep <= 4 ? '🔒 مرحلة ما قبل الدخول وتوثيق الجلسة' : '📦 مرحلة العد والجرد الميداني'}
+                                                    </div>
+                                                    <h4 className="text-md font-black text-slate-900 dark:text-white">
+                                                        {tutorialStep === 1 && '1️⃣ رمز المرور المعتمد (4 أرقام)'}
+                                                        {tutorialStep === 2 && '2️⃣ اسم مسؤول المخزن الميداني'}
+                                                        {tutorialStep === 3 && '3️⃣ التوقيع الرقمي المعتمد'}
+                                                        {tutorialStep === 4 && '4️⃣ فتح الجلسة وبدء العد'}
+                                                        {tutorialStep === 5 && '5️⃣ متابعة نتائج الجرد المباشرة (ناقص إيه)'}
+                                                        {tutorialStep === 6 && '6️⃣ البحث باسم الصنف أو مسح الباركود'}
+                                                        {tutorialStep === 7 && '7️⃣ تسجيل العدد الفعلي وتأكيده'}
+                                                        {tutorialStep === 8 && '8️⃣ تسليم تقرير الجرد النهائي'}
+                                                    </h4>
+                                                    <p className="text-xs text-slate-700 dark:text-slate-300 font-bold leading-relaxed">
+                                                        {tutorialStep === 1 && 'أول خطوة قبل الدخول: أدخل رمز الأمان المكون من 4 أرقام الممنوح لك من التاجر.'}
+                                                        {tutorialStep === 2 && 'ثاني خطوة: اكتب اسمك الثلاثي بالكامل كمسؤول عن الحصر الميداني لربط التقرير بهويتك.'}
+                                                        {tutorialStep === 3 && 'ثالث خطوة: ضع توقيعك الإلكتروني بإصبعك أو الماوس داخل المربع المخصص لإقرار صحة البيانات.'}
+                                                        {tutorialStep === 4 && 'رابع خطوة: اضغط زر "فتح الجلسة وبدء العد" للانتقال المباشر لكشف الأصناف وحصر البضائع.'}
+                                                        {tutorialStep === 5 && 'خامس خطوة: لوحة تفاعلية تظهر لك الإجمالي، المجرود، والأصناف المتبقية (ناقص إيه) لمتابعة الإنجاز.'}
+                                                        {tutorialStep === 6 && 'سادس خطوة: استخدم كاميرا الموبايل لمسح باركود المنتجات أو ابحث باسم المنتج للوصول له ثوانٍ.'}
+                                                        {tutorialStep === 7 && 'سابع خطوة: اكتب عدد القطع الموجودة فعلياً على الرف، ثم اضغط علامة الصح الخضراء لحفظ الصنف.'}
+                                                        {tutorialStep === 8 && 'آخر خطوة: بعد التأكد من جرد جميع الأصناف، اضغط زر "تسليم الجرد" لإرسال التقرير نهائياً للتاجر.'}
+                                                    </p>
+                                                </div>
                                                 <button 
                                                     onClick={() => {
                                                         setShowTutorial(false);
                                                         localStorage.setItem(`tutorial_seen_${auditId}`, 'true');
                                                     }}
-                                                    className="text-slate-300 hover:text-rose-500 transition-colors"
+                                                    className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors rounded-lg bg-slate-100 dark:bg-slate-800 shrink-0"
+                                                    title="إغلاق الشرح"
                                                 >
-                                                    <X size={20} />
+                                                    <X size={16} />
                                                 </button>
                                             </div>
 
-                                            <div className="space-y-2">
-                                                <h4 className="text-lg font-black text-indigo-600">
-                                                    {tutorialStep === 1 && '1. أدخل رمز الأمان'}
-                                                    {tutorialStep === 2 && '2. افتح الجلسة'}
-                                                    {tutorialStep === 3 && '3. إثبات الشخصية'}
-                                                    {tutorialStep === 4 && '4. ابدأ الجرد'}
-                                                    {tutorialStep === 5 && '5. استخدم الباركود'}
-                                                    {tutorialStep === 6 && '6. سجل الكميات'}
-                                                    {tutorialStep === 7 && '7. تسليم التقرير'}
-                                                </h4>
-                                                <p className="text-sm text-slate-600 dark:text-slate-400 font-bold leading-relaxed">
-                                                    {tutorialStep === 1 && 'من فضلك اكتب الـ 4 أرقام اللي التاجر بعتهم لك هنا.'}
-                                                    {tutorialStep === 2 && 'ممتاز، دلوقتي اضغط على "فتح الجلسة" عشان نتأكد من الرمز.'}
-                                                    {tutorialStep === 3 && 'اكتب اسمك ووقع في المربع، ده مهم جداً عشان التاجر يعرف مين اللي جرد.'}
-                                                    {tutorialStep === 4 && 'اضغط "بدأ الجرد" عشان نفتح لك لستة الأصناف.'}
-                                                    {tutorialStep === 5 && 'لو المنتج قدامك عليه باركود، دوس هنا وصوره وهيطلع لك فوراً.'}
-                                                    {tutorialStep === 6 && 'عد اللي على الرف واكتبه هنا، ودوس "صح" عشان الصنف يتحفظ.'}
-                                                    {tutorialStep === 7 && 'خلصت؟ دوس "تسليم الجرد" وكده مهمتك انتهت بنجاح!'}
-                                                </p>
-                                            </div>
+                                            <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800 gap-2">
+                                                <div className="text-[10px] text-slate-400 font-black shrink-0">
+                                                    الخطوة {tutorialStep} من 8
+                                                </div>
 
-                                            <div className="flex items-center gap-3 pt-4">
-                                                {/* Hide Next button for steps that require action, or allow it as skip */}
-                                                <button 
-                                                    onClick={() => {
-                                                        if (tutorialStep === 7) {
-                                                            setShowTutorial(false);
-                                                            localStorage.setItem(`tutorial_seen_${auditId}`, 'true');
-                                                        } else {
-                                                            setTutorialStep(tutorialStep + 1);
-                                                        }
-                                                    }}
-                                                    className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-indigo-600/20 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
-                                                >
-                                                    {tutorialStep === 7 ? 'فهمت كل شيء، لنبدأ!' : 'تخطي للخطوة التالية'}
-                                                    <ChevronLeft size={18} />
-                                                </button>
-                                                {tutorialStep > 1 && (
+                                                <div className="flex items-center gap-2">
+                                                    {tutorialStep > 1 && (
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => setTutorialStep(tutorialStep - 1)}
+                                                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-black text-xs hover:bg-slate-200 transition-all flex items-center gap-1"
+                                                        >
+                                                            <ChevronRight size={14} /> السابق
+                                                        </button>
+                                                    )}
+
                                                     <button 
-                                                        onClick={() => setTutorialStep(tutorialStep - 1)}
-                                                        className="p-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl hover:bg-slate-200 transition-all"
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (tutorialStep === 8) {
+                                                                setShowTutorial(false);
+                                                                localStorage.setItem(`tutorial_seen_${auditId}`, 'true');
+                                                            } else {
+                                                                setTutorialStep(tutorialStep + 1);
+                                                            }
+                                                        }}
+                                                        className="px-4 py-1.5 bg-indigo-600 text-white rounded-xl font-black text-xs shadow-md shadow-indigo-600/20 hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-1"
                                                     >
-                                                        <RotateCcw size={18} />
+                                                        {tutorialStep === 8 ? 'تم والبدء' : 'التالي'} <ChevronLeft size={14} />
                                                     </button>
-                                                )}
+                                                </div>
                                             </div>
                                         </div>
                                     )}

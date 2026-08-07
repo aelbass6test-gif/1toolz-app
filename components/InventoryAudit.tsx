@@ -10,7 +10,7 @@ import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAudi
 import { printHTMLDirectly } from '../utils/printHelper';
 import { audioSynth } from '../utils/audioSynth';
 import { db as firestoreDb } from '../services/firebaseClient';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 
 interface InventoryAuditProps {
@@ -18,6 +18,79 @@ interface InventoryAuditProps {
     setSettings: (updater: React.SetStateAction<Settings>) => void;
     currentUser: any;
 }
+
+const ActiveAuditSessions: React.FC<{ auditId: string }> = ({ auditId }) => {
+    const [sessions, setSessions] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (!auditId) return;
+        const q = collection(firestoreDb, 'shared_audits', auditId, 'sessions');
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const list: any[] = [];
+            snapshot.forEach(doc => {
+                list.push({ id: doc.id, ...doc.data() });
+            });
+            // Sort by last active
+            list.sort((a, b) => {
+                const timeA = a.lastActive?.toDate?.()?.getTime() || 0;
+                const timeB = b.lastActive?.toDate?.()?.getTime() || 0;
+                return timeB - timeA;
+            });
+            setSessions(list);
+        });
+        return () => unsubscribe();
+    }, [auditId]);
+
+    if (sessions.length === 0) return null;
+
+    return (
+        <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-500 flex items-center gap-1">
+                    <Zap size={12} className="text-amber-500" />
+                    المتصلون بالرابط الآن ({sessions.filter(s => s.isOnline).length})
+                </span>
+            </div>
+            <div className="space-y-2">
+                {sessions.map(session => {
+                    const lastActive = session.lastActive?.toDate?.() || new Date();
+                    const isRecent = (new Date().getTime() - lastActive.getTime()) < 60000; // Active in last minute
+                    const isOnline = session.isOnline && isRecent;
+
+                    return (
+                        <div key={session.id} className="flex items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                            <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                                <div className="space-y-0.5">
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-black text-slate-800 dark:text-white">{session.managerName || 'مجهول'}</span>
+                                        <span className="text-[8px] px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-md font-bold">{session.deviceName || 'جهاز غير معروف'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[8px] text-slate-400 font-bold">
+                                        <span className="flex items-center gap-0.5"><Clock size={8} /> {lastActive.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</span>
+                                        {session.location && (
+                                            <a 
+                                                href={`https://www.google.com/maps?q=${session.location.lat},${session.location.lng}`} 
+                                                target="_blank" 
+                                                rel="noreferrer"
+                                                className="flex items-center gap-0.5 text-indigo-500 hover:underline"
+                                            >
+                                                <MapPin size={8} /> الموقع
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[7px] text-slate-400 font-medium truncate max-w-[80px]" title={session.userAgent}>{session.userAgent?.split(' ')[0] || 'Browser'}</p>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
 
 export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSettings, currentUser }) => {
     // Audit main tabs: 'history' (سجل الجلسات), 'active' (بدء جرد نشط), or 'shared' (روابط الجرد لمسؤول المخزن)
@@ -2512,6 +2585,9 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                                                 {audit.notes && <p className="text-slate-500 italic font-medium leading-relaxed">" {audit.notes} "</p>}
                                             </div>
                                         )}
+
+                                        {/* Real-time Session Tracking */}
+                                        <ActiveAuditSessions auditId={audit.id} />
 
                                         <div className="flex gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                                             {isPending && (

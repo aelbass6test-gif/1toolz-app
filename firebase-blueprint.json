@@ -152,6 +152,36 @@
         "buttons": { "type": "array" }
       }
     },
+    "InventoryAudit": {
+      "title": "Inventory Audit",
+      "description": "Session for counting stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "submitted", "reviewed", "rejected"] },
+        "items": { "type": "array" },
+        "managerName": { "type": "string" },
+        "signature": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "passcode": { "type": "string" }
+      }
+    },
+    "AuditSession": {
+      "title": "Audit Session",
+      "description": "Information about a device/user currently viewing or performing the audit",
+      "type": "object",
+      "properties": {
+        "deviceId": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "managerName": { "type": "string" },
+        "lastActive": { "type": "string", "format": "date-time" },
+        "isOnline": { "type": "boolean" },
+        "location": { "type": "object" },
+        "userAgent": { "type": "string" }
+      }
+    },
     "SharedReport": {
       "title": "Shared Report",
       "description": "Compressed HTML report for sharing",
@@ -257,8 +287,12 @@
       "description": "Warehouses"
     },
     "/inventory_audits/{id}": {
-      "schema": "object",
+      "schema": "InventoryAudit",
       "description": "Inventory Audits"
+    },
+    "/inventory_audits/{auditId}/sessions/{sessionId}": {
+      "schema": "AuditSession",
+      "description": "Active tracking of users on the audit link"
     },
     "/stock_transfers/{id}": {
       "schema": "object",
