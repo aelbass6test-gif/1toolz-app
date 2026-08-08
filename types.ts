@@ -2,17 +2,7 @@
 // ... (previous imports and declartions)
 
 // FIX: Declaring the 'google' object in the global scope to make it accessible across all files.
-declare global {
-  const google: {
-    script: {
-      run: {
-        withSuccessHandler(handler: (response: any) => void): any;
-        withFailureHandler(handler: (error: Error) => void): any;
-        serverApiCall(storeId: string, action: string, payload: any | null): void;
-      };
-    };
-  };
-}
+
 
 export type OrderStatus = 'في_انتظار_المكالمة' | 'جاري_المراجعة' | 'قيد_التنفيذ' | 'تم_الارسال' | 'قيد_الشحن' | 'تم_توصيلها' | 'تم_التوصيل' | 'تم_التحصيل' | 'مرتجع' | 'مرتجع_جزئي' | 'فشل_التوصيل' | 'ملغي' | 'مؤرشف' | 'مرتجع_بعد_الاستلام' | 'تم_الاستبدال' | 'تمت_الاعادة_لشركة_الشحن' | 'مدفوعة' | 'مؤجل' | 'مجدول';
 export type PaymentStatus = 'بانتظار الدفع' | 'مدفوع' | 'مدفوع جزئياً' | 'مرتجع';

@@ -18,7 +18,6 @@ export default defineConfig(({ mode }) => {
         // VitePWA({ ... disabled temporarily to fix white screen ... })
       ],
       define: {
-        'process.env.NODE_ENV': JSON.stringify(mode),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
       },
       resolve: {

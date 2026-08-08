@@ -609,6 +609,45 @@ CREATE TABLE IF NOT EXISTS supplier_transactions (
 );
 
 -- 37. WITHDRAWAL_REQUESTS (سجل طلبات سحب الرصيد)
+CREATE TABLE IF NOT EXISTS shared_audits (
+    id TEXT PRIMARY KEY,
+    storeId TEXT,
+    store_id TEXT,
+    title TEXT,
+    warehouseId TEXT,
+    warehouse_id TEXT,
+    warehouseName TEXT,
+    protocol TEXT,
+    isProtocolLocked BOOLEAN DEFAULT false,
+    status TEXT,
+    createdAt TEXT,
+    submittedAt TEXT,
+    passcode TEXT,
+    managerName TEXT,
+    managerId TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    logs JSONB DEFAULT '[]'::jsonb,
+    assignments JSONB DEFAULT '[]'::jsonb,
+    presence JSONB DEFAULT '{}'::jsonb,
+    conflicts JSONB DEFAULT '[]'::jsonb,
+    draftCounts JSONB DEFAULT '{}'::jsonb,
+    draftNotes JSONB DEFAULT '{}'::jsonb,
+    locks JSONB DEFAULT '{}'::jsonb,
+    lastSavedAt TEXT,
+    unlockReason TEXT,
+    unlockedBy TEXT,
+    unlockedAt TEXT,
+    notes TEXT,
+    signatureData TEXT,
+    isBlindCount BOOLEAN DEFAULT false,
+    workerSignature TEXT,
+    managerSignature TEXT,
+    rejectReason TEXT,
+    progress NUMERIC,
+    accuracyScore NUMERIC,
+    healthScore NUMERIC
+);
+
 CREATE TABLE IF NOT EXISTS withdrawal_requests (
     id TEXT PRIMARY KEY,
     storeId TEXT,
@@ -639,6 +678,7 @@ ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
 ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory_audits DISABLE ROW LEVEL SECURITY;
+ALTER TABLE shared_audits DISABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_transfers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE order_returns DISABLE ROW LEVEL SECURITY;
 ALTER TABLE purchase_returns DISABLE ROW LEVEL SECURITY;
@@ -1514,6 +1554,45 @@ CREATE TABLE IF NOT EXISTS supplier_transactions (
     order_id TEXT,
     storeId TEXT,
     store_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS shared_audits (
+    id TEXT PRIMARY KEY,
+    storeId TEXT,
+    store_id TEXT,
+    title TEXT,
+    warehouseId TEXT,
+    warehouse_id TEXT,
+    warehouseName TEXT,
+    protocol TEXT,
+    isProtocolLocked BOOLEAN DEFAULT false,
+    status TEXT,
+    createdAt TEXT,
+    submittedAt TEXT,
+    passcode TEXT,
+    managerName TEXT,
+    managerId TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    logs JSONB DEFAULT '[]'::jsonb,
+    assignments JSONB DEFAULT '[]'::jsonb,
+    presence JSONB DEFAULT '{}'::jsonb,
+    conflicts JSONB DEFAULT '[]'::jsonb,
+    draftCounts JSONB DEFAULT '{}'::jsonb,
+    draftNotes JSONB DEFAULT '{}'::jsonb,
+    locks JSONB DEFAULT '{}'::jsonb,
+    lastSavedAt TEXT,
+    unlockReason TEXT,
+    unlockedBy TEXT,
+    unlockedAt TEXT,
+    notes TEXT,
+    signatureData TEXT,
+    isBlindCount BOOLEAN DEFAULT false,
+    workerSignature TEXT,
+    managerSignature TEXT,
+    rejectReason TEXT,
+    progress NUMERIC,
+    accuracyScore NUMERIC,
+    healthScore NUMERIC
 );
 
 CREATE TABLE IF NOT EXISTS withdrawal_requests (

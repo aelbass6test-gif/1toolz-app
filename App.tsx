@@ -5,6 +5,7 @@ import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, P
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb, auth } from './services/firebaseClient';
+import { getSupabaseClient } from './services/databaseService';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
 import { getApps, initializeApp } from 'firebase/app';
 import firebaseConfig from './firebase-applet-config.json';

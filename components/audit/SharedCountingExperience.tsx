@@ -50,7 +50,7 @@ export default function SharedCountingExperience({
     showSystemQty,
     collaboration
 }: SharedCountingExperienceProps) {
-    const items = useMemo(() => {
+    const items: any[] = useMemo(() => {
         return Array.isArray(audit?.items) ? audit.items : (audit?.items && typeof audit.items === 'object' ? Object.values(audit.items) : []);
     }, [audit?.items]);
 
@@ -97,7 +97,7 @@ export default function SharedCountingExperience({
     const itemZoneMap = useMemo(() => {
         const zones: Record<string, string> = {};
         items.forEach((item, index) => {
-            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+            const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
             const alphabet = ['أ', 'ب', 'ج', 'د'];
             const shelf = (index % 4) + 1;
             const rack = (index % 3) + 1;
@@ -109,7 +109,7 @@ export default function SharedCountingExperience({
     const isAssignedToUser = (item: any) => {
         if (userAssignments.length === 0) return true;
         return userAssignments.some(a => {
-            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+            const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
             if (a.scopeType === 'zone') return item.zone === a.scopeValue || itemZoneMap[key]?.includes(a.scopeValue);
             if (a.scopeType === 'category') return item.category === a.scopeValue;
             if (a.scopeType === 'warehouse') return true;
@@ -207,17 +207,17 @@ export default function SharedCountingExperience({
     };
 
     const activeItem = useMemo(() => {
-        return items.find(item => {
-            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+        return items.find((item: any) => {
+            const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
             return key === selectedItemKey;
         });
     }, [items, selectedItemKey]);
 
     const filteredItems = useMemo(() => {
-        return items.filter(item => {
-            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
-            const name = item.name || '';
-            const sku = item.sku || '';
+        return items.filter((item: any) => {
+            const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
+            const name = (item as any).name || '';
+            const sku = (item as any).sku || '';
             
             const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                                   sku.toLowerCase().includes(searchQuery.toLowerCase());
@@ -229,8 +229,8 @@ export default function SharedCountingExperience({
 
             const isCounted = counts[key] !== undefined;
             if (localFilter === 'uncounted') return !isCounted;
-            if (localFilter === 'discrepancy') return isCounted && counts[key] !== item.systemQty;
-            if (localFilter === 'matched') return isCounted && counts[key] === item.systemQty;
+            if (localFilter === 'discrepancy') return isCounted && counts[key] !== (item as any).systemQty;
+            if (localFilter === 'matched') return isCounted && counts[key] === (item as any).systemQty;
             
             return true;
         });
@@ -243,8 +243,8 @@ export default function SharedCountingExperience({
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                const currentIndex = filteredItems.findIndex(item => {
-                    const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                const currentIndex = filteredItems.findIndex((item: any) => {
+                    const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
                     return key === selectedItemKey;
                 });
                 if (currentIndex === -1) return;
@@ -414,8 +414,8 @@ export default function SharedCountingExperience({
                             </div>
                         ) : (
                             <>
-                                {displayedItems.map(item => {
-                                    const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                {displayedItems.map((item: any) => {
+                                    const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
                                     return (
                                         <AuditItemCard
                                             key={key}
@@ -424,7 +424,7 @@ export default function SharedCountingExperience({
                                             isSelected={key === selectedItemKey}
                                             isCounted={counts[key] !== undefined}
                                             countValue={counts[key]}
-                                            diff={counts[key] !== undefined ? counts[key] - item.systemQty : 0}
+                                            diff={counts[key] !== undefined ? counts[key] - (item as any).systemQty : 0}
                                             zone={itemZoneMap[key] || 'رف عام'}
                                             showSystemExpected={countMode !== 'blind'}
                                             lockerInfo={getLockerInfo(key)}

@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import React from 'react';
 import { 
     AlertCircle, AlertTriangle, Sparkles, ClipboardList, CheckCircle, 
@@ -25,13 +26,13 @@ export default function SharedNotificationCenter({
 
     const totalItems = items.length;
     
-    const countedCount = items.filter(item => {
-        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+    const countedCount = items.filter((item: any) => {
+        const key = item.variantId ? `${(item as any).productId}_${item.variantId}` : item.productId;
         return counts[key] !== undefined;
     }).length;
 
-    const criticalDiscrepancyItems = items.filter(item => {
-        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+    const criticalDiscrepancyItems = items.filter((item: any) => {
+        const key = item.variantId ? `${(item as any).productId}_${item.variantId}` : item.productId;
         const val = counts[key];
         if (val === undefined) return false;
         
@@ -104,9 +105,9 @@ export default function SharedNotificationCenter({
                                     تم الكشف عن تباين ميداني حرج يفوق ٣٠٪ بين كشف الكمية الفعلي وما هو مسجل بالدفتر. نوصي بتدقيق الحصر للأصناف الموضحة باللون الأحمر:
                                 </p>
                                 <div className="flex flex-wrap gap-1 mt-2">
-                                    {criticalDiscrepancyItems.slice(0, 4).map(item => (
-                                        <span key={item.productId} className="px-2 py-0.5 bg-rose-200/40 text-rose-700 dark:text-rose-300 text-[10px] rounded font-black">
-                                            {item.name}
+                                    {criticalDiscrepancyItems.slice(0, 4).map((item: any) => (
+                                        <span key={(item as any).productId} className="px-2 py-0.5 bg-rose-200/40 text-rose-700 dark:text-rose-300 text-[10px] rounded font-black">
+                                            {(item as any).name}
                                         </span>
                                     ))}
                                 </div>

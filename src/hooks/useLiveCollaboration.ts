@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { db as firestoreDb, auth } from '../../services/firebaseClient';
-import { doc, onSnapshot, updateDoc, deleteField, writeBatch, getDoc } from 'firebase/firestore';
+import { auth } from '../../services/firebaseClient';
+import { getSupabaseClient } from '../../services/databaseService';
 import { SharedAudit, SharedAuditPresence } from '../../types';
 
 export function useLiveCollaboration(auditId: string, currentUserName: string = 'User') {
@@ -11,43 +11,58 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
     const currentUserId = auth.currentUser?.uid || 'anonymous';
     const lastLockedItemRef = useRef<string | null>(null);
 
-    // 1. Monitor Audit Document for Presence and Locks
     useEffect(() => {
         if (!auditId) return;
 
-        const auditRef = doc(firestoreDb, 'shared_audits', auditId);
-        
-        const unsubscribe = onSnapshot(auditRef, (snapshot) => {
-            if (snapshot.exists()) {
-                const data = snapshot.data() as any; // Using any to handle potential schema changes during transition
-                setAuditData(data as SharedAudit);
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
 
-                // Extract collaborators from presence map
+        let channel: any;
+
+        const loadInitialData = async () => {
+            const { data } = await supabase.from('shared_audits').select('*').eq('id', auditId).single();
+            if (data) {
+                setAuditData(data as SharedAudit);
                 const presenceMap = data.presence || {};
                 const activeCollaborators = Object.values(presenceMap)
                     .filter((p: any) => p.userId !== currentUserId) as SharedAuditPresence[];
-                
                 setCollaborators(activeCollaborators);
-
-                // Extract locks from the NEW 'locks' map (migrating away from per-item lockedBy)
                 const locksMap = data.locks || {};
                 setLockedItems(locksMap);
             }
-        });
+        };
 
-        // 2. Cleanup Presence and Locks on Unmount
+        loadInitialData();
+
+        channel = supabase.channel('public:shared_audits:' + auditId)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_audits', filter: 'id=eq.' + auditId }, (payload: any) => {
+                const data = payload.new;
+                if (data) {
+                    setAuditData(data as SharedAudit);
+                    const presenceMap = data.presence || {};
+                    const activeCollaborators = Object.values(presenceMap)
+                        .filter((p: any) => p.userId !== currentUserId) as SharedAuditPresence[];
+                    setCollaborators(activeCollaborators);
+                    const locksMap = data.locks || {};
+                    setLockedItems(locksMap);
+                }
+            })
+            .subscribe();
+
         const cleanup = async () => {
             try {
-                const updates: any = {
-                    [`presence.${currentUserId}`]: deleteField()
-                };
-                
-                // Also unlock the item the user was working on
-                if (lastLockedItemRef.current) {
-                    updates[`locks.${lastLockedItemRef.current}`] = deleteField();
+                const sb = getSupabaseClient();
+                if (!sb) return;
+                const { data } = await sb.from('shared_audits').select('presence, locks').eq('id', auditId).single();
+                if (data) {
+                    const presence = data.presence || {};
+                    const locks = data.locks || {};
+                    delete presence[currentUserId];
+                    if (lastLockedItemRef.current) {
+                        delete locks[lastLockedItemRef.current];
+                    }
+                    await sb.from('shared_audits').update({ presence, locks }).eq('id', auditId);
                 }
-
-                await updateDoc(auditRef, updates);
             } catch (err) {
                 console.error('Failed to cleanup presence/locks', err);
             }
@@ -56,49 +71,58 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
         window.addEventListener('beforeunload', cleanup);
 
         return () => {
-            unsubscribe();
+            if (channel) {
+                supabase.removeChannel(channel);
+            }
             cleanup();
             window.removeEventListener('beforeunload', cleanup);
         };
     }, [auditId, currentUserId]);
 
-    // 3. Heartbeat for Presence
     useEffect(() => {
         if (!auditId || !currentUserId) return;
 
         const interval = setInterval(async () => {
-            const auditRef = doc(firestoreDb, 'shared_audits', auditId);
+            const supabase = getSupabaseClient();
+            if (!supabase) return;
             const now = new Date().toISOString();
             
             try {
-                await updateDoc(auditRef, {
-                    [`presence.${currentUserId}.lastActive`]: now
-                });
+                const { data } = await supabase.from('shared_audits').select('presence').eq('id', auditId).single();
+                if (data) {
+                    const presence = data.presence || {};
+                    if (presence[currentUserId]) {
+                        presence[currentUserId].lastActive = now;
+                        await supabase.from('shared_audits').update({ presence }).eq('id', auditId);
+                    }
+                }
             } catch (err) {
-                // Silent fail for heartbeat
             }
-        }, 30000); // Heartbeat every 30s
+        }, 30000);
 
         return () => clearInterval(interval);
     }, [auditId, currentUserId]);
 
-    // 4. Broadcast Presence & Handle Locks
     const broadcastPresence = useCallback(async (itemKey: string) => {
         if (!auditId || !currentUserId) return;
         
-        const auditRef = doc(firestoreDb, 'shared_audits', auditId);
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
         const now = new Date().toISOString();
 
         try {
-            await updateDoc(auditRef, {
-                [`presence.${currentUserId}`]: {
+            const { data } = await supabase.from('shared_audits').select('presence').eq('id', auditId).single();
+            if (data) {
+                const presence = data.presence || {};
+                presence[currentUserId] = {
                     userId: currentUserId,
                     userName: currentUserName,
                     status: 'online',
                     activeProductId: itemKey,
                     lastActive: now
-                }
-            });
+                };
+                await supabase.from('shared_audits').update({ presence }).eq('id', auditId);
+            }
         } catch (err) {
             console.error('Failed to broadcast presence', err);
         }
@@ -106,25 +130,25 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
 
     const lockItem = useCallback(async (productId: string) => {
         if (!auditId || !currentUserId) return;
-        const auditRef = doc(firestoreDb, 'shared_audits', auditId);
         
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+
         try {
-            const batch: Record<string, any> = {};
-            
-            // Unlock previous item if any
-            if (lastLockedItemRef.current && lastLockedItemRef.current !== productId) {
-                batch[`locks.${lastLockedItemRef.current}`] = deleteField();
+            const { data } = await supabase.from('shared_audits').select('locks').eq('id', auditId).single();
+            if (data) {
+                const locks = data.locks || {};
+                if (lastLockedItemRef.current && lastLockedItemRef.current !== productId) {
+                    delete locks[lastLockedItemRef.current];
+                }
+                locks[productId] = {
+                    userId: currentUserId,
+                    userName: currentUserName,
+                    lockedAt: new Date().toISOString()
+                };
+                await supabase.from('shared_audits').update({ locks }).eq('id', auditId);
+                lastLockedItemRef.current = productId;
             }
-
-            // Lock current item
-            batch[`locks.${productId}`] = {
-                userId: currentUserId,
-                userName: currentUserName,
-                lockedAt: new Date().toISOString()
-            };
-
-            await updateDoc(auditRef, batch);
-            lastLockedItemRef.current = productId;
         } catch (err) {
             console.error('Failed to lock item', err);
         }
@@ -132,14 +156,19 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
 
     const unlockItem = useCallback(async (productId: string) => {
         if (!auditId || !currentUserId) return;
-        const auditRef = doc(firestoreDb, 'shared_audits', auditId);
+        
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
         
         try {
-            await updateDoc(auditRef, {
-                [`locks.${productId}`]: deleteField()
-            });
-            if (lastLockedItemRef.current === productId) {
-                lastLockedItemRef.current = null;
+            const { data } = await supabase.from('shared_audits').select('locks').eq('id', auditId).single();
+            if (data) {
+                const locks = data.locks || {};
+                delete locks[productId];
+                await supabase.from('shared_audits').update({ locks }).eq('id', auditId);
+                if (lastLockedItemRef.current === productId) {
+                    lastLockedItemRef.current = null;
+                }
             }
         } catch (err) {
             console.error('Failed to unlock item', err);

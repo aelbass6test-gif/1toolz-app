@@ -37,11 +37,11 @@ export default function SharedAuditHome({
         let countedItemsCount = 0;
         let largeVariances = 0;
 
-        items.forEach(item => {
-            if (item.actualQty !== undefined) {
+        items.forEach((item: any) => {
+            if ((item as any).actualQty !== undefined) {
                 countedItemsCount++;
-                totalSystemQty += item.systemQty;
-                const diff = Math.abs(item.actualQty - item.systemQty);
+                totalSystemQty += (item as any).systemQty;
+                const diff = Math.abs((item as any).actualQty - (item as any).systemQty);
                 totalVarianceQty += diff;
                 if (diff > 10) {
                     largeVariances++;

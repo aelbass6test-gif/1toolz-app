@@ -42,10 +42,10 @@ export default function SharedAuditReports({
         let criticalDiscrepancies = 0;
         let totalTrackedValuation = 0;
 
-        const itemsWithCalculatedVariances = items.map(item => {
-            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+        const itemsWithCalculatedVariances = items.map((item: any) => {
+            const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
             const actual = counts[key];
-            totalSystemQty += item.systemQty;
+            totalSystemQty += (item as any).systemQty;
 
             let diff = 0;
             let status: 'uncounted' | 'matched' | 'deficit' | 'surplus' = 'uncounted';
@@ -55,7 +55,7 @@ export default function SharedAuditReports({
                 uncounted++;
             } else {
                 totalActualQty += actual;
-                diff = actual - item.systemQty;
+                diff = actual - (item as any).systemQty;
                 financialDiff = diff * averageUnitCost;
                 totalTrackedValuation += (actual * averageUnitCost);
 
@@ -73,8 +73,7 @@ export default function SharedAuditReports({
                 }
             }
 
-            return {
-                ...item,
+            return { ...(item as any),
                 key,
                 actual,
                 diff,
@@ -123,9 +122,9 @@ export default function SharedAuditReports({
             } else if (type === 'csv') {
                 // Generate CSV string and download
                 const headers = 'اسم الصنف,SKU,الكمية الدفترية,الكمية الفعلية,الفارق,الأثر المالي (ج.م)\n';
-                const rows = reportData.items.map(item => {
+                const rows = reportData.items.map((item: any) => {
                     const actualStr = item.actual !== undefined ? item.actual : 'غير معدود';
-                    return `"${item.name}","${item.sku}",${item.systemQty},${actualStr},${item.diff},${item.financialDiff}`;
+                    return `"${(item as any).name}","${(item as any).sku}",${(item as any).systemQty},${actualStr},${item.diff},${item.financialDiff}`;
                 }).join('\n');
                 
                 const blob = new Blob(['\ufeff' + headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -149,9 +148,9 @@ export default function SharedAuditReports({
 
     // Filtered items list for Variance and Financial tabs
     const filteredItems = useMemo(() => {
-        return reportData.items.filter(item => {
-            const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                                item.sku.toLowerCase().includes(searchQuery.toLowerCase());
+        return reportData.items.filter((item: any) => {
+            const matchesSearch = (item as any).name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                (item as any).sku.toLowerCase().includes(searchQuery.toLowerCase());
             
             if (!matchesSearch) return false;
 
@@ -616,7 +615,7 @@ export default function SharedAuditReports({
                                     <p>لا توجد أي نتائج مطابقة لبحثك أو الفلتر المختار حالياً.</p>
                                 </div>
                             ) : (
-                                filteredItems.map((item) => {
+                                filteredItems.map((item: any) => {
                                     const isMatched = item.diff === 0;
                                     const isDeficit = item.diff < 0;
                                     const isCritical = Math.abs(item.diff) >= 10;
@@ -625,7 +624,7 @@ export default function SharedAuditReports({
                                         <div key={item.key} className="p-4 bg-slate-50 dark:bg-slate-850/50 border border-slate-150 dark:border-slate-800/60 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:border-slate-200 dark:hover:border-slate-750 transition-all">
                                             <div className="space-y-1">
                                                 <div className="flex items-center gap-2">
-                                                    <h4 className="font-black text-xs text-slate-850 dark:text-white">{item.name}</h4>
+                                                    <h4 className="font-black text-xs text-slate-850 dark:text-white">{(item as any).name}</h4>
                                                     <span className={`px-2 py-0.5 text-[9px] rounded font-black ${
                                                         isMatched ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40' :
                                                         isCritical ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40' :
@@ -634,14 +633,14 @@ export default function SharedAuditReports({
                                                         {isMatched ? 'مطابق' : isCritical ? 'تباين حرج 🚨' : 'تباين طفيف'}
                                                     </span>
                                                 </div>
-                                                <p className="text-[10px] text-slate-400 font-mono font-bold">SKU: {item.sku}</p>
+                                                <p className="text-[10px] text-slate-400 font-mono font-bold">SKU: {(item as any).sku}</p>
                                             </div>
 
                                             <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto justify-between sm:justify-start">
                                                 <div className="text-right text-[11px] font-bold">
                                                     <span className="text-[9px] text-slate-400 block">العد الميداني مقابل الدفتري</span>
                                                     <span className="font-mono text-slate-700 dark:text-slate-300">
-                                                        {item.actual !== undefined ? item.actual : 'لم يُعد'} من {item.systemQty}
+                                                        {item.actual !== undefined ? item.actual : 'لم يُعد'} من {(item as any).systemQty}
                                                     </span>
                                                 </div>
 
@@ -742,11 +741,11 @@ export default function SharedAuditReports({
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                        {reportData.items.filter(item => item.diff !== 0).slice(0, 10).map((item) => (
+                                        {reportData.items.filter((item: any) => item.diff !== 0).slice(0, 10).map((item: any) => (
                                             <tr key={item.key} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 text-slate-700 dark:text-slate-300">
-                                                <td className="p-3 font-bold">{item.name}</td>
-                                                <td className="p-3 font-mono font-bold text-slate-400">{item.sku}</td>
-                                                <td className="p-3 text-center font-mono">{item.systemQty}</td>
+                                                <td className="p-3 font-bold">{(item as any).name}</td>
+                                                <td className="p-3 font-mono font-bold text-slate-400">{(item as any).sku}</td>
+                                                <td className="p-3 text-center font-mono">{(item as any).systemQty}</td>
                                                 <td className="p-3 text-center font-mono">{item.actual !== undefined ? item.actual : '-'}</td>
                                                 <td className={`p-3 text-center font-mono font-black ${item.diff < 0 ? 'text-rose-600' : 'text-indigo-600 dark:text-indigo-400'}`}>
                                                     {item.diff > 0 ? `+${item.diff}` : item.diff}
@@ -760,7 +759,7 @@ export default function SharedAuditReports({
                                     </tbody>
                                 </table>
                             </div>
-                            {reportData.items.filter(item => item.diff !== 0).length > 10 && (
+                            {reportData.items.filter((item: any) => item.diff !== 0).length > 10 && (
                                 <p className="text-[10px] text-slate-400 font-bold text-center mt-2">
                                     عرض أول 10 أصناف متباينة فقط. لتصدير الكشف المالي كاملاً يرجى استخدام زر "تصدير Excel" في الأعلى.
                                 </p>

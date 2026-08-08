@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { db } from '../services/firebaseClient';
+import { getSupabaseClient } from '../services/databaseService';
+import { db as firebaseDb } from '../services/firebaseClient';
 import { doc, getDoc, updateDoc, collection, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { 
     ClipboardList, CheckCircle, CheckCircle2, AlertCircle, Search, Save, Package, 
@@ -123,12 +124,8 @@ export default function WarehouseSubmitPage() {
 
         if (auditId) {
             try {
-                const docRef = doc(db, 'shared_audits', auditId);
-                await updateDoc(docRef, {
-                    draftCounts: newCounts,
-                    draftNotes: itemNotes,
-                    lastSavedAt: serverTimestamp()
-                });
+                const supabase = getSupabaseClient();
+                if(supabase) await supabase.from('shared_audits').update({ draftCounts: newCounts, draftNotes: itemNotes, lastSavedAt: new Date().toISOString() }).eq('id', auditId);
             } catch (err) {
                 console.warn('Firestore draft update error:', err);
             }
@@ -519,11 +516,29 @@ export default function WarehouseSubmitPage() {
 
         try {
             setLoading(true);
-            const docRef = doc(db, 'shared_audits', auditId);
-            const docSnap = await getDoc(docRef);
+            let data: SharedAudit | null = null;
 
-            if (docSnap.exists()) {
-                const data = docSnap.data() as SharedAudit;
+            try {
+                const docRef = doc(firebaseDb, 'shared_audits', auditId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    data = docSnap.data() as SharedAudit;
+                }
+            } catch (fsErr) {
+                console.warn('Firestore fetchAudit failed, trying Supabase:', fsErr);
+            }
+
+            if (!data) {
+                const supabase = getSupabaseClient();
+                if (supabase) {
+                    const { data: sbData, error: sbErr } = await supabase.from('shared_audits').select('*').eq('id', auditId).single();
+                    if (!sbErr && sbData) {
+                        data = sbData as SharedAudit;
+                    }
+                }
+            }
+
+            if (data) {
                 setAudit(data);
                 
                 // Initialize form values from loaded data (preserve saved local identity if Firestore data is empty)
@@ -887,7 +902,7 @@ export default function WarehouseSubmitPage() {
     const handleActualSubmit = async () => {
         try {
             setLoading(true);
-            const docRef = doc(db, 'shared_audits', auditId!);
+            const docRef = doc(firebaseDb, 'shared_audits', auditId!);
 
             // Map inputs back to items array
             const updatedItems = audit!.items.map(item => {
@@ -916,7 +931,18 @@ export default function WarehouseSubmitPage() {
                 submittedAt: new Date().toISOString()
             };
 
-            await updateDoc(docRef, updates);
+            try {
+                await updateDoc(docRef, updates);
+            } catch (fsErr) {
+                console.warn('Firestore updateDoc failed, trying Supabase fallback:', fsErr);
+                const supabase = getSupabaseClient();
+                if (supabase) {
+                    const { error: sbErr } = await supabase.from('shared_audits').update(updates).eq('id', auditId!);
+                    if (sbErr) throw sbErr;
+                } else {
+                    throw fsErr;
+                }
+            }
             
             // Update local state to reflect submission
             setAudit(prev => prev ? { ...prev, ...updates as any } : null);
@@ -979,8 +1005,8 @@ export default function WarehouseSubmitPage() {
     const handleUpdateAuditStatus = async (newStatus: 'pending' | 'submitted' | 'approved' | 'rejected') => {
         try {
             setLoading(true);
-            const docRef = doc(db, 'shared_audits', auditId!);
-            await updateDoc(docRef, { status: newStatus });
+            const supabase = getSupabaseClient();
+            if(supabase) await supabase.from('shared_audits').update({ status: newStatus }).eq('id', auditId!);
             setAudit(prev => prev ? { ...prev, status: newStatus } : null);
             customAlert('تم تحديث الحالة', `تم تحديث حالة الجرد بنجاح إلى: ${newStatus === 'approved' ? 'معتمد' : newStatus === 'rejected' ? 'مرفوض/إعادة عد' : 'قيد الانتظار'}`, 'success');
         } catch (err: any) {

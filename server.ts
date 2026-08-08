@@ -1280,7 +1280,7 @@ async function startServer() {
     }
   });
 
-  const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.resolve(process.cwd(), "dist/index.html"));
+  const isProd = process.env.NODE_ENV === "production";
 
   // Provide fallback static files for production Hono server
   if (isProd) {

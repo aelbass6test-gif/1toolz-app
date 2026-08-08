@@ -1,4 +1,5 @@
-import { db as firebaseDb, auth } from './firebaseClient';
+import { auth } from './firebaseClient';
+import { getSupabaseClient } from './databaseService';
 import { 
     doc, 
     updateDoc, 
@@ -21,7 +22,7 @@ export const addSharedAuditLog = async (
     log: Omit<SharedAuditLogEntry, 'id' | 'timestamp' | 'userId' | 'userName'>,
     userName: string
 ) => {
-    const sessionRef = doc(firebaseDb, 'shared_audits', sessionId);
+    
     const newLog: SharedAuditLogEntry = {
         ...log,
         id: Math.random().toString(36).substring(2, 15),
@@ -31,20 +32,20 @@ export const addSharedAuditLog = async (
         userEmail: auth.currentUser?.email || undefined
     };
     
-    await updateDoc(sessionRef, {
+    const supabase = getSupabaseClient(); if(supabase) await supabase.from('shared_audits').update({
         logs: arrayUnion(newLog)
-    });
+    }).eq('id', sessionId);
 };
 
 /**
  * Protocol Enforcement Guard
  */
 export const verifySharedAuditProtocol = async (sessionId: string, requestedProtocol: SharedAuditProtocol): Promise<boolean> => {
-    const sessionRef = doc(firebaseDb, 'shared_audits', sessionId);
-    const snap = await getDoc(sessionRef);
-    if (!snap.exists()) return false;
     
-    const audit = snap.data() as SharedAudit;
+    const supabase = getSupabaseClient();
+    if(!supabase) return false;
+    const { data: audit, error } = await supabase.from('shared_audits').select('*').eq('id', sessionId).single();
+    if (error || !audit) return false;
     
     // Rule: Reject change if locked and different
     if (audit.isProtocolLocked && audit.protocol !== requestedProtocol) {
@@ -62,14 +63,14 @@ export const unlockSharedAuditProtocol = async (
     reason: string, 
     supervisorName: string
 ) => {
-    const sessionRef = doc(firebaseDb, 'shared_audits', sessionId);
     
-    await updateDoc(sessionRef, {
+    
+    const supabase = getSupabaseClient(); if(supabase) await supabase.from('shared_audits').update({
         isProtocolLocked: false,
         unlockReason: reason,
         unlockedBy: supervisorName,
         unlockedAt: new Date().toISOString()
-    });
+    }).eq('id', sessionId);
 
     await addSharedAuditLog(sessionId, {
         action: 'فتح قفل البروتوكول',
@@ -82,11 +83,11 @@ export const unlockSharedAuditProtocol = async (
  * Centralized Protocol Lock
  */
 export const lockSharedAuditProtocol = async (sessionId: string, supervisorName: string) => {
-    const sessionRef = doc(firebaseDb, 'shared_audits', sessionId);
     
-    await updateDoc(sessionRef, {
+    
+    const supabase = getSupabaseClient(); if(supabase) await supabase.from('shared_audits').update({
         isProtocolLocked: true
-    });
+    }).eq('id', sessionId);
 
     await addSharedAuditLog(sessionId, {
         action: 'تثبيت البروتوكول',

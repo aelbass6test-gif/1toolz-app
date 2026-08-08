@@ -39,18 +39,18 @@ export default function SharedSupervisorFeatures({
         let surplusCount = 0;
         let uncounted = 0;
 
-        items.forEach(item => {
-            const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+        items.forEach((item: any) => {
+            const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
             const actual = counts[key];
-            totalSystem += item.systemQty;
+            totalSystem += (item as any).systemQty;
 
             if (actual === undefined) {
                 uncounted++;
             } else {
                 totalActual += actual;
-                if (actual === item.systemQty) {
+                if (actual === (item as any).systemQty) {
                     matched++;
-                } else if (actual < item.systemQty) {
+                } else if (actual < (item as any).systemQty) {
                     deficitCount++;
                 } else {
                     surplusCount++;
@@ -389,11 +389,11 @@ export default function SharedSupervisorFeatures({
 
                         {/* Variance List Table */}
                         <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
-                            {audit.items.filter(item => {
-                                const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                            {audit.items.filter((item: any) => {
+                                const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
                                 const actual = counts[key];
                                 if (actual === undefined) return false;
-                                const diff = Math.abs(actual - item.systemQty);
+                                const diff = Math.abs(actual - (item as any).systemQty);
                                 return diff > 0 && diff >= varianceThreshold;
                             }).length === 0 ? (
                                 <div className="py-16 text-center text-slate-400 text-xs font-bold space-y-2">
@@ -401,28 +401,28 @@ export default function SharedSupervisorFeatures({
                                     <p>لا توجد أي فروقات مرصودة تطابق هذا الفلتر حالياً</p>
                                 </div>
                             ) : (
-                                audit.items.filter(item => {
-                                    const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                audit.items.filter((item: any) => {
+                                    const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
                                     const actual = counts[key];
                                     if (actual === undefined) return false;
-                                    const diff = Math.abs(actual - item.systemQty);
+                                    const diff = Math.abs(actual - (item as any).systemQty);
                                     return diff > 0 && diff >= varianceThreshold;
-                                }).map(item => {
-                                    const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId;
+                                }).map((item: any) => {
+                                    const key = (item as any).variantId ? `${(item as any).productId}_${(item as any).variantId}` : (item as any).productId;
                                     const actual = counts[key]!;
-                                    const diff = actual - item.systemQty;
+                                    const diff = actual - (item as any).systemQty;
 
                                     return (
                                         <div key={key} className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-150 dark:border-slate-800 flex justify-between items-center text-xs">
                                             <div className="space-y-1">
-                                                <h4 className="font-black text-slate-850 dark:text-white">{item.name}</h4>
-                                                <p className="text-[10px] font-bold text-slate-400 font-mono">SKU: {item.sku}</p>
+                                                <h4 className="font-black text-slate-850 dark:text-white">{(item as any).name}</h4>
+                                                <p className="text-[10px] font-bold text-slate-400 font-mono">SKU: {(item as any).sku}</p>
                                             </div>
 
                                             <div className="flex items-center gap-3">
                                                 <div className="text-right">
                                                     <span className="text-[9px] text-slate-400 block font-bold">ميداني vs دفتري</span>
-                                                    <span className="font-mono font-black text-slate-700 dark:text-slate-300">{actual} من {item.systemQty}</span>
+                                                    <span className="font-mono font-black text-slate-700 dark:text-slate-300">{actual} من {(item as any).systemQty}</span>
                                                 </div>
                                                 <span className={`px-2.5 py-1 text-xs font-black rounded-lg ${
                                                     diff > 0 
