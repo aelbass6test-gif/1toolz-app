@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
     Link, Copy, Share2, Shield, Calendar, RefreshCw, AlertTriangle, 
     CheckCircle, XCircle, Clock, Trash2, ShieldCheck, HelpCircle, Eye, Scan, Lock,
-    Users, Activity, MapPin, ClipboardList, User
+    Users, Activity, MapPin, ClipboardList, User, Printer
 } from 'lucide-react';
 import { Settings } from '../../types';
 
@@ -96,6 +96,176 @@ export default function SharedAuditsTab({
             quality
         };
     }, [selectedReviewSession]);
+
+    // Print Audit Handler
+    const handlePrintAudit = (sessionToPrint?: any) => {
+        const session = sessionToPrint || selectedReviewSession;
+        if (!session) return;
+
+        const reviewItems = Array.isArray(session?.items) 
+            ? session.items 
+            : (session?.items && typeof session.items === 'object' ? Object.values(session.items) : []);
+
+        const totalItems = reviewItems.length;
+        let matchingCount = 0;
+        let varianceCount = 0;
+
+        reviewItems.forEach((item: any) => {
+            const actual = item.actualQty ?? 0;
+            const system = item.systemQty ?? 0;
+            if (actual === system) {
+                matchingCount++;
+            } else {
+                varianceCount++;
+            }
+        });
+
+        const accuracyRate = totalItems > 0 ? Math.round((matchingCount / totalItems) * 100) : 100;
+
+        const html = `
+            <!DOCTYPE html>
+            <html dir="rtl" lang="ar">
+            <head>
+                <meta charset="UTF-8">
+                <title>تقرير مراجعة الجرد - ${session.title || session.warehouseName || 'مستودع'}</title>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+                    * { box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+                    body { margin: 0; padding: 25px; color: #1e293b; background: #fff; line-height: 1.5; font-size: 12px; }
+                    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px; }
+                    .logo-title h1 { margin: 0; font-size: 20px; font-weight: 900; color: #4f46e5; }
+                    .logo-title p { margin: 3px 0 0; color: #64748b; font-weight: 700; font-size: 11px; }
+                    .audit-meta { text-align: left; }
+                    .audit-meta div { font-weight: 800; font-size: 12px; color: #0f172a; }
+                    .audit-meta span { color: #64748b; font-size: 10px; }
+                    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+                    .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; text-align: center; }
+                    .stat-card .val { font-size: 18px; font-weight: 900; color: #4f46e5; }
+                    .stat-card .lbl { font-size: 10px; color: #64748b; font-weight: 700; margin-top: 2px; }
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 25px; font-size: 11px; }
+                    th { background: #f1f5f9; color: #334155; font-weight: 800; padding: 8px 12px; text-align: right; border: 1px solid #cbd5e1; }
+                    td { padding: 8px 12px; border: 1px solid #e2e8f0; vertical-align: middle; }
+                    tr:nth-child(even) { background: #f8fafc; }
+                    .text-center { text-align: center; }
+                    .text-emerald { color: #059669; font-weight: 800; }
+                    .text-rose { color: #e11d48; font-weight: 800; }
+                    .badge-match { background: #d1fae5; color: #047857; padding: 2px 8px; border-radius: 4px; font-weight: 800; font-size: 10px; }
+                    .badge-diff { background: #ffe4e6; color: #be123c; padding: 2px 8px; border-radius: 4px; font-weight: 800; font-size: 10px; }
+                    .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px; page-break-inside: avoid; }
+                    .sig-box { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; background: #fafafa; }
+                    .sig-box h4 { margin: 0 0 8px; font-size: 11px; font-weight: 800; color: #334155; }
+                    .sig-img { max-height: 45px; object-fit: contain; }
+                    .btn-print { background: #4f46e5; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 13px; cursor: pointer; margin-bottom: 20px; }
+                    @media print {
+                        .no-print { display: none !important; }
+                        body { padding: 0; }
+                        @page { margin: 1.5cm; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="no-print" style="text-align: left;">
+                    <button onclick="window.print()" class="btn-print">🖨️ طباعة التقرير الآن</button>
+                </div>
+
+                <div class="header">
+                    <div class="logo-title">
+                        <h1>${settings.storeName || 'مدير الأوردرات الذكي'}</h1>
+                        <p>تقرير مراجعة وفحص كميات جرد الموظفين</p>
+                    </div>
+                    <div class="audit-meta">
+                        <div>المستودع: ${session.warehouseName || 'المستودع الرئيسي'}</div>
+                        <span>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-EG')} - ${new Date().toLocaleTimeString('ar-EG')}</span><br/>
+                        <span>مسؤول الجرد: ${session.managerName || 'غير محدد'}</span>
+                        ${session.passcode ? `<br/><span>Passcode: ${session.passcode}</span>` : ''}
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="val">${totalItems}</div>
+                        <div class="lbl">إجمالي الأصناف</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="val" style="color: #059669;">${matchingCount}</div>
+                        <div class="lbl">أصناف مطابقة</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="val" style="color: #e11d48;">${varianceCount}</div>
+                        <div class="lbl">أصناف بها فروقات</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="val" style="color: #2563eb;">${accuracyRate}%</div>
+                        <div class="lbl">نسبة الدقة</div>
+                    </div>
+                </div>
+
+                ${session.notes ? `
+                    <div style="background: #f1f5f9; padding: 10px; border-radius: 8px; margin-bottom: 15px; font-size: 11px;">
+                        <strong>ملاحظات مرفقة:</strong> ${session.notes}
+                    </div>
+                ` : ''}
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 5%;">#</th>
+                            <th style="width: 40%;">اسم السلعة / SKU</th>
+                            <th style="width: 15%; text-align: center;">رصيد الدفاتر</th>
+                            <th style="width: 15%; text-align: center;">العد الفعلي</th>
+                            <th style="width: 15%; text-align: center;">الفارق</th>
+                            <th style="width: 10%; text-align: center;">الحالة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${reviewItems.map((item: any, idx: number) => {
+                            const actual = item.actualQty ?? 0;
+                            const system = item.systemQty ?? 0;
+                            const diff = actual - system;
+                            return `
+                                <tr>
+                                    <td class="text-center">${idx + 1}</td>
+                                    <td>
+                                        <strong>${item.name || 'منتج غير معنون'}</strong>
+                                        ${item.sku ? `<br/><span style="font-size: 9px; color: #64748b;">SKU: ${item.sku}</span>` : ''}
+                                    </td>
+                                    <td class="text-center">${system}</td>
+                                    <td class="text-center" style="font-weight: 800;">${actual}</td>
+                                    <td class="text-center" style="font-weight: 800;">
+                                        ${diff === 0 ? '0' : (diff > 0 ? `<span class="text-emerald">+${diff}</span>` : `<span class="text-rose">${diff}</span>`)}
+                                    </td>
+                                    <td class="text-center">
+                                        ${diff === 0 ? '<span class="badge-match">مطابق</span>' : '<span class="badge-diff">تفاوت</span>'}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+
+                <div class="signatures">
+                    <div class="sig-box">
+                        <h4>توقيع المسؤول الميداني:</h4>
+                        <p style="margin: 0 0 5px; font-weight: bold;">${session.managerName || 'مسؤول الجرد'}</p>
+                        ${session.signatureData ? `<img src="${session.signatureData}" class="sig-img" />` : '<p style="color: #94a3b8; font-size: 10px;">لا يوجد توقيع إلكتروني</p>'}
+                    </div>
+                    <div class="sig-box">
+                        <h4>توقيع الاعتماد / الإدارة:</h4>
+                        <p style="margin: 0 0 5px; font-weight: bold;">توقيع الاعتماد</p>
+                        <div style="height: 45px; border-bottom: 1px dashed #cbd5e1; margin-top: 10px;"></div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        const prt = window.open('', '_blank');
+        if (prt) {
+            prt.document.write(html);
+            prt.document.close();
+            setTimeout(() => prt.print(), 300);
+        }
+    };
 
     // 3. QR Code / View Links modal state
     const [activeShareSession, setActiveShareSession] = useState<any | null>(null);
@@ -358,6 +528,14 @@ export default function SharedAuditsTab({
 
                                                     {/* Delete session option */}
                                                     <button 
+                                                        onClick={() => handlePrintAudit(session)}
+                                                        className="p-1.5 bg-slate-50 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 rounded-lg border border-slate-200/50 dark:border-slate-700 transition-all"
+                                                        title="طباعة التقرير"
+                                                    >
+                                                        <Printer size={13} />
+                                                    </button>
+
+                                                    <button 
                                                         onClick={() => {
                                                             onConfirm(
                                                                 'حذف الرابط المشترك نهائياً؟',
@@ -436,16 +614,26 @@ export default function SharedAuditsTab({
                                 <h4 className="font-black text-sm">مراجعة وفحص كميات جرد الموظفين</h4>
                                 <p className="text-[10px] text-indigo-100 font-bold">المستودع: {selectedReviewSession.warehouseName} • معزول بواسطة Passcode: {selectedReviewSession.passcode}</p>
                             </div>
-                            <button 
-                                onClick={() => {
-                                    setSelectedReviewSession(null);
-                                    setRejectReason('');
-                                    setReviewTab('details');
-                                }}
-                                className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all text-xs"
-                            >
-                                إغلاق ✕
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={() => handlePrintAudit(selectedReviewSession)}
+                                    className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl transition-all text-xs font-black flex items-center gap-1.5 text-white shadow-sm cursor-pointer"
+                                    title="طباعة كشف ومراجعة الجرد"
+                                >
+                                    <Printer size={14} />
+                                    <span>طباعة التقرير</span>
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        setSelectedReviewSession(null);
+                                        setRejectReason('');
+                                        setReviewTab('details');
+                                    }}
+                                    className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all text-xs"
+                                >
+                                    إغلاق ✕
+                                </button>
+                            </div>
                         </div>
 
                         {/* Review Tabs */}
@@ -902,16 +1090,26 @@ export default function SharedAuditsTab({
                         </div>
 
                         {/* Drawer Actions Footer */}
-                        <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-850 flex justify-between shrink-0">
-                            <button 
-                                onClick={() => {
-                                    setSelectedReviewSession(null);
-                                    setRejectReason('');
-                                }}
-                                className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-black rounded-xl transition-all"
-                            >
-                                إغلاق ومعاينة لاحقاً
-                            </button>
+                        <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-100 dark:border-slate-850 flex justify-between shrink-0 items-center">
+                            <div className="flex items-center gap-2">
+                                <button 
+                                    onClick={() => {
+                                        setSelectedReviewSession(null);
+                                        setRejectReason('');
+                                    }}
+                                    className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-black rounded-xl transition-all"
+                                >
+                                    إغلاق ومعاينة لاحقاً
+                                </button>
+
+                                <button 
+                                    onClick={() => handlePrintAudit(selectedReviewSession)}
+                                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                                >
+                                    <Printer size={15} />
+                                    <span>طباعة التقرير / PDF 🖨️</span>
+                                </button>
+                            </div>
 
                             {selectedReviewSession.status === 'submitted' && (
                                 <div className="flex gap-2">
