@@ -2603,15 +2603,32 @@ export const AppComponent = () => {
         })(),
         wallet: (() => {
             const rawWallet = activeStoreId ? allStoresData[activeStoreId]?.wallet || { balance: 0, transactions: [] } : { balance: 0, transactions: [] };
+            const rawTreasury = activeStoreId ? allStoresData[activeStoreId]?.treasury || { accounts: [], transactions: [] } : { accounts: [], transactions: [] };
             const txs = rawWallet.transactions || [];
-            const liveBalance = txs.reduce((sum: number, t: any) => {
+            const liveBalance = txs.length > 0 ? txs.reduce((sum: number, t: any) => {
                 const amount = Number(t.amount) || 0;
                 if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
                 if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
                 if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
-                if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
+                if (t.type === 'سحب') {
+                    if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
+                    return t.status === 'cancelled' ? sum : sum - amount;
+                }
+                if (t.type === 'تحويل') {
+                    if (t.category === 'treasury_sync') {
+                        const treasuryTxId = t.id.replace('TR-', '');
+                        const tTx = rawTreasury.transactions?.find((x: any) => x.id === treasuryTxId);
+                        if (tTx) {
+                            if (tTx.toAccountId === 'main_wallet') return sum + amount;
+                            if (tTx.fromAccountId === 'main_wallet') return sum - amount;
+                        } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
+                            return sum + amount;
+                        }
+                    }
+                    return sum;
+                }
                 return sum;
-            }, 0);
+            }, 0) : (Number(rawWallet.balance) || 0);
             return {
                 ...rawWallet,
                 balance: liveBalance

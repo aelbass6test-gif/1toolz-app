@@ -222,8 +222,20 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 }]
             };
 
-            const supabase = getSupabaseClient();
-            if(supabase) await supabase.from('shared_audits').insert([newAuditDoc]);
+            // Save to Firestore first
+            try {
+                await setDoc(doc(db, 'shared_audits', docId), newAuditDoc);
+            } catch (fsErr) {
+                console.warn('Firestore setDoc error creating shared audit:', fsErr);
+            }
+
+            // Save to Supabase fallback
+            try {
+                const supabase = getSupabaseClient();
+                if (supabase) await supabase.from('shared_audits').insert([newAuditDoc]);
+            } catch (sbErr) {
+                console.warn('Supabase insert error creating shared audit:', sbErr);
+            }
 
             audioSynth.playTone('success');
             customAlert('تم التوليد', 'تم تفعيل وحفظ رابط الجرد الخارجي بنجاح وبانتظار عد الموظف!', 'success');
@@ -433,9 +445,20 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 activityLogs: updatedActivityLogs
             }));
 
-            // Sync approved status on Firebase
-            const supabase = getSupabaseClient();
-            if(supabase) await supabase.from('shared_audits').update({ status: 'approved' }).eq('id', sessionId);
+            // Sync approved status on Firestore and Supabase
+            try {
+                const docRef = doc(db, 'shared_audits', sessionId);
+                await updateDoc(docRef, { status: 'approved' });
+            } catch (fsErr) {
+                console.warn('Firestore update approved error:', fsErr);
+            }
+
+            try {
+                const supabase = getSupabaseClient();
+                if (supabase) await supabase.from('shared_audits').update({ status: 'approved' }).eq('id', sessionId);
+            } catch (sbErr) {
+                console.warn('Supabase update approved error:', sbErr);
+            }
 
             confetti({
                 particleCount: 150,
@@ -458,12 +481,25 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
     const handleRejectSharedAudit = async (sessionId: string, reason: string) => {
         try {
             setLoadingShared(true);
-            const docRef = doc(db, 'shared_audits', sessionId);
-            await updateDoc(docRef, { 
+            const updates = { 
                 status: 'rejected',
                 rejectReason: reason.trim(),
                 rejectedAt: new Date().toISOString()
-            });
+            };
+
+            try {
+                const docRef = doc(db, 'shared_audits', sessionId);
+                await updateDoc(docRef, updates);
+            } catch (fsErr) {
+                console.warn('Firestore reject error:', fsErr);
+            }
+
+            try {
+                const supabase = getSupabaseClient();
+                if (supabase) await supabase.from('shared_audits').update(updates).eq('id', sessionId);
+            } catch (sbErr) {
+                console.warn('Supabase reject error:', sbErr);
+            }
             
             audioSynth.playTone('error');
             customAlert('تم الرفض', 'تم رفض طلب الجرد الخارجي وإعادته لتصحيح كميات الأرفف من الموظف.', 'warning');
@@ -480,9 +516,26 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
     const handleDeleteSharedAudit = async (sessionId: string) => {
         try {
             setLoadingShared(true);
-            const supabase = getSupabaseClient();
-            if(supabase) await supabase.from('shared_audits').delete().eq('id', sessionId);
+
+            // Delete from Firestore
+            try {
+                const docRef = doc(db, 'shared_audits', sessionId);
+                await deleteDoc(docRef);
+            } catch (fsErr) {
+                console.warn('Firestore delete error:', fsErr);
+            }
+
+            // Delete from Supabase
+            try {
+                const supabase = getSupabaseClient();
+                if (supabase) await supabase.from('shared_audits').delete().eq('id', sessionId);
+            } catch (sbErr) {
+                console.warn('Supabase delete error:', sbErr);
+            }
             
+            // Remove from local state immediately
+            setSharedAudits(prev => prev.filter(s => s.id !== sessionId));
+
             audioSynth.playTone('click');
             customAlert('تم الحذف', 'تم إلغاء وحذف رابط الجرد الخارجي بالكامل.', 'success');
             loadSharedAudits();
@@ -498,7 +551,6 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
     const handleUnlockProtocol = async (sessionId: string, reason: string) => {
         try {
             setLoadingShared(true);
-            const docRef = doc(db, 'shared_audits', sessionId);
             
             const logEntry = {
                 id: `unlock-${Date.now()}`,
@@ -510,13 +562,26 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 type: 'unlock'
             };
 
-            await updateDoc(docRef, { 
+            const updates = { 
                 isProtocolLocked: false,
                 unlockReason: reason,
                 unlockedBy: currentUser?.fullName || 'المشرف',
-                unlockedAt: new Date().toISOString(),
-                logs: arrayUnion(logEntry)
-            });
+                unlockedAt: new Date().toISOString()
+            };
+
+            try {
+                const docRef = doc(db, 'shared_audits', sessionId);
+                await updateDoc(docRef, { ...updates, logs: arrayUnion(logEntry) });
+            } catch (fsErr) {
+                console.warn('Firestore unlock error:', fsErr);
+            }
+
+            try {
+                const supabase = getSupabaseClient();
+                if (supabase) await supabase.from('shared_audits').update(updates).eq('id', sessionId);
+            } catch (sbErr) {
+                console.warn('Supabase unlock error:', sbErr);
+            }
             
             audioSynth.playTone('success');
             customAlert('تم فك القفل', 'تم فتح إعدادات البروتوكول للموظف لتعديل أسلوب العد.', 'success');
