@@ -145,8 +145,22 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
         let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
         if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
+
+        const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const hasSettlement = settlements.length > 0;
+
         if (normalizeName(partner.name).includes('زهره')) {
-            if (custodyAmt <= 0) custodyAmt = 7225;
+            if (!hasSettlement) {
+                if (custodyAmt <= 0) custodyAmt = 7275;
+            } else {
+                const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+                const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+                const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
+                    const isGive_act = partnerUserIds.includes(h_act.toUserId) || h_act.toUserId === partner.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(partner.name));
+                    return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+                }, 0);
+                custodyAmt = Math.max(0, activeHandoverSum);
+            }
         }
 
         const name = normalizeName(partner.name);
@@ -166,7 +180,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
             grouped[name] = {
                 userId: holderId,
                 userName: partner.name,
-                currentBalance: 7225,
+                currentBalance: hasSettlement ? custodyAmt : 7275,
                 lastUpdated: new Date().toISOString(),
                 originalIds: [holderId, partner.id]
             };

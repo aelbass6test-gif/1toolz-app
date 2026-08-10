@@ -3162,8 +3162,22 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
         let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
         if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
+
+        const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const hasSettlement = settlements.length > 0;
+
         if (nName.includes('زهره')) {
-            if (custodyAmt <= 0) custodyAmt = 7275;
+            if (!hasSettlement) {
+                if (custodyAmt <= 0) custodyAmt = 7275;
+            } else {
+                const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+                const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+                const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
+                    const isGive_act = partnerUserIds.includes(h_act.toUserId) || normalizeName(h_act.toUserName || '').includes(nName);
+                    return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+                }, 0);
+                custodyAmt = Math.max(0, activeHandoverSum);
+            }
         }
 
         if (!mergedHolders[nName]) {
@@ -3579,9 +3593,17 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
             const baseBalance = acc ? acc.balance : (mergedHolders[nName]?.balance || 0);
             const isZahra = nName.includes('زهره') || nName.includes('زهرة');
+            const hasSettlement = (settings.cashHandovers || []).some((h: any) => 
+                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم'))) && 
+                (normalizeName(h.fromUserName || '').includes('زهره') || normalizeName(h.fromUserName || '').includes('زهرة'))
+            );
 
             if (isZahra) {
-                return sumDetails > 0 ? Math.max(7275, sumDetails) : (baseBalance > 0 ? baseBalance : 7275);
+                if (!hasSettlement) {
+                    return sumDetails > 0 ? Math.max(7275, sumDetails) : (baseBalance > 0 ? baseBalance : 7275);
+                } else {
+                    return baseBalance;
+                }
             }
             return sumDetails > 0 ? Math.max(baseBalance, sumDetails) : baseBalance;
         };
@@ -3706,8 +3728,12 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                             if (isBankOrTreasuryAccount(a.name)) return false;
                             const details = custodyDetails[a.name] || [];
                             const isZahra = a.name.includes('زهره') || a.name.includes('زهرة');
+                            const hasSettlement = (settings.cashHandovers || []).some((h: any) => 
+                                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم'))) && 
+                                (normalizeName(h.fromUserName || '').includes('زهره') || normalizeName(h.fromUserName || '').includes('زهرة'))
+                            );
                             const sumOfDetails = details.reduce((sum, d) => sum + d.amount, 0);
-                            const finalBalance = isZahra 
+                            const finalBalance = (isZahra && !hasSettlement) 
                                 ? (sumOfDetails > 0 ? Math.max(7275, sumOfDetails) : (a.balance > 0 ? a.balance : 7275))
                                 : (sumOfDetails > 0 ? Math.max(a.balance, sumOfDetails) : a.balance);
                             return finalBalance > 0;
@@ -3735,8 +3761,12 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                                 : '<span style="color: #94a3b8; font-style: italic;">لا توجد تفاصيل أوردرات مرتبطة (عهد قديمة أو تسويات)</span>';
                             
                             const isZahra = a.name.includes('زهره') || a.name.includes('زهرة');
+                            const hasSettlement = (settings.cashHandovers || []).some((h: any) => 
+                                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم'))) && 
+                                (normalizeName(h.fromUserName || '').includes('زهره') || normalizeName(h.fromUserName || '').includes('زهرة'))
+                            );
                             const sumOfDetails = details.reduce((sum, d) => sum + d.amount, 0);
-                            const finalBalance = isZahra 
+                            const finalBalance = (isZahra && !hasSettlement) 
                                 ? (sumOfDetails > 0 ? Math.max(7275, sumOfDetails) : (a.balance > 0 ? a.balance : 7275))
                                 : (sumOfDetails > 0 ? Math.max(a.balance, sumOfDetails) : a.balance);
 

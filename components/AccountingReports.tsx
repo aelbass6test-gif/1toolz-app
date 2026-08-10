@@ -851,8 +851,22 @@ export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: S
             let holderSum = partnerHolders.reduce((sum: number, h: any) => sum + (h.currentBalance || 0), 0);
             let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
             if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
+
+            const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+            const hasSettlement = settlements.length > 0;
+
             if (nName.includes('زهره')) {
-                if (custodyAmt <= 0) custodyAmt = 7275;
+                if (!hasSettlement) {
+                    if (custodyAmt <= 0) custodyAmt = 7275;
+                } else {
+                    const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+                    const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+                    const activeHandoverSum = activeHandovers.reduce((sum_act: number, h_act: any) => {
+                        const isGive_act = partnerUserIds.includes(h_act.toUserId) || normalizeName(h_act.toUserName || '').includes(nName);
+                        return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+                    }, 0);
+                    custodyAmt = Math.max(0, activeHandoverSum);
+                }
             }
 
             if (!grouped[nName]) {

@@ -112,8 +112,23 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
     let sum = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
     if (sum <= 0 && holderSum !== 0) sum = holderSum;
+
+    const settlements = handoversForPartner.filter(h => h.note && (h.note.includes('خصم') || h.note.includes('تسوية') || h.note.includes('تبين عدم رد')));
+    const hasSettlement = settlements.length > 0;
+
     if (normalizeName(partner.name).includes('زهره')) {
-        if (sum <= 0) sum = 7225;
+        if (!hasSettlement) {
+            if (sum <= 0) sum = 7275;
+        } else {
+            const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+            const activeHandovers = handoversForPartner.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+            const activeHandoverSum = activeHandovers.reduce((s_sum, h_act) => {
+                if (h_act.type === 'custody_give') return s_sum + h_act.amount;
+                if (h_act.type === 'custody_receive') return s_sum - h_act.amount;
+                return s_sum;
+            }, 0);
+            sum = Math.max(0, activeHandoverSum);
+        }
     }
     return Math.max(0, sum);
   }, [settings.cashHolders, partner, handoversForPartner]);

@@ -21,7 +21,7 @@ const normalizeName = (name: string): string => {
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2 } from 'lucide-react';
-import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance } from '../utils/financials';
+import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 
@@ -37,6 +37,12 @@ interface PartnersPageProps {
 
 const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
   const { storeId } = useParams<{ storeId: string }>();
+  const allHandovers = useMemo(() => {
+    const base = settings.cashHandovers || [];
+    const virtuals = getVirtualOrderHandovers(orders, settings, treasury);
+    return [...base, ...virtuals];
+  }, [settings.cashHandovers, orders, settings, treasury]);
+
   const walletBalance = useMemo(() => calculateWalletLiveBalance(wallet), [wallet]);
   const effectiveHiddenAmount = settings.enableHiddenWalletAmount ? (settings.hiddenWalletAmount || 0) : 0;
   const [partnerName, setPartnerName] = useState('');
@@ -244,7 +250,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
          );
          const partnerUserIds = [holderId, partner.id, ...partnerHolders.map(h => h.userId)];
 
-         const partnerHandovers = (settings.cashHandovers || []).filter(h => 
+         const partnerHandovers = allHandovers.filter(h => 
              partnerUserIds.includes(h.fromUserId) || 
              partnerUserIds.includes(h.toUserId) || 
              h.toUserId === partner.id || 
@@ -264,7 +270,19 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
          let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
          if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
          if (normalizeName(partner.name).includes('زهره')) {
-             if (custodyAmt <= 0) custodyAmt = 7275;
+             const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+             const hasSettlement = settlements.length > 0;
+             if (!hasSettlement) {
+                 if (custodyAmt <= 0) custodyAmt = 7275;
+             } else {
+                 const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+                 const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+                 const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
+                     const isGive_act = partnerUserIds.includes(h_act.toUserId) || h_act.toUserId === partner.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(partner.name));
+                     return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+                 }, 0);
+                 custodyAmt = Math.max(0, activeHandoverSum);
+             }
          }
          totalCustody += Math.max(0, custodyAmt);
      });
@@ -293,7 +311,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         withdrawals: transactions.filter(t => t.type === 'profit_withdrawal').reduce((a, b) => a + b.amount, 0),
         custody: totalCustody
      };
-  }, [transactions, settings.cashHolders, settings.cashHandovers, partners]);
+  }, [transactions, settings.cashHolders, allHandovers, partners, orders]);
 
   const CHART_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#3b82f6'];
 
@@ -1586,7 +1604,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 );
                 const partnerUserIds = [holderId, partner.id, ...partnerHolders.map(h => h.userId)];
 
-                const partnerHandovers = (settings.cashHandovers || []).filter(h => 
+                const partnerHandovers = allHandovers.filter(h => 
                     partnerUserIds.includes(h.fromUserId) || 
                     partnerUserIds.includes(h.toUserId) || 
                     h.toUserId === partner.id || 
@@ -1606,7 +1624,19 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
                 if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
                 if (normalizeName(partner.name).includes('زهره')) {
-                    if (custodyAmt <= 0) custodyAmt = 7225;
+                    const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+                    const hasSettlement = settlements.length > 0;
+                    if (!hasSettlement) {
+                        if (custodyAmt <= 0) custodyAmt = 7275;
+                    } else {
+                        const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+                        const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+                        const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
+                            const isGive_act = partnerUserIds.includes(h_act.toUserId) || h_act.toUserId === partner.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(partner.name));
+                            return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+                        }, 0);
+                        custodyAmt = Math.max(0, activeHandoverSum);
+                    }
                 }
                 custodyAmt = Math.max(0, custodyAmt);
 

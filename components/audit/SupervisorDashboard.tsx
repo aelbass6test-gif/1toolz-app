@@ -10,7 +10,7 @@ import { audioSynth } from '../../utils/audioSynth';
 interface SupervisorDashboardProps {
     settings: Settings;
     sharedSessions: any[];
-    onApproveSharedSession: (id: string) => Promise<void>;
+    onApproveSharedSession: (id: string, settlementDetails?: any) => Promise<void>;
     onRejectSharedSession: (id: string, reason: string) => Promise<void>;
     onNavigateTab: (tab: string) => void;
     loadingShared: boolean;

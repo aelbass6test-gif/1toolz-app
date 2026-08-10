@@ -6,7 +6,7 @@ import {
     Share2, Copy, Trash, Lock, ShieldCheck, CheckSquare, XCircle, Volume2, VolumeX, Camera, MapPin,
     Mic, Zap, Target, Gauge, Timer, Trophy
 } from 'lucide-react';
-import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAuditItemDiscrepancy } from '../types';
+import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAuditItemDiscrepancy, Partner, PartnerTransaction, StaffMember, StaffAdvance, PayrollTransaction } from '../types';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { audioSynth } from '../utils/audioSynth';
 import { getSupabaseClient } from '../services/databaseService';
@@ -295,7 +295,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
     };
 
     // 2. Approve External Shared Audit & apply Stock Adjustments
-    const handleApproveSharedAudit = async (sessionId: string) => {
+    const handleApproveSharedAudit = async (sessionId: string, settlementDetails?: any) => {
         const session = sharedAudits.find(s => s.id === sessionId);
         if (!session) return;
 
@@ -408,7 +408,146 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 }
             });
 
+            const updatedActivityLogs = [
+                {
+                    id: `log-${Date.now()}`,
+                    user: currentUser?.fullName || 'التاجر',
+                    action: 'اعتماد جرد خارجي',
+                    details: `تم اعتماد ومطابقة جرد الموظف الميداني للرابط "${session.title}" وحصر ${discrepancies.length} فوارق بتسوية مالية ${totalVarianceValue.toLocaleString()} ج.م`,
+                    date: new Date().toLocaleDateString('ar-EG'),
+                    timestamp: Date.now()
+                },
+                ...(settings.activityLogs || [])
+            ];
+
+            // Process Financial Allocations (Partners & Employees)
+            let updatedPartners = [...(settings.partners || [])];
+            let newPartnerTransactions: PartnerTransaction[] = [];
+            
+            let updatedStaffMembers = [...(settings.staffMembers || [])];
+            let newStaffAdvances: StaffAdvance[] = [];
+            let newPayrollTransactions: PayrollTransaction[] = [];
+
+            if (settlementDetails) {
+                const {
+                    calcPartnerVal = 0,
+                    calcEmployeeVal = 0,
+                    selectedPartnerName = '',
+                    employeeResponsibleName = ''
+                } = settlementDetails;
+
+                // 1. Update Partner Account & Transactions
+                if (calcPartnerVal > 0) {
+                    const targetPartnerName = selectedPartnerName.trim() || 'الشريك المعني';
+                    const norm = (s: string) => s.trim().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').toLowerCase();
+                    let partnerIdx = updatedPartners.findIndex(p => norm(p.name) === norm(targetPartnerName));
+
+                    let pId = '';
+                    if (partnerIdx >= 0) {
+                        pId = updatedPartners[partnerIdx].id;
+                        updatedPartners[partnerIdx] = {
+                            ...updatedPartners[partnerIdx],
+                            balance: (updatedPartners[partnerIdx].balance || 0) - calcPartnerVal
+                        };
+                    } else {
+                        pId = `partner-${Date.now()}`;
+                        const newP: Partner = {
+                            id: pId,
+                            name: targetPartnerName,
+                            balance: -calcPartnerVal,
+                            profitRatio: 0
+                        };
+                        updatedPartners.push(newP);
+                    }
+
+                    const newPtx: PartnerTransaction = {
+                        id: `ptx-audit-${Date.now()}`,
+                        partnerId: pId,
+                        partnerName: targetPartnerName,
+                        type: 'personal_withdrawal',
+                        amount: calcPartnerVal,
+                        date: auditDateStr,
+                        notes: `مسحوبات أصناف وفارق تسوية جرد المستودع (${session.title})`,
+                        description: `مسحوبات شخصية من تسوية الجرد - ${session.title}`
+                    };
+                    newPartnerTransactions.push(newPtx);
+
+                    updatedActivityLogs.unshift({
+                        id: `log-partner-${Date.now()}`,
+                        user: currentUser?.fullName || 'التاجر',
+                        action: 'خصم مسحوبات شريك من الجرد',
+                        details: `تم ترحيل مسحوبات/فارق الجرد بقيمة ${calcPartnerVal.toLocaleString()} ج.م على حساب الشريك "${targetPartnerName}" بنجاح.`,
+                        date: new Date().toLocaleDateString('ar-EG'),
+                        timestamp: Date.now()
+                    });
+                }
+
+                // 2. Update Employee Account & Staff Advances/Payroll
+                if (calcEmployeeVal > 0) {
+                    const targetEmpName = employeeResponsibleName.trim() || session.managerName || 'الموظف المسؤول';
+                    const norm = (s: string) => s.trim().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').toLowerCase();
+                    let staffIdx = updatedStaffMembers.findIndex(s => norm(s.name) === norm(targetEmpName));
+
+                    let eId = '';
+                    if (staffIdx >= 0) {
+                        eId = updatedStaffMembers[staffIdx].id;
+                    } else {
+                        eId = `staff-${Date.now()}`;
+                        const newS: StaffMember = {
+                            id: eId,
+                            name: targetEmpName,
+                            phone: '',
+                            baseSalary: 0,
+                            position: 'مسؤول الجرد',
+                            joinDate: auditDateStr.split('T')[0],
+                            active: true
+                        };
+                        updatedStaffMembers.push(newS);
+                    }
+
+                    const newAdv: StaffAdvance = {
+                        id: `adv-audit-${Date.now()}`,
+                        staffId: eId,
+                        staffName: targetEmpName,
+                        amount: calcEmployeeVal,
+                        date: auditDateStr.split('T')[0],
+                        status: 'pending',
+                        note: `تحميل عجز وفارق تسوية الجرد الخارجي (${session.title})`
+                    };
+                    newStaffAdvances.push(newAdv);
+
+                    const newPayTx: PayrollTransaction = {
+                        id: `paytx-audit-${Date.now()}`,
+                        staffId: eId,
+                        staffName: targetEmpName,
+                        type: 'deduction',
+                        amount: calcEmployeeVal,
+                        date: auditDateStr.split('T')[0],
+                        note: `خصم عجز جرد مستودع (${session.title})`
+                    };
+                    newPayrollTransactions.push(newPayTx);
+
+                    updatedActivityLogs.unshift({
+                        id: `log-emp-${Date.now()}`,
+                        user: currentUser?.fullName || 'التاجر',
+                        action: 'تحميل عجز جرد على موظف',
+                        details: `تم تحميل عجز الجرد بقيمة ${calcEmployeeVal.toLocaleString()} ج.م كخصم/عهدة على الموظف "${targetEmpName}" بنجاح.`,
+                        date: new Date().toLocaleDateString('ar-EG'),
+                        timestamp: Date.now()
+                    });
+                }
+            }
+
             const managerName = session.managerName || 'مسؤول الأرفف الميداني';
+            let logNotes = `تم اعتماد وتسوية جرد خارجي ومطابقته للسيستم الكلي.`;
+            if (settlementDetails) {
+                const parts = [];
+                if (settlementDetails.calcPartnerVal > 0) parts.push(`مسحوبات الشريك (${settlementDetails.selectedPartnerName}): ${settlementDetails.calcPartnerVal.toLocaleString()} ج.م`);
+                if (settlementDetails.calcEmployeeVal > 0) parts.push(`عهدة الموظف (${settlementDetails.employeeResponsibleName}): ${settlementDetails.calcEmployeeVal.toLocaleString()} ج.م`);
+                if (settlementDetails.calcCompanyExpense > 0) parts.push(`مصاريف الشركة: ${settlementDetails.calcCompanyExpense.toLocaleString()} ج.م`);
+                if (parts.length > 0) logNotes += ` | التوزيع المحاسبي: ${parts.join(' | ')}`;
+            }
+
             const newSessionLog: InventoryAuditSession = {
                 id: `audit-${Date.now()}`,
                 title: `${session.title} (معتمد من الجرد الخارجي)`,
@@ -422,33 +561,30 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 totalVarianceValue,
                 totalItemsAudited: session.items.length,
                 discrepancies,
-                notes: `تم اعتماد وتسوية جرد خارجي ومطابقته للسيستم الكلي.`
+                notes: logNotes
             };
-
-            const updatedActivityLogs = [
-                {
-                    id: `log-${Date.now()}`,
-                    user: currentUser?.fullName || 'التاجر',
-                    action: 'اعتماد جرد خارجي',
-                    details: `تم اعتماد ومطابقة جرد الموظف الميداني للرابط "${session.title}" وحصر ${discrepancies.length} فوارق بتسوية مالية ${totalVarianceValue.toLocaleString()} ج.م`,
-                    date: new Date().toLocaleDateString('ar-EG'),
-                    timestamp: Date.now()
-                },
-                ...(settings.activityLogs || [])
-            ];
 
             // Push all updates to settings (for local persistence and UI sync)
             setSettings(prev => ({
                 ...prev,
                 products: updatedProducts,
                 inventoryAudits: [newSessionLog, ...(prev.inventoryAudits || [])],
-                activityLogs: updatedActivityLogs
+                activityLogs: updatedActivityLogs,
+                partners: updatedPartners,
+                partnerTransactions: [...newPartnerTransactions, ...(prev.partnerTransactions || [])],
+                staffMembers: updatedStaffMembers,
+                staffAdvances: [...newStaffAdvances, ...(prev.staffAdvances || [])],
+                payrollTransactions: [...newPayrollTransactions, ...(prev.payrollTransactions || [])]
             }));
 
-            // Sync approved status on Firestore and Supabase
+            // Sync approved status and settlement details on Firestore and Supabase
             try {
                 const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, { status: 'approved' });
+                await updateDoc(docRef, { 
+                    status: 'approved',
+                    approvedAt: auditDateStr,
+                    settlementDetails: settlementDetails || null
+                });
             } catch (fsErr) {
                 console.warn('Firestore update approved error:', fsErr);
             }

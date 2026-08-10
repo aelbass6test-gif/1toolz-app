@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { 
     Link, Copy, Share2, Shield, Calendar, RefreshCw, AlertTriangle, 
     CheckCircle, XCircle, Clock, Trash2, ShieldCheck, HelpCircle, Eye, Scan, Lock,
-    Users, Activity, MapPin, ClipboardList, User, Printer
+    Users, Activity, MapPin, ClipboardList, User, Printer, Download, Search, Filter, FileSpreadsheet,
+    ArrowRightLeft, Calculator, FileText, Sparkles, Plus, DollarSign, Building2, UserCheck, Check, ShoppingBag, Target
 } from 'lucide-react';
 import { Settings } from '../../types';
 
@@ -10,7 +11,7 @@ interface SharedAuditsTabProps {
     settings: Settings;
     sharedSessions: any[];
     onCreateSharedSession: (title: string, warehouseId: string, protocol: string, passcode: string) => void;
-    onApproveSharedSession: (sessionId: string) => void;
+    onApproveSharedSession: (sessionId: string, settlementDetails?: any) => void;
     onRejectSharedSession: (sessionId: string, reason: string) => void;
     onDeleteSharedSession: (sessionId: string) => void;
     onUnlockProtocol: (sessionId: string, reason: string) => void;
@@ -44,7 +45,93 @@ export default function SharedAuditsTab({
     // 2. Review Modal state
     const [selectedReviewSession, setSelectedReviewSession] = useState<any | null>(null);
     const [rejectReason, setRejectReason] = useState('');
-    const [reviewTab, setReviewTab] = useState<'details' | 'presence' | 'conflicts' | 'health' | 'assignments'>('details');
+    const [reviewTab, setReviewTab] = useState<'details' | 'presence' | 'conflicts' | 'health' | 'assignments' | 'swaps'>('details');
+
+    // Sessions List Filter & Search States
+    const [sessionSearch, setSessionSearch] = useState('');
+    const [sessionStatusFilter, setSessionStatusFilter] = useState<'all' | 'submitted' | 'approved' | 'rejected' | 'in_progress'>('all');
+    const [sessionWarehouseFilter, setSessionWarehouseFilter] = useState<string>('all');
+
+    // Helper Functions for Item Pricing
+    const getItemCost = (item: any) => {
+        if (item.costPrice && item.costPrice > 0) return item.costPrice;
+        const prod = (settings.products || []).find((p: any) => p.sku === item.sku || p.name === item.name);
+        if (prod?.costPrice !== undefined && prod?.costPrice > 0) return prod.costPrice;
+        if (prod?.price !== undefined && prod?.price > 0) return prod.price;
+        return 0;
+    };
+
+    const getItemSellingPrice = (item: any) => {
+        if (item.sellingPrice && item.sellingPrice > 0) return item.sellingPrice;
+        if (item.price && item.price > 0) return item.price;
+        const prod = (settings.products || []).find((p: any) => p.sku === item.sku || p.name === item.name);
+        if ((prod as any)?.sellingPrice !== undefined && (prod as any)?.sellingPrice > 0) return (prod as any).sellingPrice;
+        if (prod?.price !== undefined && prod?.price > 0) return prod.price;
+        return getItemCost(item);
+    };
+
+    // Shared Sessions KPI Stats Calculation
+    const sessionStats = useMemo(() => {
+        const total = sharedSessions.length;
+        const submitted = sharedSessions.filter(s => s.status === 'submitted').length;
+        const approved = sharedSessions.filter(s => s.status === 'approved').length;
+        const rejected = sharedSessions.filter(s => s.status === 'rejected').length;
+        const inProgress = sharedSessions.filter(s => !s.status || s.status === 'in_progress').length;
+
+        let totalItemsAudited = 0;
+        sharedSessions.forEach(s => {
+            const items = Array.isArray(s.items) ? s.items : (s.items && typeof s.items === 'object' ? Object.values(s.items) : []);
+            totalItemsAudited += items.length || s.itemsSubmitted || 0;
+        });
+
+        return { total, submitted, approved, rejected, inProgress, totalItemsAudited };
+    }, [sharedSessions]);
+
+    // Filtered Shared Sessions
+    const filteredSharedSessions = useMemo(() => {
+        return sharedSessions.filter(s => {
+            if (sessionStatusFilter === 'submitted' && s.status !== 'submitted') return false;
+            if (sessionStatusFilter === 'approved' && s.status !== 'approved') return false;
+            if (sessionStatusFilter === 'rejected' && s.status !== 'rejected') return false;
+            if (sessionStatusFilter === 'in_progress' && (s.status && s.status !== 'in_progress')) return false;
+
+            if (sessionWarehouseFilter !== 'all' && s.warehouseId !== sessionWarehouseFilter) return false;
+
+            if (sessionSearch.trim()) {
+                const q = sessionSearch.trim().toLowerCase();
+                const titleMatch = (s.title || '').toLowerCase().includes(q);
+                const whMatch = (s.warehouseName || '').toLowerCase().includes(q);
+                const mgrMatch = (s.managerName || '').toLowerCase().includes(q);
+                const passMatch = (s.passcode || '').toLowerCase().includes(q);
+                return titleMatch || whMatch || mgrMatch || passMatch;
+            }
+
+            return true;
+        });
+    }, [sharedSessions, sessionStatusFilter, sessionWarehouseFilter, sessionSearch]);
+
+    // Swap & Loss Settlement State
+    const [lossAllocationAccount, setLossAllocationAccount] = useState<'expense' | 'employee' | 'wastage' | 'partner' | 'mixed'>('expense');
+    const [residualAllocationTarget, setResidualAllocationTarget] = useState<'expense' | 'employee' | 'partner'>('employee');
+    const [employeeResponsibleName, setEmployeeResponsibleName] = useState('');
+    const [selectedPartnerName, setSelectedPartnerName] = useState('');
+    const [partnerPricingPolicy, setPartnerPricingPolicy] = useState<'cost' | 'price'>('cost');
+    const [partnerSelectedSkus, setPartnerSelectedSkus] = useState<Record<string, number>>({});
+    const [employeeSelectedSkus, setEmployeeSelectedSkus] = useState<Record<string, number>>({});
+    const [manualSurplusSku, setManualSurplusSku] = useState('');
+    const [manualDeficitSku, setManualDeficitSku] = useState('');
+    const [manualSwapQty, setManualSwapQty] = useState(1);
+    const [customSwaps, setCustomSwaps] = useState<Array<{
+        id: string;
+        surplusSku: string;
+        surplusName: string;
+        deficitSku: string;
+        deficitName: string;
+        qty: number;
+        surplusCost: number;
+        deficitCost: number;
+        costDifference: number;
+    }>>([]);
 
     // 3. Assignment Form State
     const [newAssignment, setNewAssignment] = useState({
@@ -170,7 +257,7 @@ export default function SharedAuditsTab({
 
                 <div class="header">
                     <div class="logo-title">
-                        <h1>${settings.storeName || 'مدير الأوردرات الذكي'}</h1>
+                        <h1>{(settings as any).storeName || (settings as any).appName || 'مدير الأوردرات الذكي'}</h1>
                         <p>تقرير مراجعة وفحص كميات جرد الموظفين</p>
                     </div>
                     <div class="audit-meta">
@@ -267,6 +354,49 @@ export default function SharedAuditsTab({
         }
     };
 
+    // CSV Export Handler
+    const handleExportCSV = (sessionToExport?: any) => {
+        const session = sessionToExport || selectedReviewSession;
+        if (!session) return;
+
+        const reviewItems = Array.isArray(session?.items) 
+            ? session.items 
+            : (session?.items && typeof session.items === 'object' ? Object.values(session.items) : []);
+
+        if (reviewItems.length === 0) {
+            onAlert('تنبيه', 'لا توجد عناصر في كشف الجرد لتصديرها.', 'warning');
+            return;
+        }
+
+        let csvContent = "\uFEFF"; // UTF-8 BOM for Arabic support in Excel
+        csvContent += "اسم السلعة,SKU,رصيد الدفاتر,العد الفعلي,الفارق المتوقع,حالة المطابقة,الملاحظات\n";
+
+        reviewItems.forEach((item: any) => {
+            const actual = item.actualQty ?? 0;
+            const system = item.systemQty ?? 0;
+            const diff = actual - system;
+            const status = diff === 0 ? 'مطابق' : (diff > 0 ? 'زيادة' : 'عجز');
+            const nameEscaped = `"${(item.name || '').replace(/"/g, '""')}"`;
+            const skuEscaped = `"${(item.sku || '').replace(/"/g, '""')}"`;
+            const notesEscaped = `"${(item.notes || '').replace(/"/g, '""')}"`;
+
+            csvContent += `${nameEscaped},${skuEscaped},${system},${actual},${diff},${status},${notesEscaped}\n`;
+        });
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `جرد_${session.warehouseName || 'مستودع'}_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    // Filter & Search states for review table
+    const [itemsFilter, setItemsFilter] = useState<'all' | 'diff' | 'matched'>('all');
+    const [itemsSearch, setItemsSearch] = useState('');
+
     // 3. QR Code / View Links modal state
     const [activeShareSession, setActiveShareSession] = useState<any | null>(null);
 
@@ -332,8 +462,8 @@ export default function SharedAuditsTab({
                                 className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
                             >
                                 <option value="">اختر المستودع...</option>
-                                {(settings.warehouses || []).map(w => (
-                                    <option key={w.id} value={w.id}>{w.name}</option>
+                                {(settings.warehouses || []).map((w, idx) => (
+                                    <option key={w.id || `wh-${idx}`} value={w.id}>{w.name}</option>
                                 ))}
                             </select>
                         </div>
@@ -396,26 +526,159 @@ export default function SharedAuditsTab({
                 </div>
             </div>
 
-            {/* List of generated links with approval status */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-5 rounded-3xl shadow-sm space-y-4">
-                <div className="flex justify-between items-center">
+            {/* KPI Summary Banner for Employee Shared Audits */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
                     <div>
-                        <h3 className="text-sm font-black text-slate-850 dark:text-white">جدول وحالات روابط الجرد الخارجية</h3>
+                        <span className="text-[10px] text-slate-400 font-bold block mb-0.5">إجمالي الروابط الخارجية</span>
+                        <h4 className="text-lg font-black text-slate-800 dark:text-white">{sessionStats.total} <span className="text-[10px] font-normal text-slate-400">رابط</span></h4>
+                    </div>
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 rounded-xl">
+                        <Share2 size={18} />
+                    </div>
+                </div>
+
+                <button 
+                    onClick={() => setSessionStatusFilter(sessionStatusFilter === 'submitted' ? 'all' : 'submitted')}
+                    className={`bg-white dark:bg-slate-900 border p-4 rounded-2xl shadow-sm flex items-center justify-between text-right transition-all cursor-pointer ${
+                        sessionStatusFilter === 'submitted' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-100 dark:border-slate-800 hover:border-amber-200'
+                    }`}
+                >
+                    <div>
+                        <span className="text-[10px] text-slate-400 font-bold block mb-0.5">بانتظار المراجعة والاعتماد</span>
+                        <h4 className="text-lg font-black text-amber-600 flex items-center gap-1">
+                            {sessionStats.submitted}
+                            {sessionStats.submitted > 0 && (
+                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                            )}
+                        </h4>
+                    </div>
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 rounded-xl">
+                        <AlertTriangle size={18} />
+                    </div>
+                </button>
+
+                <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] text-slate-400 font-bold block mb-0.5">تم اعتمادها وترحيلها</span>
+                        <h4 className="text-lg font-black text-emerald-600">{sessionStats.approved}</h4>
+                    </div>
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 rounded-xl">
+                        <CheckCircle size={18} />
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[10px] text-slate-400 font-bold block mb-0.5">جاري العد الميداني</span>
+                        <h4 className="text-lg font-black text-slate-600 dark:text-slate-300">{sessionStats.inProgress}</h4>
+                    </div>
+                    <div className="p-3 bg-slate-50 dark:bg-slate-800 text-slate-500 rounded-xl">
+                        <Clock size={18} />
+                    </div>
+                </div>
+            </div>
+
+            {/* List of generated links with search & filter controls */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-5 rounded-3xl shadow-sm space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                        <h3 className="text-sm font-black text-slate-850 dark:text-white">جدول وحالات روابط الجرد الخارجية للموظفين</h3>
                         <p className="text-[10px] text-slate-400 font-bold">إليك كل الروابط المصدرة، يمكنك مراجعة الكميات المرفوعة واعتماد تسويتها بالكامل بضغطة زر.</p>
                     </div>
 
-                    {loadingShared && (
-                        <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-                            <RefreshCw className="animate-spin text-indigo-600" size={12} />
-                            جاري المزامنة...
-                        </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Search Bar */}
+                        <div className="relative min-w-[180px]">
+                            <Search className="absolute right-2.5 top-2.5 text-slate-400" size={13} />
+                            <input 
+                                type="text"
+                                value={sessionSearch}
+                                onChange={(e) => setSessionSearch(e.target.value)}
+                                placeholder="بحث بعنوان الجرد أو المسؤول..."
+                                className="w-full pr-8 pl-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-indigo-500"
+                            />
+                        </div>
+
+                        {/* Warehouse Filter */}
+                        <select
+                            value={sessionWarehouseFilter}
+                            onChange={(e) => setSessionWarehouseFilter(e.target.value)}
+                            className="p-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:border-indigo-500"
+                        >
+                            <option value="all">جميع المستودعات</option>
+                            {(settings.warehouses || []).map((w, idx) => (
+                                <option key={w.id || `wh-fltr-${idx}`} value={w.id}>{w.name}</option>
+                            ))}
+                        </select>
+
+                        {loadingShared && (
+                            <span className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                                <RefreshCw className="animate-spin text-indigo-600" size={12} />
+                            </span>
+                        )}
+                    </div>
                 </div>
 
-                {sharedSessions.length === 0 ? (
+                {/* Status Filter Pills */}
+                <div className="flex gap-1.5 overflow-x-auto pb-1 text-[11px] font-bold">
+                    <button
+                        onClick={() => setSessionStatusFilter('all')}
+                        className={`px-3 py-1 rounded-xl transition-all ${
+                            sessionStatusFilter === 'all' 
+                                ? 'bg-indigo-600 text-white font-black shadow-sm' 
+                                : 'bg-slate-50 dark:bg-slate-800 text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        الكل ({sessionStats.total})
+                    </button>
+                    <button
+                        onClick={() => setSessionStatusFilter('submitted')}
+                        className={`px-3 py-1 rounded-xl transition-all flex items-center gap-1 ${
+                            sessionStatusFilter === 'submitted' 
+                                ? 'bg-amber-500 text-white font-black shadow-sm' 
+                                : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 hover:bg-amber-100'
+                        }`}
+                    >
+                        <span>بانتظار المراجعة</span>
+                        <span className="px-1.5 py-0.2 bg-white/20 rounded-md text-[9px] font-mono">{sessionStats.submitted}</span>
+                    </button>
+                    <button
+                        onClick={() => setSessionStatusFilter('approved')}
+                        className={`px-3 py-1 rounded-xl transition-all ${
+                            sessionStatusFilter === 'approved' 
+                                ? 'bg-emerald-600 text-white font-black shadow-sm' 
+                                : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 hover:bg-emerald-100'
+                        }`}
+                    >
+                        تم الاعتماد ({sessionStats.approved})
+                    </button>
+                    <button
+                        onClick={() => setSessionStatusFilter('rejected')}
+                        className={`px-3 py-1 rounded-xl transition-all ${
+                            sessionStatusFilter === 'rejected' 
+                                ? 'bg-rose-600 text-white font-black shadow-sm' 
+                                : 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 hover:bg-rose-100'
+                        }`}
+                    >
+                        مرفوض ({sessionStats.rejected})
+                    </button>
+                    <button
+                        onClick={() => setSessionStatusFilter('in_progress')}
+                        className={`px-3 py-1 rounded-xl transition-all ${
+                            sessionStatusFilter === 'in_progress' 
+                                ? 'bg-slate-700 text-white font-black shadow-sm' 
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200'
+                        }`}
+                    >
+                        جاري العد ({sessionStats.inProgress})
+                    </button>
+                </div>
+
+                {filteredSharedSessions.length === 0 ? (
                     <div className="py-12 text-center text-slate-400">
                         <Link className="mx-auto text-slate-300 opacity-20 mb-2" size={44} />
-                        <p className="text-xs font-black">لا توجد روابط جرد مشتركة حالياً</p>
+                        <p className="text-xs font-black">لا توجد روابط جرد مشتركة تطابق الفلترة المحددة</p>
                     </div>
                 ) : (
                     <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden shadow-inner">
@@ -424,15 +687,15 @@ export default function SharedAuditsTab({
                                 <tr>
                                     <th className="px-4 py-3">عنوان الجرد والمستودع</th>
                                     <th className="px-4 py-3 text-center">رمز الحماية</th>
-                                    <th className="px-4 py-3 text-center">النوع</th>
+                                    <th className="px-4 py-3 text-center">نوع البروتوكول</th>
                                     <th className="px-4 py-3 text-center">أرصدة مرفوعة</th>
-                                    <th className="px-4 py-3 text-center">حالة الرابط</th>
+                                    <th className="px-4 py-3 text-center">حالة الجلسة</th>
                                     <th className="px-4 py-3 text-left">التحكم والروابط</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                                {sharedSessions.map(session => {
-                                    const itemsSubmitted = session.itemsSubmitted || 0;
+                                {filteredSharedSessions.map(session => {
+                                    const itemsSubmitted = session.itemsSubmitted || (Array.isArray(session.items) ? session.items.length : (session.items ? Object.keys(session.items).length : 0));
                                     const shareUrl = `${window.location.origin}/shared-audit/${session.id}`;
                                     
                                     return (
@@ -440,7 +703,10 @@ export default function SharedAuditsTab({
                                             <td className="px-4 py-3.5">
                                                 <div className="space-y-0.5">
                                                     <h4 className="font-black text-slate-800 dark:text-slate-200">{session.title}</h4>
-                                                    <span className="text-[9px] text-slate-400 font-bold">📦 مستودع: {session.warehouseName}</span>
+                                                    <div className="flex items-center gap-2 text-[9px] text-slate-400 font-bold">
+                                                        <span>📦 {session.warehouseName || 'المستودع الرئيسي'}</span>
+                                                        {session.managerName && <span>• 👤 {session.managerName}</span>}
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td className="px-4 py-3.5 text-center font-mono font-black text-indigo-600">{session.passcode}</td>
@@ -455,13 +721,13 @@ export default function SharedAuditsTab({
                                                 {itemsSubmitted > 0 ? `${itemsSubmitted} صنف` : '0 صنف'}
                                             </td>
                                             <td className="px-4 py-3.5 text-center">
-                                                <span className={`px-2 py-0.5 rounded text-[9px] font-black ${
-                                                    session.status === 'submitted' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400' :
+                                                <span className={`px-2 py-0.5 rounded text-[9px] font-black inline-flex items-center gap-1 ${
+                                                    session.status === 'submitted' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400 animate-pulse' :
                                                     session.status === 'approved' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400' :
                                                     session.status === 'rejected' ? 'bg-red-100 text-red-750 dark:bg-red-950/20 dark:text-red-400' :
                                                     'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                                                 }`}>
-                                                    {session.status === 'submitted' ? '📝 جاهز للمراجعة' :
+                                                    {session.status === 'submitted' ? '📝 بانتظار المراجعة' :
                                                      session.status === 'approved' ? '✅ تم الاعتماد والتعديل' :
                                                      session.status === 'rejected' ? '❌ مرفوض للتعديل' :
                                                      '⏳ جاري العد ميدانياً'}
@@ -513,20 +779,22 @@ export default function SharedAuditsTab({
                                                     {session.status === 'submitted' ? (
                                                         <button 
                                                             onClick={() => setSelectedReviewSession(session)}
-                                                            className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black shadow-sm"
+                                                            className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black shadow-sm flex items-center gap-1"
                                                         >
-                                                            مراجعة واعتماد
+                                                            <Eye size={12} />
+                                                            <span>مراجعة واعتماد</span>
                                                         </button>
                                                     ) : (
                                                         <button 
                                                             onClick={() => setSelectedReviewSession(session)}
-                                                            className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/50 dark:border-slate-700 rounded-lg text-[10px] font-bold"
+                                                            className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/50 dark:border-slate-700 rounded-lg text-[10px] font-bold flex items-center gap-1"
                                                         >
-                                                            معاينة
+                                                            <Eye size={12} />
+                                                            <span>معاينة</span>
                                                         </button>
                                                     )}
 
-                                                    {/* Delete session option */}
+                                                    {/* Print & Delete session option */}
                                                     <button 
                                                         onClick={() => handlePrintAudit(session)}
                                                         className="p-1.5 bg-slate-50 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 rounded-lg border border-slate-200/50 dark:border-slate-700 transition-all"
@@ -624,6 +892,14 @@ export default function SharedAuditsTab({
                                     <span>طباعة التقرير</span>
                                 </button>
                                 <button 
+                                    onClick={() => handleExportCSV(selectedReviewSession)}
+                                    className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded-xl transition-all text-xs font-black flex items-center gap-1.5 text-white shadow-sm cursor-pointer"
+                                    title="تصدير ملف Excel / CSV"
+                                >
+                                    <Download size={14} />
+                                    <span>تصدير Excel 📊</span>
+                                </button>
+                                <button 
                                     onClick={() => {
                                         setSelectedReviewSession(null);
                                         setRejectReason('');
@@ -640,6 +916,7 @@ export default function SharedAuditsTab({
                         <div className="flex border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 overflow-x-auto">
                             {[
                                 { id: 'details', label: 'تفاصيل الجرد 📋' },
+                                { id: 'swaps', label: 'حاسبة التبادل والتسوية 🔄' },
                                 { id: 'presence', label: 'الموظفين النشطين 👥' },
                                 { id: 'conflicts', label: 'حل النزاعات ⚖️', count: (selectedReviewSession.conflicts || []).length },
                                 { id: 'assignments', label: 'التكليفات 📌', count: (selectedReviewSession.assignments || []).length },
@@ -732,72 +1009,179 @@ export default function SharedAuditsTab({
                             )}
 
                             {/* Table of items submitted */}
-                            <div className="space-y-2">
-                                <h5 className="text-xs font-black text-slate-800 dark:text-white">جدول الأرصدة المدخلة فعلياً للأصناف</h5>
-                                
+                            <div className="space-y-3">
                                 {(() => {
-                                    const reviewItems = Array.isArray(selectedReviewSession?.items) ? selectedReviewSession.items : (selectedReviewSession?.items && typeof selectedReviewSession.items === 'object' ? Object.values(selectedReviewSession.items) : []);
-                                    if (reviewItems.length === 0) {
-                                        return (
-                                            <div className="py-8 text-center text-slate-400 text-xs">
-                                                لم يتم حصر أي منتجات في هذا الملف المشترك
-                                            </div>
-                                        );
-                                    }
-                                    return (
-                                        <div className="border border-slate-100 dark:border-slate-850 rounded-2xl overflow-hidden">
-                                            <table className="w-full text-right text-[11px]">
-                                                <thead className="bg-slate-50 dark:bg-slate-800/60 font-black border-b border-slate-100 dark:border-slate-855">
-                                                    <tr>
-                                                        <th className="px-4 py-2.5">اسم السلعة و SKU</th>
-                                                        <th className="px-4 py-2.5 text-center">رصيد الدفاتر</th>
-                                                        <th className="px-4 py-2.5 text-center">العد الفعلي</th>
-                                                        <th className="px-4 py-2.5 text-center">الفارق المتوقع</th>
-                                                        <th className="px-4 py-2.5 text-left">ملاحظات وصور</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-850 bg-white dark:bg-slate-900">
-                                                    {reviewItems.map((item: any, i: number) => {
-                                                        const actual = item.actualQty ?? 0;
-                                                        const system = item.systemQty ?? 0;
-                                                        const diff = actual - system;
+                                    const rawReviewItems = Array.isArray(selectedReviewSession?.items) ? selectedReviewSession.items : (selectedReviewSession?.items && typeof selectedReviewSession.items === 'object' ? Object.values(selectedReviewSession.items) : []);
+                                    
+                                    // Calculate metrics
+                                    const totalCount = rawReviewItems.length;
+                                    let diffCount = 0;
+                                    let matchedCount = 0;
+                                    let netDiffQty = 0;
 
-                                                        return (
-                                                            <tr key={i} className="hover:bg-slate-50/50">
-                                                                <td className="px-4 py-2.5 font-bold">
-                                                                    <div>{item.name}</div>
-                                                                    <span className="text-[9px] text-slate-400 font-mono">{item.sku}</span>
-                                                                </td>
-                                                                <td className="px-4 py-2.5 text-center font-mono font-bold text-slate-600 dark:text-slate-400">{system}</td>
-                                                                <td className="px-4 py-2.5 text-center font-mono font-black text-indigo-600">{actual}</td>
-                                                                <td className="px-4 py-2.5 text-center font-mono font-black">
-                                                                    {diff === 0 ? (
-                                                                        <span className="text-emerald-500">مطابق</span>
-                                                                    ) : (
-                                                                        <span className={diff > 0 ? 'text-emerald-600' : 'text-rose-600'}>
-                                                                            {diff > 0 ? `+${diff}` : diff}
-                                                                        </span>
-                                                                    )}
-                                                                </td>
-                                                                <td className="px-4 py-2.5 text-left text-slate-400 font-bold">
-                                                                    <div className="flex flex-col items-end gap-1">
-                                                                        {item.notes && <span className="text-[9px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-700 line-clamp-1">{item.notes}</span>}
-                                                                        {item.proofImage && (
-                                                                            <img 
-                                                                                src={item.proofImage} 
-                                                                                alt="إثبات الهالك" 
-                                                                                className="h-8 w-8 object-cover rounded-md cursor-pointer hover:scale-150 transition-all border border-slate-200"
-                                                                                referrerPolicy="no-referrer"
-                                                                            />
-                                                                        )}
-                                                                    </div>
-                                                                </td>
+                                    rawReviewItems.forEach((it: any) => {
+                                        const actual = it.actualQty ?? 0;
+                                        const system = it.systemQty ?? 0;
+                                        const diff = actual - system;
+                                        if (diff !== 0) {
+                                            diffCount++;
+                                            netDiffQty += diff;
+                                        } else {
+                                            matchedCount++;
+                                        }
+                                    });
+
+                                    // Filter items
+                                    const filteredItems = rawReviewItems.filter((it: any) => {
+                                        const actual = it.actualQty ?? 0;
+                                        const system = it.systemQty ?? 0;
+                                        const diff = actual - system;
+
+                                        // Filter by status
+                                        if (itemsFilter === 'diff' && diff === 0) return false;
+                                        if (itemsFilter === 'matched' && diff !== 0) return false;
+
+                                        // Search query filter
+                                        if (itemsSearch.trim()) {
+                                            const q = itemsSearch.trim().toLowerCase();
+                                            const nameMatch = (it.name || '').toLowerCase().includes(q);
+                                            const skuMatch = (it.sku || '').toLowerCase().includes(q);
+                                            return nameMatch || skuMatch;
+                                        }
+
+                                        return true;
+                                    });
+
+                                    return (
+                                        <>
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-1 border-b border-slate-100 dark:border-slate-850">
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-xs font-black text-slate-800 dark:text-white">جدول الأرصدة والكميات</h5>
+                                                    <div className="flex gap-1.5 text-[10px] font-bold">
+                                                        <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md text-slate-600 dark:text-slate-300">
+                                                            الإجمالي: <strong>{totalCount}</strong>
+                                                        </span>
+                                                        <span className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200/50 dark:border-rose-800/50 px-2 py-0.5 rounded-md text-rose-700 dark:text-rose-300">
+                                                            فروقات: <strong>{diffCount}</strong> ({netDiffQty > 0 ? `+${netDiffQty}` : netDiffQty})
+                                                        </span>
+                                                        <span className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/50 dark:border-emerald-800/50 px-2 py-0.5 rounded-md text-emerald-700 dark:text-emerald-300">
+                                                            مطابق: <strong>{matchedCount}</strong>
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Filter pills & search input */}
+                                                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                                                    <div className="relative flex-1 sm:w-48">
+                                                        <Search className="absolute right-2.5 top-2 text-slate-400" size={13} />
+                                                        <input 
+                                                            type="text"
+                                                            value={itemsSearch}
+                                                            onChange={(e) => setItemsSearch(e.target.value)}
+                                                            placeholder="بحث باسم السلعة أو SKU..."
+                                                            className="w-full pr-8 pl-3 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold focus:outline-none focus:border-indigo-500"
+                                                        />
+                                                    </div>
+
+                                                    <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-[10px] font-bold">
+                                                        <button
+                                                            onClick={() => setItemsFilter('all')}
+                                                            className={`px-2.5 py-1 rounded-lg transition-all ${itemsFilter === 'all' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                                                        >
+                                                            الكل ({totalCount})
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setItemsFilter('diff')}
+                                                            className={`px-2.5 py-1 rounded-lg transition-all ${itemsFilter === 'diff' ? 'bg-white dark:bg-slate-900 text-rose-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                                                        >
+                                                            الفروقات ({diffCount})
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setItemsFilter('matched')}
+                                                            className={`px-2.5 py-1 rounded-lg transition-all ${itemsFilter === 'matched' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-800'}`}
+                                                        >
+                                                            المطابق ({matchedCount})
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {filteredItems.length === 0 ? (
+                                                <div className="py-8 text-center text-slate-400 text-xs bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                                                    لا توجد أصناف تطابق فلاتر البحث المحددة
+                                                </div>
+                                            ) : (
+                                                <div className="border border-slate-100 dark:border-slate-850 rounded-2xl overflow-hidden">
+                                                    <table className="w-full text-right text-[11px]">
+                                                        <thead className="bg-slate-50 dark:bg-slate-800/60 font-black border-b border-slate-100 dark:border-slate-855">
+                                                            <tr>
+                                                                <th className="px-4 py-2.5">اسم السلعة و SKU</th>
+                                                                <th className="px-4 py-2.5 text-center">تكلفة الوحدة</th>
+                                                                <th className="px-4 py-2.5 text-center">رصيد الدفاتر</th>
+                                                                <th className="px-4 py-2.5 text-center">العد الفعلي</th>
+                                                                <th className="px-4 py-2.5 text-center">فارق الوحدات</th>
+                                                                <th className="px-4 py-2.5 text-center">فارق التكلفة (ج.م)</th>
+                                                                <th className="px-4 py-2.5 text-left">ملاحظات وصور</th>
                                                             </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-850 bg-white dark:bg-slate-900">
+                                                            {filteredItems.map((item: any, i: number) => {
+                                                                const actual = item.actualQty ?? 0;
+                                                                const system = item.systemQty ?? 0;
+                                                                const diff = actual - system;
+                                                                const unitCost = getItemCost(item);
+                                                                const diffVal = diff * unitCost;
+
+                                                                return (
+                                                                    <tr key={i} className="hover:bg-slate-50/50">
+                                                                        <td className="px-4 py-2.5 font-bold">
+                                                                            <div>{item.name}</div>
+                                                                            <span className="text-[9px] text-slate-400 font-mono">{item.sku}</span>
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono font-bold text-slate-500">
+                                                                            {unitCost > 0 ? `${unitCost.toLocaleString('ar-EG')} ج.م` : '—'}
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono font-bold text-slate-600 dark:text-slate-400">{system}</td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono font-black text-indigo-600">{actual}</td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono font-black">
+                                                                            {diff === 0 ? (
+                                                                                <span className="text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded">مطابق</span>
+                                                                            ) : (
+                                                                                <span className={`px-2 py-0.5 rounded font-bold ${diff > 0 ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30' : 'text-rose-600 bg-rose-50 dark:bg-rose-950/30'}`}>
+                                                                                    {diff > 0 ? `+${diff}` : diff}
+                                                                                </span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono font-black">
+                                                                            {diff === 0 ? (
+                                                                                <span className="text-slate-400">0 ج.م</span>
+                                                                            ) : (
+                                                                                <span className={diffVal > 0 ? 'text-emerald-600' : 'text-rose-600'}>
+                                                                                    {diffVal > 0 ? `+${diffVal.toLocaleString('ar-EG')}` : diffVal.toLocaleString('ar-EG')} ج.م
+                                                                                </span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-left text-slate-400 font-bold">
+                                                                            <div className="flex flex-col items-end gap-1">
+                                                                                {item.notes && <span className="text-[9px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-700 line-clamp-1">{item.notes}</span>}
+                                                                                {item.proofImage && (
+                                                                                    <img 
+                                                                                        src={item.proofImage} 
+                                                                                        alt="إثبات الهالك" 
+                                                                                        className="h-8 w-8 object-cover rounded-md cursor-pointer hover:scale-150 transition-all border border-slate-200"
+                                                                                        referrerPolicy="no-referrer"
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            )}
+                                        </>
                                     );
                                 })()}
                             </div>
@@ -816,6 +1200,1091 @@ export default function SharedAuditsTab({
                                 </div>
                             )}
                         </>)}
+
+                        {reviewTab === 'swaps' && (() => {
+                            const rawReviewItems = Array.isArray(selectedReviewSession?.items) 
+                                ? selectedReviewSession.items 
+                                : (selectedReviewSession?.items && typeof selectedReviewSession.items === 'object' ? Object.values(selectedReviewSession.items) : []);
+
+                            // Combine all employee sources (HR/Payroll staffMembers + CRM employees + staff + team)
+                            const allEmployeeSources = [
+                                ...(settings.staffMembers || []),
+                                ...(settings.employees || []),
+                                ...((settings as any).staff || []),
+                                ...((settings as any).team || [])
+                            ];
+                            const unifiedEmployees = Array.from(
+                                new Map(
+                                    allEmployeeSources
+                                        .filter((e: any) => e && (e.name || e.id))
+                                        .map((e: any) => [((e.name || e.id) as string).trim(), e])
+                                ).values()
+                            );
+
+                            const getItemCost = (item: any) => {
+                                if (item.costPrice && item.costPrice > 0) return item.costPrice;
+                                const prod = (settings.products || []).find((p: any) => p.sku === item.sku || p.name === item.name);
+                                if (prod?.costPrice !== undefined && prod?.costPrice > 0) return prod.costPrice;
+                                if (prod?.price !== undefined && prod?.price > 0) return prod.price;
+                                return 0;
+                            };
+
+                            const getItemSellingPrice = (item: any) => {
+                                if (item.sellingPrice && item.sellingPrice > 0) return item.sellingPrice;
+                                if (item.price && item.price > 0) return item.price;
+                                const prod = (settings.products || []).find((p: any) => p.sku === item.sku || p.name === item.name);
+                                if ((prod as any)?.sellingPrice !== undefined && (prod as any)?.sellingPrice > 0) return (prod as any).sellingPrice;
+                                if (prod?.price !== undefined && prod?.price > 0) return prod.price;
+                                return getItemCost(item);
+                            };
+
+                            // Categorize items
+                            const surplusItems = rawReviewItems.filter((it: any) => ((it.actualQty ?? 0) - (it.systemQty ?? 0)) > 0);
+                            const deficitItems = rawReviewItems.filter((it: any) => ((it.actualQty ?? 0) - (it.systemQty ?? 0)) < 0);
+
+                            // Calculations
+                            let totalSurplusQty = 0;
+                            let totalSurplusCost = 0;
+                            surplusItems.forEach((it: any) => {
+                                const diff = (it.actualQty ?? 0) - (it.systemQty ?? 0);
+                                const cost = getItemCost(it);
+                                totalSurplusQty += diff;
+                                totalSurplusCost += diff * cost;
+                            });
+
+                            let totalDeficitQty = 0;
+                            let totalDeficitCost = 0;
+                            deficitItems.forEach((it: any) => {
+                                const diff = Math.abs((it.actualQty ?? 0) - (it.systemQty ?? 0));
+                                const cost = getItemCost(it);
+                                totalDeficitQty += diff;
+                                totalDeficitCost += diff * cost;
+                            });
+
+                            const netFinancialDifference = totalSurplusCost - totalDeficitCost;
+                            const isNetLoss = netFinancialDifference < 0;
+                            const isNetGain = netFinancialDifference > 0;
+                            const absNetDifference = Math.abs(netFinancialDifference);
+
+                            // Auto-generate matching swaps function
+                            const handleAutoGenerateSwaps = () => {
+                                const newSwaps: typeof customSwaps = [];
+                                const surplusCopy = surplusItems.map((s: any) => ({ ...s, avail: (s.actualQty ?? 0) - (s.systemQty ?? 0) }));
+                                const deficitCopy = deficitItems.map((d: any) => ({ ...d, need: Math.abs((d.actualQty ?? 0) - (d.systemQty ?? 0)) }));
+
+                                surplusCopy.forEach((s: any) => {
+                                    if (s.avail <= 0) return;
+                                    deficitCopy.forEach((d: any) => {
+                                        if (d.need <= 0 || s.avail <= 0) return;
+                                        const swappedQty = Math.min(s.avail, d.need);
+                                        const sCost = getItemCost(s);
+                                        const dCost = getItemCost(d);
+                                        const costDiff = (sCost - dCost) * swappedQty;
+
+                                        newSwaps.push({
+                                            id: `auto-${Date.now()}-${Math.random()}`,
+                                            surplusSku: s.sku || s.name,
+                                            surplusName: s.name,
+                                            deficitSku: d.sku || d.name,
+                                            deficitName: d.name,
+                                            qty: swappedQty,
+                                            surplusCost: sCost,
+                                            deficitCost: dCost,
+                                            costDifference: costDiff
+                                        });
+
+                                        s.avail -= swappedQty;
+                                        d.need -= swappedQty;
+                                    });
+                                });
+
+                                setCustomSwaps(newSwaps);
+                                onAlert('تم التوليد التلقائي 🪄', `تم إجراء مقاصة لعدد ${newSwaps.length} ثنائيات تبادل بين المنتجات.`, 'success');
+                            };
+
+                            const handleAddManualSwap = () => {
+                                if (!manualSurplusSku || !manualDeficitSku) {
+                                    onAlert('تنبيه', 'يرجى اختيار المنتج الزائد والمنتج الناقص للتبادل.', 'warning');
+                                    return;
+                                }
+
+                                const sItem = surplusItems.find((i: any) => (i.sku || i.name) === manualSurplusSku);
+                                const dItem = deficitItems.find((i: any) => (i.sku || i.name) === manualDeficitSku);
+
+                                if (!sItem || !dItem) {
+                                    onAlert('تنبيه', 'لم يتم العثور على بيانات المنتجات المحددة.', 'danger');
+                                    return;
+                                }
+
+                                const sCost = getItemCost(sItem);
+                                const dCost = getItemCost(dItem);
+                                const qty = Number(manualSwapQty) || 1;
+                                const costDiff = (sCost - dCost) * qty;
+
+                                const newSwap = {
+                                    id: `manual-${Date.now()}`,
+                                    surplusSku: sItem.sku || sItem.name,
+                                    surplusName: sItem.name,
+                                    deficitSku: dItem.sku || dItem.name,
+                                    deficitName: dItem.name,
+                                    qty,
+                                    surplusCost: sCost,
+                                    deficitCost: dCost,
+                                    costDifference: costDiff
+                                };
+
+                                setCustomSwaps(prev => [...prev, newSwap]);
+                                setManualSurplusSku('');
+                                setManualDeficitSku('');
+                                setManualSwapQty(1);
+                            };
+
+                            const managerName = employeeResponsibleName || selectedReviewSession?.managerName || 'أمين المستودع المسؤول';
+
+                            // Calculate assigned breakdown for accounting entry & voucher text
+                            let pPiecesCount = 0, pValTotal = 0, pCostTotal = 0;
+                            Object.entries(partnerSelectedSkus).forEach(([key, qty]) => {
+                                if (qty <= 0) return;
+                                const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                if (item) {
+                                    const price = partnerPricingPolicy === 'cost' ? getItemCost(item) : getItemSellingPrice(item);
+                                    pPiecesCount += qty;
+                                    pValTotal += qty * price;
+                                    pCostTotal += qty * getItemCost(item);
+                                }
+                            });
+
+                            let ePiecesCount = 0, eValTotal = 0;
+                            Object.entries(employeeSelectedSkus).forEach(([key, qty]) => {
+                                if (qty <= 0) return;
+                                const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                if (item) {
+                                    ePiecesCount += qty;
+                                    eValTotal += qty * getItemCost(item);
+                                }
+                            });
+
+                            const totalAssignedCost = pCostTotal + eValTotal;
+                            const remainingDiffAmount = Math.max(0, absNetDifference - totalAssignedCost);
+
+                            let calcEmployeeVal = eValTotal;
+                            let calcPartnerVal = pValTotal;
+                            let calcCompanyExpense = 0;
+
+                            if (lossAllocationAccount === 'mixed') {
+                                if (residualAllocationTarget === 'employee') {
+                                    calcEmployeeVal += remainingDiffAmount;
+                                } else if (residualAllocationTarget === 'partner') {
+                                    calcPartnerVal += remainingDiffAmount;
+                                } else {
+                                    calcCompanyExpense = remainingDiffAmount;
+                                }
+                            } else if (lossAllocationAccount === 'employee') {
+                                calcEmployeeVal = absNetDifference;
+                            } else if (lossAllocationAccount === 'partner') {
+                                calcPartnerVal = partnerPricingPolicy === 'cost' ? absNetDifference : absNetDifference;
+                            } else if (lossAllocationAccount === 'wastage') {
+                                calcCompanyExpense = absNetDifference;
+                            } else {
+                                calcCompanyExpense = absNetDifference;
+                            }
+
+                            // Generate Accounting Journal Voucher Text
+                            const journalVoucherText = `
+=== قيد تسوية الجرد المالي والمقاصة بين الأصناف ===
+المستودع: ${selectedReviewSession?.warehouseName || 'المستودع الرئيسي'}
+تاريخ التسوية: ${new Date().toLocaleDateString('ar-EG')}
+------------------------------------------------
+[من حـ/ المخزون] - زيادة كميات أخطاء التبادل: +${totalSurplusCost.toLocaleString()} ج.م (${totalSurplusQty} قطعة)
+[إلى حـ/ المخزون] - عجز كميات أخطاء التبادل: -${totalDeficitCost.toLocaleString()} ج.م (${totalDeficitQty} قطعة)
+${isNetLoss ? `${calcPartnerVal > 0 ? `[من حـ/ جاري الشريك (${selectedPartnerName || 'الشريك المعني'}) - مسحوبات شخصية]: +${calcPartnerVal.toLocaleString()} ج.م\n` : ''}${calcEmployeeVal > 0 ? `[من حـ/ عهد وأمانات الموظف (${managerName})]: +${calcEmployeeVal.toLocaleString()} ج.م\n` : ''}${calcCompanyExpense > 0 ? `[من حـ/ مصاريف تسويات جردية وتشغيلية]: +${calcCompanyExpense.toLocaleString()} ج.م\n` : ''}` : ''}${isNetGain ? `[إلى حـ/ أرباح وإيرادات التسوية الجردية] - تسوية فائض القيمة: -${absNetDifference.toLocaleString()} ج.م\n` : ''}------------------------------------------------
+البيان: تسوية عجز وزيادة جرد المستودع وتخصيص فارق التكلفة والمقاصة.
+                            `.trim();
+
+                            return (
+                                <div className="space-y-6">
+                                    {/* Header Banner */}
+                                    <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-5 rounded-3xl text-white shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <div className="p-2 bg-indigo-500/20 rounded-xl text-indigo-300">
+                                                    <ArrowRightLeft size={20} />
+                                                </div>
+                                                <h4 className="text-sm font-black">حاسبة تبادل الأصناف والتسوية الفورية (Item Swap & Loss Calculator)</h4>
+                                            </div>
+                                            <p className="text-[11px] text-indigo-200/80 font-bold max-w-2xl">
+                                                تعالج هذه الحاسبة أخطاء صرف أو بيع "منتج بدلاً من منتج آخر". تقوم بعمل مقاصة بين الزيادات والعجز، وحساب فارق التكلفة الحقيقي، وتوليد القيد المحاسبي لتوزيع الخسارة أو الفائض.
+                                            </p>
+                                        </div>
+
+                                        <button 
+                                            onClick={handleAutoGenerateSwaps}
+                                            className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs rounded-2xl transition-all shadow-lg flex items-center gap-2 shrink-0 border border-indigo-400/30 cursor-pointer"
+                                        >
+                                            <Sparkles size={16} />
+                                            <span>توليد المقاصة والتبادل التلقائي 🪄</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Financial Overview Metrics */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                        <div className="bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/50 p-4 rounded-2xl">
+                                            <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 block mb-1">إجمالي تكلفة الأصناف الزائدة (Surplus)</span>
+                                            <div className="flex justify-between items-baseline">
+                                                <span className="text-xl font-black text-emerald-800 dark:text-emerald-300">+{totalSurplusCost.toLocaleString()} <span className="text-xs">ج.م</span></span>
+                                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded-md">+{totalSurplusQty} قطعة</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-800/50 p-4 rounded-2xl">
+                                            <span className="text-[10px] font-black text-rose-700 dark:text-rose-400 block mb-1">إجمالي تكلفة الأصناف الناقصة (Deficit)</span>
+                                            <div className="flex justify-between items-baseline">
+                                                <span className="text-xl font-black text-rose-800 dark:text-rose-300">-{totalDeficitCost.toLocaleString()} <span className="text-xs">ج.م</span></span>
+                                                <span className="text-[10px] font-bold text-rose-600 bg-rose-100 dark:bg-rose-900/60 px-2 py-0.5 rounded-md">-{totalDeficitQty} قطعة</span>
+                                            </div>
+                                        </div>
+
+                                        <div className={`border p-4 rounded-2xl ${isNetLoss ? 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60' : 'bg-indigo-50/80 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800/60'}`}>
+                                            <span className="text-[10px] font-black text-slate-600 dark:text-slate-300 block mb-1">صافي فارق تسوية التكلفة المقاصة</span>
+                                            <div className="flex justify-between items-baseline">
+                                                <span className={`text-xl font-black ${isNetLoss ? 'text-amber-700 dark:text-amber-400' : 'text-indigo-700 dark:text-indigo-400'}`}>
+                                                    {isNetLoss ? `-${absNetDifference.toLocaleString()}` : `+${absNetDifference.toLocaleString()}`} <span className="text-xs">ج.م</span>
+                                                </span>
+                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-md ${isNetLoss ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                                                    {isNetLoss ? 'عجز تكلفة / خسارة' : isNetGain ? 'وفر تكلفة لصالح المخزن' : 'متوازن 100%'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl flex flex-col justify-between">
+                                            <span className="text-[10px] font-black text-slate-500 block mb-1">حالة المقاصة الحالية</span>
+                                            <div className="flex items-center gap-1.5 font-black text-xs text-slate-700 dark:text-slate-200">
+                                                <Calculator size={15} className="text-indigo-600" />
+                                                <span>{customSwaps.length > 0 ? `${customSwaps.length} عمليات تبادل مسجلة` : 'لم يتم ربط تبادلات بعد'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Manual Pair Selector Form */}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-3xl space-y-4 shadow-sm">
+                                        <h5 className="text-xs font-black text-slate-850 dark:text-white flex items-center gap-2">
+                                            <Plus size={16} className="text-indigo-600" />
+                                            ربط يدوّي بين صنف زائد وصنف ناقص (تبادل محدد)
+                                        </h5>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-8 gap-3 items-end">
+                                            <div className="sm:col-span-3 space-y-1">
+                                                <label className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 block">المنتج الزائد (الذي تم إرجاعه أو عدم صرفه بالخطأ)</label>
+                                                <select 
+                                                    value={manualSurplusSku}
+                                                    onChange={e => {
+                                                        const sku = e.target.value;
+                                                        setManualSurplusSku(sku);
+                                                        if (sku && manualDeficitSku) {
+                                                            const sItem = surplusItems.find((i: any) => (i.sku || i.name) === sku);
+                                                            const dItem = deficitItems.find((i: any) => (i.sku || i.name) === manualDeficitSku);
+                                                            if (sItem && dItem) {
+                                                                const sDiff = (sItem.actualQty ?? 0) - (sItem.systemQty ?? 0);
+                                                                const dDiff = Math.abs((dItem.actualQty ?? 0) - (dItem.systemQty ?? 0));
+                                                                const autoQty = Math.max(1, Math.min(sDiff, dDiff));
+                                                                setManualSwapQty(autoQty);
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white"
+                                                >
+                                                    <option value="">اختر صنف فيه زيادة...</option>
+                                                    {surplusItems.map((s: any, idx: number) => {
+                                                        const diff = (s.actualQty ?? 0) - (s.systemQty ?? 0);
+                                                        const cost = getItemCost(s);
+                                                        return (
+                                                            <option key={`surplus-opt-${s.sku || s.name || idx}-${idx}`} value={s.sku || s.name}>
+                                                                {s.name} (زيادة +{diff}) - تكلفة: {cost} ج.م
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                            </div>
+
+                                            <div className="sm:col-span-3 space-y-1">
+                                                <label className="text-[10px] font-black text-rose-700 dark:text-rose-400 block">المنتج الناقص (الذي صُرف بدلاً منه بالخطأ)</label>
+                                                <select 
+                                                    value={manualDeficitSku}
+                                                    onChange={e => {
+                                                        const sku = e.target.value;
+                                                        setManualDeficitSku(sku);
+                                                        if (sku && manualSurplusSku) {
+                                                            const sItem = surplusItems.find((i: any) => (i.sku || i.name) === manualSurplusSku);
+                                                            const dItem = deficitItems.find((i: any) => (i.sku || i.name) === sku);
+                                                            if (sItem && dItem) {
+                                                                const sDiff = (sItem.actualQty ?? 0) - (sItem.systemQty ?? 0);
+                                                                const dDiff = Math.abs((dItem.actualQty ?? 0) - (dItem.systemQty ?? 0));
+                                                                const autoQty = Math.max(1, Math.min(sDiff, dDiff));
+                                                                setManualSwapQty(autoQty);
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white"
+                                                >
+                                                    <option value="">اختر صنف فيه عجز...</option>
+                                                    {deficitItems.map((d: any, idx: number) => {
+                                                        const diff = Math.abs((d.actualQty ?? 0) - (d.systemQty ?? 0));
+                                                        const cost = getItemCost(d);
+                                                        return (
+                                                            <option key={`deficit-opt-${d.sku || d.name || idx}-${idx}`} value={d.sku || d.name}>
+                                                                {d.name} (عجز -{diff}) - تكلفة: {cost} ج.م
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                            </div>
+
+                                            <div className="sm:col-span-1 space-y-1">
+                                                <label className="text-[10px] font-black text-indigo-700 dark:text-indigo-400 block text-center">الكمية</label>
+                                                <input 
+                                                    type="number"
+                                                    min="1"
+                                                    value={manualSwapQty}
+                                                    onChange={e => setManualSwapQty(Math.max(1, parseInt(e.target.value) || 1))}
+                                                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-center dark:text-white"
+                                                    title="كمية القطع المراد تبادلها"
+                                                />
+                                            </div>
+
+                                            <div className="sm:col-span-1">
+                                                <button 
+                                                    onClick={handleAddManualSwap}
+                                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1 cursor-pointer"
+                                                >
+                                                    <Plus size={14} />
+                                                    <span>ربط</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Custom Swaps Table */}
+                                    {customSwaps.length > 0 && (
+                                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm space-y-3 p-4">
+                                            <div className="flex justify-between items-center px-1">
+                                                <h5 className="text-xs font-black text-slate-850 dark:text-white flex items-center gap-2">
+                                                    <ArrowRightLeft size={15} className="text-indigo-600" />
+                                                    جدول التبادلات والمقاصات المحددة بين الأصناف
+                                                </h5>
+                                                <button 
+                                                    onClick={() => setCustomSwaps([])}
+                                                    className="text-[10px] font-black text-rose-600 hover:text-rose-700 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded-lg"
+                                                >
+                                                    إلغاء كافة التبادلات
+                                                </button>
+                                            </div>
+
+                                            <div className="overflow-x-auto border border-slate-100 dark:border-slate-800 rounded-2xl">
+                                                <table className="w-full text-right text-[11px]">
+                                                    <thead className="bg-slate-50 dark:bg-slate-800/60 font-black border-b border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                                                        <tr>
+                                                            <th className="px-4 py-2.5">المنتج الزائد (المُعاد)</th>
+                                                            <th className="px-4 py-2.5">المنتج الناقص (المستبدل)</th>
+                                                            <th className="px-4 py-2.5 text-center">الكمية المتبادلة</th>
+                                                            <th className="px-4 py-2.5 text-center">فارق التكلفة للوحدة</th>
+                                                            <th className="px-4 py-2.5 text-center">إجمالي فارق التكلفة</th>
+                                                            <th className="px-4 py-2.5 text-center">إجراء</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 font-bold">
+                                                        {customSwaps.map((sw) => {
+                                                            const diffPerUnit = sw.surplusCost - sw.deficitCost;
+                                                            return (
+                                                                <tr key={sw.id} className="hover:bg-slate-50/50">
+                                                                    <td className="px-4 py-2.5 text-emerald-700 dark:text-emerald-400">
+                                                                        <div>{sw.surplusName}</div>
+                                                                        <span className="text-[9px] text-slate-400 font-mono">تكلفة: {sw.surplusCost} ج.م</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-2.5 text-rose-700 dark:text-rose-400">
+                                                                        <div>{sw.deficitName}</div>
+                                                                        <span className="text-[9px] text-slate-400 font-mono">تكلفة: {sw.deficitCost} ج.م</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-2.5 text-center font-black font-mono text-indigo-600">{sw.qty}</td>
+                                                                    <td className="px-4 py-2.5 text-center font-mono">
+                                                                        {diffPerUnit === 0 ? 'متطابق' : (diffPerUnit > 0 ? `+${diffPerUnit} ج.م` : `${diffPerUnit} ج.م`)}
+                                                                    </td>
+                                                                    <td className="px-4 py-2.5 text-center font-mono font-black">
+                                                                        <span className={`px-2 py-0.5 rounded-md ${sw.costDifference < 0 ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'}`}>
+                                                                            {sw.costDifference > 0 ? `+${sw.costDifference}` : sw.costDifference} ج.م
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-4 py-2.5 text-center">
+                                                                        <button 
+                                                                            onClick={() => setCustomSwaps(prev => prev.filter(p => p.id !== sw.id))}
+                                                                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                                                        >
+                                                                            <Trash2 size={13} />
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Loss & Variance Allocation Settlement Selector */}
+                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-3xl space-y-4 shadow-sm">
+                                        <div>
+                                            <h5 className="text-xs font-black text-slate-850 dark:text-white flex items-center gap-2">
+                                                <Building2 size={16} className="text-indigo-600" />
+                                                توجيه وتغطية فارق الخسارة المالية للتسوية الجردية (Loss Allocation)
+                                            </h5>
+                                            <p className="text-[10px] text-slate-500 font-bold mt-0.5">
+                                                حدد الحساب أو الجهة المسؤولة عن امتصاص صافي العجز أو الخسارة الناتجة عن أخطاء الجرد والتبادل:
+                                            </p>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => setLossAllocationAccount('expense')}
+                                                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${lossAllocationAccount === 'expense' ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/20' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-80 hover:opacity-100'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-black text-slate-800 dark:text-white">مصاريف تسوية جردية</span>
+                                                    <Building2 size={15} className="text-indigo-600" />
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 font-bold leading-tight">تُحمل الخسارة على مصاريف تشغيلية وتسويات جردية للشركة.</p>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => setLossAllocationAccount('employee')}
+                                                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${lossAllocationAccount === 'employee' ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-500 ring-2 ring-amber-500/20' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-80 hover:opacity-100'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-black text-slate-800 dark:text-white">عهد وأمانات الموظف</span>
+                                                    <UserCheck size={15} className="text-amber-600" />
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 font-bold leading-tight">تُحمل الخسارة على الموظف أو أمين المستودع المسؤول.</p>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => setLossAllocationAccount('partner')}
+                                                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${lossAllocationAccount === 'partner' ? 'bg-purple-50/80 dark:bg-purple-950/40 border-purple-500 ring-2 ring-purple-500/20' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-80 hover:opacity-100'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-black text-slate-800 dark:text-white">مسحوبات شخصية لشريك</span>
+                                                    <Users size={15} className="text-purple-600" />
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 font-bold leading-tight">تُحمل الأصناف كمسحوبات شخصية على جاري الشريك.</p>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => setLossAllocationAccount('wastage')}
+                                                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${lossAllocationAccount === 'wastage' ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-500 ring-2 ring-rose-500/20' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-80 hover:opacity-100'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-black text-slate-800 dark:text-white">مسموحات هالك وعجز</span>
+                                                    <AlertTriangle size={15} className="text-rose-600" />
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 font-bold leading-tight">تُستبعد الخسارة كنسبة هالك مسموح بها بالشركة.</p>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => setLossAllocationAccount('mixed')}
+                                                className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${lossAllocationAccount === 'mixed' ? 'bg-teal-50/80 dark:bg-teal-950/40 border-teal-500 ring-2 ring-teal-500/20' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 opacity-80 hover:opacity-100'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-xs font-black text-slate-800 dark:text-white">توزيع متعدد / مختلط</span>
+                                                    <Sparkles size={15} className="text-teal-600" />
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 font-bold leading-tight">توزيع العجز بين شريك + موظف + مصاريف الشركة.</p>
+                                            </button>
+                                        </div>
+
+                                        {(lossAllocationAccount === 'employee' || lossAllocationAccount === 'mixed') && (
+                                            <div className="p-4 bg-amber-50/80 dark:bg-amber-950/30 rounded-2xl border border-amber-200/60 dark:border-amber-800/50 space-y-3">
+                                                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                                    <label className="text-[10px] font-black text-amber-800 dark:text-amber-300 shrink-0">اختر الموظف المسئول عن العهدة:</label>
+                                                    <select 
+                                                        value={unifiedEmployees.some((e: any) => e.name === (employeeResponsibleName || managerName)) ? (employeeResponsibleName || managerName) : 'custom'}
+                                                        onChange={e => {
+                                                            if (e.target.value !== 'custom' && e.target.value !== '') {
+                                                                setEmployeeResponsibleName(e.target.value);
+                                                            }
+                                                        }}
+                                                        className="flex-1 p-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-bold focus:outline-none dark:text-white"
+                                                    >
+                                                        <option value="">-- اختر الموظف المسئول --</option>
+                                                        {unifiedEmployees.map((emp: any, idx: number) => (
+                                                            <option key={emp.id || `emp-loss-${idx}`} value={emp.name}>
+                                                                {emp.name} {emp.position || emp.role || emp.jobTitle ? `(${emp.position || emp.role || emp.jobTitle})` : ''}
+                                                            </option>
+                                                        ))}
+                                                        <option value="custom">✍️ أدخل اسم موظف آخر يدوياً...</option>
+                                                    </select>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 pt-1 border-t border-amber-200/40 dark:border-amber-900/40">
+                                                    <span className="text-[10px] font-bold text-slate-500 shrink-0">اسم الموظف المعين بالمحاسبة:</span>
+                                                    <input 
+                                                        type="text"
+                                                        value={employeeResponsibleName || managerName}
+                                                        onChange={e => setEmployeeResponsibleName(e.target.value)}
+                                                        placeholder="أدخل اسم أمين المستودع أو الموظف..."
+                                                        className="flex-1 p-2 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 rounded-xl text-xs font-bold focus:outline-none dark:text-white"
+                                                    />
+                                                </div>
+
+                                                {/* Product Selection Area for Employee */}
+                                                <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-amber-200 dark:border-amber-900/60 space-y-3 shadow-sm">
+                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                                        <div>
+                                                            <h6 className="text-xs font-black text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                                                                <UserCheck size={14} className="text-amber-600" />
+                                                                <span>تحديد الأصناف والكميات المحملة على الموظف ({employeeResponsibleName || managerName}):</span>
+                                                            </h6>
+                                                            <p className="text-[10px] text-slate-500 font-medium">اختر الأصناف والكميات التي تم تحميلها كعهدة ناقصة على الموظف</p>
+                                                        </div>
+
+                                                        {deficitItems.length > 0 && (
+                                                            <div className="flex items-center gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const allMap: Record<string, number> = {};
+                                                                        deficitItems.forEach((d: any) => {
+                                                                            const key = d.sku || d.name;
+                                                                            allMap[key] = Math.abs((d.actualQty ?? 0) - (d.systemQty ?? 0));
+                                                                        });
+                                                                        setEmployeeSelectedSkus(allMap);
+                                                                    }}
+                                                                    className="px-2.5 py-1 bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 text-amber-700 dark:text-amber-300 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                                                                >
+                                                                    ✓ تحديد كل العجز للموظف
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setEmployeeSelectedSkus({})}
+                                                                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                                                                >
+                                                                    إلغاء التحديد
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {deficitItems.length > 0 ? (
+                                                        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                                                            {deficitItems.map((item: any, idx: number) => {
+                                                                const itemKey = item.sku || item.name;
+                                                                const maxDeficit = Math.abs((item.actualQty ?? 0) - (item.systemQty ?? 0));
+                                                                const currentQty = employeeSelectedSkus[itemKey] || 0;
+                                                                const unitCost = getItemCost(item);
+                                                                const totalItemVal = currentQty * unitCost;
+
+                                                                return (
+                                                                    <div 
+                                                                        key={`emp-item-${itemKey}-${idx}`}
+                                                                        className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all ${currentQty > 0 ? 'bg-amber-50/60 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 opacity-70'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                                                            <input 
+                                                                                type="checkbox"
+                                                                                checked={currentQty > 0}
+                                                                                onChange={e => {
+                                                                                    if (e.target.checked) {
+                                                                                        setEmployeeSelectedSkus(prev => ({ ...prev, [itemKey]: maxDeficit }));
+                                                                                    } else {
+                                                                                        setEmployeeSelectedSkus(prev => {
+                                                                                            const copy = { ...prev };
+                                                                                            delete copy[itemKey];
+                                                                                            return copy;
+                                                                                        });
+                                                                                    }
+                                                                                }}
+                                                                                className="w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500 cursor-pointer"
+                                                                            />
+                                                                            <div className="min-w-0">
+                                                                                <div className="text-xs font-black text-slate-800 dark:text-white truncate">{item.name}</div>
+                                                                                <div className="text-[10px] text-slate-500 font-bold flex items-center gap-2">
+                                                                                    <span>كود: {item.sku || 'N/A'}</span>
+                                                                                    <span>•</span>
+                                                                                    <span className="text-rose-600 font-black">عجز بالجرد: {maxDeficit} قطعة</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                                                                            <div className="text-right">
+                                                                                <div className="text-[10px] text-slate-400 font-bold">التكلفة</div>
+                                                                                <div className="text-xs font-black text-amber-700 dark:text-amber-300">
+                                                                                    {unitCost.toLocaleString()} ج.م
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-1">
+                                                                                <span className="text-[10px] text-slate-500 font-bold px-1">الكمية:</span>
+                                                                                <input 
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    max={maxDeficit}
+                                                                                    value={currentQty}
+                                                                                    onChange={e => {
+                                                                                        const val = Math.max(0, Math.min(maxDeficit, parseInt(e.target.value) || 0));
+                                                                                        setEmployeeSelectedSkus(prev => {
+                                                                                            if (val === 0) {
+                                                                                                const copy = { ...prev };
+                                                                                                delete copy[itemKey];
+                                                                                                return copy;
+                                                                                            }
+                                                                                            return { ...prev, [itemKey]: val };
+                                                                                        });
+                                                                                    }}
+                                                                                    className="w-14 p-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-black text-center dark:text-white"
+                                                                                />
+                                                                            </div>
+
+                                                                            <div className="text-right min-w-[70px]">
+                                                                                <div className="text-[10px] text-slate-400 font-bold">الإجمالي</div>
+                                                                                <div className="text-xs font-black text-amber-700 dark:text-amber-400">
+                                                                                    {totalItemVal.toLocaleString()} ج.م
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-center text-xs text-slate-500 font-bold">
+                                                            لا توجد أصناف فيها عجز في هذا الجرد.
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {(lossAllocationAccount === 'partner' || lossAllocationAccount === 'mixed') && (
+                                            <div className="p-4 bg-purple-50/80 dark:bg-purple-950/30 rounded-2xl border border-purple-200/60 dark:border-purple-800/50 space-y-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-black text-purple-800 dark:text-purple-300 block">اختر الشريك المستفيد من المسحوبات:</label>
+                                                        <select 
+                                                            value={(settings.partners || []).some((p: any) => p.name === selectedPartnerName) ? selectedPartnerName : 'custom'}
+                                                            onChange={e => {
+                                                                if (e.target.value !== 'custom' && e.target.value !== '') {
+                                                                    setSelectedPartnerName(e.target.value);
+                                                                }
+                                                            }}
+                                                            className="w-full p-2.5 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded-xl text-xs font-bold focus:outline-none dark:text-white shadow-sm"
+                                                        >
+                                                            <option value="">-- اختر الشريك من قائمة الشركاء --</option>
+                                                            {(settings.partners || []).map((partner: any, idx: number) => (
+                                                                <option key={partner.id || `partner-${idx}`} value={partner.name}>
+                                                                    {partner.name} {partner.shareRatio ? `(نسبة الشراكة: ${partner.shareRatio}%)` : ''}
+                                                                </option>
+                                                            ))}
+                                                            <option value="custom">✍️ أدخل اسم شريك آخر يدوياً...</option>
+                                                        </select>
+                                                    </div>
+
+                                                    <div className="space-y-1">
+                                                        <label className="text-[10px] font-black text-purple-800 dark:text-purple-300 block">سياسة احتساب قيمة المسحوبات المحاسبية:</label>
+                                                        <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-purple-300 dark:border-purple-800 shadow-sm">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPartnerPricingPolicy('cost')}
+                                                                className={`flex-1 py-1.5 rounded-lg text-xs font-black cursor-pointer transition-all ${partnerPricingPolicy === 'cost' ? 'bg-purple-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-purple-600'}`}
+                                                            >
+                                                                💰 بسعر التكلفة (الشراء)
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPartnerPricingPolicy('price')}
+                                                                className={`flex-1 py-1.5 rounded-lg text-xs font-black cursor-pointer transition-all ${partnerPricingPolicy === 'price' ? 'bg-purple-600 text-white shadow' : 'text-slate-600 dark:text-slate-400 hover:text-purple-600'}`}
+                                                            >
+                                                                🏷️ بسعر البيع للجمهور
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 pt-2 border-t border-purple-200/40 dark:border-purple-900/40">
+                                                    <span className="text-[10px] font-bold text-slate-500 shrink-0">اسم الشريك المعين:</span>
+                                                    <input 
+                                                        type="text"
+                                                        value={selectedPartnerName}
+                                                        onChange={e => setSelectedPartnerName(e.target.value)}
+                                                        placeholder="أدخل اسم الشريك..."
+                                                        className="flex-1 p-2 bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded-xl text-xs font-bold focus:outline-none dark:text-white"
+                                                    />
+                                                </div>
+
+                                                {/* Product Selection Area */}
+                                                <div className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-purple-200 dark:border-purple-900/60 space-y-3 shadow-sm">
+                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                                        <div>
+                                                            <h6 className="text-xs font-black text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                                                                <ShoppingBag size={14} className="text-purple-600" />
+                                                                <span>تحديد الأصناف والمنتجات التي أخذها الشريك ({selectedPartnerName || 'الشريك'}):</span>
+                                                            </h6>
+                                                            <p className="text-[10px] text-slate-500 font-medium">اختر الأصناف والكميات التي أخذها الشريك من عجز الجرد لحساب المسحوبات بدقة</p>
+                                                        </div>
+
+                                                        {deficitItems.length > 0 && (
+                                                            <div className="flex items-center gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const allMap: Record<string, number> = {};
+                                                                        deficitItems.forEach((d: any) => {
+                                                                            const key = d.sku || d.name;
+                                                                            allMap[key] = Math.abs((d.actualQty ?? 0) - (d.systemQty ?? 0));
+                                                                        });
+                                                                        setPartnerSelectedSkus(allMap);
+                                                                    }}
+                                                                    className="px-2.5 py-1 bg-purple-100 dark:bg-purple-900/40 hover:bg-purple-200 text-purple-700 dark:text-purple-300 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                                                                >
+                                                                    ✓ تحديد كل العجز للشريك
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setPartnerSelectedSkus({})}
+                                                                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 rounded-lg text-[10px] font-bold transition-all cursor-pointer"
+                                                                >
+                                                                    إلغاء التحديد
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* List of deficit items to pick from */}
+                                                    {deficitItems.length > 0 ? (
+                                                        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                                                            {deficitItems.map((item: any, idx: number) => {
+                                                                const itemKey = item.sku || item.name;
+                                                                const maxDeficit = Math.abs((item.actualQty ?? 0) - (item.systemQty ?? 0));
+                                                                const currentQty = partnerSelectedSkus[itemKey] || 0;
+                                                                const unitCost = getItemCost(item);
+                                                                const unitPrice = getItemSellingPrice(item);
+                                                                const activePrice = partnerPricingPolicy === 'cost' ? unitCost : unitPrice;
+                                                                const totalItemVal = currentQty * activePrice;
+
+                                                                return (
+                                                                    <div 
+                                                                        key={itemKey + idx} 
+                                                                        className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-all ${currentQty > 0 ? 'bg-purple-50/60 dark:bg-purple-950/40 border-purple-300 dark:border-purple-800' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 opacity-70'}`}
+                                                                    >
+                                                                        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                                                                            <input 
+                                                                                type="checkbox"
+                                                                                checked={currentQty > 0}
+                                                                                onChange={e => {
+                                                                                    if (e.target.checked) {
+                                                                                        setPartnerSelectedSkus(prev => ({ ...prev, [itemKey]: maxDeficit }));
+                                                                                    } else {
+                                                                                        setPartnerSelectedSkus(prev => {
+                                                                                            const copy = { ...prev };
+                                                                                            delete copy[itemKey];
+                                                                                            return copy;
+                                                                                        });
+                                                                                    }
+                                                                                }}
+                                                                                className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500 cursor-pointer"
+                                                                            />
+                                                                            <div className="min-w-0">
+                                                                                <div className="text-xs font-black text-slate-800 dark:text-white truncate">{item.name}</div>
+                                                                                <div className="text-[10px] text-slate-500 font-bold flex items-center gap-2">
+                                                                                    <span>كود: {item.sku || 'N/A'}</span>
+                                                                                    <span>•</span>
+                                                                                    <span className="text-rose-600 font-black">عجز بالجرد: {maxDeficit} قطعة</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="flex items-center gap-3 shrink-0 self-end sm:self-center">
+                                                                            <div className="text-right">
+                                                                                <div className="text-[10px] text-slate-400 font-bold">السعر للقطعة</div>
+                                                                                <div className="text-xs font-black text-purple-700 dark:text-purple-300">
+                                                                                    {activePrice.toLocaleString()} ج.م
+                                                                                    <span className="text-[9px] text-slate-400 font-normal mr-1">({partnerPricingPolicy === 'cost' ? 'تكلفة' : 'بيع'})</span>
+                                                                                </div>
+                                                                            </div>
+
+                                                                            <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-1">
+                                                                                <span className="text-[10px] text-slate-500 font-bold px-1">الكمية المسحوبة:</span>
+                                                                                <input 
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    max={maxDeficit}
+                                                                                    value={currentQty}
+                                                                                    onChange={e => {
+                                                                                        const val = Math.max(0, Math.min(maxDeficit, parseInt(e.target.value) || 0));
+                                                                                        setPartnerSelectedSkus(prev => {
+                                                                                            if (val === 0) {
+                                                                                                const copy = { ...prev };
+                                                                                                delete copy[itemKey];
+                                                                                                return copy;
+                                                                                            }
+                                                                                            return { ...prev, [itemKey]: val };
+                                                                                        });
+                                                                                    }}
+                                                                                    className="w-14 p-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-black text-center dark:text-white"
+                                                                                />
+                                                                            </div>
+
+                                                                            <div className="text-right min-w-[70px]">
+                                                                                <div className="text-[10px] text-slate-400 font-bold">الإجمالي</div>
+                                                                                <div className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                                                                                    {totalItemVal.toLocaleString()} ج.م
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl text-center text-xs text-slate-500 font-bold">
+                                                            لا توجد أصناف فيها عجز في هذا الجرد. جميع أصناف الجرد مطابقة أو بها زيادة.
+                                                        </div>
+                                                    )}
+
+                                                    {/* Total Partner Summary Bar */}
+                                                    {(() => {
+                                                        let totalPartnerPieces = 0;
+                                                        let totalPartnerVal = 0;
+
+                                                        Object.entries(partnerSelectedSkus).forEach(([key, qty]) => {
+                                                            if (qty <= 0) return;
+                                                            const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                            if (item) {
+                                                                const price = partnerPricingPolicy === 'cost' ? getItemCost(item) : getItemSellingPrice(item);
+                                                                totalPartnerPieces += qty;
+                                                                totalPartnerVal += qty * price;
+                                                            }
+                                                        });
+
+                                                        return (
+                                                            <div className="p-3 bg-purple-100/70 dark:bg-purple-900/40 rounded-xl flex flex-col sm:flex-row justify-between items-center gap-2 border border-purple-200 dark:border-purple-800">
+                                                                <div className="text-xs font-black text-purple-900 dark:text-purple-200 flex items-center gap-2">
+                                                                    <span>ملخص المسحوبات المختارة للشريك ({selectedPartnerName || 'الشريك'}):</span>
+                                                                    <span className="px-2 py-0.5 bg-purple-600 text-white rounded-md text-[10px] font-bold">{totalPartnerPieces} قطعة</span>
+                                                                </div>
+                                                                <div className="text-sm font-black text-purple-900 dark:text-purple-100 flex items-center gap-1">
+                                                                    <span>إجمالي مسحوبات الشريك:</span>
+                                                                    <span className="text-purple-700 dark:text-purple-300 underline font-extrabold">{totalPartnerVal.toLocaleString()} ج.م</span>
+                                                                    <span className="text-[10px] text-slate-500 font-normal">({partnerPricingPolicy === 'cost' ? 'سعر التكلفة' : 'سعر البيع'})</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Target Selector for Residual Difference / Variance */}
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                                <h6 className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-1.5">
+                                                    <Target size={15} className="text-indigo-600" />
+                                                    <span>توجيه وتحميل فارق التكلفة المتبقي / فارق التسوية ({remainingDiffAmount > 0 ? `${remainingDiffAmount.toLocaleString()} ج.م` : '0 ج.م'}):</span>
+                                                </h6>
+                                                <span className="text-[10px] text-slate-500 font-bold">حدد الجهة التي ستتحمل الفارق المالي المتبقي في التسوية والجرد</span>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setResidualAllocationTarget('employee')}
+                                                    className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
+                                                        residualAllocationTarget === 'employee'
+                                                            ? 'bg-amber-100/90 dark:bg-amber-950/70 border-amber-500 text-amber-950 dark:text-amber-100 ring-2 ring-amber-400/30 font-black'
+                                                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 opacity-80 hover:opacity-100'
+                                                    }`}
+                                                >
+                                                    <UserCheck size={18} className="text-amber-600 shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-black truncate">1. تحميل الفارق للموظف</div>
+                                                        <div className="text-[10px] text-slate-500 font-bold truncate">حـ/ عهدة الموظف ({managerName})</div>
+                                                    </div>
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setResidualAllocationTarget('partner')}
+                                                    className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
+                                                        residualAllocationTarget === 'partner'
+                                                            ? 'bg-purple-100/90 dark:bg-purple-950/70 border-purple-500 text-purple-950 dark:text-purple-100 ring-2 ring-purple-400/30 font-black'
+                                                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 opacity-80 hover:opacity-100'
+                                                    }`}
+                                                >
+                                                    <Users size={18} className="text-purple-600 shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-black truncate">2. تحميل الفارق لشريك</div>
+                                                        <div className="text-[10px] text-slate-500 font-bold truncate">حـ/ جاري الشريك ({selectedPartnerName || 'الشريك المعني'})</div>
+                                                    </div>
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setResidualAllocationTarget('expense')}
+                                                    className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex items-center gap-2.5 ${
+                                                        residualAllocationTarget === 'expense'
+                                                            ? 'bg-indigo-100/90 dark:bg-indigo-950/70 border-indigo-500 text-indigo-950 dark:text-indigo-100 ring-2 ring-indigo-400/30 font-black'
+                                                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 opacity-80 hover:opacity-100'
+                                                    }`}
+                                                >
+                                                    <Building2 size={18} className="text-indigo-600 shrink-0" />
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-black truncate">3. مصاريف الشركة</div>
+                                                        <div className="text-[10px] text-slate-500 font-bold truncate">حـ/ مصاريف تسويات جردية</div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {lossAllocationAccount === 'mixed' && (
+                                            <div className="p-4 bg-teal-50/90 dark:bg-teal-950/40 rounded-2xl border border-teal-300 dark:border-teal-800 space-y-3">
+                                                <h6 className="text-xs font-black text-teal-900 dark:text-teal-200 flex items-center gap-1.5">
+                                                    <Sparkles size={15} className="text-teal-600" />
+                                                    <span>ملخص التوزيع المتعدد لخسارة/عجز الجرد (Mixed Breakdown):</span>
+                                                </h6>
+                                                
+                                                {(() => {
+                                                    let pPieces = 0, pVal = 0, pCost = 0;
+                                                    Object.entries(partnerSelectedSkus).forEach(([key, qty]) => {
+                                                        if (qty <= 0) return;
+                                                        const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                        if (item) {
+                                                            const price = partnerPricingPolicy === 'cost' ? getItemCost(item) : getItemSellingPrice(item);
+                                                            pPieces += qty;
+                                                            pVal += qty * price;
+                                                            pCost += qty * getItemCost(item);
+                                                        }
+                                                    });
+
+                                                    let ePieces = 0, eVal = 0;
+                                                    Object.entries(employeeSelectedSkus).forEach(([key, qty]) => {
+                                                        if (qty <= 0) return;
+                                                        const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                        if (item) {
+                                                            const cost = getItemCost(item);
+                                                            ePieces += qty;
+                                                            eVal += qty * cost;
+                                                        }
+                                                    });
+
+                                                    const totalAssignedCost = pCost + eVal;
+                                                    const remainingExpense = Math.max(0, absNetDifference - totalAssignedCost);
+
+                                                    return (
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                            <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-purple-200 dark:border-purple-800">
+                                                                <span className="text-[10px] font-black text-purple-600 block">1. مسحوبات الشريك ({selectedPartnerName || 'الشريك'})</span>
+                                                                <span className="text-xs font-black text-purple-900 dark:text-purple-200">{calcPartnerVal.toLocaleString()} ج.م</span>
+                                                                <span className="text-[9px] text-slate-400 font-bold block">{pPieces} قطعة مخصصة لشريك {residualAllocationTarget === 'partner' && remainingDiffAmount > 0 ? `(+${remainingDiffAmount.toLocaleString()} ج.م فارق)` : ''}</span>
+                                                            </div>
+
+                                                            <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-amber-200 dark:border-amber-800">
+                                                                <span className="text-[10px] font-black text-amber-600 block">2. عهدة الموظف ({employeeResponsibleName || managerName})</span>
+                                                                <span className="text-xs font-black text-amber-900 dark:text-amber-200">{calcEmployeeVal.toLocaleString()} ج.م</span>
+                                                                <span className="text-[9px] text-slate-400 font-bold block">{ePieces} قطعة عهدة موظف {residualAllocationTarget === 'employee' && remainingDiffAmount > 0 ? `(+${remainingDiffAmount.toLocaleString()} ج.م فارق)` : ''}</span>
+                                                            </div>
+
+                                                            <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                                                <span className="text-[10px] font-black text-indigo-600 block">3. مصاريف الشركة</span>
+                                                                <span className="text-xs font-black text-indigo-900 dark:text-indigo-200">{calcCompanyExpense.toLocaleString()} ج.م</span>
+                                                                <span className="text-[9px] text-slate-400 font-bold block">تسوية جردية على الشركة</span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Generated Accounting Journal Entry Block */}
+                                    <div className="bg-slate-900 text-slate-100 p-5 rounded-3xl space-y-3 font-mono shadow-xl border border-slate-800">
+                                        <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+                                            <div className="flex items-center gap-2">
+                                                <FileText size={16} className="text-indigo-400" />
+                                                <span className="text-xs font-black text-white">قيد التسوية والمقاصة المحاسبي التلقائي (Automated Journal Voucher)</span>
+                                            </div>
+                                            <button 
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(journalVoucherText);
+                                                    onAlert('تم النسخ 📋', 'تم نسخ سند وقيد التسوية المحاسبي إلى الحافظة بنجاح.', 'success');
+                                                }}
+                                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black transition-all flex items-center gap-1.5 cursor-pointer"
+                                            >
+                                                <Copy size={13} />
+                                                <span>نسخ القيد المحاسبي</span>
+                                            </button>
+                                        </div>
+
+                                        <div className="text-[11px] leading-relaxed space-y-1 bg-slate-950/80 p-4 rounded-2xl border border-slate-800 text-emerald-400">
+                                            <p><span className="text-slate-400"># بيان القيد:</span> تسوية جرد المستودع ({selectedReviewSession?.warehouseName}) وإجراء مقاصة التبادلات</p>
+                                            <p className="text-slate-300">----------------------------------------------------</p>
+                                            <p><span className="text-indigo-300">من حـ/ المخزون (تسوية الأصناف الزائدة):</span> +{totalSurplusCost.toLocaleString()} ج.م</p>
+                                            <p><span className="text-indigo-300">إلى حـ/ المخزون (تسوية الأصناف الناقصة):</span> -{totalDeficitCost.toLocaleString()} ج.م</p>
+                                            {isNetLoss && (
+                                                <div className="space-y-1 pt-1 border-t border-slate-800/80">
+                                                    {lossAllocationAccount === 'mixed' ? (() => {
+                                                        let pVal = 0, pCost = 0;
+                                                        Object.entries(partnerSelectedSkus).forEach(([key, qty]) => {
+                                                            if (qty <= 0) return;
+                                                            const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                            if (item) {
+                                                                const price = partnerPricingPolicy === 'cost' ? getItemCost(item) : getItemSellingPrice(item);
+                                                                pVal += qty * price;
+                                                                pCost += qty * getItemCost(item);
+                                                            }
+                                                        });
+
+                                                        let eVal = 0;
+                                                        Object.entries(employeeSelectedSkus).forEach(([key, qty]) => {
+                                                            if (qty <= 0) return;
+                                                            const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                            if (item) {
+                                                                eVal += qty * getItemCost(item);
+                                                            }
+                                                        });
+
+                                                        const remExpense = Math.max(0, absNetDifference - pCost - eVal);
+
+                                                        return (
+                                                            <>
+                                                                {pVal > 0 && <p className="text-purple-400">[من حـ/ جاري الشريك ({selectedPartnerName || 'الشريك'}) - مسحوبات شخصية]: +{pVal.toLocaleString()} ج.م</p>}
+                                                                {eVal > 0 && <p className="text-amber-400">[من حـ/ عهد وأمانات الموظف ({employeeResponsibleName || managerName})]: +{eVal.toLocaleString()} ج.م</p>}
+                                                                {remExpense > 0 && <p className="text-indigo-400">[من حـ/ مصاريف تسويات جردية وتشغيلية]: +{remExpense.toLocaleString()} ج.م</p>}
+                                                            </>
+                                                        );
+                                                    })() : (
+                                                        <p className="text-amber-400">
+                                                            <span>من حـ/ {lossAllocationAccount === 'employee' ? `أمانات وعهد الموظف (${employeeResponsibleName || managerName})` : lossAllocationAccount === 'wastage' ? 'مسموحات هالك وعجز طبيعي' : lossAllocationAccount === 'partner' ? `جاري الشريك (${selectedPartnerName || 'الشريك المعني'}) - مسحوبات شخصية (${partnerPricingPolicy === 'cost' ? 'بسعر التكلفة' : 'بسعر البيع'})` : 'مصاريف تسويات جردية وتشغيلية'}:</span> +{absNetDifference.toLocaleString()} ج.م
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {isNetGain && (
+                                                <p className="text-emerald-400">
+                                                    <span>إلى حـ/ أرباح وإيرادات التسوية الجردية:</span> -{absNetDifference.toLocaleString()} ج.م
+                                                </p>
+                                            )}
+                                            {isNetGain && (
+                                                <p className="text-emerald-400">
+                                                    <span>إلى حـ/ أرباح وإيرادات التسوية الجردية:</span> -{absNetDifference.toLocaleString()} ج.م
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         {reviewTab === 'presence' && (
                             <div className="space-y-4">
@@ -937,14 +2406,31 @@ export default function SharedAuditsTab({
                                             <select 
                                                 value={newAssignment.userId}
                                                 onChange={e => {
-                                                    const emp = settings.employees?.find(emp => emp.id === e.target.value);
-                                                    setNewAssignment(prev => ({ ...prev, userId: e.target.value, userName: emp?.name || '' }));
+                                                    const allEmps = [
+                                                        ...(settings.staffMembers || []),
+                                                        ...(settings.employees || []),
+                                                        ...((settings as any).staff || []),
+                                                        ...((settings as any).team || [])
+                                                    ];
+                                                    const emp = allEmps.find((emp: any) => (emp.id || emp.name) === e.target.value || emp.name === e.target.value);
+                                                    setNewAssignment(prev => ({ ...prev, userId: e.target.value, userName: emp?.name || e.target.value }));
                                                 }}
                                                 className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold"
                                             >
                                                 <option value="">اختر الموظف</option>
-                                                {settings.employees?.map(emp => (
-                                                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                                                {Array.from(
+                                                    new Map(
+                                                        [
+                                                            ...(settings.staffMembers || []),
+                                                            ...(settings.employees || []),
+                                                            ...((settings as any).staff || []),
+                                                            ...((settings as any).team || [])
+                                                        ]
+                                                        .filter((e: any) => e && (e.name || e.id))
+                                                        .map((e: any) => [e.id || e.name, e])
+                                                    ).values()
+                                                ).map((emp: any, idx: number) => (
+                                                    <option key={emp.id || `emp-asgn-${idx}`} value={emp.id || emp.name}>{emp.name}</option>
                                                 ))}
                                             </select>
                                         </div>
@@ -1107,7 +2593,15 @@ export default function SharedAuditsTab({
                                     className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-xl transition-all flex items-center gap-2 shadow-sm cursor-pointer"
                                 >
                                     <Printer size={15} />
-                                    <span>طباعة التقرير / PDF 🖨️</span>
+                                    <span>طباعة التقرير 🖨️</span>
+                                </button>
+
+                                <button 
+                                    onClick={() => handleExportCSV(selectedReviewSession)}
+                                    className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                                >
+                                    <FileSpreadsheet size={15} />
+                                    <span>تصدير Excel 📊</span>
                                 </button>
                             </div>
 
@@ -1138,9 +2632,107 @@ export default function SharedAuditsTab({
                                         onClick={() => {
                                             onConfirm(
                                                 'اعتماد ومطابقة الجرد الخارجي؟ ✅',
-                                                'بمجرد الضغط على اعتماد، سيتم ترحيل هذه الكميات كأرصدة جديدة للمستودع وتسجيل التسويات المالية الكلية بنجاح على المنظومة.',
+                                                'بمجرد الضغط على اعتماد، سيتم ترحيل هذه الكميات كأرصدة جديدة للمستودع وتسجيل التسويات المالية الكلية بنجاح على المنظومة وتطبيق التسويات على حسابات الموظفين والشركاء.',
                                                 () => {
-                                                    onApproveSharedSession(selectedReviewSession.id);
+                                                    let settlementDetails: any = null;
+                                                    if (selectedReviewSession) {
+                                                        const rawItems = selectedReviewSession.items || [];
+                                                        const mgrName = selectedReviewSession.managerName || 'مسؤول الأرفف الميداني';
+                                                        const getItemCostLocal = (item: any) => {
+                                                            if (item.costPrice && item.costPrice > 0) return item.costPrice;
+                                                            const prod = (settings.products || []).find((p: any) => p.sku === item.sku || p.name === item.name);
+                                                            if (prod?.costPrice !== undefined && prod?.costPrice > 0) return prod.costPrice;
+                                                            if (prod?.price !== undefined && prod?.price > 0) return prod.price;
+                                                            return 0;
+                                                        };
+                                                        const getItemSellingPriceLocal = (item: any) => {
+                                                            if (item.sellingPrice && item.sellingPrice > 0) return item.sellingPrice;
+                                                            if (item.price && item.price > 0) return item.price;
+                                                            const prod = (settings.products || []).find((p: any) => p.sku === item.sku || p.name === item.name);
+                                                            if ((prod as any)?.sellingPrice !== undefined && (prod as any)?.sellingPrice > 0) return (prod as any).sellingPrice;
+                                                            if (prod?.price !== undefined && prod?.price > 0) return prod.price;
+                                                            return getItemCostLocal(item);
+                                                        };
+
+                                                        const surplusItems = rawItems.filter((it: any) => ((it.actualQty ?? 0) - (it.systemQty ?? 0)) > 0);
+                                                        const deficitItems = rawItems.filter((it: any) => ((it.actualQty ?? 0) - (it.systemQty ?? 0)) < 0);
+
+                                                        let totalSurplusCost = 0;
+                                                        surplusItems.forEach((it: any) => {
+                                                            const diff = (it.actualQty ?? 0) - (it.systemQty ?? 0);
+                                                            totalSurplusCost += diff * getItemCostLocal(it);
+                                                        });
+
+                                                        let totalDeficitCost = 0;
+                                                        deficitItems.forEach((it: any) => {
+                                                            const diff = Math.abs((it.actualQty ?? 0) - (it.systemQty ?? 0));
+                                                            totalDeficitCost += diff * getItemCostLocal(it);
+                                                        });
+
+                                                        const netFinancialDifference = totalSurplusCost - totalDeficitCost;
+                                                        const absNetDifference = Math.abs(netFinancialDifference);
+
+                                                        let pValTotal = 0, pCostTotal = 0;
+                                                        Object.entries(partnerSelectedSkus).forEach(([key, qty]) => {
+                                                            if (qty <= 0) return;
+                                                            const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                            if (item) {
+                                                                const price = partnerPricingPolicy === 'cost' ? getItemCostLocal(item) : getItemSellingPriceLocal(item);
+                                                                pValTotal += qty * price;
+                                                                pCostTotal += qty * getItemCostLocal(item);
+                                                            }
+                                                        });
+
+                                                        let eValTotal = 0;
+                                                        Object.entries(employeeSelectedSkus).forEach(([key, qty]) => {
+                                                            if (qty <= 0) return;
+                                                            const item = deficitItems.find((i: any) => (i.sku || i.name) === key);
+                                                            if (item) {
+                                                                eValTotal += qty * getItemCostLocal(item);
+                                                            }
+                                                        });
+
+                                                        const totalAssignedCost = pCostTotal + eValTotal;
+                                                        const remainingDiffAmount = Math.max(0, absNetDifference - totalAssignedCost);
+
+                                                        let calcEmployeeVal = eValTotal;
+                                                        let calcPartnerVal = pValTotal;
+                                                        let calcCompanyExpense = 0;
+
+                                                        if (lossAllocationAccount === 'mixed') {
+                                                            if (residualAllocationTarget === 'employee') {
+                                                                calcEmployeeVal += remainingDiffAmount;
+                                                            } else if (residualAllocationTarget === 'partner') {
+                                                                calcPartnerVal += remainingDiffAmount;
+                                                            } else {
+                                                                calcCompanyExpense = remainingDiffAmount;
+                                                            }
+                                                        } else if (lossAllocationAccount === 'employee') {
+                                                            calcEmployeeVal = absNetDifference;
+                                                        } else if (lossAllocationAccount === 'partner') {
+                                                            calcPartnerVal = absNetDifference;
+                                                        } else {
+                                                            calcCompanyExpense = absNetDifference;
+                                                        }
+
+                                                        settlementDetails = {
+                                                            lossAllocationAccount,
+                                                            residualAllocationTarget,
+                                                            partnerPricingPolicy,
+                                                            calcPartnerVal,
+                                                            calcEmployeeVal,
+                                                            calcCompanyExpense,
+                                                            selectedPartnerName: selectedPartnerName || '',
+                                                            employeeResponsibleName: employeeResponsibleName || mgrName || 'الموظف المسؤول',
+                                                            partnerSelectedSkus,
+                                                            employeeSelectedSkus,
+                                                            totalSurplusCost,
+                                                            totalDeficitCost,
+                                                            netFinancialDifference
+                                                        };
+                                                    }
+
+                                                    onApproveSharedSession(selectedReviewSession.id, settlementDetails);
                                                     setSelectedReviewSession(null);
                                                 },
                                                 'success'

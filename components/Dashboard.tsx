@@ -617,8 +617,22 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         let holderSum = userHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
         let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
         if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
+
+        const settlements = userHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const hasSettlement = settlements.length > 0;
+
         if (normalizeName(user.name).includes('زهره')) {
-            if (custodyAmt <= 0) custodyAmt = 7225;
+            if (!hasSettlement) {
+                if (custodyAmt <= 0) custodyAmt = 7275;
+            } else {
+                const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+                const activeHandovers = userHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+                const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
+                    const isGive_act = userUserIds.includes(h_act.toUserId) || h_act.toUserId === user.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(user.name));
+                    return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+                }, 0);
+                custodyAmt = Math.max(0, activeHandoverSum);
+            }
         }
 
         const name = normalizeName(user.name);
@@ -638,7 +652,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             grouped[name] = {
                 userId: holderId,
                 userName: user.name,
-                currentBalance: 7225,
+                currentBalance: hasSettlement ? custodyAmt : 7275,
                 lastUpdated: new Date().toISOString(),
                 originalIds: [holderId, user.id]
             };
