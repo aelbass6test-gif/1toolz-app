@@ -1666,6 +1666,52 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                         </div>
                     </div>
 
+                    {(() => {
+                      const pExpenseCoverage = pTxs.filter(t => ['expense_coverage', 'shipping_funding', 'supply_funding'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
+                      const normPName = normalizeName(partner.name);
+                      const pDirectExpenses = (wallet.transactions || []).filter(t => {
+                        const isExp = t.type === 'سحب' && (t.category as string) !== 'pos_sale';
+                        if (!isExp) return false;
+                        if (t.details?.paidByPartnerId === partner.id) return true;
+                        
+                        // If it has a treasury or bank account ID, it is paid from treasury/bank, NOT the partner
+                        const tAccId = t.details?.treasuryAccountId || (t as any).treasuryAccountId;
+                        if (tAccId && tAccId !== '') return false;
+
+                        const normPayer = normalizeName(t.details?.expensePaidBy || t.details?.payerName || '');
+                        if (normPayer && normPayer === normPName) return true;
+
+                        const normNote = normalizeName(t.note || '');
+                        const hasExplicitPayerInNote = normNote.includes(`بواسطه ${normPName}`) || normNote.includes(`بواسطة ${normPName}`) || normNote.includes(`دفعهم ${normPName}`) || normNote.includes(`سداد ${normPName}`);
+                        return hasExplicitPayerInNote;
+                      }).reduce((sum, t) => {
+                        const text = t.details?.expensePaidBy || t.note;
+                        const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*دفعهم\\s*${partner.name}`, 'i');
+                        const match = text?.match(regex);
+                        if (match && parseFloat(match[1]) > 0) return sum + parseFloat(match[1]);
+                        return sum + (Number(t.amount) || 0);
+                      }, 0);
+                      const grandTotalSpent = Math.max(pExpenseCoverage, pDirectExpenses);
+
+                      if (grandTotalSpent <= 0) return null;
+                      return (
+                        <div className="mb-2 p-2.5 bg-teal-500/[0.06] dark:bg-teal-500/[0.04] rounded-2xl border border-teal-500/20 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 bg-teal-500/10 text-teal-600 rounded-lg">
+                              <DollarSign size={14} />
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-black text-slate-700 dark:text-slate-200">إجمالي المصروفات والتغطيات المسددة بواسطة الشريك:</p>
+                              <p className="text-[9.5px] font-bold text-slate-400">مبالغ سددها عن المحل وتم قيدها في حسابه</p>
+                            </div>
+                          </div>
+                          <p className="text-sm font-black text-teal-600 dark:text-teal-400 font-mono">
+                            {grandTotalSpent.toLocaleString()} ج.م
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     <div className="mt-2 p-3.5 bg-amber-500/[0.05] dark:bg-amber-500/[0.03] rounded-2xl border border-amber-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div className="flex items-center gap-2.5">
                            <div className="p-2 bg-amber-500/10 text-amber-600 rounded-xl">
@@ -1889,6 +1935,28 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                         }}
                         className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full appearance-none cursor-pointer accent-indigo-600"
                       />
+
+                      <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-500">رأس المال / الاستثمار</span>
+                          <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 font-mono">{((partner.capital || partner.initialCapital || 0)).toLocaleString()} ج.م</span>
+                        </div>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            placeholder="أدخل رأس المال أو الاستثمار"
+                            value={partner.capital ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                              updateSettings({
+                                ...settings,
+                                partners: partners.map(p => p.id === partner.id ? {...p, capital: val, initialCapital: val} : p)
+                              });
+                            }}
+                            className="w-full text-xs font-bold font-mono px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
                   </div>
                   
                   <div className="space-y-3 pt-2">
@@ -1918,7 +1986,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                                          t.type === 'supply_funding' ? <PackageIcon size={12}/> : <DollarSign size={12}/>}
                                       </div>
                                       <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">
-                                        {t.type === 'loan' ? 'سلفة' : t.type === 'customer_advance' ? 'عربون محصل' : t.type === 'capital_addition' ? 'رأس مال' : t.type === 'shipping_funding' ? 'شحن' : t.type === 'profit_withdrawal' ? 'سحب أرباح' : t.type === 'profit_distribution' ? 'إضافة أرباح' : t.type === 'supply_funding' ? 'تمويل بضاعة' : t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'مصاريف توريد' : 'تغطية مصروفات') : t.type === 'expense_repayment' ? 'رد مصروفات' : 'سداد'}
+                                        {(t.note?.includes('عهدة') || t.note?.includes('عهده') || t.note?.includes('تسوية عهدة') || t.note?.includes('خصم عهدة') || t.notes?.includes('عهدة') || t.notes?.includes('عهده')) ? 'تسوية عهدة' : t.type === 'loan' ? 'سلفة' : t.type === 'customer_advance' ? 'عربون محصل' : t.type === 'capital_addition' ? 'رأس مال' : t.type === 'shipping_funding' ? 'شحن' : t.type === 'profit_withdrawal' ? 'سحب أرباح' : t.type === 'profit_distribution' ? 'إضافة أرباح' : t.type === 'supply_funding' ? 'تمويل بضاعة' : t.type === 'expense_coverage' ? (t.note?.includes('توريد') ? 'مصاريف توريد' : 'تغطية مصروفات') : t.type === 'expense_repayment' ? 'رد مصروفات' : 'سداد'}
                                       </span>
                                   </div>
                                   <span className={`text-[10px] font-black ${['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type) ? 'text-emerald-600' : 'text-rose-600'}`}>

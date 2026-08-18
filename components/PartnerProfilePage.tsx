@@ -1179,6 +1179,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                             <div className="flex flex-col">
                               <h3 className="font-black text-slate-900 dark:text-white text-sm leading-tight">
                                 {t.type === 'loan' ? 'سلفة مالية / سحب نقدي' : 
+                                 (t.note?.includes('عهدة') || t.note?.includes('عهده') || t.note?.includes('تسوية') || t.notes?.includes('عهدة')) ? 'تسوية عهدة مستقطعة' :
                                  t.type === 'internal_transfer_in' ? 'تحويل مالي وارد (داخلي)' :
                                  t.type === 'internal_transfer_out' ? 'تحويل مالي صادر (داخلي)' :
                                  t.type === 'customer_advance' ? 'عربون محصل من عميل' :

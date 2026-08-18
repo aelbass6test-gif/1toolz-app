@@ -414,6 +414,8 @@ export interface Partner {
   notes?: string;
   balance: number;
   profitRatio: number; // Added profit ratio
+  capital?: number; // رأس المال / الاستثمار
+  initialCapital?: number;
 }
 
 export interface PartnerTransaction {

@@ -107,7 +107,10 @@ const PartnerWithdrawalBreakdown = ({ partner, settings }: { partner: any; setti
                     let badge = 'مسحوبات';
                     let badgeClass = 'bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 border-rose-200';
 
-                    if (t.type === 'loan' || notesNorm.includes('سلفة') || notesNorm.includes('سلفه')) {
+                    if (notesNorm.includes('عهدة') || notesNorm.includes('عهده') || notesNorm.includes('تسوية عهدة') || notesNorm.includes('خصم عهدة') || notesNorm.includes('تسوية عهده') || notesNorm.includes('خصم عهده')) {
+                        badge = 'تسوية عهدة';
+                        badgeClass = 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-200';
+                    } else if (t.type === 'loan' || notesNorm.includes('سلفة') || notesNorm.includes('سلفه')) {
                         badge = 'سلفة';
                         badgeClass = 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 border-amber-200';
                     } else if (t.type === 'wallet_withdrawal' || notesNorm.includes('محفظة') || notesNorm.includes('سحب محفظة') || notesNorm.includes('بنك')) {

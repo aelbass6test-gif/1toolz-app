@@ -3004,7 +3004,42 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
     let totalExpenses = 0;
     const expenseRows = adminExpenses.map(t => {
         totalExpenses += t.amount;
-        return `<tr><td>${new Date(t.date).toLocaleDateString('ar-EG')}</td><td>${t.note}</td><td style="color: #b91c1c;">${t.amount.toLocaleString()}</td></tr>`;
+        let payerBadge = '<span style="color: #64748b; font-size: 10px;">الخزينة العامة</span>';
+        
+        // 1. Check if paid by explicit partner ID
+        if (t.details?.paidByPartnerId) {
+            const matchedP = (settings?.partners || []).find(p => p.id === t.details?.paidByPartnerId);
+            payerBadge = `<span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; border: 1px solid #fde68a;">🤝 سداد: ${matchedP?.name || 'شريك'}</span>`;
+        }
+        // 2. Check if paid by Treasury / Bank account
+        else {
+            const tAccId = t.details?.treasuryAccountId || (t as any).treasuryAccountId;
+            const matchedTreasuryAcc = (treasury?.accounts || []).find(a => String(a.id) === String(tAccId) || a.name === t.details?.expensePaidBy);
+            
+            if (matchedTreasuryAcc) {
+                const icon = matchedTreasuryAcc.type === 'bank' ? '🏦' : matchedTreasuryAcc.type === 'wallet' ? '📱' : '💵';
+                payerBadge = `<span style="background: #ecfdf5; color: #065f46; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; border: 1px solid #a7f3d0;">${icon} ${matchedTreasuryAcc.name}</span>`;
+            } else if (tAccId === 'main_wallet' || t.details?.paymentMethod === 'wallet' || t.details?.expensePaidBy === 'المحفظة العامة') {
+                payerBadge = '<span style="background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; border: 1px solid #bfdbfe;">💳 المحفظة العامة</span>';
+            } else if (t.details?.expensePaidBy) {
+                const matchedP = (settings?.partners || []).find(p => normalizeName(p.name) === normalizeName(t.details?.expensePaidBy));
+                if (matchedP) {
+                    payerBadge = `<span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; border: 1px solid #fde68a;">🤝 سداد: ${matchedP.name}</span>`;
+                } else {
+                    payerBadge = `<span style="background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold;">${t.details.expensePaidBy}</span>`;
+                }
+            } else if (t.note && (t.note.includes('بواسطة') || t.note.includes('سداد شريك') || t.note.includes('دفعهم') || t.note.includes('سداد بواسطة'))) {
+                const normNote = normalizeName(t.note);
+                const matchedP = (settings?.partners || []).find(p => {
+                    const normP = normalizeName(p.name);
+                    return normNote.includes(`بواسطه ${normP}`) || normNote.includes(`بواسطة ${normP}`) || normNote.includes(`دفعهم ${normP}`) || normNote.includes(`سداد ${normP}`);
+                });
+                if (matchedP) {
+                    payerBadge = `<span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; border: 1px solid #fde68a;">🤝 سداد: ${matchedP.name}</span>`;
+                }
+            }
+        }
+        return `<tr><td style="font-size: 10.5px;">${new Date(t.date).toLocaleDateString('ar-EG')}</td><td style="text-align: right; font-weight: 600;">${t.note}</td><td>${payerBadge}</td><td style="color: #b91c1c; font-weight: bold; font-family: monospace;">${t.amount.toLocaleString()} ج.م</td></tr>`;
     }).join('');
 
     const extraPosSales = (settings?.posSales || []).filter(s => !orders.some(o => o.id === s.id || o.orderNumber === s.saleNumber));
@@ -3229,6 +3264,161 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 }
             }
         }
+    });
+
+    // Add active cash handovers to custody details for partners and employees
+    partners.forEach(p => {
+        const nName = normalizeName(p.name);
+        if (isBankOrTreasuryAccount(nName) || isBankOrTreasuryAccount(p.name)) return;
+
+        const holderId = `part_${p.id}`;
+        const partnerHolders = rawHolders.filter((h: any) => 
+            h.userId === holderId || 
+            h.userId === p.id || 
+            normalizeName(h.userName) === nName
+        );
+        const partnerUserIds = [holderId, p.id, ...partnerHolders.map(h => h.userId)];
+
+        const partnerHandovers = (settings.cashHandovers || []).filter(h => 
+            partnerUserIds.includes(h.fromUserId) || 
+            partnerUserIds.includes(h.toUserId) || 
+            normalizeName(h.toUserName || '').includes(nName) || 
+            normalizeName(h.fromUserName || '').includes(nName)
+        );
+
+        const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const hasSettlement = settlements.length > 0;
+
+        let activeHandovers = [];
+        if (hasSettlement) {
+            const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+            activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+        } else {
+            activeHandovers = partnerHandovers;
+        }
+
+        const account = custodyAccounts.find(a => normalizeName(a.name) === nName || a.name.includes(p.name) || p.name.includes(a.name) || normalizeName(a.name).includes(nName));
+        const targetName = account ? account.name : `${p.name} (شريك)`;
+
+        activeHandovers.forEach(h => {
+            const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
+            const noteText = h.notes || (isGive ? 'تسليم عهدة تشغيلية للشريك' : 'تسوية واسترداد عهدة من الشريك');
+            
+            if (!custodyDetails[targetName]) {
+                custodyDetails[targetName] = [];
+            }
+            const alreadyExists = custodyDetails[targetName].some(d => d.orderNumber === h.id);
+            if (!alreadyExists) {
+                custodyDetails[targetName].push({
+                    customerName: noteText,
+                    orderNumber: h.id || '---',
+                    amount: isGive ? (Number(h.amount) || 0) : -(Number(h.amount) || 0),
+                    type: noteText.includes('فرق جرد') ? 'فرق جرد' : (isGive ? 'تسليم عهدة' : 'تسوية عهدة')
+                });
+            }
+        });
+
+        // Add partner transactions (such as inventory audit differences/withdrawals)
+        const partnerTxs = ((settings as any).partnerTransactions || []).filter((tx: any) => {
+            const matchesPartner = tx.partnerId === p.id || 
+                                   normalizeName(tx.partnerName || '').includes(nName) || 
+                                   nName.includes(normalizeName(tx.partnerName || ''));
+            const isAuditOrWithdrawal = tx.type === 'personal_withdrawal' || 
+                                        (tx.notes && (tx.notes.includes('جرد') || tx.notes.includes('تسوية'))) ||
+                                        (tx.description && (tx.description.includes('جرد') || tx.description.includes('تسوية')));
+            return matchesPartner && isAuditOrWithdrawal;
+        });
+
+        partnerTxs.forEach((tx: any) => {
+            if (!custodyDetails[targetName]) {
+                custodyDetails[targetName] = [];
+            }
+            const txNotes = tx.notes || tx.description || 'فارق تسوية جرد';
+            const alreadyExists = custodyDetails[targetName].some(d => d.orderNumber === tx.id);
+            if (!alreadyExists) {
+                custodyDetails[targetName].push({
+                    customerName: txNotes,
+                    orderNumber: tx.id || '---',
+                    amount: Number(tx.amount) || 0,
+                    type: 'فرق جرد'
+                });
+            }
+        });
+    });
+
+    employees.forEach(e => {
+        const nName = normalizeName(e.name);
+        if (isBankOrTreasuryAccount(nName) || isBankOrTreasuryAccount(e.name)) return;
+
+        const holderId = `emp_${e.id}`;
+        const empHolders = rawHolders.filter((h: any) => 
+            h.userId === holderId || 
+            h.userId === e.id || 
+            normalizeName(h.userName) === nName
+        );
+        const empUserIds = [holderId, e.id, ...empHolders.map(h => h.userId)];
+
+        const empHandovers = (settings.cashHandovers || []).filter(h => 
+            empUserIds.includes(h.fromUserId) || 
+            empUserIds.includes(h.toUserId) || 
+            normalizeName(h.toUserName || '').includes(nName) || 
+            normalizeName(h.fromUserName || '').includes(nName)
+        );
+
+        const settlements = empHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const hasSettlement = settlements.length > 0;
+
+        let activeHandovers = [];
+        if (hasSettlement) {
+            const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
+            activeHandovers = empHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
+        } else {
+            activeHandovers = empHandovers;
+        }
+
+        const account = custodyAccounts.find(a => normalizeName(a.name) === nName || a.name.includes(e.name) || e.name.includes(a.name) || normalizeName(a.name).includes(nName));
+        const targetName = account ? account.name : `${e.name} (موظف)`;
+
+        activeHandovers.forEach(h => {
+            const isGive = empUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
+            const noteText = h.notes || (isGive ? 'تسليم عهدة تشغيلية للموظف' : 'تسوية واسترداد عهدة من الموظف');
+            
+            if (!custodyDetails[targetName]) {
+                custodyDetails[targetName] = [];
+            }
+            const alreadyExists = custodyDetails[targetName].some(d => d.orderNumber === h.id);
+            if (!alreadyExists) {
+                custodyDetails[targetName].push({
+                    customerName: noteText,
+                    orderNumber: h.id || '---',
+                    amount: isGive ? (Number(h.amount) || 0) : -(Number(h.amount) || 0),
+                    type: noteText.includes('فرق جرد') ? 'فرق جرد' : (isGive ? 'تسليم عهدة' : 'تسوية عهدة')
+                });
+            }
+        });
+
+        // Add employee staff advances (such as inventory audit differences/deficits)
+        const empAdvances = ((settings as any).staffAdvances || []).filter((adv: any) => {
+            const matchesEmp = adv.staffId === e.id || 
+                               normalizeName(adv.staffName || '').includes(nName) || 
+                               nName.includes(normalizeName(adv.staffName || ''));
+            return matchesEmp;
+        });
+
+        empAdvances.forEach((adv: any) => {
+            if (!custodyDetails[targetName]) {
+                custodyDetails[targetName] = [];
+            }
+            const alreadyExists = custodyDetails[targetName].some(d => d.orderNumber === adv.id);
+            if (!alreadyExists) {
+                custodyDetails[targetName].push({
+                    customerName: adv.note || 'سلفة / عهدة موظف',
+                    orderNumber: adv.id || '---',
+                    amount: Number(adv.amount) || 0,
+                    type: (adv.note && adv.note.includes('جرد')) ? 'فرق جرد' : 'سلفة'
+                });
+            }
+        });
     });
 
     Object.keys(custodyDetails).forEach(targetName => {
@@ -3555,13 +3745,112 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 </tbody>
             </table>` : '';
 
+    const partnerExpenseBreakdown = (partners || []).map(p => {
+        const normP = normalizeName(p.name);
+        const pTxs = (settings?.partnerTransactions || []).filter(t => {
+            const matchesId = t.partnerId === p.id || t.partnerId === `part_${p.id}` || t.partnerId === `partner_${p.id}`;
+            const matchesName = t.partnerName && normalizeName(t.partnerName) === normP;
+            const matchesNote = t.notes && normalizeName(t.notes).includes(normP);
+            return matchesId || matchesName || matchesNote;
+        });
+
+        const directExpenses = adminExpenses.filter(e => {
+            const isExplicitPartnerId = (e.details?.paidByPartnerId === p.id) || (e.details?.partnerId === p.id) || ((e as any).partnerId === p.id);
+            if (isExplicitPartnerId) return true;
+
+            // If it was paid from a bank or treasury account, it is not a partner personal expense
+            const tAccId = e.details?.treasuryAccountId || (e as any).treasuryAccountId;
+            if (tAccId && tAccId !== '') return false;
+
+            const normPayer = normalizeName(e.details?.expensePaidBy || e.details?.payerName || '');
+            if (normPayer && normPayer === normP) return true;
+
+            const normNote = normalizeName(e.note || '');
+            const hasPayerKeyword = normNote.includes(`بواسطه ${normP}`) || normNote.includes(`بواسطة ${normP}`) || normNote.includes(`دفعهم ${normP}`) || normNote.includes(`سداد ${normP}`);
+            return hasPayerKeyword;
+        });
+        const directExpensesTotal = directExpenses.reduce((sum, e) => {
+            const text = e.details?.expensePaidBy || e.note;
+            const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*دفعهم\\s*${p.name}`, 'i');
+            const match = text?.match(regex);
+            if (match && parseFloat(match[1]) > 0) {
+                return sum + parseFloat(match[1]);
+            }
+            return sum + (Number(e.amount) || 0);
+        }, 0);
+
+        const fundedExpenses = pTxs.filter(t => ['expense_coverage', 'supply_funding', 'shipping_funding'].includes(t.type));
+        const fundedExpensesTotal = fundedExpenses.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+        const totalPartnerExpenses = directExpensesTotal + fundedExpensesTotal;
+
+        return {
+            partner: p,
+            directExpensesTotal,
+            fundedExpensesTotal,
+            totalPartnerExpenses,
+            count: directExpenses.length + fundedExpenses.length
+        };
+    });
+
+    const totalPartnerDirectPaid = partnerExpenseBreakdown.reduce((sum, b) => sum + b.directExpensesTotal, 0);
+    const treasuryPaidExpenses = Math.max(0, totalExpenses - totalPartnerDirectPaid);
+
     const expensesLogHtml = s.showExpensesLog ? `
             <h2 class="section-header">${sectionCounter++}. المصروفات الإدارية والتشغيلية (Expenses Log)</h2>
+            
+            <!-- ملخص إجمالي مصروف كل شريك -->
+            <div style="margin-bottom: 15px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: #ffffff; padding: 9px 14px; font-weight: 800; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+                    <span>📊 إجمالي وتحليل المصروفات حسب جهة السداد والشركاء</span>
+                    <span style="font-size: 11px; opacity: 0.9; font-weight: normal;">(تحديد نصيب ومساهمة كل طرف في التكاليف)</span>
+                </div>
+                <table class="modern-table" style="margin: 0; font-size: 11.5px;">
+                    <thead>
+                        <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                            <th style="text-align: right; width: 35%;">جهة السداد / الشريك</th>
+                            <th style="width: 20%;">عدد البنود</th>
+                            <th style="width: 25%;">إجمالي ما صرفه وسدده</th>
+                            <th style="width: 20%;">النسبة المئوية</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${partnerExpenseBreakdown.map(b => {
+                            const percent = totalExpenses > 0 ? ((b.totalPartnerExpenses / totalExpenses) * 100).toFixed(1) : '0';
+                            return `
+                                <tr>
+                                    <td style="font-weight: bold; color: #1e3a8a; text-align: right;">
+                                        👤 سداد بواسطة الشريك: <strong>${b.partner.name}</strong>
+                                        <span style="font-size: 9.5px; color: #64748b; margin-right: 4px;">(${((b.partner as any).profitPercentage || b.partner.profitRatio || 0)}% حصة)</span>
+                                    </td>
+                                    <td>${b.count} عملية</td>
+                                    <td style="font-weight: bold; color: #b91c1c; font-family: monospace; font-size: 12px;">${b.totalPartnerExpenses.toLocaleString()} ج.م</td>
+                                    <td style="font-weight: bold; color: #4338ca;">${percent}%</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                        <tr>
+                            <td style="font-weight: bold; color: #059669; text-align: right;">🏦 الخزينة العامة والمحافظ الإلكترونية</td>
+                            <td>${adminExpenses.length - partnerExpenseBreakdown.reduce((sum, b) => sum + b.count, 0)} عملية</td>
+                            <td style="font-weight: bold; color: #059669; font-family: monospace; font-size: 12px;">${treasuryPaidExpenses.toLocaleString()} ج.م</td>
+                            <td style="font-weight: bold; color: #059669;">${totalExpenses > 0 ? ((treasuryPaidExpenses / totalExpenses) * 100).toFixed(1) : '0'}%</td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr style="background: #f1f5f9; font-weight: 800; border-top: 2px solid #94a3b8;">
+                            <td style="text-align: right; color: #0f172a;">الإجمالي العام لكافة المصروفات</td>
+                            <td>${adminExpenses.length} عملية</td>
+                            <td style="color: #b91c1c; font-family: monospace; font-size: 13px;">${totalExpenses.toLocaleString()} ج.م</td>
+                            <td style="color: #0f172a;">100%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
             <table class="modern-table">
-                <thead><tr><th>التاريخ</th><th style="text-align: right;">البيان</th><th>المبلغ</th></tr></thead>
+                <thead><tr><th>التاريخ</th><th style="text-align: right;">البيان والتفاصيل</th><th>جهة الدفع</th><th>المبلغ</th></tr></thead>
                 <tbody>
-                    ${expenseRows || '<tr><td colspan="3">لا توجد مصروفات إدارية خلال هذه الفترة.</td></tr>'}
-                    <tr class="total-row"><td colspan="2" style="text-align: right;">إجمالي المصروفات</td><td>${totalExpenses.toLocaleString()} ج.م</td></tr>
+                    ${expenseRows || '<tr><td colspan="4">لا توجد مصروفات إدارية خلال هذه الفترة.</td></tr>'}
+                    <tr class="total-row"><td colspan="3" style="text-align: right;">إجمالي المصروفات</td><td>${totalExpenses.toLocaleString()} ج.م</td></tr>
                 </tbody>
             </table>` : '';
 
@@ -3608,106 +3897,217 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             return sumDetails > 0 ? Math.max(baseBalance, sumDetails) : baseBalance;
         };
 
-        return `
-        <div style="margin-top: 25px; page-break-inside: avoid;">
-            <h3 style="background: #1e3a8a; color: white; padding: 10px; border-radius: 6px; font-size: 16px; margin-bottom: 10px;">${sectionCounter++}. توزيع أرباح الشركاء والمراكز المالية</h3>
-            <table class="modern-table">
-                <thead><tr><th style="width: 15%;">اسم الشريك</th><th style="width: 8%;">نسبة الربح</th><th style="width: 14%;">نصيب الربح</th><th style="width: 38%;">تفاصيل المسحوبات والسلف</th><th style="width: 12.5%;">العهدة</th><th style="width: 12.5%;">الرصيد المتاح</th></tr></thead>
-                <tbody>
-                    ${partners.map(p => {
-                        const partnerShare = (p.profitRatio / 100) * finalNet;
-                        const normPName = normalizeName(p.name);
-                        const allTxs = settings.partnerTransactions || [];
-                        const partnerTxs = allTxs.filter(t => {
-                            const matchesId = t.partnerId === p.id || t.partnerId === `part_${p.id}` || t.partnerId === `partner_${p.id}`;
-                            const matchesName = t.partnerName && normalizeName(t.partnerName) === normPName;
-                            const matchesNote = t.notes && normalizeName(t.notes).includes(normPName);
-                            return matchesId || matchesName || matchesNote;
-                        });
+        let totalCapitalSum = 0;
+        let totalProfitShareSum = 0;
+        let totalInventoryShareSum = 0;
+        let totalWithdrawalsSum = 0;
+        let totalCustodySum = 0;
+        let totalBalanceSum = 0;
 
-                        const withdrawalTxs = partnerTxs.filter(t => 
-                            ['profit_withdrawal', 'loan', 'profit_distribution', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
-                            (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage')
-                        );
+        const partnerRowsHtml = partners.map(p => {
+            const partnerShare = (p.profitRatio / 100) * finalNet;
+            const normPName = normalizeName(p.name);
+            const allTxs = settings.partnerTransactions || [];
+            const partnerTxs = allTxs.filter(t => {
+                const matchesId = t.partnerId === p.id || t.partnerId === `part_${p.id}` || t.partnerId === `partner_${p.id}`;
+                const matchesName = t.partnerName && normalizeName(t.partnerName) === normPName;
+                const matchesNote = t.notes && normalizeName(t.notes).includes(normPName);
+                return matchesId || matchesName || matchesNote;
+            });
 
-                        const totalWithdrawals = withdrawalTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-                        const partnerCustody = getPartnerCustody(p.name);
+            const partnerCapital = (p as any).capital || (p as any).initialCapital || 
+                partnerTxs.filter(t => ['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage'].includes(t.type)).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
-                        let withdrawalsHtml = '';
-                        if (withdrawalTxs.length > 0) {
-                            withdrawalsHtml = `
-                                <div style="text-align: right; font-size: 11px;">
-                                    <div style="font-weight: 800; color: #b91c1c; margin-bottom: 6px; font-size: 12px; background: #fff1f2; padding: 4px 8px; border-radius: 6px; border: 1px solid #fecdd3; display: flex; justify-content: space-between; align-items: center;">
-                                        <span>إجمالي المسحوبات والسلف:</span>
-                                        <span style="font-size: 13px;">-${totalWithdrawals.toLocaleString()} ج.م</span>
+            const inventoryShare = (p.profitRatio / 100) * (totalInventoryValue || 0);
+
+            const withdrawalTxs = partnerTxs.filter(t => 
+                ['profit_withdrawal', 'loan', 'profit_distribution', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
+                (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage')
+            );
+
+            const totalWithdrawals = withdrawalTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+            const partnerCustody = getPartnerCustody(p.name);
+
+            totalCapitalSum += partnerCapital;
+            totalProfitShareSum += partnerShare;
+            totalInventoryShareSum += inventoryShare;
+            totalWithdrawalsSum += totalWithdrawals;
+            totalCustodySum += partnerCustody;
+            totalBalanceSum += (p.balance || 0);
+
+            let statusLabel = 'مسدد بالكامل';
+            let statusBg = '#eff6ff';
+            let statusColor = '#1d4ed8';
+            let statusBorder = '#bfdbfe';
+
+            if (p.balance > 0) {
+                statusLabel = 'دائن بمستحقات';
+                statusBg = '#ecfdf5';
+                statusColor = '#047857';
+                statusBorder = '#a7f3d0';
+            } else if (p.balance < 0) {
+                statusLabel = 'مدين بمسحوبات';
+                statusBg = '#fef2f2';
+                statusColor = '#b91c1c';
+                statusBorder = '#fecaca';
+            }
+
+            let withdrawalsHtml = '';
+            if (withdrawalTxs.length > 0) {
+                withdrawalsHtml = `
+                    <div style="text-align: right; font-size: 10px;">
+                        <div style="font-weight: 800; color: #b91c1c; margin-bottom: 5px; font-size: 11px; background: #fff1f2; padding: 3px 6px; border-radius: 5px; border: 1px solid #fecdd3; display: flex; justify-content: space-between; align-items: center;">
+                            <span>إجمالي المسحوبات والتسويات:</span>
+                            <span style="font-size: 12px; font-family: monospace;">-${totalWithdrawals.toLocaleString()} ج.م</span>
+                        </div>
+                        ${withdrawalTxs.map(t => {
+                            const amt = Number(t.amount) || 0;
+                            let badge = 'مسحوبات';
+                            let badgeBg = '#ffe4e6';
+                            let badgeColor = '#9f1239';
+                            let badgeBorder = '#fca5a5';
+
+                            const notes = t.notes || t.description || t.category || t.note || '';
+                            const notesNorm = normalizeName(notes);
+
+                            if (notesNorm.includes('عهدة') || notesNorm.includes('عهده') || notesNorm.includes('تسوية عهدة') || notesNorm.includes('خصم عهدة') || notesNorm.includes('تسوية عهده') || notesNorm.includes('خصم عهده')) {
+                                badge = 'تسوية عهدة';
+                                badgeBg = '#fef3c7';
+                                badgeColor = '#92400e';
+                                badgeBorder = '#fde68a';
+                            } else if (t.type === 'loan' || notesNorm.includes('سلفة') || notesNorm.includes('سلفه')) {
+                                badge = 'سلفة';
+                                badgeBg = '#fffbeb';
+                                badgeColor = '#b45309';
+                                badgeBorder = '#fde68a';
+                            } else if (t.type === 'wallet_withdrawal' || notesNorm.includes('محفظة') || notesNorm.includes('سحب محفظة') || notesNorm.includes('بنك')) {
+                                badge = 'سحب محفظة';
+                                badgeBg = '#f0fdf4';
+                                badgeColor = '#15803d';
+                                badgeBorder = '#bbf7d0';
+                            } else if (t.type === 'profit_withdrawal') {
+                                badge = 'سحب أرباح';
+                                badgeBg = '#f0f9ff';
+                                badgeColor = '#0369a1';
+                                badgeBorder = '#bae6fd';
+                            } else if (t.type === 'profit_distribution') {
+                                badge = 'توزيع أرباح';
+                                badgeBg = '#faf5ff';
+                                badgeColor = '#6b21a8';
+                                badgeBorder = '#e9d5ff';
+                            }
+
+                            const displayNote = notes || (badge === 'سلفة' ? 'مسحوبات شخصية' : 'مسحوبات شريك');
+                            const dateStr = t.date ? new Date(t.date).toLocaleDateString('ar-EG') : '---';
+
+                            return `
+                                <div style="margin-bottom: 3px; padding: 4px 6px; background: #fff5f5; border: 1px solid #fecdd3; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                                    <div style="display: flex; flex-direction: column; align-items: flex-start; text-align: right; flex: 1;">
+                                        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                                            <span style="font-size: 8px; background: ${badgeBg}; color: ${badgeColor}; padding: 1px 4px; border-radius: 3px; border: 1px solid ${badgeBorder}; font-weight: bold;">${badge}</span>
+                                            <strong style="color: #0f172a; font-size: 10px;">${displayNote}</strong>
+                                        </div>
+                                        <span style="font-size: 8px; color: #64748b; margin-top: 1px;">📅 ${dateStr}</span>
                                     </div>
-                                    ${withdrawalTxs.map(t => {
-                                        const amt = Number(t.amount) || 0;
-                                        let badge = 'مسحوبات';
-                                        let badgeBg = '#ffe4e6';
-                                        let badgeColor = '#9f1239';
-                                        let badgeBorder = '#fca5a5';
-
-                                        const notes = t.notes || t.description || t.category || t.note || '';
-                                        const notesNorm = normalizeName(notes);
-
-                                        if (t.type === 'loan' || notesNorm.includes('سلفة') || notesNorm.includes('سلفه')) {
-                                            badge = 'سلفة';
-                                            badgeBg = '#fffbeb';
-                                            badgeColor = '#b45309';
-                                            badgeBorder = '#fde68a';
-                                        } else if (t.type === 'wallet_withdrawal' || notesNorm.includes('محفظة') || notesNorm.includes('سحب محفظة') || notesNorm.includes('بنك')) {
-                                            badge = 'سحب محفظة';
-                                            badgeBg = '#f0fdf4';
-                                            badgeColor = '#15803d';
-                                            badgeBorder = '#bbf7d0';
-                                        } else if (t.type === 'profit_withdrawal') {
-                                            badge = 'سحب أرباح';
-                                            badgeBg = '#f0f9ff';
-                                            badgeColor = '#0369a1';
-                                            badgeBorder = '#bae6fd';
-                                        } else if (t.type === 'profit_distribution') {
-                                            badge = 'توزيع أرباح';
-                                            badgeBg = '#faf5ff';
-                                            badgeColor = '#6b21a8';
-                                            badgeBorder = '#e9d5ff';
-                                        }
-
-                                        const displayNote = notes || (badge === 'سلفة' ? 'مسحوبات شخصية' : 'مسحوبات شريك');
-                                        const dateStr = t.date ? new Date(t.date).toLocaleDateString('ar-EG') : '---';
-
-                                        return `
-                                            <div style="margin-bottom: 4px; padding: 6px 8px; background: #fff5f5; border: 1px solid #fecdd3; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                                                <div style="display: flex; flex-direction: column; align-items: flex-start; text-align: right; flex: 1;">
-                                                    <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
-                                                        <span style="font-size: 8px; background: ${badgeBg}; color: ${badgeColor}; padding: 1px 5px; border-radius: 4px; border: 1px solid ${badgeBorder}; font-weight: bold;">${badge}</span>
-                                                        <strong style="color: #0f172a; font-size: 11px;">${displayNote}</strong>
-                                                    </div>
-                                                    <span style="font-size: 8px; color: #64748b; margin-top: 2px;">📅 ${dateStr}</span>
-                                                </div>
-                                                <span style="font-weight: bold; color: #b91c1c; font-size: 12px; white-space: nowrap; font-family: monospace;">-${amt.toLocaleString()} ج.م</span>
-                                            </div>
-                                        `;
-                                    }).join('')}
+                                    <span style="font-weight: bold; color: #b91c1c; font-size: 11px; white-space: nowrap; font-family: monospace;">-${amt.toLocaleString()} ج.م</span>
                                 </div>
                             `;
-                        } else if (totalWithdrawals > 0) {
-                            withdrawalsHtml = `<span style="font-weight: bold; color: #b91c1c;">-${totalWithdrawals.toLocaleString()} ج.م</span>`;
-                        } else {
-                            withdrawalsHtml = `<span style="color: #94a3b8; font-style: italic;">لا توجد مسحوبات</span>`;
-                        }
+                        }).join('')}
+                    </div>
+                `;
+            } else if (totalWithdrawals > 0) {
+                withdrawalsHtml = `<span style="font-weight: bold; color: #b91c1c; font-family: monospace;">-${totalWithdrawals.toLocaleString()} ج.م</span>`;
+            } else {
+                withdrawalsHtml = `<span style="color: #94a3b8; font-style: italic; font-size: 11px;">لا توجد مسحوبات</span>`;
+            }
 
-                        return `<tr>
-                            <td style="font-weight: bold; color: #1e3a8a;">${p.name}</td>
-                            <td>${p.profitRatio}%</td>
-                            <td style="font-weight: bold; color: ${partnerShare >= 0 ? '#059669' : '#dc2626'};">+${partnerShare.toLocaleString()} ج.م</td>
-                            <td style="padding: 10px;">${withdrawalsHtml}</td>
-                            <td style="font-weight: bold; color: ${partnerCustody > 0 ? '#d97706' : '#64748b'};">${partnerCustody.toLocaleString()} ج.م</td>
-                            <td style="font-weight: bold; background: #f8fafc; font-size: 15px;">${p.balance.toLocaleString()} ج.م</td>
-                        </tr>`;
-                    }).join('')}
+            return `<tr>
+                <td style="font-weight: bold; color: #1e3a8a; font-size: 13px;">${p.name}</td>
+                <td style="font-weight: bold;">${p.profitRatio}%</td>
+                <td style="font-weight: bold; color: #4338ca; font-family: monospace;">${partnerCapital > 0 ? partnerCapital.toLocaleString() + ' ج.م' : '0 ج.م'}</td>
+                <td style="font-weight: bold; color: ${partnerShare >= 0 ? '#059669' : '#dc2626'}; font-family: monospace;">+${partnerShare.toLocaleString()} ج.م</td>
+                <td style="font-weight: bold; color: #0284c7; font-family: monospace;">${inventoryShare > 0 ? inventoryShare.toLocaleString() + ' ج.م' : '0 ج.م'}</td>
+                <td style="padding: 8px;">${withdrawalsHtml}</td>
+                <td style="font-weight: bold; color: ${partnerCustody > 0 ? '#d97706' : '#64748b'}; font-family: monospace;">${partnerCustody.toLocaleString()} ج.م</td>
+                <td style="font-weight: 800; background: #f8fafc; font-size: 14px; font-family: monospace; color: ${p.balance >= 0 ? '#0f172a' : '#dc2626'};">${p.balance.toLocaleString()} ج.م</td>
+                <td>
+                    <span style="font-size: 10px; font-weight: bold; background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusBorder}; padding: 3px 6px; border-radius: 12px; white-space: nowrap; display: inline-block;">
+                        ${statusLabel}
+                    </span>
+                </td>
+            </tr>`;
+        }).join('');
+
+        const totalProfitRatios = partners.reduce((sum, p) => sum + (p.profitRatio || 0), 0);
+
+        return `
+        <div style="margin-top: 25px; page-break-inside: avoid;">
+            <h3 style="background: #1e3a8a; color: white; padding: 10px 14px; border-radius: 6px; font-size: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <span>${sectionCounter++}. توزيع أرباح الشركاء والمراكز المالية الشاملة</span>
+                <span style="font-size: 11px; font-weight: normal; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">شامل الأرباح، المخزون، ورأس المال</span>
+            </h3>
+            <table class="modern-table" style="font-size: 11px;">
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">اسم الشريك</th>
+                        <th style="width: 6%;">النسبة</th>
+                        <th style="width: 11%;">رأس المال / الاستثمار</th>
+                        <th style="width: 11%;">نصيب الأرباح</th>
+                        <th style="width: 11%;">حصة المخزون (البضاعة)</th>
+                        <th style="width: 25%;">تفاصيل المسحوبات والتسويات</th>
+                        <th style="width: 8%;">العهدة</th>
+                        <th style="width: 9%;">الرصيد المتاح</th>
+                        <th style="width: 7%;">الحالة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${partnerRowsHtml}
                 </tbody>
+                <tfoot>
+                    <tr style="background: #f1f5f9; font-weight: 800; border-top: 2px solid #cbd5e1;">
+                        <td style="color: #0f172a; text-align: right; padding: 10px 8px;">الإجمالي العام</td>
+                        <td style="color: #0f172a; font-family: monospace;">${totalProfitRatios}%</td>
+                        <td style="color: #4338ca; font-family: monospace;">${totalCapitalSum.toLocaleString()} ج.م</td>
+                        <td style="color: #059669; font-family: monospace;">+${totalProfitShareSum.toLocaleString()} ج.م</td>
+                        <td style="color: #0284c7; font-family: monospace;">${totalInventoryShareSum.toLocaleString()} ج.م</td>
+                        <td style="color: #b91c1c; font-family: monospace; text-align: right; padding: 8px;">
+                            <span style="background: #fee2e2; padding: 2px 6px; border-radius: 4px;">-${totalWithdrawalsSum.toLocaleString()} ج.م</span>
+                        </td>
+                        <td style="color: #d97706; font-family: monospace;">${totalCustodySum.toLocaleString()} ج.م</td>
+                        <td style="color: #0f172a; font-size: 13px; font-family: monospace; background: #e2e8f0;">${totalBalanceSum.toLocaleString()} ج.م</td>
+                        <td style="color: #64748b; font-size: 10px;">معتمد</td>
+                    </tr>
+                </tfoot>
             </table>
+
+            <!-- إقرار التصفية المالية والاعتماد وتوقيعات الشركاء -->
+            <div style="margin-top: 16px; padding: 14px; background: #fafafa; border: 1px dashed #cbd5e1; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 12px;">
+                    <strong style="color: #1e293b; font-size: 12px;">📝 إقرار التصفية المالية واعتماد توزيع الأرباح</strong>
+                    <span style="font-size: 10px; color: #64748b;">تاريخ الاعتماد: ${new Date().toLocaleDateString('ar-EG')}</span>
+                </div>
+                <p style="font-size: 10.5px; color: #475569; margin: 0 0 14px 0; line-height: 1.6;">
+                    يقر الشركاء الموقعون أدناه بصحة واكتمال كافة الأرقام والمراكز المالية الموضحة بالتقرير، بما في ذلك رأس المال، وتوزيعات الأرباح، وحصص البضاعة، وتسويات العهد والمسحوبات الشخصية، ويُعتبر هذا التقرير سنداً رسمياً للتسوية المالية للفترة المحددة.
+                </p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                    ${partners.map(p => `
+                        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; text-align: center;">
+                            <div style="font-weight: bold; color: #0f172a; font-size: 12px; margin-bottom: 4px;">الشريك / ${p.name}</div>
+                            <div style="font-size: 10px; color: #64748b; margin-bottom: 12px;">(نسبة الشراكة: ${p.profitRatio}%)</div>
+                            <div style="font-size: 10px; color: #94a3b8; border-bottom: 1px dotted #94a3b8; height: 28px; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center;">
+                                <span>توقيع الشريك: ........................</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                    <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-weight: bold; color: #1e3a8a; font-size: 12px; margin-bottom: 4px;">الإدارة المالية والمحاسبة</div>
+                        <div style="font-size: 10px; color: #64748b; margin-bottom: 12px;">(اعتماد وتدقيق الحسابات)</div>
+                        <div style="font-size: 10px; color: #94a3b8; border-bottom: 1px dotted #94a3b8; height: 28px; margin-bottom: 6px; display: flex; align-items: flex-end; justify-content: center;">
+                            <span>توقيع المحاسب: ........................</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>`;
     })() : '';
 

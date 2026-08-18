@@ -14,6 +14,7 @@ interface ExpensesPageProps {
 }
 
 const getPayerInfo = (exp: Transaction, settings: any, treasury?: Treasury) => {
+  // 1. Explicit partner ID payment
   if (exp.details?.paidByPartnerId) {
     const p = settings.partners?.find((p: any) => p.id === exp.details?.paidByPartnerId);
     return {
@@ -23,24 +24,19 @@ const getPayerInfo = (exp: Transaction, settings: any, treasury?: Treasury) => {
       type: 'partner'
     };
   }
-  if (exp.details?.expensePaidBy && exp.details.expensePaidBy.trim() !== '') {
-    return {
-      text: `🤝 بواسطة: ${exp.details.expensePaidBy}`,
-      icon: <User size={12} />,
-      colorClass: 'text-purple-700 bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 font-bold',
-      type: 'partner'
-    };
-  }
-  if (exp.details?.treasuryAccountId === 'main_wallet' || exp.details?.paymentMethod === 'wallet' || exp.details?.paymentMethod === 'supply_wallet' || exp.details?.paymentMethod === 'cash') {
-    return {
-      text: '💳 المحفظة العامة (محفظة المتجر)',
-      icon: <WalletIcon size={12} />,
-      colorClass: 'text-blue-700 bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 font-bold',
-      type: 'treasury'
-    };
-  }
-  if (exp.details?.treasuryAccountId) {
-    const acc = treasury?.accounts.find(a => a.id === exp.details?.treasuryAccountId);
+
+  // 2. Specific Treasury / Bank Account (e.g. البنك الأهلي, خزينة, فودافون كاش)
+  const tAccId = exp.details?.treasuryAccountId || (exp as any).treasuryAccountId;
+  if (tAccId) {
+    if (tAccId === 'main_wallet') {
+      return {
+        text: '💳 المحفظة العامة (محفظة المتجر)',
+        icon: <WalletIcon size={12} />,
+        colorClass: 'text-blue-700 bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 font-bold',
+        type: 'treasury'
+      };
+    }
+    const acc = treasury?.accounts?.find(a => String(a.id) === String(tAccId));
     if (acc) {
       const typeIcon = acc.type === 'bank' ? <Building2 size={12} /> : acc.type === 'wallet' ? <WalletIcon size={12} /> : <Landmark size={12} />;
       return {
@@ -49,7 +45,23 @@ const getPayerInfo = (exp: Transaction, settings: any, treasury?: Treasury) => {
         colorClass: 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 font-bold',
         type: 'treasury'
       };
-    } else if (exp.details.treasuryAccountId === 'main_wallet') {
+    }
+  }
+
+  // 3. Named payer in details (e.g. expensePaidBy)
+  if (exp.details?.expensePaidBy && exp.details.expensePaidBy.trim() !== '') {
+    const paidByVal = exp.details.expensePaidBy.trim();
+    const matchedTreasury = treasury?.accounts?.find(a => a.name.trim() === paidByVal);
+    if (matchedTreasury) {
+      const typeIcon = matchedTreasury.type === 'bank' ? <Building2 size={12} /> : matchedTreasury.type === 'wallet' ? <WalletIcon size={12} /> : <Landmark size={12} />;
+      return {
+        text: `${matchedTreasury.name} (${matchedTreasury.type === 'bank' ? 'بنك' : matchedTreasury.type === 'wallet' ? 'محفظة' : 'خزينة'})`,
+        icon: typeIcon,
+        colorClass: 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 font-bold',
+        type: 'treasury'
+      };
+    }
+    if (paidByVal === 'المحفظة العامة') {
       return {
         text: '💳 المحفظة العامة',
         icon: <WalletIcon size={12} />,
@@ -57,8 +69,25 @@ const getPayerInfo = (exp: Transaction, settings: any, treasury?: Treasury) => {
         type: 'treasury'
       };
     }
+    return {
+      text: `🤝 بواسطة: ${paidByVal}`,
+      icon: <User size={12} />,
+      colorClass: 'text-purple-700 bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 font-bold',
+      type: 'partner'
+    };
   }
-  if (exp.note && (exp.note.includes('بواسطة') || exp.note.includes('شريك') || exp.note.includes('شركاء') || exp.note.includes('دفعهم'))) {
+
+  if (exp.details?.paymentMethod === 'wallet' || exp.details?.paymentMethod === 'supply_wallet' || exp.details?.paymentMethod === 'cash') {
+    return {
+      text: '💳 المحفظة العامة (محفظة المتجر)',
+      icon: <WalletIcon size={12} />,
+      colorClass: 'text-blue-700 bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 font-bold',
+      type: 'treasury'
+    };
+  }
+
+  // 4. Note containing explicit payment keyword
+  if (exp.note && (exp.note.includes('بواسطة') || exp.note.includes('دفعهم') || exp.note.includes('سداد بواسطة'))) {
     let pName = 'سداد شركاء';
     if (exp.note.includes('بواسطة')) {
       const parts = exp.note.split('بواسطة');
@@ -76,6 +105,7 @@ const getPayerInfo = (exp: Transaction, settings: any, treasury?: Treasury) => {
       type: 'partner'
     };
   }
+
   return {
     text: '💳 المحفظة العامة / الخزينة',
     icon: <WalletIcon size={12} />,
@@ -323,10 +353,76 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
     }));
   }, [settings.expenseCategories]);
 
+  const normalizeName = (name: string = '') => name.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').trim().toLowerCase();
+
+  const partnerBreakdowns = useMemo(() => {
+    const totalAllExpenses = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    return (settings.partners || []).map(p => {
+      const pName = p.name;
+      const normName = normalizeName(pName);
+      
+      const pExpenses = expenses.filter(exp => {
+        const isExplicit = exp.partnerId === p.id || exp.details?.paidByPartnerId === p.id;
+        if (isExplicit) return true;
+
+        // If treasuryAccountId is specified and not empty, it belongs to that treasury/bank account, NOT partner personal payment
+        const tAccId = exp.details?.treasuryAccountId || (exp as any).treasuryAccountId;
+        if (tAccId && tAccId !== '') return false;
+
+        const normPayerName = normalizeName(exp.details?.expensePaidBy || exp.details?.payerName || '');
+        if (normPayerName && normPayerName === normName) return true;
+
+        const normNote = normalizeName(exp.note || '');
+        const normDetailsNote = normalizeName(exp.details?.note || '');
+        
+        const hasExplicitPayerInNote = 
+          normNote.includes(`بواسطه ${normName}`) || normNote.includes(`بواسطة ${normName}`) || 
+          normNote.includes(`دفعهم ${normName}`) || normNote.includes(`سداد ${normName}`) ||
+          normDetailsNote.includes(`بواسطه ${normName}`) || normDetailsNote.includes(`بواسطة ${normName}`) ||
+          normDetailsNote.includes(`دفعهم ${normName}`) || normDetailsNote.includes(`سداد ${normName}`);
+
+        return hasExplicitPayerInNote;
+      });
+
+      const totalPaid = pExpenses.reduce((sum, exp) => {
+        const text = exp.details?.expensePaidBy || exp.note;
+        const regex = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*دفعهم\\s*${pName}`, 'i');
+        const match = text?.match(regex);
+        if (match && parseFloat(match[1]) > 0) {
+          return sum + parseFloat(match[1]);
+        }
+        return sum + (Number(exp.amount) || 0);
+      }, 0);
+
+      const percentage = totalAllExpenses > 0 ? ((totalPaid / totalAllExpenses) * 100).toFixed(1) : '0';
+
+      return {
+        partner: p,
+        totalPaid,
+        count: pExpenses.length,
+        percentage
+      };
+    });
+  }, [expenses, settings.partners]);
+
   const stats = useMemo(() => {
       const total = filteredExpenses.reduce((sum, t) => sum + t.amount, 0);
-      const treasuryTotal = filteredExpenses.filter(t => !t.details?.paidByPartnerId && !t.note.includes('بواسطة')).reduce((sum, t) => sum + t.amount, 0);
-      const partnerTotal = filteredExpenses.filter(t => !!t.details?.paidByPartnerId || t.note.includes('بواسطة')).reduce((sum, t) => sum + t.amount, 0);
+      const partnerTotal = filteredExpenses.filter(t => {
+        if (t.details?.paidByPartnerId) return true;
+        const tAccId = t.details?.treasuryAccountId || (t as any).treasuryAccountId;
+        if (tAccId && tAccId !== '') return false;
+        if (t.details?.expensePaidBy && (settings.partners || []).some(p => normalizeName(p.name) === normalizeName(t.details?.expensePaidBy))) return true;
+        if (t.note && (t.note.includes('بواسطة') || t.note.includes('دفعهم') || t.note.includes('سداد بواسطة'))) {
+          const normNote = normalizeName(t.note);
+          return (settings.partners || []).some(p => {
+            const normP = normalizeName(p.name);
+            return normNote.includes(`بواسطه ${normP}`) || normNote.includes(`بواسطة ${normP}`) || normNote.includes(`دفعهم ${normP}`) || normNote.includes(`سداد ${normP}`);
+          });
+        }
+        return false;
+      }).reduce((sum, t) => sum + t.amount, 0);
+      
+      const treasuryTotal = Math.max(0, total - partnerTotal);
       const avgExpense = filteredExpenses.length > 0 ? Math.round(total / filteredExpenses.length) : 0;
       
       const categoryTotals = expenseCategoriesConfig.map(cat => ({
@@ -338,7 +434,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       })).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
 
       return { total, treasuryTotal, partnerTotal, avgExpense, count: filteredExpenses.length, categoryTotals };
-  }, [filteredExpenses, expenseCategoriesConfig]);
+  }, [filteredExpenses, expenseCategoriesConfig, settings.partners]);
 
   const handleAddExpense = (e: React.FormEvent) => {
     e.preventDefault();
@@ -525,16 +621,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       const timeStr = new Date(exp.date).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'});
       const catLabel = TRANSACTION_CATEGORY_LABELS[exp.category || ''] || exp.category || 'مصروف عام';
       
-      let payerStr = 'الخزينة العامة';
-      if (exp.details?.paidByPartnerId) {
-        const p = settings.partners?.find(p => p.id === exp.details?.paidByPartnerId);
-        payerStr = p ? `سداد شريك: ${p.name}` : 'سداد شريك';
-      } else if (exp.details?.treasuryAccountId) {
-        const acc = treasury?.accounts.find(a => a.id === exp.details?.treasuryAccountId);
-        payerStr = acc ? `${acc.name} (${acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'خزينة'})` : 'خزينة / محفظة';
-      } else if (exp.note.includes('بواسطة')) {
-        payerStr = exp.note.split('بواسطة')[1]?.split(':')[0]?.trim() || 'سداد شريك';
-      }
+      const payerInfo = getPayerInfo(exp, settings, treasury);
+      const payerStr = payerInfo.text.replace(/^[🤝💳🏦📱💵]\s*/, '').trim();
 
       return [
         `"${dateStr}"`,
@@ -641,7 +729,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           </div>
         </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-8 border-t border-slate-200 pt-6">
+        <div className="mt-8 grid grid-cols-3 gap-6 border-t border-slate-200 pt-6">
            <div>
              <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-200 pb-1">أرصدة الخزائن والمحافظ المالية</h3>
              <div className="space-y-2">
@@ -654,6 +742,21 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 <div className="flex justify-between text-xs border-t border-slate-200 pt-1 font-black">
                   <span>إجمالي السيولة المتاحة:</span>
                   <span>{(treasury?.accounts.reduce((sum, a) => sum + a.balance, 0) || 0).toLocaleString()} ج.م</span>
+                </div>
+             </div>
+           </div>
+           <div>
+             <h3 className="text-sm font-black text-slate-900 mb-3 border-b border-slate-200 pb-1">إجمالي مصروفات كل شريك</h3>
+             <div className="space-y-2">
+                {partnerBreakdowns.map(({ partner, totalPaid, count, percentage }) => (
+                  <div key={partner.id} className="flex justify-between text-xs">
+                    <span className="text-slate-600">{partner.name} ({percentage}%):</span>
+                    <span className="font-bold text-amber-700">{totalPaid.toLocaleString()} ج.م</span>
+                  </div>
+                ))}
+                <div className="flex justify-between text-xs border-t border-slate-200 pt-1 font-black">
+                  <span>إجمالي ما سدده الشركاء:</span>
+                  <span>{stats.partnerTotal.toLocaleString()} ج.م</span>
                 </div>
              </div>
            </div>
@@ -930,6 +1033,138 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           )}
         </div>
       </div>
+
+      {/* Partner Expenses Breakdown Cards (إجمالي مصروف كل شريك) */}
+      {(settings.partners || []).length > 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/60 dark:border-slate-800 shadow-sm space-y-4 print:hidden">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <User size={18} />
+              </div>
+              <div>
+                <h3 className="font-black text-base text-slate-800 dark:text-white flex items-center gap-2">
+                  <span>إجمالي مصروفات كل شريك</span>
+                  <span className="text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                    توزيع دقيق ومستقل
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400">تتبع ما قام كل شريك بإنفاقه وسداده من حسابه الخاص ومقارنته بالمصروفات العامة</p>
+              </div>
+            </div>
+            <div className="text-xs font-bold text-slate-500">
+              إجمالي ما سدده الشركاء: <span className="font-black text-amber-600 dark:text-amber-400 font-mono text-sm">{stats.partnerTotal.toLocaleString()} ج.م</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+            {partnerBreakdowns.map(({ partner, totalPaid, count, percentage }) => {
+              const isSelected = filterPartner === partner.id;
+              return (
+                <div 
+                  key={partner.id} 
+                  className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between relative overflow-hidden ${
+                    isSelected 
+                      ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600 shadow-md ring-2 ring-amber-400/30' 
+                      : 'bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-700/60 hover:border-amber-300 dark:hover:border-amber-700'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl bg-amber-500 text-white font-black text-sm flex items-center justify-center shadow-sm">
+                        {partner.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <span>{partner.name}</span>
+                          <span className="text-[10px] text-slate-400 font-bold">({(partner as any).profitPercentage || partner.profitRatio || 0}%)</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-medium">
+                          {count} {count === 1 ? 'مصروف' : 'مصروفات'} مسجلة
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-amber-600 dark:text-amber-400 font-mono bg-amber-100/70 dark:bg-amber-900/40 px-2 py-0.5 rounded-lg">
+                      {percentage}%
+                    </span>
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400">إجمالي ما صرفه:</div>
+                      <div className="text-lg font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                        {totalPaid.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setFilterPartner(isSelected ? 'all' : partner.id)}
+                      className={`text-xs font-black px-3 py-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer ${
+                        isSelected 
+                          ? 'bg-amber-600 text-white shadow-sm' 
+                          : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/50 hover:text-amber-600 border border-slate-200 dark:border-slate-600'
+                      }`}
+                    >
+                      {isSelected ? (
+                        <>
+                          <Check size={13} />
+                          <span>محدد حالياً</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>عرض مصروفاته</span>
+                          <ChevronRight size={13} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Treasury card */}
+            <div className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between relative overflow-hidden ${
+              filterAccount !== 'all' && filterAccount !== 'partner_personal'
+                ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-600 shadow-md ring-2 ring-emerald-400/30'
+                : 'bg-slate-50/60 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-700/60 hover:border-emerald-300 dark:hover:border-emerald-700'
+            }`}>
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white font-black text-sm flex items-center justify-center shadow-sm">
+                    <Building2 size={16} />
+                  </div>
+                  <div>
+                    <div className="font-black text-sm text-slate-900 dark:text-white">
+                      الخزائن والمحافظ
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-medium">
+                      المتجر المباشر
+                    </div>
+                  </div>
+                </div>
+                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-100/70 dark:bg-emerald-900/40 px-2 py-0.5 rounded-lg">
+                  {stats.total > 0 ? ((stats.treasuryTotal / stats.total) * 100).toFixed(0) : '0'}%
+                </span>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-bold text-slate-400">إجمالي صرف الخزائن:</div>
+                  <div className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                    {stats.treasuryTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setFilterAccount(filterAccount === 'all' ? 'main_wallet' : 'all')}
+                  className="text-xs font-black px-3 py-1.5 rounded-xl bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-600 border border-slate-200 dark:border-slate-600 transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <span>عرض الخزينة</span>
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Advanced Filter Bar ("اختيار المحفظة في الاختيارات") */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/60 dark:border-slate-800 shadow-sm space-y-4 print:hidden">
