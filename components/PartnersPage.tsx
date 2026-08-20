@@ -891,11 +891,24 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         <div className="flex flex-wrap gap-3">
               <button 
                 onClick={() => setIsClosingModalOpen(true)}
-                className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-slate-900 text-white px-5 py-3 rounded-2xl font-black hover:from-indigo-800 hover:to-slate-950 transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2 border border-indigo-400/30"
+                className="group relative inline-flex items-center gap-3 px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 hover:from-indigo-800 hover:via-indigo-900 hover:to-slate-800 text-white font-black text-xs sm:text-sm border border-indigo-400/40 hover:border-amber-400/60 shadow-xl shadow-indigo-950/20 hover:shadow-indigo-500/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer overflow-hidden"
                 title="إقفال الدورة المحاسبية وتسوية مقاصة الشركاء وفق بضاعة المخزون"
               >
-                <Lock size={18} className="text-amber-300" />
-                <span>🔒 إقفال الفترة ومقاصة المخزون</span>
+                {/* Shimmer / Glow effect on hover */}
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                
+                <span className="p-1.5 bg-amber-500/20 text-amber-300 rounded-xl border border-amber-400/40 group-hover:rotate-12 group-hover:scale-110 transition-all duration-300 shrink-0 shadow-sm">
+                    <Lock size={16} className="text-amber-300" />
+                </span>
+
+                <span className="tracking-tight text-white font-black text-xs sm:text-sm">
+                    إقفال الفترة وبدء دورة جديدة
+                </span>
+
+                <span className="px-2.5 py-1 text-[10px] sm:text-[11px] font-black bg-gradient-to-r from-amber-400/20 to-amber-500/20 text-amber-300 rounded-xl border border-amber-400/40 shadow-inner flex items-center gap-1.5 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    مقاصة المخزون
+                </span>
               </button>
               <button 
                 onClick={() => setShowHelpGuide(!showHelpGuide)}
