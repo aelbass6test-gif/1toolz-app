@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import { parseSafeDate } from '../utils/dateUtils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown, Eye, EyeOff } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from '../types';
@@ -375,7 +376,12 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   };
 
   const TeamList = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0,0,0,0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23,59,59,999);
+
     const statsMap: Record<string, { name: string; confirmed: number; total: number }> = {};
     
     (settings.employees || []).filter(e => e.status === 'active' || !e.status).forEach(emp => {
@@ -384,7 +390,8 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
     orders.forEach(o => {
         (o.confirmationLogs || []).forEach(log => {
-            if (log.timestamp.startsWith(today)) {
+            const logDate = parseSafeDate(log.timestamp);
+            if (logDate && logDate.getTime() >= startOfDay.getTime() && logDate.getTime() <= endOfDay.getTime()) {
                 if (!statsMap[log.userId]) {
                     statsMap[log.userId] = { name: log.userName || 'موظف', confirmed: 0, total: 0 };
                 }
@@ -2096,7 +2103,12 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 
                 <div className="space-y-3">
                   {(() => {
-                    const today = new Date().toISOString().split('T')[0];
+                    const now = new Date();
+                    const startOfDay = new Date(now);
+                    startOfDay.setHours(0,0,0,0);
+                    const endOfDay = new Date(now);
+                    endOfDay.setHours(23,59,59,999);
+
                     const statsMap: Record<string, { name: string; confirmed: number; total: number }> = {};
                     
                     (settings.employees || []).filter(e => e.status === 'active' || !e.status).forEach(emp => {
@@ -2105,7 +2117,8 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
                     orders.forEach(o => {
                         (o.confirmationLogs || []).forEach(log => {
-                            if (log.timestamp.startsWith(today)) {
+                            const logDate = parseSafeDate(log.timestamp);
+                            if (logDate && logDate.getTime() >= startOfDay.getTime() && logDate.getTime() <= endOfDay.getTime()) {
                                 if (!statsMap[log.userId]) {
                                     statsMap[log.userId] = { name: log.userName || 'موظف', confirmed: 0, total: 0 };
                                 }

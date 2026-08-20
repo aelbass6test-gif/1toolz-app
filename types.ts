@@ -799,6 +799,40 @@ export interface Settings {
     enableLoadingSound?: boolean;
   };
   insurancePackages?: InsurancePackage[];
+  financialPeriods?: FinancialPeriod[];
+  activePeriodStartDate?: string;
+  activePeriodName?: string;
+  openingInventoryValue?: number;
+}
+
+export interface FinancialPeriod {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  closedAt: string;
+  closedBy?: string;
+  openingInventoryValue: number;
+  closingInventoryValue: number;
+  totalSales: number;
+  cogs: number;
+  grossProfit: number;
+  totalExpenses: number;
+  totalLosses: number;
+  netProfit: number;
+  distributedProfits: number;
+  partnerBalancesSnapshot: Array<{
+    partnerId: string;
+    partnerName: string;
+    profitRatio: number;
+    capital: number;
+    finalBalance: number;
+    inventoryShare: number;
+    adjustmentAmount: number; // Positive = deposited, Negative = withdrawn
+    newOpeningCapital: number;
+  }>;
+  notes?: string;
+  status: 'closed' | 'archived';
 }
 
 export interface InsurancePackage {
@@ -1045,6 +1079,7 @@ export interface InventoryAuditSession {
   id: string;
   title: string;
   date: string;
+  timestamp?: number;
   performedBy: string; // user name/email
   scope: 'all' | string; // 'all' or collection ID
   warehouseId?: string; // New field for warehouse-specific audits

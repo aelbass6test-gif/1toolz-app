@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
-import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck } from 'lucide-react';
+import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck, Lock } from 'lucide-react';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
+import { PeriodClosingModal } from './PeriodClosingModal';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
@@ -76,10 +77,16 @@ const PartnerWithdrawalBreakdown = ({ partner, settings }: { partner: any; setti
         return matchesId || matchesName || matchesNote;
     });
 
-    const withdrawalTxs = partnerTxs.filter(t => 
-        ['profit_withdrawal', 'loan', 'profit_distribution', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
-        (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage')
-    );
+    const withdrawalTxs = partnerTxs.filter(t => {
+        const isWithdrawalType = ['profit_withdrawal', 'loan', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
+            (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'profit_distribution' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage' && t.type !== 'internal_transfer_in' && t.type !== 'custody_receive');
+        
+        if (!isWithdrawalType) return false;
+        
+        const notes = (t.notes || t.description || '').toLowerCase();
+        // Filter out equalization settlements
+        return !(notes.includes('تسوية') && (notes.includes('مخزون') || notes.includes('بضاعة') || notes.includes('مقاصة')));
+    });
 
     if (withdrawalTxs.length === 0) {
         return (
@@ -194,7 +201,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         
         // Compute trend based on standard days in filtered data
         // If they chose custom range, map those days; otherwise last 7 days as default
-        const datesInOrders = Array.from(new Set(orders.map(o => o.date.split('T')[0]))).sort();
+        const datesInOrders = Array.from(new Set(orders.map(o => (o.date || '').split('T')[0]))).filter(Boolean).sort();
         const targetDates = datesInOrders.length > 1 ? datesInOrders.slice(-10) : [...Array(7)].map((_, i) => {
             const d = new Date();
             d.setDate(d.getDate() - i);
@@ -202,7 +209,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
         }).reverse();
 
         const salesTrend = targetDates.map(date => {
-            const dayOrders = orders.filter(o => o.date.startsWith(date) && (o.status === 'تم_التحصيل' || o.status === 'مدفوعة'));
+            const dayOrders = orders.filter(o => (o.date || '').startsWith(date) && (o.status === 'تم_التحصيل' || o.status === 'مدفوعة'));
             return {
                 date: date.split('-').slice(1).join('/'),
                 revenue: dayOrders.reduce((sum, o) => sum + ((o.items || []).reduce((itemSum, item) => itemSum + (item.price * item.quantity), 0) + o.shippingFee - (o.discount || 0)), 0)
@@ -309,7 +316,7 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             }
         });
 
-        const realNetProfit = reportData.netFinancial;
+        const realNetProfit = reportData?.netFinancial || 0;
         const marginRate = grossSales > 0 ? (realNetProfit / grossSales) * 100 : 0;
 
         return {
@@ -322,11 +329,12 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             realNetProfit,
             marginRate
         };
-    }, [orders, settings, wallet, reportData.netFinancial]);
+    }, [orders, settings, wallet, reportData]);
 
     const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
 
     const handleExportCSV = () => {
+        if (!reportData || !incomeStatement) return;
         const headers = ['إحصائية', 'القيمة'];
         const rows = [
             ['إجمالي الأرباح المستلمة', `${reportData.totalProfit} ج.م`],
@@ -342,11 +350,11 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             ['إجمالي عدد الطلبات الكلي', `${reportData.totalOrders}`],
         ];
 
-        reportData.productPerformance.forEach((p, i) => {
+        (reportData.productPerformance || []).forEach((p, i) => {
             rows.push([`المنتج الأكثر مبيعاً #${i+1}: ${p.name}`, `عدد: ${p.quantitySold} قطعة (أرباح صافية منه: ${p.netProfit} ج.م)`]);
         });
 
-        reportData.shippingPerformance.forEach(s => {
+        (reportData.shippingPerformance || []).forEach(s => {
             rows.push([`شركة الشحن: ${s.name}`, `طلبات: ${s.count} (معدل تسليم ناجح: ${s.successRate.toFixed(1)}%)`]);
         });
         
@@ -440,11 +448,11 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                <ReportCard title="إجمالي الأرباح" value={`${reportData.totalProfit.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<ArrowUp size={24}/>} color='emerald' tooltip="مجموع الأرباح الصافية من جميع الطلبات الناجحة (بعد خصم تكلفة المنتجات ومصاريف الشحن والرسوم)." />
-                <ReportCard title="إجمالي الخسائر" value={`${reportData.totalLoss.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<ArrowDown size={24}/>} color='red' tooltip="مجموع مصاريف الشحن والارتجاع الضائع للطلبات المرتجعة والفاشلة." />
-                <ReportCard title="مبيعات المنتجات" value={`${reportData.totalProductRevenue.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<Package size={24}/>} color='blue' tooltip="إجمالي قيمة المنتجات المباعة في الطلبات الناجحة بدون الشحن." />
-                <ReportCard title="إجمالي المصروفات" value={`${reportData.totalExpenses.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<DollarSign size={24}/>} color='amber' tooltip="مجموع المصروفات الإدارية المسجلة بالخزنة كإعلانات وصيانة ورواتب لتخصم من الأرباح الكلية." />
-                <ReportCard title="الصافي الفعلي الحقيقي" value={`${reportData.netFinancial.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<PieChartIcon size={24}/>} color='blue' tooltip="الربح الباقي النهائي والحقيقي بعد طرح إجمالي الخسائر وإجمالي المصاريف من أصل الربح." />
+                <ReportCard title="إجمالي الأرباح" value={`${(reportData?.totalProfit || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<ArrowUp size={24}/>} color='emerald' tooltip="مجموع الأرباح الصافية من جميع الطلبات الناجحة (بعد خصم تكلفة المنتجات ومصاريف الشحن والرسوم)." />
+                <ReportCard title="إجمالي الخسائر" value={`${(reportData?.totalLoss || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<ArrowDown size={24}/>} color='red' tooltip="مجموع مصاريف الشحن والارتجاع الضائع للطلبات المرتجعة والفاشلة." />
+                <ReportCard title="مبيعات المنتجات" value={`${(reportData?.totalProductRevenue || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<Package size={24}/>} color='blue' tooltip="إجمالي قيمة المنتجات المباعة في الطلبات الناجحة بدون الشحن." />
+                <ReportCard title="إجمالي المصروفات" value={`${(reportData?.totalExpenses || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<DollarSign size={24}/>} color='amber' tooltip="مجموع المصروفات الإدارية المسجلة بالخزنة كإعلانات وصيانة ورواتب لتخصم من الأرباح الكلية." />
+                <ReportCard title="الصافي الفعلي الحقيقي" value={`${(reportData?.netFinancial || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`} icon={<PieChartIcon size={24}/>} color='blue' tooltip="الربح الباقي النهائي والحقيقي بعد طرح إجمالي الخسائر وإجمالي المصاريف من أصل الربح." />
             </div>
 
             {/* Income Statement & Net Profit Margin Board */}
@@ -683,6 +691,14 @@ const SalesSummaryReport: React.FC<Omit<ReportsPageProps, 'activeStore'>> = ({ o
 };
 
 const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, settings, activeStore, dateRangeText }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل إعدادات التقارير...</p>
+            </div>
+        );
+    }
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -1213,6 +1229,14 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
 };
 
 const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, supplyOrders }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل التقرير الشامل...</p>
+            </div>
+        );
+    }
     const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
@@ -1507,6 +1531,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             .reduce((sum, t) => sum + t.amount, 0);
             
         const totalProfitWithdrawals = partnerTransactions
+            .filter(t => t.type === 'profit_withdrawal')
+            .reduce((sum, t) => sum + t.amount, 0);
+
+        const totalProfitDistributions = partnerTransactions
             .filter(t => t.type === 'profit_distribution')
             .reduce((sum, t) => sum + t.amount, 0);
 
@@ -1531,7 +1559,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                 withdrawals,
                 distributions,
                 repayments,
-                netLoan: loans - repayments,
+                netLoan: Math.max(0, loans - repayments),
                 currentProfitShare: undistributedShare,
                 currentBalance
             };
@@ -2726,6 +2754,14 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 };
 
 const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل تقرير الشركاء...</p>
+            </div>
+        );
+    }
     const { storeId } = useParams<{ storeId: string }>();
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
     const [isContinuous, setIsContinuous] = useState(false);
@@ -2810,7 +2846,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
             advances: txAdvancesTotal + partnerOrderAdvancesTotal,
             posSales: partnerPOSSalesTotal,
             repayments: transactions.filter(t => t.type === 'repayment').reduce((a, b) => a + b.amount, 0),
-            withdrawals: distributed
+            withdrawals: transactions.filter(t => t.type === 'profit_withdrawal' || t.type === 'personal_withdrawal' || t.type === 'wallet_withdrawal' || t.type === 'custody_withdrawal').reduce((a, b) => a + b.amount, 0)
         };
 
         return {
@@ -2958,7 +2994,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                         مركز الشركاء والتحليل المالي الذكي
                     </h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        متابعة الذمم المادية رؤوس الأموال والأرباح غير الموزعة لكل شريك بالتفصيل
+                        متابعة الذمم المادية رؤوس الأموال والأرباح المستحقة (غير الموزعة) لكل شريك بالتفصيل
                     </p>
                 </div>
 
@@ -3131,8 +3167,8 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                 <ReportCard title="إجمالي رأس المال" value={`${stats.totals.capital.toLocaleString()} ج.م`} icon={<ArrowUpLeft size={22}/>} color="blue" tooltip="مجموع رؤوس الأموال التي تم إيداعها من قبل جميع الشركاء." />
                 <ReportCard title="الأرباح الموزعة" value={`${stats.distributedProfit.toLocaleString()} ج.م`} icon={<TrendingUp size={22}/>} color="emerald" tooltip="إجمالي الأرباح التي تم سحبها بالفعل من قبل الشركاء." />
-                <ReportCard title="الأرباح غير الموزعة" value={`${stats.undistributedProfit.toLocaleString()} ج.م`} icon={<PieChartIcon size={22}/>} color="amber" tooltip="الأرباح المحققة التي لم يتم توزيعها على الشركاء بعد." />
-                <ReportCard title="إجمالي السلف القائمة" value={`${(stats.totals.loans - stats.totals.repayments).toLocaleString()} ج.م`} icon={<ArrowDownRight size={22}/>} color="red" tooltip="إجمالي مديونات الشركاء (السلف التي لم يتم سدادها بعد)." />
+                <ReportCard title="الأرباح المستحقة (غير الموزعة)" value={`${stats.undistributedProfit.toLocaleString()} ج.م`} icon={<PieChartIcon size={22}/>} color="amber" tooltip="الأرباح المحققة التي لم يتم توزيعها على الشركاء بعد." />
+                <ReportCard title="إجمالي السلف القائمة" value={`${Math.max(0, stats.totals.loans - stats.totals.repayments).toLocaleString()} ج.م`} icon={<ArrowDownRight size={22}/>} color="red" tooltip="إجمالي مديونات الشركاء (السلف التي لم يتم سدادها بعد)." />
                 <ReportCard title="إجمالي العربونات المستلمة" value={`${stats.totals.advances.toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="teal" tooltip="إجمالي عربونات العملاء التي تم استلامها." />
                 <ReportCard title="عهد المبيعات (POS)" value={`${(stats.totals.posSales || 0).toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="indigo" tooltip="إجمالي عهد مبيعات الكاشير المباشر لدى الشركاء." />
             </div>
@@ -3209,7 +3245,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                         </div>
                     ) : (
                         filteredPartnerDetails.map((p, idx) => {
-                            const netLoan = p.loans - p.repayments;
+                            const netLoan = Math.max(0, p.loans - p.repayments);
                             const roiPercent = p.capital > 0 ? (((p.distributions + p.profitShare) / p.capital) * 100).toFixed(1) : '0';
                             const isPositive = p.balance >= 0;
 
@@ -3343,7 +3379,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                             <td className="px-4 py-3 font-mono">{p.capital.toLocaleString()}</td>
                                             <td className="px-4 py-3 font-mono text-emerald-600">+{p.distributions.toLocaleString()}</td>
                                             <td className="px-4 py-3 font-mono text-amber-600">-{p.withdrawals.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-red-600">{(p.loans - p.repayments).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-red-600">{Math.max(0, p.loans - p.repayments).toLocaleString()}</td>
                                             <td className="px-4 py-3 font-mono text-emerald-600 font-bold">+{Math.round(p.profitShare).toLocaleString()}</td>
                                             <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString() : '0'}</td>
                                             <td className="px-4 py-3 font-mono text-indigo-600">-{p.posSales ? p.posSales.toLocaleString() : '0'}</td>
@@ -3480,6 +3516,14 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
 };
 
 const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateRangeText?: string }> = ({ activeStore, settings, dateRangeText }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل تقرير المخزون...</p>
+            </div>
+        );
+    }
     const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [isExporting, setIsExporting] = useState(false);
     const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('landscape');
@@ -3850,6 +3894,14 @@ const InventoryReport: React.FC<{ activeStore?: Store; settings: Settings; dateR
 };
 
 const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, supplyOrders }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل التقرير الختامي...</p>
+            </div>
+        );
+    }
     const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
     const [subTab, setSubTab] = useState<'summary' | 'financials' | 'operations' | 'partners'>('summary');
     const stats = useMemo(() => {
@@ -4600,6 +4652,14 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
 };
 
 const POSSalesReport: React.FC<{ orders: Order[], settings: Settings, activeStore?: Store, dateRangeText?: string }> = ({ orders, settings, activeStore, dateRangeText }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل تقرير الكاشير...</p>
+            </div>
+        );
+    }
     const [selectedCashier, setSelectedCashier] = useState<string>('all');
     const [paymentFilter, setPaymentFilter] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState<string>('');
@@ -5217,15 +5277,59 @@ const POSSalesReport: React.FC<{ orders: Order[], settings: Settings, activeStor
 };
 
 const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, setSettings, setWallet }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-indigo-500 mb-4" />
+                <p className="text-sm font-bold">جاري تهيئة مركز التقارير...</p>
+            </div>
+        );
+    }
     const [activeTab, setActiveTab] = useState<'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting' | 'pos' | 'custody'>('summary');
-    const [dateRangeType, setDateRangeType] = useState<string>('all');
+    const [dateRangeType, setDateRangeType] = useState<string>(() => settings?.activePeriodStartDate ? 'activePeriod' : 'all');
     const [customStartDate, setCustomStartDate] = useState<string>('');
     const [customEndDate, setCustomEndDate] = useState<string>('');
+    const [isClosingModalOpen, setIsClosingModalOpen] = useState<boolean>(false);
 
     const filteredData = useMemo(() => {
-        if (dateRangeType === 'all') {
-            return { orders, wallet, supplyOrders: settings?.supplyOrders || [] };
-        }
+        const parseSafeDate = (dateVal: any): Date | null => {
+            if (!dateVal) return null;
+            if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? null : dateVal;
+            if (typeof dateVal === 'number') {
+                const d = new Date(dateVal);
+                return isNaN(d.getTime()) ? null : d;
+            }
+            
+            let str = String(dateVal).trim();
+            if (!str) return null;
+            
+            // Convert Arabic-Indic numerals (٠١٢٣٤٥٦٧٨٩) to Latin (0123456789)
+            str = str.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString());
+
+            let parsed = new Date(str);
+            if (!isNaN(parsed.getTime())) return parsed;
+
+            // Handle DD/MM/YYYY or YYYY-MM-DD or DD-MM-YYYY
+            const parts = str.split(/[\/\-\sT:]/);
+            if (parts.length >= 3) {
+                const n0 = parseInt(parts[0], 10);
+                const n1 = parseInt(parts[1], 10);
+                const n2 = parseInt(parts[2], 10);
+                const h = parts[3] ? parseInt(parts[3], 10) : 0;
+                const m = parts[4] ? parseInt(parts[4], 10) : 0;
+                const s = parts[5] ? parseInt(parts[5], 10) : 0;
+
+                if (!isNaN(n0) && !isNaN(n1) && !isNaN(n2)) {
+                    if (n0 > 1000) {
+                        parsed = new Date(n0, n1 - 1, n2, h, m, s);
+                    } else if (n2 > 1000) {
+                        parsed = new Date(n2, n1 - 1, n0, h, m, s);
+                    }
+                    if (!isNaN(parsed.getTime())) return parsed;
+                }
+            }
+            return null;
+        };
 
         const now = new Date();
         const startOfDay = (d: Date) => {
@@ -5239,12 +5343,25 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             return res;
         };
 
+        if (dateRangeType === 'all') {
+            return { orders, wallet, supplyOrders: settings?.supplyOrders || [], settings };
+        }
+
         let minDate: Date | null = null;
         let maxDate: Date | null = null;
 
-        if (dateRangeType === 'today') {
+        const activePeriodStart = settings?.activePeriodStartDate ? parseSafeDate(settings.activePeriodStartDate) : null;
+
+        if (dateRangeType === 'activePeriod' && activePeriodStart) {
+            minDate = activePeriodStart;
+            maxDate = endOfDay(now);
+        } else if (dateRangeType === 'today') {
             minDate = startOfDay(now);
             maxDate = endOfDay(now);
+            // If active period started today AFTER startOfDay, use activePeriodStart as minimum
+            if (activePeriodStart && activePeriodStart.getTime() > minDate.getTime() && activePeriodStart.getTime() <= maxDate.getTime()) {
+                minDate = activePeriodStart;
+            }
         } else if (dateRangeType === 'yesterday') {
             const yesterday = new Date(now);
             yesterday.setDate(now.getDate() - 1);
@@ -5263,46 +5380,51 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             maxDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
         } else if (dateRangeType === 'custom') {
             if (customStartDate) {
-                minDate = startOfDay(new Date(customStartDate));
+                const s = parseSafeDate(customStartDate);
+                if (s) minDate = startOfDay(s);
             }
             if (customEndDate) {
-                maxDate = endOfDay(new Date(customEndDate));
+                const e = parseSafeDate(customEndDate);
+                if (e) maxDate = endOfDay(e);
             }
         }
 
-        const filteredOrders = orders.filter(o => {
-            if (!o.date) return false;
-            const itemTime = new Date(o.date).getTime();
+        const isItemInRange = (itemDateStr?: string) => {
+            const itemDate = parseSafeDate(itemDateStr);
+            if (!itemDate) return false; // Exclude items with invalid/missing dates
+            const itemTime = itemDate.getTime();
             if (minDate && itemTime < minDate.getTime()) return false;
             if (maxDate && itemTime > maxDate.getTime()) return false;
             return true;
-        });
+        };
 
-        const filteredTransactions = (wallet?.transactions || []).filter(t => {
-            if (!t.date) return false;
-            const itemTime = new Date(t.date).getTime();
-            if (minDate && itemTime < minDate.getTime()) return false;
-            if (maxDate && itemTime > maxDate.getTime()) return false;
-            return true;
-        });
-
-        const filteredSupplyOrders = (settings?.supplyOrders || []).filter(o => {
-            if (!o.date) return false;
-            const itemTime = new Date(o.date).getTime();
-            if (minDate && itemTime < minDate.getTime()) return false;
-            if (maxDate && itemTime > maxDate.getTime()) return false;
-            return true;
-        });
+        const filteredOrders = orders.filter(o => isItemInRange(o.date));
+        const filteredTransactions = (wallet?.transactions || []).filter(t => isItemInRange(t.date));
+        const filteredSupplyOrders = (settings?.supplyOrders || []).filter(o => isItemInRange(o.date));
+        const filteredPosSales = (settings?.posSales || []).filter(s => isItemInRange(s.date));
+        const filteredCashHandovers = ((settings as any)?.cashHandovers || []).filter((h: any) => isItemInRange(h.date));
+        const filteredPartnerTransactions = (settings?.partnerTransactions || []).filter(t => isItemInRange(t.date));
 
         const filteredWallet = wallet ? {
             ...wallet,
             transactions: filteredTransactions
         } : wallet;
 
-        return { orders: filteredOrders, wallet: filteredWallet, supplyOrders: filteredSupplyOrders };
-    }, [orders, wallet, settings?.supplyOrders, dateRangeType, customStartDate, customEndDate]);
+        const filteredSettings = settings ? {
+            ...settings,
+            supplyOrders: filteredSupplyOrders,
+            posSales: filteredPosSales,
+            cashHandovers: filteredCashHandovers,
+            partnerTransactions: filteredPartnerTransactions
+        } : settings;
+
+        return { orders: filteredOrders, wallet: filteredWallet, supplyOrders: filteredSupplyOrders, settings: filteredSettings };
+    }, [orders, wallet, settings, dateRangeType, customStartDate, customEndDate]);
 
     const dateRangeText = useMemo(() => {
+        if (dateRangeType === 'activePeriod' && settings?.activePeriodStartDate) {
+            return `الدورة الحالية (من ${new Date(settings.activePeriodStartDate).toLocaleDateString('ar-EG')})`;
+        }
         if (dateRangeType === 'all') return 'كل البيانات';
         if (dateRangeType === 'today') return 'اليوم';
         if (dateRangeType === 'yesterday') return 'أمس';
@@ -5315,7 +5437,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             return `مخصص (${start} - ${end})`;
         }
         return 'غير محدد';
-    }, [dateRangeType, customStartDate, customEndDate]);
+    }, [dateRangeType, settings?.activePeriodStartDate, customStartDate, customEndDate]);
 
     return (
         <div className="space-y-6 sm:space-y-8 pb-12" dir="rtl">
@@ -5330,6 +5452,19 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                         مركز التقارير والتحليلات
                     </h1>
                     <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">ملخص شامل ومؤشرات الأداء لمتجرك والمركز المالي الدقيق لجميع الشركاء</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setIsClosingModalOpen(true)}
+                        className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-700 via-indigo-800 to-slate-900 hover:from-indigo-800 hover:to-slate-950 text-white rounded-2xl font-black text-xs shadow-lg shadow-indigo-200 dark:shadow-none border border-indigo-500/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                        <Lock size={16} className="text-amber-300" />
+                        <span>🔒 إقفال الفترة وبدء دورة جديدة</span>
+                        <span className="px-2 py-0.5 text-[10px] bg-amber-400/20 text-amber-300 rounded-lg border border-amber-400/30 font-mono">
+                            مقاصة المخزون
+                        </span>
+                    </button>
                 </div>
             </div>
 
@@ -5348,6 +5483,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                     
                     <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-100 dark:border-slate-800/80 w-fit">
                         {[
+                            ...(settings?.activePeriodStartDate ? [{ id: 'activePeriod', label: `الدورة الحالية (من ${new Date(settings.activePeriodStartDate).toLocaleDateString('ar-EG')}) 🔒` }] : []),
                             { id: 'all', label: 'كل البيانات' },
                             { id: 'today', label: 'اليوم' },
                             { id: 'yesterday', label: 'أمس' },
@@ -5407,16 +5543,28 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                 <button onClick={() => setActiveTab('accounting')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'accounting' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 dark:shadow-none' : 'text-purple-600 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50'}`}>الحسابات الختامية 📊</button>
             </div>
             <div className="relative min-h-[calc(100vh-200px)] mt-6 animate-in fade-in-5 duration-300">
-                {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} />}
-                {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
-                {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
-                {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'custody' && <CustodyLedger settings={settings} />}
-                {activeTab === 'inventory' && <InventoryReport activeStore={activeStore} settings={settings} dateRangeText={dateRangeText} />}
-                {activeTab === 'accounting' && <AccountingReports orders={filteredData.orders} settings={settings} wallet={filteredData.wallet} activeStore={activeStore} setSettings={setSettings} setWallet={setWallet} supplyOrders={filteredData.supplyOrders} />}
+                {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} />}
+                {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={filteredData.settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={filteredData.settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
+                {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
+                {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'custody' && <CustodyLedger settings={filteredData.settings} />}
+                {activeTab === 'inventory' && <InventoryReport activeStore={activeStore} settings={filteredData.settings} dateRangeText={dateRangeText} />}
+                {activeTab === 'accounting' && <AccountingReports orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} activeStore={activeStore} setSettings={setSettings} setWallet={setWallet} supplyOrders={filteredData.supplyOrders} />}
             </div>
+
+            {/* Period Closing and Rollover Modal */}
+            <PeriodClosingModal
+                isOpen={isClosingModalOpen}
+                onClose={() => setIsClosingModalOpen(false)}
+                settings={settings}
+                updateSettings={setSettings || (() => {})}
+                orders={orders}
+                wallet={wallet}
+                setWallet={setWallet}
+                treasury={treasury}
+            />
         </div>
     );
 };

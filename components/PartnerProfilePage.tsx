@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order } from '../types';
-import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon, PlusCircle, RefreshCw, CheckCircle2, Clock } from 'lucide-react';
+import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon, PlusCircle, RefreshCw, CheckCircle2, Clock, Eye, Search } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { motion } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { calculateOrderProfitLoss, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
+import { PartnerStatementModal } from './PartnerStatementModal';
 
 import { Treasury } from '../types';
 
@@ -48,6 +49,9 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   const [custodyType, setCustodyType] = useState<'give' | 'receive'>('give');
   const [custodyTreasuryId, setCustodyTreasuryId] = useState('');
   const [custodyNotes, setCustodyNotes] = useState('');
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [profileTxSearch, setProfileTxSearch] = useState('');
+  const [profileTxFilter, setProfileTxFilter] = useState<'all' | 'positive' | 'negative' | 'custody'>('all');
 
   const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
   const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId && t.type !== 'pos_collection'), [settings.partnerTransactions, partnerId]);
@@ -377,6 +381,124 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
   const [dialog, setDialog] = useState<{isOpen: boolean, title: string, message: string, onConfirm: () => void, isWarning?: boolean} | null>(null);
 
+  const handleDeductPartnerCustodyDirectly = () => {
+    if (!partner || partnerCustody <= 0) return;
+    
+    setDialog({
+        isOpen: true,
+        title: 'تأكيد تصفية العهدة من الرصيد',
+        message: `هل أنت متأكد من خصم مبلغ العهدة القائمة (${partnerCustody.toLocaleString()} ج.م) مباشرة من رصيد الشريك الجاري؟ سيؤدي ذلك لتصفير العهدة واعتبارها مسحوبات شخصية من رأس المال.`,
+        onConfirm: () => {
+            const amount = partnerCustody;
+            const dateStr = new Date().toISOString();
+            
+            // 1. Create Partner Transaction (Withdrawal)
+            const newTx: PartnerTransaction = {
+                id: `settle_${Date.now()}`,
+                partnerId: partner.id,
+                amount: amount,
+                type: 'profit_withdrawal',
+                date: dateStr,
+                note: `تسوية وتصفية العهدة المعلقة خصماً من الرصيد الجاري (تصفير العهدة)`
+            };
+
+            // 2. Create Handover (Receive)
+            const handoverId = `HND-SETTLE-${Date.now()}`;
+            const holderId = `part_${partner.id}`;
+            const handoverData: any = {
+                id: handoverId,
+                fromUserId: holderId,
+                fromUserName: partner.name,
+                toUserId: 'admin_deduction',
+                toUserName: 'تسوية رصيد (خصم من الشريك)',
+                amount: amount,
+                date: dateStr,
+                notes: `تصفية العهدة المعلقة (${amount.toLocaleString()} ج.م) وتحويلها لمسحوبات من رصيد الشريك`,
+                status: 'completed'
+            };
+
+            // 3. Update Holders
+            let currentHolders = [...(settings.cashHolders || [])];
+            const partnerIdx = currentHolders.findIndex(h => h.userId === holderId || h.userId === partner.id);
+            if (partnerIdx > -1) {
+                currentHolders[partnerIdx] = {
+                    ...currentHolders[partnerIdx],
+                    currentBalance: 0,
+                    lastUpdated: dateStr
+                };
+            }
+
+            // 4. Update Partner Balance
+            const newPartners = (settings.partners || []).map(p => 
+                p.id === partner.id ? { ...p, balance: p.balance - amount } : p
+            );
+
+            updateSettings({
+                ...settings,
+                partners: newPartners,
+                partnerTransactions: [newTx, ...(settings.partnerTransactions || [])],
+                cashHolders: currentHolders,
+                cashHandovers: [handoverData, ...(settings.cashHandovers || [])],
+                activityLogs: [
+                    {
+                        id: `log-${Date.now()}`,
+                        user: 'الادارة',
+                        action: 'تصفية عهدة من الرصيد',
+                        details: `تمت تسوية وتصفية عهدة الشريك ${partner.name} بقيمة ${amount.toLocaleString()} ج.م وخصمها من رصيده الجاري.`,
+                        date: new Date().toLocaleString('ar-EG'),
+                        timestamp: Date.now()
+                    },
+                    ...(settings.activityLogs || [])
+                ]
+            });
+
+            setDialog(null);
+            alert('تمت تسوية العهدة بنجاح وخصمها من رصيد الشريك.');
+        }
+    });
+  };
+
+  const handleConvertLoanToWithdrawal = (t: PartnerTransaction) => {
+    if (t.type !== 'loan') return;
+    
+    setDialog({
+        isOpen: true,
+        title: 'تحويل السلفة لمسحوبات من رأس المال',
+        message: `هل أنت متأكد من تحويل هذه السلفة بقيمة (${t.amount.toLocaleString()} ج.م) لتكون مسحوبات شخصية من رأس المال؟ سيؤدي ذلك لتصفير مديونية السلفة في كشوف الحساب واعتبارها سحباً نهائياً.`,
+        onConfirm: () => {
+            const updatedTransactions = (settings.partnerTransactions || []).map(tx => {
+                if (tx.id === t.id) {
+                    return {
+                        ...tx,
+                        type: 'profit_withdrawal' as const,
+                        note: `${tx.note || ''} (تم تحويلها من سلفة لمسحوبات من رأس المال بناء على طلب الشريك للتصفير)`
+                    };
+                }
+                return tx;
+            });
+
+            updateSettings({
+                ...settings,
+                partnerTransactions: updatedTransactions,
+                activityLogs: [
+                    {
+                        id: `log-${Date.now()}`,
+                        user: 'الادارة',
+                        action: 'تحويل سلفة لمسحوبات',
+                        details: `تم تحويل سلفة الشريك ${partner?.name} بقيمة ${t.amount.toLocaleString()} ج.م إلى مسحوبات شخصية من رأس المال.`,
+                        date: new Date().toLocaleString('ar-EG'),
+                        timestamp: Date.now()
+                    },
+                    ...(settings.activityLogs || [])
+                ]
+            });
+
+            setDialog(null);
+            alert('تم تحويل السلفة بنجاح.');
+        }
+    });
+  };
+
   const deleteTransaction = (t: PartnerTransaction) => {
     // Check if it's explicitly linked to a system document
     const isLinkedExpense = t.id.endsWith('pt');
@@ -538,22 +660,28 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     // Sort transactions chronologically 
     const sortedTxs = [...mergedTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     
-    const getTxTypeName = (type: string) => {
+    const getTxTypeName = (type: string, note?: string) => {
+      const n = (note || '').toLowerCase();
+      if (n.includes('خصم عهدة') || n.includes('تسوية عهدة') || n.includes('تحويلها كمسحوبات')) {
+        return 'تسوية عهدة معلقة (خصم من الرصيد)';
+      }
       switch (type) {
-        case 'loan': return 'سلفة / سحب يدوي';
+        case 'loan': return 'سلفة نقدية / مسحوبات شخصية';
         case 'customer_advance': return 'عربون محصل من عميل';
-        case 'capital_addition': return 'إيداع رأس مال جديد';
-        case 'shipping_funding': return 'إيداع مصاريف الشحن';
-        case 'profit_withdrawal': return 'سحب من حصة الأرباح';
-        case 'profit_distribution': return 'إضافة أرباح من المستحقات';
-        case 'supply_funding': return 'تمويل شراء بضاعة';
-        case 'expense_coverage': return 'تغطية مصروفات';
-        case 'expense_repayment': return 'استرداد مقابل مصروفات مدفوعة';
+        case 'capital_addition': return 'إيداع رأس مال استثماري';
+        case 'shipping_funding': return 'تمويل مصاريف الشحن';
+        case 'profit_withdrawal': return 'سحب من حصة الأرباح المستحقة';
+        case 'profit_distribution': return 'توزيع أرباح دورية معتمدة';
+        case 'supply_funding': return 'تمويل شراء بضاعة ومخزون';
+        case 'expense_coverage': return 'سداد مصروفات تشغيلية';
+        case 'expense_repayment': return 'استرداد مصروفات مدفوعة للشريك';
         case 'pos_collection': return 'استلام عهدة كاشير';
-        case 'repayment': return 'سداد سلفة مالية';
+        case 'repayment': return 'سداد مديونية / رد سلفة';
         case 'custody_give': return 'تسليم عهدة نقدية للشريك';
         case 'custody_receive': return 'تسوية واسترداد عهدة من الشريك';
-        default: return 'معاملة مالية';
+        case 'internal_transfer_in': return 'تحويل مالي وارد';
+        case 'internal_transfer_out': return 'تحويل مالي صادر';
+        default: return 'معاملة مالية معتمدة';
       }
     };
 
@@ -564,7 +692,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     let runningBalance = 0;
 
     sortedTxs.forEach((t) => {
-      const typeLabel = getTxTypeName(t.type);
+      const typeLabel = getTxTypeName(t.type, t.note);
       const isAdd = isAddition(t.type);
       const val = Number(t.amount) || 0;
       
@@ -691,7 +819,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           </div>
           <div class="info-card">
             <span class="label">صافي المعاملات المدينة والسلف</span>
-            <span class="value">${(stats.totalLoans - stats.totalRepaid).toLocaleString()} ج.م</span>
+            <span class="value">${Math.max(0, stats.totalLoans - stats.totalRepaid).toLocaleString()} ج.م</span>
           </div>
           <div class="info-card">
             <span class="label">المسحوبات الشخصية والأرباح</span>
@@ -792,11 +920,20 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
         <div className="flex gap-2">
             <button 
-                onClick={handlePrintStatement}
+                onClick={() => setShowPrintModal(true)}
                 className="flex items-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black transition-all shadow-md shadow-indigo-600/10 cursor-pointer"
+                title="معاينة كشف الحساب وتخصيص الفترات والطباعة"
+            >
+                <Eye size={18} />
+                <span className="text-xs font-black">معاينة وطباعة كشف الحساب</span>
+            </button>
+            <button 
+                onClick={handlePrintStatement}
+                className="hidden sm:flex items-center gap-2 px-3.5 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-black transition-all cursor-pointer"
+                title="طباعة فورية مباشرة"
             >
                 <Printer size={18} />
-                <span className="text-xs font-black">طباعة كشف الحساب</span>
+                <span className="text-xs font-black">طباعة سريعة</span>
             </button>
         </div>
       </div>
@@ -953,11 +1090,20 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
               </div>
 
               {partnerCustody > 0 ? (
-                  <div className="p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-300">
-                      <Coins size={18} className="flex-shrink-0" />
-                      <p className="text-xs font-bold leading-relaxed">
-                        تنبيه: يوجد مبالغ نقدية متبقية كعهدة طرف الشريك بقيمة <strong>{partnerCustody.toLocaleString()} ج.م</strong>. يرجى تسوية المبالغ أو توريدها للخزينة عند تحصيلها.
-                      </p>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1 p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl flex items-center gap-3 text-amber-800 dark:text-amber-300">
+                        <Coins size={18} className="flex-shrink-0" />
+                        <p className="text-xs font-bold leading-relaxed">
+                            تنبيه: يوجد مبالغ نقدية متبقية كعهدة طرف الشريك بقيمة <strong>{partnerCustody.toLocaleString()} ج.م</strong>. يرجى تسوية المبالغ أو توريدها للخزينة عند تحصيلها.
+                        </p>
+                    </div>
+                    <button 
+                        onClick={handleDeductPartnerCustodyDirectly}
+                        className="flex items-center justify-center gap-2 px-6 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black transition-all shadow-lg shadow-rose-600/20 active:scale-95 cursor-pointer"
+                    >
+                        <RefreshCw size={18} />
+                        تصفية العهدة من رصيد الشريك (تصفير)
+                    </button>
                   </div>
               ) : (
                   <div className="p-4 bg-slate-50 dark:bg-slate-900/30 rounded-2xl flex items-center gap-3 text-slate-500">
@@ -1112,16 +1258,90 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-slate-50 dark:border-slate-700/50 flex items-center justify-between">
-            <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-3">
-              <div className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl"><History size={18}/></div>
-              سجل المعاملات
-            </h2>
+          <div className="p-6 border-b border-slate-50 dark:border-slate-700/50 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-3">
+                <div className="p-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl"><History size={18}/></div>
+                سجل المعاملات
+              </h2>
+              <span className="text-xs font-black text-slate-400 bg-slate-100 dark:bg-slate-900/60 px-3 py-1 rounded-full">
+                {mergedTransactions.length} حركة
+              </span>
+            </div>
+
+            {/* Quick search and filter */}
+            <div className="flex flex-col sm:flex-row gap-2 pt-1">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder="بحث في سجل المعاملات..."
+                  value={profileTxSearch}
+                  onChange={(e) => setProfileTxSearch(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl pr-9 pl-3 py-2 text-xs font-bold text-slate-700 dark:text-white outline-none"
+                />
+                <Search size={14} className="absolute right-3 top-2.5 text-slate-400" />
+              </div>
+              <div className="flex gap-1 overflow-x-auto pb-1 sm:pb-0">
+                <button
+                  onClick={() => setProfileTxFilter('all')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    profileTxFilter === 'all'
+                      ? 'bg-slate-800 dark:bg-slate-700 text-white'
+                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  الكل
+                </button>
+                <button
+                  onClick={() => setProfileTxFilter('positive')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    profileTxFilter === 'positive'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  إيداعات ومستحقات (+)
+                </button>
+                <button
+                  onClick={() => setProfileTxFilter('negative')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    profileTxFilter === 'negative'
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  سلف ومسحوبات (-)
+                </button>
+                <button
+                  onClick={() => setProfileTxFilter('custody')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                    profileTxFilter === 'custody'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  عهد نقدية
+                </button>
+              </div>
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto max-h-[600px] p-6 space-y-8 custom-scrollbar">
             {Object.entries(
               mergedTransactions
+                .filter(t => {
+                  const isPositive = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage', 'internal_transfer_in', 'custody_receive'].includes(t.type);
+                  const isCustody = t.type === 'custody_give' || t.type === 'custody_receive';
+                  if (profileTxFilter === 'positive' && !isPositive) return false;
+                  if (profileTxFilter === 'negative' && isPositive) return false;
+                  if (profileTxFilter === 'custody' && !isCustody) return false;
+                  if (profileTxSearch.trim()) {
+                    const q = profileTxSearch.toLowerCase();
+                    const note = (t.note || '').toLowerCase();
+                    if (!note.includes(q)) return false;
+                  }
+                  return true;
+                })
                 .reduce((groups: Record<string, any[]>, t) => {
                   const date = new Date(t.date).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric', day: 'numeric' });
                   if (!groups[date]) groups[date] = [];
@@ -1214,19 +1434,31 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                             </div>
                           </div>
 
-                          <div className="flex flex-col items-end shrink-0">
+                            <div className="flex flex-col items-end shrink-0">
                             <div className={`text-lg font-black tabular-nums tracking-tighter ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
                               {isPositive ? '+' : '-'}{t.amount.toLocaleString()} 
                               <span className="text-[10px] font-bold mr-1 opacity-70">ج.م</span>
                             </div>
                             {!isCustody && (
-                              <button 
-                                  onClick={() => deleteTransaction(t)}
-                                  className="mt-2 p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                  title="حذف المعاملة"
-                              >
-                                  <Trash2 size={14} />
-                              </button>
+                              <div className="flex items-center gap-1 mt-2">
+                                {t.type === 'loan' && (
+                                  <button 
+                                      onClick={() => handleConvertLoanToWithdrawal(t)}
+                                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-all opacity-0 group-hover:opacity-100 flex items-center gap-1 border border-transparent hover:border-indigo-100"
+                                      title="تحويل لسحب من رأس المال"
+                                  >
+                                      <RefreshCw size={12} />
+                                      <span className="text-[9px] font-black whitespace-nowrap">تحويل لسحب من رأس المال</span>
+                                  </button>
+                                )}
+                                <button 
+                                    onClick={() => deleteTransaction(t)}
+                                    className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                    title="حذف المعاملة"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1256,6 +1488,18 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           </div>
         </div>
       </div>
+
+      {/* Partner Statement & Print Preview Modal */}
+      {showPrintModal && partner && (
+        <PartnerStatementModal
+          partner={partner}
+          settings={settings}
+          wallet={wallet}
+          orders={orders}
+          treasury={treasury}
+          onClose={() => setShowPrintModal(false)}
+        />
+      )}
     </div>
   );
 };

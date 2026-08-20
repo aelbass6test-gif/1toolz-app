@@ -6,7 +6,7 @@ import {
   BarChart, Wallet as WalletIcon, TrendingUp, Users, Truck, FileText, 
   ArrowDown, ArrowUp, DollarSign, Package, Download, Eye, X, Loader2, Printer, 
   PieChart, Calendar, Percent, Sparkles, TrendingDown, Layers, CheckCircle2, AlertCircle, ShoppingBag, ShoppingCart,
-  ArrowUpRight, ArrowDownLeft, Clock, Search, Filter, ChevronLeft, FileCheck, Receipt, UserCheck, History
+  ArrowUpRight, ArrowDownLeft, Clock, Search, Filter, ChevronLeft, FileCheck, Receipt, UserCheck, History, RefreshCw
 } from 'lucide-react';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -23,46 +23,76 @@ interface Props {
   supplyOrders?: any[];
 }
 
+import { parseSafeDate } from '../utils/dateUtils';
+
 // Utility to verify date matching
-const isWithinRange = (dateStr: string, filter: string, customStart?: string, customEnd?: string) => {
+const isWithinRange = (dateStr: string, filter: string, customStart?: string, customEnd?: string, activePeriodStartDate?: string) => {
     if (!dateStr) return false;
-    const d = new Date(dateStr);
+    const d = parseSafeDate(dateStr);
+    if (!d) return false;
+
     const now = new Date();
-    
-    // Set hours to zero for consistent date-only comparison where appropriate
-    const todayStart = new Date();
+    const todayStart = new Date(now);
     todayStart.setHours(0,0,0,0);
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23,59,59,999);
     
+    if (filter === 'active_period' && activePeriodStartDate) {
+        const periodStart = parseSafeDate(activePeriodStartDate);
+        if (periodStart) {
+            periodStart.setHours(0,0,0,0);
+            return d.getTime() >= periodStart.getTime() && d.getTime() <= now.getTime();
+        }
+    }
     if (filter === 'all') return true;
     if (filter === 'today') {
-        return d >= todayStart;
+        let minTime = todayStart.getTime();
+        if (activePeriodStartDate) {
+            const periodStart = parseSafeDate(activePeriodStartDate);
+            if (periodStart && periodStart.getTime() > minTime && periodStart.getTime() <= todayEnd.getTime()) {
+                minTime = periodStart.getTime();
+            }
+        }
+        return d.getTime() >= minTime && d.getTime() <= todayEnd.getTime();
     }
     if (filter === 'this_week') {
-        const oneWeekAgo = new Date();
+        const oneWeekAgo = new Date(now);
         oneWeekAgo.setDate(now.getDate() - 7);
-        return d >= oneWeekAgo && d <= now;
+        oneWeekAgo.setHours(0,0,0,0);
+        return d.getTime() >= oneWeekAgo.getTime() && d.getTime() <= now.getTime();
     }
     if (filter === 'this_month') {
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        return d.getTime() >= monthStart.getTime() && d.getTime() <= todayEnd.getTime();
     }
     if (filter === 'last_month') {
-        const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-        const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-        return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
+        const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+        const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        return d.getTime() >= prevMonthStart.getTime() && d.getTime() <= prevMonthEnd.getTime();
     }
     if (filter === 'custom' && customStart && customEnd) {
-        const s = new Date(customStart);
-        s.setHours(0,0,0,0);
-        const e = new Date(customEnd);
-        e.setHours(23,59,59,999);
-        return d >= s && d <= e;
+        const s = parseSafeDate(customStart);
+        const e = parseSafeDate(customEnd);
+        if (s && e) {
+            s.setHours(0,0,0,0);
+            e.setHours(23,59,59,999);
+            return d.getTime() >= s.getTime() && d.getTime() <= e.getTime();
+        }
     }
     return true;
 };
 
 export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders, settings, wallet, activeStore, setSettings, setWallet, treasury, supplyOrders }) => {
+    if (!settings) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800">
+                <Loader2 size={32} className="animate-spin text-purple-500 mb-4" />
+                <p className="text-sm font-bold">جاري تحميل الحسابات الختامية...</p>
+            </div>
+        );
+    }
     const [subTab, setSubTab] = useState<'wealth_reconciliation' | 'income' | 'balance_sheet' | 'cash_flow' | 'suppliers' | 'receivables' | 'wallet' | 'product_profitability' | 'partner_equity' | 'marketing_roi' | 'inventory_velocity' | 'custody'>('wealth_reconciliation');
-    const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom'>('all');
+    const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'this_week' | 'this_month' | 'last_month' | 'active_period' | 'custom'>(() => settings?.activePeriodStartDate ? 'active_period' : 'all');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [isExporting, setIsExporting] = useState(false);
@@ -70,11 +100,11 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
 
     // Dynamically filter both orders and wallet transactions for a unified database query simulation
     const filteredOrders = useMemo(() => {
-        return orders.filter(o => isWithinRange(o.date, timeFilter, startDate, endDate));
-    }, [orders, timeFilter, startDate, endDate]);
+        return orders.filter(o => isWithinRange(o.date, timeFilter, startDate, endDate, settings?.activePeriodStartDate));
+    }, [orders, timeFilter, startDate, endDate, settings?.activePeriodStartDate]);
 
     const filteredWallet = useMemo(() => {
-        const txs = (wallet.transactions || []).filter(t => isWithinRange(t.date, timeFilter, startDate, endDate));
+        const txs = (wallet.transactions || []).filter(t => isWithinRange(t.date, timeFilter, startDate, endDate, settings?.activePeriodStartDate));
         const hidden = settings.hiddenWalletAmount || 0;
         return {
             ...wallet,
@@ -82,11 +112,25 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
             transactions: txs,
             hiddenAmount: hidden // Pass it down if needed
         };
-    }, [wallet, timeFilter, startDate, endDate, settings.hiddenWalletAmount]);
+    }, [wallet, timeFilter, startDate, endDate, settings?.hiddenWalletAmount, settings?.activePeriodStartDate]);
 
     const filteredSupplyOrders = useMemo(() => {
-        return (supplyOrders || []).filter(o => isWithinRange(o.date, timeFilter, startDate, endDate));
-    }, [supplyOrders, timeFilter, startDate, endDate]);
+        return (supplyOrders || []).filter(o => isWithinRange(o.date, timeFilter, startDate, endDate, settings?.activePeriodStartDate));
+    }, [supplyOrders, timeFilter, startDate, endDate, settings?.activePeriodStartDate]);
+
+    const filteredPosSales = useMemo(() => {
+        return (settings?.posSales || []).filter(s => isWithinRange(s.date, timeFilter, startDate, endDate, settings?.activePeriodStartDate));
+    }, [settings?.posSales, timeFilter, startDate, endDate, settings?.activePeriodStartDate]);
+
+    const filteredSettings = useMemo(() => {
+        return {
+            ...settings,
+            supplyOrders: filteredSupplyOrders,
+            posSales: filteredPosSales,
+            cashHandovers: (settings as any).cashHandovers ? (settings as any).cashHandovers.filter((h: any) => isWithinRange(h.date, timeFilter, startDate, endDate, settings?.activePeriodStartDate)) : [],
+            partnerTransactions: settings.partnerTransactions ? settings.partnerTransactions.filter(t => isWithinRange(t.date, timeFilter, startDate, endDate, settings?.activePeriodStartDate)) : []
+        };
+    }, [settings, filteredSupplyOrders, filteredPosSales, timeFilter, startDate, endDate]);
 
     const handleExportPDF = async () => {
         if (!reportRef.current) return;
@@ -137,6 +181,9 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
             <div className="p-4 bg-slate-100/50 dark:bg-slate-900/40 border-b border-slate-200/60 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
                     <span className="text-xs text-slate-400 font-bold shrink-0 ml-1">تصفية الفترة:</span>
+                    {settings?.activePeriodStartDate && (
+                        <FilterButton active={timeFilter === 'active_period'} onClick={() => setTimeFilter('active_period')} title={`الدورة الحالية (${new Date(settings.activePeriodStartDate).toLocaleDateString('ar-EG')}) 🔒`} />
+                    )}
                     <FilterButton active={timeFilter === 'all'} onClick={() => setTimeFilter('all')} title="الكل" />
                     <FilterButton active={timeFilter === 'today'} onClick={() => setTimeFilter('today')} title="اليوم" />
                     <FilterButton active={timeFilter === 'this_week'} onClick={() => setTimeFilter('this_week')} title="آخر 7 أيام" />
@@ -182,18 +229,18 @@ export const AccountingReports: React.FC<Props & { treasury?: any }> = ({ orders
 
             {/* Sub-Contents with Filtered Data */}
             <div className="p-6 min-h-[500px]">
-                {subTab === 'wealth_reconciliation' && <WealthReconciliation orders={filteredOrders} settings={settings} wallet={filteredWallet} treasury={treasury} setSettings={setSettings} supplyOrders={filteredSupplyOrders} />}
-                {subTab === 'income' && <IncomeStatement orders={filteredOrders} settings={settings} wallet={filteredWallet} />}
-                {subTab === 'balance_sheet' && <BalanceSheet orders={filteredOrders} settings={settings} wallet={filteredWallet} />}
+                {subTab === 'wealth_reconciliation' && <WealthReconciliation orders={filteredOrders} settings={filteredSettings} wallet={filteredWallet} treasury={treasury} setSettings={setSettings} supplyOrders={filteredSupplyOrders} />}
+                {subTab === 'income' && <IncomeStatement orders={filteredOrders} settings={filteredSettings} wallet={filteredWallet} />}
+                {subTab === 'balance_sheet' && <BalanceSheet orders={filteredOrders} settings={filteredSettings} wallet={filteredWallet} />}
                 {subTab === 'cash_flow' && <CashFlowStatement wallet={filteredWallet} />}
-                {subTab === 'suppliers' && <SupplierLedger settings={settings} />}
+                {subTab === 'suppliers' && <SupplierLedger settings={filteredSettings} />}
                 {subTab === 'receivables' && <ReceivablesAging orders={filteredOrders} />}
-                {subTab === 'custody' && <CustodyLedger settings={settings} treasury={treasury} orders={orders} />}
+                {subTab === 'custody' && <CustodyLedger settings={filteredSettings} treasury={treasury} orders={filteredOrders} setSettings={setSettings} />}
                 {subTab === 'wallet' && <WalletLedger wallet={filteredWallet} />}
-                {subTab === 'product_profitability' && <ProductProfitability orders={filteredOrders} settings={settings} />}
-                {subTab === 'partner_equity' && <PartnerEquity settings={settings} wallet={wallet} setSettings={setSettings} setWallet={setWallet} orders={orders} />}
+                {subTab === 'product_profitability' && <ProductProfitability orders={filteredOrders} settings={filteredSettings} />}
+                {subTab === 'partner_equity' && <PartnerEquity settings={filteredSettings} wallet={wallet} setSettings={setSettings} setWallet={setWallet} orders={filteredOrders} />}
                 {subTab === 'marketing_roi' && <MarketingROI orders={filteredOrders} wallet={filteredWallet} />}
-                {subTab === 'inventory_velocity' && <InventoryVelocity orders={filteredOrders} settings={settings} />}
+                {subTab === 'inventory_velocity' && <InventoryVelocity orders={filteredOrders} settings={filteredSettings} />}
             </div>
         </div>
     );
@@ -780,7 +827,115 @@ const normalizeName = (name: string): string => {
 };
 
 // 6. Custody Ledger Component
-export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: Settings, treasury?: any, orders?: Order[] }) => {
+export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: { settings: Settings, treasury?: any, orders?: Order[], setSettings?: any }) => {
+    if (!settings) return null;
+
+    const handleExecuteActualSettlement = () => {
+        if (!simHolder || simAmount <= 0 || !setSettings) return;
+        
+        const confirmMsg = simType === 'deposit'
+            ? `هل أنت متأكد من تنفيذ توريد مبلغ ${simAmount.toLocaleString()} ج.م من عهدة ${simHolder.name} يدوياً للخزينة؟ (سيؤدي ذلك لتحديث رصيد العهدة فقط)`
+            : `هل أنت متأكد من تحويل مبلغ ${simAmount.toLocaleString()} ج.م من عهدة ${simHolder.name} لسحوبات شخصية؟ (سيتم خصمه نهائياً من رصيد الشريك الجاري وتصفير عهدته الموازية)`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        const dateStr = new Date().toISOString();
+        
+        setSettings((prev: Settings) => {
+            if (!prev) return prev;
+            let newSettings = { ...prev };
+
+            if (simType === 'deposit') {
+                // Standard Cash Handover (Custody Receive)
+                const handoverId = `HND-MANUAL-${Date.now()}`;
+                const handoverData: any = {
+                    id: handoverId,
+                    fromUserId: simHolder.id,
+                    fromUserName: simHolder.name,
+                    toUserId: 'admin_manual',
+                    toUserName: 'تصفية عهدة (توريد يدوي للخزينة)',
+                    amount: simAmount,
+                    date: dateStr,
+                    notes: `تصفية يدوية للعهدة بقيمة ${simAmount.toLocaleString()} ج.م تم توريدها يدوياً للخزينة (تسوية مباشرة)`,
+                    status: 'completed'
+                };
+                newSettings.cashHandovers = [handoverData, ...(newSettings.cashHandovers || [])];
+                
+                // Update Holder Balance
+                newSettings.cashHolders = (newSettings.cashHolders || []).map(h => {
+                    const hName = normalizeName(h.userName);
+                    const sName = normalizeName(simHolder.name);
+                    if (h.userId === simHolder.id || hName === sName) {
+                        return { ...h, currentBalance: Math.max(0, (Number(h.currentBalance) || 0) - simAmount), lastUpdated: dateStr };
+                    }
+                    return h;
+                });
+            } else {
+                // Conversion to Withdrawal (for Partners only)
+                if (simHolder.type !== 'partner') return prev;
+                
+                // 1. Partner Transaction
+                const partnerId = simHolder.originalIds[0]?.replace('part_', '') || '';
+                const newTx: any = {
+                    id: `settle_rpt_${Date.now()}`,
+                    partnerId: partnerId,
+                    amount: simAmount,
+                    type: 'profit_withdrawal',
+                    date: dateStr,
+                    note: `تسوية وتصفية عهدة معلقة من التقارير وتحويلها لمسحوبات (تصفية عهدة نهائية)`
+                };
+                newSettings.partnerTransactions = [newTx, ...(newSettings.partnerTransactions || [])];
+
+                // 2. Update Partner Balance
+                newSettings.partners = (newSettings.partners || []).map(p => 
+                    String(p.id) === String(partnerId) ? { ...p, balance: (Number(p.balance) || 0) - simAmount } : p
+                );
+
+                // 3. Handover to zero out the custody side
+                const handoverId = `HND-SETTLE-RPT-${Date.now()}`;
+                const handoverData: any = {
+                    id: handoverId,
+                    fromUserId: simHolder.id,
+                    fromUserName: simHolder.name,
+                    toUserId: 'admin_deduction',
+                    toUserName: 'تسوية رصيد (خصم من الشريك)',
+                    amount: simAmount,
+                    date: dateStr,
+                    notes: `تصفية العهدة المعلقة بقيمة ${simAmount.toLocaleString()} ج.م وتحويلها لمسحوبات من رصيد الشريك (تصفية نهائية)`,
+                    status: 'completed'
+                };
+                newSettings.cashHandovers = [handoverData, ...(newSettings.cashHandovers || [])];
+
+                // 4. Update Holder
+                newSettings.cashHolders = (newSettings.cashHolders || []).map(h => {
+                    const hName = normalizeName(h.userName);
+                    const sName = normalizeName(simHolder.name);
+                    if (h.userId === simHolder.id || hName === sName) {
+                        return { ...h, currentBalance: Math.max(0, (Number(h.currentBalance) || 0) - simAmount), lastUpdated: dateStr };
+                    }
+                    return h;
+                });
+            }
+
+            // Add Log
+            newSettings.activityLogs = [
+                {
+                    id: `log-${Date.now()}`,
+                    user: 'الادارة',
+                    action: simType === 'deposit' ? 'تصفية عهدة يدوية' : 'تحويل عهدة لمسحوبات',
+                    details: `تمت معالجة عهدة ${simHolder.name} بقيمة ${simAmount.toLocaleString()} ج.م عبر ${simType === 'deposit' ? 'توريد يدوي' : 'تحويل لمسحوبات'}.`,
+                    date: new Date().toLocaleString('ar-EG'),
+                    timestamp: Date.now()
+                },
+                ...(newSettings.activityLogs || [])
+            ];
+
+            return newSettings;
+        });
+
+        alert('تم تنفيذ العملية وتحديث الأرصدة والتقارير بنجاح.');
+        setSimHolderId('');
+    };
     const [selectedHolderId, setSelectedHolderId] = useState<string | null>(null);
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -1549,11 +1704,27 @@ export const CustodyLedger = ({ settings, treasury, orders = [] }: { settings: S
                         </div>
 
                         {/* Accountant verdict / summary */}
-                        <div className="mt-5 pt-3.5 border-t border-slate-800 flex items-start gap-2 text-[10.5px] text-slate-500 font-bold leading-relaxed">
-                            <span className="text-xs">⚖️</span>
-                            <span>
-                                <strong className="text-slate-300">رأي المحاسب المالي الذكي:</strong> العُهد مبالغ مؤقتة تحت الطلب والتسيير ولا تعد جزءاً من السحوبات الشخصية للشركاء طالما لم يتم تحويلها بشكل دفتري رسمي، وبالتالي فإن ملاءة الشريك رأس المال والمركز المالي تظل كاملة وغير متأثرة بالعهد المفتوحة.
-                            </span>
+                        <div className="mt-5 pt-3.5 border-t border-slate-800 flex flex-col gap-4">
+                            <div className="flex items-start gap-2 text-[10.5px] text-slate-500 font-bold leading-relaxed">
+                                <span className="text-xs">⚖️</span>
+                                <span>
+                                    <strong className="text-slate-300">رأي المحاسب المالي الذكي:</strong> العُهد مبالغ مؤقتة تحت الطلب والتسيير ولا تعد جزءاً من السحوبات الشخصية للشركاء طالما لم يتم تحويلها بشكل دفتري رسمي، وبالتالي فإن ملاءة الشريك رأس المال والمركز المالي تظل كاملة وغير متأثرة بالعهد المفتوحة.
+                                </span>
+                            </div>
+
+                            {simHolder && setSettings && (
+                                <button 
+                                    onClick={handleExecuteActualSettlement}
+                                    className={`w-full py-4 rounded-2xl font-black text-sm flex items-center justify-center gap-2 transition-all shadow-xl active:scale-[0.98] ${
+                                        simType === 'deposit' 
+                                            ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20' 
+                                            : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'
+                                    }`}
+                                >
+                                    {simType === 'deposit' ? <CheckCircle2 size={20} /> : <RefreshCw size={20} />}
+                                    تنفيذ التسوية الفعلية وتحديث الأرصدة الآن
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

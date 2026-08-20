@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { parseSafeDate } from "../utils/dateUtils";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
   Plus,
@@ -833,15 +834,25 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       let matchesDate = true;
       if (dateRange.start || dateRange.end) {
-        const orderDate = new Date(o.date).getTime();
-        if (dateRange.start) {
-          matchesDate =
-            matchesDate && orderDate >= new Date(dateRange.start).getTime();
-        }
-        if (dateRange.end) {
-          const endDate = new Date(dateRange.end);
-          endDate.setHours(23, 59, 59, 999);
-          matchesDate = matchesDate && orderDate <= endDate.getTime();
+        const parsedOrderDate = parseSafeDate(o.date);
+        if (!parsedOrderDate) {
+          matchesDate = false;
+        } else {
+          const orderTime = parsedOrderDate.getTime();
+          if (dateRange.start) {
+            const startDate = parseSafeDate(dateRange.start);
+            if (startDate) {
+              startDate.setHours(0,0,0,0);
+              matchesDate = matchesDate && orderTime >= startDate.getTime();
+            }
+          }
+          if (dateRange.end) {
+            const endDate = parseSafeDate(dateRange.end);
+            if (endDate) {
+              endDate.setHours(23, 59, 59, 999);
+              matchesDate = matchesDate && orderTime <= endDate.getTime();
+            }
+          }
         }
       }
 

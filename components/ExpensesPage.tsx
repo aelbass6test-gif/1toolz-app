@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { parseSafeDate } from '../utils/dateUtils';
 import { Wallet, Transaction, TransactionCategory, Settings, Treasury, TreasuryTransaction, PartnerTransaction } from '../types';
 import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User, Info, Printer, Download, Filter, Search, Grid, List, Zap, CreditCard, ArrowUpRight, CheckCircle2, AlertCircle, RefreshCw, Layers, Sparkles, Building2, Wallet as WalletIcon, Copy, Check, ChevronRight, X, ArrowDownRight, ShieldCheck } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
@@ -294,15 +295,26 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         // Period Filter
         let matchesPeriod = true;
         if (filterPeriod !== 'all') {
-            const expDate = new Date(exp.date);
-            const now = new Date();
-            if (filterPeriod === 'today') {
-                matchesPeriod = expDate.toDateString() === now.toDateString();
-            } else if (filterPeriod === 'week') {
-                const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                matchesPeriod = expDate >= oneWeekAgo;
-            } else if (filterPeriod === 'month') {
-                matchesPeriod = expDate.getMonth() === now.getMonth() && expDate.getFullYear() === now.getFullYear();
+            const expDate = parseSafeDate(exp.date);
+            if (!expDate) {
+                matchesPeriod = false;
+            } else {
+                const now = new Date();
+                const todayStart = new Date(now);
+                todayStart.setHours(0,0,0,0);
+                const todayEnd = new Date(now);
+                todayEnd.setHours(23,59,59,999);
+
+                if (filterPeriod === 'today') {
+                    matchesPeriod = expDate.getTime() >= todayStart.getTime() && expDate.getTime() <= todayEnd.getTime();
+                } else if (filterPeriod === 'week') {
+                    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    oneWeekAgo.setHours(0,0,0,0);
+                    matchesPeriod = expDate.getTime() >= oneWeekAgo.getTime() && expDate.getTime() <= todayEnd.getTime();
+                } else if (filterPeriod === 'month') {
+                    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+                    matchesPeriod = expDate.getTime() >= monthStart.getTime() && expDate.getTime() <= todayEnd.getTime();
+                }
             }
         }
 

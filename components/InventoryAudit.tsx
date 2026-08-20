@@ -391,7 +391,8 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 totalVarianceQty += diff;
                 totalVarianceValue += diff * item.costPrice;
 
-                if (diff !== 0) {
+                // Include items that were explicitly counted, even if variance is 0, to set a baseline timestamp
+                if (true) {
                     discrepancies.push({
                         productId: item.productId,
                         variantId: item.variantId,

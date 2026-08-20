@@ -1010,17 +1010,29 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             notes: cleanItem.notes || '',
                             balance: Number(cleanItem.balance ?? 0),
                             profit_ratio: Number(cleanItem.profitRatio ?? cleanItem.profit_ratio ?? 0),
-                            profitratio: Number(cleanItem.profitRatio ?? cleanItem.profit_ratio ?? 0)
+                            profitratio: Number(cleanItem.profitRatio ?? cleanItem.profit_ratio ?? 0),
+                            profitRatio: Number(cleanItem.profitRatio ?? cleanItem.profit_ratio ?? 0),
+                            capital: Number(cleanItem.capital ?? 0),
+                            initialCapital: Number(cleanItem.initialCapital ?? cleanItem.initial_capital ?? 0),
+                            initial_capital: Number(cleanItem.initialCapital ?? cleanItem.initial_capital ?? 0)
                         };
                     } else if (table === 'partner_transactions') {
                         mappedItem = {
                             ...mappedItem,
                             partner_id: cleanItem.partnerId || cleanItem.partner_id || '',
                             partnerid: cleanItem.partnerId || cleanItem.partner_id || '',
+                            partnerId: cleanItem.partnerId || cleanItem.partner_id || '',
+                            partner_name: cleanItem.partnerName || cleanItem.partner_name || '',
+                            partnerName: cleanItem.partnerName || cleanItem.partner_name || '',
+                            treasury_account_id: cleanItem.treasuryAccountId || cleanItem.treasury_account_id || '',
+                            treasuryAccountId: cleanItem.treasuryAccountId || cleanItem.treasury_account_id || '',
                             type: cleanItem.type || '',
                             amount: Number(cleanItem.amount ?? 0),
                             date: cleanItem.date || '',
-                            note: cleanItem.note || ''
+                            note: cleanItem.note || cleanItem.notes || '',
+                            notes: cleanItem.notes || cleanItem.note || '',
+                            description: cleanItem.description || '',
+                            category: cleanItem.category || ''
                         };
                     } else if (table === 'treasury_accounts') {
                         mappedItem = {
@@ -1221,6 +1233,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             totalVarianceQty: Number(cleanItem.totalVarianceQty ?? cleanItem.total_variance_qty ?? 0),
                             total_variance_value: Number(cleanItem.totalVarianceValue ?? cleanItem.total_variance_value ?? 0),
                             totalVarianceValue: Number(cleanItem.totalVarianceValue ?? cleanItem.total_variance_value ?? 0),
+                            total_items_audited: Number(cleanItem.totalItemsAudited ?? cleanItem.total_items_audited ?? 0),
+                            totalItemsAudited: Number(cleanItem.totalItemsAudited ?? cleanItem.total_items_audited ?? 0),
+                            timestamp: cleanItem.timestamp ? Number(cleanItem.timestamp) : undefined,
                             discrepancies: Array.isArray(cleanItem.discrepancies) ? cleanItem.discrepancies : [],
                             notes: cleanItem.notes || ''
                         };

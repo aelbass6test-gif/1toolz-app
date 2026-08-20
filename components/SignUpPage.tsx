@@ -317,6 +317,9 @@ CREATE TABLE IF NOT EXISTS inventory_audits (
     totalVarianceQty NUMERIC DEFAULT 0,
     total_variance_value NUMERIC DEFAULT 0,
     totalVarianceValue NUMERIC DEFAULT 0,
+    total_items_audited NUMERIC DEFAULT 0,
+    totalItemsAudited NUMERIC DEFAULT 0,
+    timestamp BIGINT,
     discrepancies JSONB DEFAULT '[]'::jsonb,
     notes TEXT
 );
@@ -652,11 +655,20 @@ ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
 ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "order_number" TEXT;
 
 -- 9. حركات الشركاء والخزائن والشركاء وسجل النشاط
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "capital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initialCapital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initial_capital" NUMERIC DEFAULT 0;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
@@ -673,6 +685,9 @@ ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalSystemQty" NUMERIC D
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalActualQty" NUMERIC DEFAULT 0;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceQty" NUMERIC DEFAULT 0;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceValue" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalItemsAudited" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "total_items_audited" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "timestamp" BIGINT;
 
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "transferNumber" TEXT;

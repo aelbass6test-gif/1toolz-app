@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { parseSafeDate } from '../utils/dateUtils';
 import { CustomerSelectModal } from './CustomerSelectModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -230,9 +231,18 @@ const POSPage: React.FC<POSPageProps> = (props) => {
 
   // Today's POS Stats
   const todayStats = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0,0,0,0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23,59,59,999);
+
     const posSales = settings.posSales || [];
-    const todaySales = posSales.filter(s => s.date && s.date.startsWith(today));
+    const todaySales = posSales.filter(s => {
+      const d = parseSafeDate(s.date);
+      if (!d) return false;
+      return d.getTime() >= startOfDay.getTime() && d.getTime() <= endOfDay.getTime();
+    });
     const totalAmount = todaySales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
     return {
       count: todaySales.length,

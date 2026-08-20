@@ -3033,7 +3033,7 @@ export const AppComponent = () => {
                     <Route path="reports" element={<AnalyticsPage {...pageProps} />} />
                     <Route path="standard-reports" element={<ReportsPage {...pageProps} />} />
                     <Route path="collections-report" element={<CollectionsReportPage {...pageProps} />} />
-                    <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings.activityLogs || []} />} />
+                    <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings?.activityLogs || []} />} />
                     <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />

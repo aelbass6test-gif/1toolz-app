@@ -20,8 +20,10 @@ const normalizeName = (name: string): string => {
 };
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
-import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2 } from 'lucide-react';
+import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
+import { PartnerStatementModal } from './PartnerStatementModal';
+import { PeriodClosingModal } from './PeriodClosingModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 
@@ -68,6 +70,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [transferAmount, setTransferAmount] = useState('');
   const [transferType, setTransferType] = useState<'capital' | 'balance'>('balance');
   const [transferNotes, setTransferNotes] = useState('');
+  const [previewPartner, setPreviewPartner] = useState<Partner | null>(null);
+  const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
   
   // Custom dialog states
   const [dialog, setDialog] = useState<{
@@ -721,7 +725,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     const updatedPartners = partners.map(p => {
         if (p.id === partnerId) {
             let newBalance = p.balance;
-            if (['loan', 'profit_withdrawal', 'expense_repayment', 'customer_advance', 'internal_transfer_out'].includes(transactionType)) {
+            if (['loan', 'profit_withdrawal', 'expense_repayment', 'customer_advance', 'internal_transfer_out', 'capital_withdrawal'].includes(transactionType)) {
                 newBalance -= amount;
             } else {
                 newBalance += amount;
@@ -739,6 +743,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         note: `معاملة شريك: ${partner.name} - ${
             transactionType === 'loan' ? 'سلفة' : 
             transactionType === 'capital_addition' ? 'إيداع رأس مال' : 
+            transactionType === 'capital_withdrawal' ? 'سحب من رأس المال' : 
             transactionType === 'profit_withdrawal' ? 'سحب أرباح' : 
             transactionType === 'shipping_funding' ? 'إيداع مصاريف الشحن' :
             transactionType === 'expense_repayment' ? 'رد مصروفات شخصية' :
@@ -884,6 +889,14 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         </div>
         
         <div className="flex flex-wrap gap-3">
+              <button 
+                onClick={() => setIsClosingModalOpen(true)}
+                className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-slate-900 text-white px-5 py-3 rounded-2xl font-black hover:from-indigo-800 hover:to-slate-950 transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2 border border-indigo-400/30"
+                title="إقفال الدورة المحاسبية وتسوية مقاصة الشركاء وفق بضاعة المخزون"
+              >
+                <Lock size={18} className="text-amber-300" />
+                <span>🔒 إقفال الفترة ومقاصة المخزون</span>
+              </button>
               <button 
                 onClick={() => setShowHelpGuide(!showHelpGuide)}
                 className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-500/20 text-amber-700 dark:text-amber-400 px-5 py-3 rounded-2xl font-bold hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all flex items-center gap-2"
@@ -1285,7 +1298,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     <div className="w-10 h-10 bg-rose-100 dark:bg-rose-900/30 text-rose-600 rounded-xl flex items-center justify-center"><ArrowDownRight size={20}/></div>
                     <h5 className="font-bold text-slate-500 dark:text-slate-400">صافي مديونية السلف</h5>
                   </div>
-                  <p className="text-4xl font-black text-rose-600 dark:text-rose-400 tracking-tight">{(totals.loans - totals.repayments).toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span></p>
+                  <p className="text-4xl font-black text-rose-600 dark:text-rose-400 tracking-tight">{Math.max(0, totals.loans - totals.repayments).toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span></p>
                 </div>
             </div>
 
@@ -1568,6 +1581,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => setPreviewPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="معاينة وطباعة كشف الحساب"><Printer size={16}/></button>
                     <button onClick={() => startEditPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="تعديل"><Edit2 size={16}/></button>
                     <button onClick={() => {
                         setDialog({
@@ -1591,9 +1605,9 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
               
               {(() => {
                 const pTxs = transactions.filter(t => t.partnerId === partner.id);
-                const pCapital = pTxs.filter(t => ['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
+                const pCapital = pTxs.filter(t => ['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0) - pTxs.filter(t => t.type === 'capital_withdrawal').reduce((sum, t) => sum + (t.amount || 0), 0);
                 const pDividends = pTxs.filter(t => t.type === 'profit_distribution').reduce((sum, t) => sum + (t.amount || 0), 0);
-                const pWithdrawals = pTxs.filter(t => ['loan', 'profit_withdrawal', 'expense_repayment', 'internal_transfer_out'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
+                const pWithdrawals = pTxs.filter(t => ['loan', 'profit_withdrawal', 'expense_repayment', 'internal_transfer_out', 'capital_withdrawal'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
                 const pRepayments = pTxs.filter(t => ['repayment', 'internal_transfer_in'].includes(t.type)).reduce((sum, t) => sum + (t.amount || 0), 0);
                 const pNetWithdrawals = Math.max(0, pWithdrawals - pRepayments);
                 const holderId = `part_${partner.id}`;
@@ -1812,7 +1826,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                               {txCategoryTab === 'personal' ? [
                                 { key: 'loan', label: '1️⃣ سلفة شخصية / سحب كاش عام (-)', desc: 'يُخصم مباشرة من رصيده الجاري ومن الخزينة المحددة.', icon: ArrowDownRight, badge: 'سحب كاش مباشر', badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300' },
                                 { key: 'profit_withdrawal', label: '2️⃣ سحب من أرباحه الموزعة (-)', desc: 'سحب نقدي من نصيبه في الأرباح السابقة التي تم توزيعها له بالمحل.', icon: DollarSign, badge: 'سحب أرباح', badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },
-                                { key: 'expense_repayment', label: '3️⃣ استرداد مقابل مصروفات دفعها للمحل (-)', desc: 'رد مبلغ نقدي للشريك كان قد صرفه من جيبه الخاص على فواتير أو مصروفات المحل.', icon: Check, badge: 'رد مصاريف', badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' }
+                                { key: 'capital_withdrawal', label: '3️⃣ سحب من رأس المال (تخفيض حصة) (-)', desc: 'سحب مبلغ من رأس المال الأساسي المسجل للشريك (تخفيض الحصة الاستثمارية).', icon: ArrowDownRight, badge: 'تخفيض رأس مال', badgeColor: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300' },
+                                { key: 'expense_repayment', label: '4️⃣ استرداد مقابل مصروفات دفعها للمحل (-)', desc: 'رد مبلغ نقدي للشريك كان قد صرفه من جيبه الخاص على فواتير أو مصروفات المحل.', icon: Check, badge: 'رد مصاريف', badgeColor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300' }
                               ].map(type => (
                                 <div 
                                   key={type.key}
@@ -2480,12 +2495,22 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                            </span>
                          </td>
                          <td className="py-4 px-4 text-center">
-                           <Link
-                             to={`/store/${storeId}/partners/${partner.id}`}
-                             className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl font-black text-xs inline-flex items-center gap-1 transition-all"
-                           >
-                             <span>كشف تفصيلي</span>
-                           </Link>
+                           <div className="flex items-center justify-center gap-1.5">
+                             <button
+                               onClick={() => setPreviewPartner(partner)}
+                               className="px-2.5 py-1.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 dark:bg-slate-700 dark:hover:bg-indigo-900/40 text-slate-700 dark:text-slate-300 rounded-xl font-black text-xs inline-flex items-center gap-1 transition-all cursor-pointer"
+                               title="معاينة وطباعة كشف الحساب"
+                             >
+                               <Printer size={13} />
+                               <span>طباعة</span>
+                             </button>
+                             <Link
+                               to={`/store/${storeId}/partners/${partner.id}`}
+                               className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl font-black text-xs inline-flex items-center gap-1 transition-all"
+                             >
+                               <span>كشف تفصيلي</span>
+                             </Link>
+                           </div>
                          </td>
                        </tr>
                      );
@@ -2535,6 +2560,31 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
           </div>
        </div>
        )}
+
+      {/* Partner Statement & Print Preview Modal */}
+      {previewPartner && (
+        <PartnerStatementModal
+          partner={previewPartner}
+          settings={settings}
+          wallet={wallet}
+          orders={orders}
+          treasury={treasury}
+          onClose={() => setPreviewPartner(null)}
+        />
+      )}
+
+      {/* Period Closing and Rollover Modal */}
+      <PeriodClosingModal
+        isOpen={isClosingModalOpen}
+        onClose={() => setIsClosingModalOpen(false)}
+        settings={settings}
+        updateSettings={updateSettings}
+        orders={orders}
+        wallet={wallet}
+        setWallet={setWallet}
+        treasury={treasury}
+        setTreasury={setTreasury}
+      />
 
     </div>
   );

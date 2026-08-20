@@ -119,22 +119,48 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     const rawPMap: Record<string, number> = {};
     const rawVMap: Record<string, number> = {};
     
+    // Warehouse-level maps: { [productId]: { [warehouseId]: number } }
+    const pWhMap: Record<string, Record<string, number>> = {};
+    const vWhMap: Record<string, Record<string, number>> = {};
+
     // Track supply order returns
     const soReturnedPMap: Record<string, number> = {};
     const soReturnedVMap: Record<string, number> = {};
 
+    // Base maps from latest audits
+    const globalAuditTimePMap: Record<string, number> = {};
+    const globalAuditTimeVMap: Record<string, number> = {};
+    const whAuditTimePMap: Record<string, Record<string, number>> = {};
+    const whAuditTimeVMap: Record<string, Record<string, number>> = {};
+
     // Helper maps to resolve variant IDs to product IDs and check existence
     const variantToProductMap: Record<string, string> = {};
+    const historicalVariantToProductMap: Record<string, string> = {}; // Tracks variant-parent relationships from audits and transactions
     const productHasVariantsMap: Record<string, boolean> = {};
     const productVariantsListMap: Record<string, string[]> = {};
+
+    const warehouseIds = (settings.warehouses || []).map(w => String(w.id).trim());
+    const defaultWhId = warehouseIds[0] || 'default';
 
     (settings.products || []).forEach(p => {
         const pId = String(p.id).trim();
         productHasVariantsMap[pId] = !!p.hasVariants;
+        pWhMap[pId] = {};
+        if (p.warehouseStock) {
+            Object.entries(p.warehouseStock).forEach(([wId, qty]) => {
+                pWhMap[pId][wId] = Number(qty) || 0;
+            });
+        }
         if (p.hasVariants && p.variants) {
             productVariantsListMap[pId] = p.variants.map(v => {
                 const vId = String(v.id).trim();
                 variantToProductMap[vId] = pId;
+                vWhMap[vId] = {};
+                if (v.warehouseStock) {
+                    Object.entries(v.warehouseStock).forEach(([wId, qty]) => {
+                        vWhMap[vId][wId] = Number(qty) || 0;
+                    });
+                }
                 return vId;
             });
         }
@@ -148,32 +174,137 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         return s;
     };
 
+    const parseTxTime = (dateVal: any): number => {
+        if (!dateVal) return 0;
+        if (typeof dateVal === 'number') return dateVal;
+        const str = String(dateVal).trim();
+        if (!str) return 0;
+        if (/^\d{10,13}$/.test(str)) return Number(str);
+        let t = new Date(str).getTime();
+        if (!isNaN(t)) return t;
+        if (str.includes('/') || str.includes('-')) {
+            const separator = str.includes('/') ? '/' : '-';
+            const parts = str.split(separator);
+            if (parts.length === 3) {
+                if (parts[0].length === 4) {
+                    t = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`).getTime();
+                } else if (parts[2].length === 4) {
+                    t = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+                }
+                if (!isNaN(t)) return t;
+            }
+        }
+        return 0;
+    };
+
+    if (settings.inventoryAudits) {
+        // Sort ascending by time so latest audit overwrites earlier ones
+        const sortedAudits = [...settings.inventoryAudits].sort((a, b) => {
+            let timeA = a.timestamp || parseTxTime(a.date);
+            let timeB = b.timestamp || parseTxTime(b.date);
+            return timeA - timeB;
+        });
+
+        sortedAudits.forEach(audit => {
+            const auditTime = audit.timestamp || parseTxTime(audit.date);
+            const auditWh = audit.warehouseId && audit.warehouseId !== 'all' ? String(audit.warehouseId).trim() : null;
+
+            audit.discrepancies?.forEach(d => {
+                const pId = normalizeId(d.productId);
+                const vId = normalizeId(d.variantId);
+                const countQty = Number(d.actualQty) || 0;
+                
+                if (pId) {
+                    if (vId) {
+                        historicalVariantToProductMap[vId] = pId;
+                        if (!vWhMap[vId]) vWhMap[vId] = {};
+                        if (!whAuditTimeVMap[vId]) whAuditTimeVMap[vId] = {};
+
+                        if (auditWh) {
+                            vWhMap[vId][auditWh] = countQty;
+                            whAuditTimeVMap[vId][auditWh] = auditTime;
+                        } else {
+                            rawVMap[vId] = countQty;
+                            globalAuditTimeVMap[vId] = auditTime;
+                        }
+                    } else {
+                        if (!pWhMap[pId]) pWhMap[pId] = {};
+                        if (!whAuditTimePMap[pId]) whAuditTimePMap[pId] = {};
+
+                        if (auditWh) {
+                            pWhMap[pId][auditWh] = countQty;
+                            whAuditTimePMap[pId][auditWh] = auditTime;
+                        } else {
+                            rawPMap[pId] = countQty;
+                            globalAuditTimePMap[pId] = auditTime;
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    const isAfterAudit = (pId: string | null, vId: string | null, txDate: string, txWh?: string | null) => {
+        const txTime = parseTxTime(txDate);
+        const whId = txWh ? String(txWh).trim() : null;
+
+        if (vId) {
+            if (whId && whAuditTimeVMap[vId]?.[whId] !== undefined) {
+                return txTime > whAuditTimeVMap[vId][whId];
+            }
+            if (globalAuditTimeVMap[vId] !== undefined) {
+                return txTime > globalAuditTimeVMap[vId];
+            }
+        }
+        if (pId) {
+            if (whId && whAuditTimePMap[pId]?.[whId] !== undefined) {
+                return txTime > whAuditTimePMap[pId][whId];
+            }
+            if (globalAuditTimePMap[pId] !== undefined) {
+                return txTime > globalAuditTimePMap[pId];
+            }
+        }
+        return true;
+    };
+
     // 1. Supply Orders (Purchases) - Only count 'completed' status!
     (settings.supplyOrders || []).forEach(order => {
         if (order.status !== 'completed') return;
-        order.items.forEach(item => {
+        const orderWh = order.warehouseId ? String(order.warehouseId).trim() : defaultWhId;
+
+        order.items?.forEach(item => {
+            const pId = normalizeId(item.productId);
+            const vId = normalizeId(item.variantId);
+            const itemWh = item.warehouseId ? String(item.warehouseId).trim() : orderWh;
+            
+            if (!isAfterAudit(pId, vId, order.date, itemWh)) return;
+
             const qty = (item.receivedQuantity !== undefined && item.receivedQuantity !== null) 
                 ? Number(item.receivedQuantity) 
                 : (Number(item.quantity) || 0);
             const totalQty = qty + (Number(item.bonusQuantity) || 0);
-            const pId = normalizeId(item.productId);
-            const vId = normalizeId(item.variantId);
 
             if (pId) {
                 if (vId) {
+                    if (!vWhMap[vId]) vWhMap[vId] = {};
                     if (item.isReturn) {
                         rawVMap[vId] = (rawVMap[vId] || 0) - totalQty;
+                        vWhMap[vId][itemWh] = (vWhMap[vId][itemWh] || 0) - totalQty;
                     } else {
                         rawVMap[vId] = (rawVMap[vId] || 0) + totalQty;
+                        vWhMap[vId][itemWh] = (vWhMap[vId][itemWh] || 0) + totalQty;
                         if (item.returnedQuantity && item.returnedQuantity > 0) {
                             soReturnedVMap[vId] = (soReturnedVMap[vId] || 0) + Number(item.returnedQuantity);
                         }
                     }
                 } else {
+                    if (!pWhMap[pId]) pWhMap[pId] = {};
                     if (item.isReturn) {
                         rawPMap[pId] = (rawPMap[pId] || 0) - totalQty;
+                        pWhMap[pId][itemWh] = (pWhMap[pId][itemWh] || 0) - totalQty;
                     } else {
                         rawPMap[pId] = (rawPMap[pId] || 0) + totalQty;
+                        pWhMap[pId][itemWh] = (pWhMap[pId][itemWh] || 0) + totalQty;
                         if (item.returnedQuantity && item.returnedQuantity > 0) {
                             soReturnedPMap[pId] = (soReturnedPMap[pId] || 0) + Number(item.returnedQuantity);
                         }
@@ -187,16 +318,25 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     const excludedStatuses = ['ملغي', 'مرتجع', 'فشل_التوصيل', 'مرتجع_بعد_الاستلام', 'تمت_الاعادة_لشركة_الشحن'];
     orders.forEach(order => {
         if (excludedStatuses.includes(order.status)) return;
+        const orderWh = order.warehouseId ? String(order.warehouseId).trim() : defaultWhId;
+
         order.items?.forEach(item => {
-            const qty = Number(item.quantity) || 0;
             const pId = normalizeId(item.productId);
             const vId = normalizeId(item.variantId);
+            
+            if (!isAfterAudit(pId, vId, order.date, orderWh)) return;
+
+            const qty = Number(item.quantity) || 0;
 
             if (pId) {
                 if (vId) {
+                    if (!vWhMap[vId]) vWhMap[vId] = {};
                     rawVMap[vId] = (rawVMap[vId] || 0) - qty;
+                    vWhMap[vId][orderWh] = (vWhMap[vId][orderWh] || 0) - qty;
                 } else {
+                    if (!pWhMap[pId]) pWhMap[pId] = {};
                     rawPMap[pId] = (rawPMap[pId] || 0) - qty;
+                    pWhMap[pId][orderWh] = (pWhMap[pId][orderWh] || 0) - qty;
                 }
             }
         });
@@ -206,15 +346,22 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         if (isExchange && (order as any).exchangedItems) {
             const exchangedItems = ((order as any).exchangedItems || []).filter((item: any) => item && (item.selected === true || item.selected === undefined));
             exchangedItems.forEach((exItem: any) => {
-                const qty = Number(exItem.quantity) || 1;
                 const pId = normalizeId(exItem.productId);
                 const vId = normalizeId(exItem.variantId);
+                
+                if (!isAfterAudit(pId, vId, order.date, orderWh)) return;
+
+                const qty = Number(exItem.quantity) || 1;
 
                 if (pId) {
                     if (vId) {
+                        if (!vWhMap[vId]) vWhMap[vId] = {};
                         rawVMap[vId] = (rawVMap[vId] || 0) + qty;
+                        vWhMap[vId][orderWh] = (vWhMap[vId][orderWh] || 0) + qty;
                     } else {
+                        if (!pWhMap[pId]) pWhMap[pId] = {};
                         rawPMap[pId] = (rawPMap[pId] || 0) + qty;
+                        pWhMap[pId][orderWh] = (pWhMap[pId][orderWh] || 0) + qty;
                     }
                 }
             });
@@ -224,19 +371,26 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     // 3. Order Returns (Add back items that were previously subtracted)
     (settings.orderReturns || []).forEach(ret => {
         if (ret.status === 'cancelled' || !ret.restockItems) return;
-        // Only add back if the original order was actually subtracted (not in excluded statuses)
+        const retWh = ret.warehouseId ? String(ret.warehouseId).trim() : defaultWhId;
         const originalOrder = orders.find(o => o.id === ret.orderId);
         if (originalOrder && !excludedStatuses.includes(originalOrder.status)) {
-            ret.items.forEach(item => {
-                const qty = Number(item.quantity) || 0;
+            ret.items?.forEach(item => {
                 const pId = normalizeId(item.productId);
                 const vId = normalizeId(item.variantId);
+                
+                if (!isAfterAudit(pId, vId, ret.date, retWh)) return;
+
+                const qty = Number(item.quantity) || 0;
 
                 if (pId) {
                     if (vId) {
+                        if (!vWhMap[vId]) vWhMap[vId] = {};
                         rawVMap[vId] = (rawVMap[vId] || 0) + qty;
+                        vWhMap[vId][retWh] = (vWhMap[vId][retWh] || 0) + qty;
                     } else {
+                        if (!pWhMap[pId]) pWhMap[pId] = {};
                         rawPMap[pId] = (rawPMap[pId] || 0) + qty;
+                        pWhMap[pId][retWh] = (pWhMap[pId][retWh] || 0) + qty;
                     }
                 }
             });
@@ -249,16 +403,58 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
     (settings.purchaseReturns || []).forEach(ret => {
         if (ret.status === 'cancelled') return;
-        ret.items.forEach(item => {
-            const qty = Number(item.quantity) || 0;
+        const prWh = ret.warehouseId ? String(ret.warehouseId).trim() : defaultWhId;
+
+        ret.items?.forEach(item => {
             const pId = normalizeId(item.productId);
             const vId = normalizeId(item.variantId);
+            
+            if (!isAfterAudit(pId, vId, ret.date, prWh)) return;
+
+            const qty = Number(item.quantity) || 0;
 
             if (pId) {
                 if (vId) {
+                    if (!vWhMap[vId]) vWhMap[vId] = {};
                     prVMap[vId] = (prVMap[vId] || 0) + qty;
+                    vWhMap[vId][prWh] = (vWhMap[vId][prWh] || 0) - qty;
                 } else {
+                    if (!pWhMap[pId]) pWhMap[pId] = {};
                     prPMap[pId] = (prPMap[pId] || 0) + qty;
+                    pWhMap[pId][prWh] = (pWhMap[pId][prWh] || 0) - qty;
+                }
+            }
+        });
+    });
+
+    // 5. Stock Transfers (Move items between warehouses)
+    (settings.stockTransfers || []).forEach(transfer => {
+        if (transfer.status !== 'completed') return;
+        const srcWh = transfer.sourceWarehouseId ? String(transfer.sourceWarehouseId).trim() : null;
+        const dstWh = transfer.destinationWarehouseId ? String(transfer.destinationWarehouseId).trim() : null;
+
+        transfer.items?.forEach(item => {
+            const pId = normalizeId(item.productId);
+            const vId = normalizeId(item.variantId);
+            const qty = Number(item.quantity) || 0;
+
+            if (pId) {
+                if (vId) {
+                    if (!vWhMap[vId]) vWhMap[vId] = {};
+                    if (srcWh && isAfterAudit(pId, vId, transfer.date, srcWh)) {
+                        vWhMap[vId][srcWh] = (vWhMap[vId][srcWh] || 0) - qty;
+                    }
+                    if (dstWh && isAfterAudit(pId, vId, transfer.date, dstWh)) {
+                        vWhMap[vId][dstWh] = (vWhMap[vId][dstWh] || 0) + qty;
+                    }
+                } else {
+                    if (!pWhMap[pId]) pWhMap[pId] = {};
+                    if (srcWh && isAfterAudit(pId, vId, transfer.date, srcWh)) {
+                        pWhMap[pId][srcWh] = (pWhMap[pId][srcWh] || 0) - qty;
+                    }
+                    if (dstWh && isAfterAudit(pId, vId, transfer.date, dstWh)) {
+                        pWhMap[pId][dstWh] = (pWhMap[pId][dstWh] || 0) + qty;
+                    }
                 }
             }
         });
@@ -267,123 +463,97 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     // Subtract supplier returns taking whichever is higher between purchaseReturns array and supplyOrder line item returns
     const finalPMap: Record<string, number> = {};
     const finalVMap: Record<string, number> = {};
+    const finalPWhMap: Record<string, Record<string, number>> = {};
+    const finalVWhMap: Record<string, Record<string, number>> = {};
 
-    Object.keys(rawPMap).forEach(pId => {
-        const prQty = prPMap[pId] || 0;
-        const soRetQty = soReturnedPMap[pId] || 0;
-        const totalReturnToSupplier = Math.max(prQty, soRetQty);
-        finalPMap[pId] = rawPMap[pId] - totalReturnToSupplier;
-    });
-
-    Object.keys(prPMap).forEach(pId => {
-        if (finalPMap[pId] === undefined) {
-            const prQty = prPMap[pId] || 0;
-            const soRetQty = soReturnedPMap[pId] || 0;
-            const totalReturnToSupplier = Math.max(prQty, soRetQty);
-            finalPMap[pId] = -totalReturnToSupplier;
-        }
-    });
-
-    Object.keys(rawVMap).forEach(vId => {
-        const prQty = prVMap[vId] || 0;
-        const soRetQty = soReturnedVMap[vId] || 0;
-        const totalReturnToSupplier = Math.max(prQty, soRetQty);
-        finalVMap[vId] = rawVMap[vId] - totalReturnToSupplier;
-    });
-
-    Object.keys(prVMap).forEach(vId => {
-        if (finalVMap[vId] === undefined) {
-            const prQty = prVMap[vId] || 0;
-            const soRetQty = soReturnedVMap[vId] || 0;
-            const totalReturnToSupplier = Math.max(prQty, soRetQty);
-            finalVMap[vId] = -totalReturnToSupplier;
-        }
-    });
-
-    // --- Double-Entry Stock Reconciliation & Variant Mismatch Correction ---
+    // Build final product warehouse distributions and total stocks
     (settings.products || []).forEach(p => {
         const pId = String(p.id).trim();
+
         if (p.hasVariants && p.variants && p.variants.length > 0) {
-            const vIds = p.variants.map(v => String(v.id).trim());
-            let parentStock = finalPMap[pId] || 0;
+            finalPWhMap[pId] = {};
+            let productTotal = 0;
 
-            if (parentStock > 0) {
-                // Scenario A: We have positive unassigned parent stock.
-                // Step 1: Feed variants that have negative calculated stock (due to sales/returns logged on variants, but purchases logged on parent)
-                vIds.forEach(vId => {
-                    const vStock = finalVMap[vId] || 0;
-                    if (vStock < 0 && parentStock > 0) {
-                        const draw = Math.min(parentStock, -vStock);
-                        finalVMap[vId] = vStock + draw;
-                        parentStock -= draw;
-                    }
+            p.variants.forEach(v => {
+                const vId = String(v.id).trim();
+                finalVWhMap[vId] = {};
+                const whObj = vWhMap[vId] || {};
+                let variantTotal = 0;
+
+                // Calculate for each configured warehouse
+                warehouseIds.forEach(whId => {
+                    const stockInWh = Math.max(0, whObj[whId] ?? 0);
+                    finalVWhMap[vId][whId] = stockInWh;
+                    finalPWhMap[pId][whId] = (finalPWhMap[pId][whId] || 0) + stockInWh;
+                    variantTotal += stockInWh;
                 });
 
-                // Step 2: If we still have positive parent stock left, distribute it to the first variant
-                if (parentStock > 0 && vIds.length > 0) {
-                    const firstVId = vIds[0];
-                    finalVMap[firstVId] = (finalVMap[firstVId] || 0) + parentStock;
-                    parentStock = 0;
+                // If no warehouses are configured or stock was only recorded globally
+                if (warehouseIds.length === 0 || (variantTotal === 0 && (rawVMap[vId] || 0) > 0)) {
+                    variantTotal = Math.max(0, rawVMap[vId] || 0);
+                    if (defaultWhId) finalVWhMap[vId][defaultWhId] = variantTotal;
                 }
-            } else if (parentStock < 0) {
-                // Scenario B: We have negative unassigned parent stock (due to sales/returns logged on parent, but purchases logged on variants).
-                // Draw from positive variants to offset the negative parent stock
-                vIds.forEach(vId => {
-                    const vStock = finalVMap[vId] || 0;
-                    if (vStock > 0 && parentStock < 0) {
-                        const draw = Math.min(vStock, -parentStock);
-                        finalVMap[vId] = vStock - draw;
-                        parentStock += draw;
-                    }
-                });
+
+                finalVMap[vId] = variantTotal;
+                productTotal += variantTotal;
+            });
+
+            finalPMap[pId] = productTotal;
+        } else {
+            finalPWhMap[pId] = {};
+            const whObj = pWhMap[pId] || {};
+            let productTotal = 0;
+
+            warehouseIds.forEach(whId => {
+                const stockInWh = Math.max(0, whObj[whId] ?? 0);
+                finalPWhMap[pId][whId] = stockInWh;
+                productTotal += stockInWh;
+            });
+
+            // If no warehouses configured or stock was global
+            if (warehouseIds.length === 0 || (productTotal === 0 && (rawPMap[pId] || 0) > 0)) {
+                productTotal = Math.max(0, rawPMap[pId] || 0);
+                if (defaultWhId) finalPWhMap[pId][defaultWhId] = productTotal;
             }
 
-            // Always zero out finalPMap[pId] for variant products since it's fully distributed/reconciled into the variants
-            finalPMap[pId] = 0;
+            finalPMap[pId] = productTotal;
         }
     });
 
-    return { products: finalPMap, variants: finalVMap };
-  }, [settings.supplyOrders, settings.orderReturns, settings.purchaseReturns, orders, settings.products]);
+    return { 
+        products: finalPMap, 
+        variants: finalVMap,
+        productWarehouseStock: finalPWhMap,
+        variantWarehouseStock: finalVWhMap
+    };
+  }, [settings.supplyOrders, settings.orderReturns, settings.purchaseReturns, settings.stockTransfers, orders, settings.products, settings.inventoryAudits, settings.warehouses]);
 
   const restoreAllStockFromInvoices = () => {
     showConfirm(
         "استعادة المخزون من الفواتير",
-        "سيقوم هذا الإجراء بإعادة حساب الكميات بناءً على فواتير المشتريات مطروحاً منها المبيعات ومرتجعات المشتريات للموردين. هل أنت متأكد؟",
+        "سيقوم هذا الإجراء بإعادة حساب الكميات وتوزيع المستودعات بدقة بناءً على فواتير المشتريات، المبيعات، جلسات الجرد المعتمدة، وتحويلات المخازن. هل أنت متأكد؟",
         () => {
-            const warehouseIds = (settings.warehouses || []).map(w => w.id);
+            const warehouseIds = (settings.warehouses || []).map(w => String(w.id).trim());
             const defaultWhId = warehouseIds[0];
 
             const updatedProducts = (settings.products || []).map(product => {
+                const pId = String(product.id).trim();
                 let updated = { ...product };
-                if (updated.hasVariants && updated.variants) {
+
+                if (updated.hasVariants && updated.variants && updated.variants.length > 0) {
                     const newVariants = updated.variants.map(v => {
-                        const invStock = Math.max(0, invoicesStockMap.variants[v.id] ?? 0);
+                        const vId = String(v.id).trim();
+                        const calculatedWh = invoicesStockMap.variantWarehouseStock?.[vId] || {};
+                        const invStock = invoicesStockMap.variants[vId] ?? Object.values(calculatedWh).reduce((s, val) => s + (Number(val) || 0), 0);
+                        
                         let vCopy = { ...v, stockQuantity: invStock, stock: invStock };
                         
-                        // Update warehouse stock to match restored stock exactly
-                        const currentWh = vCopy.warehouseStock || {};
-                        const currentWhTotal = Object.values(currentWh).reduce((sum, val) => sum + (Number(val) || 0), 0);
-                        
-                        if (currentWhTotal > 0 && invStock > 0) {
-                            const ratio = invStock / currentWhTotal;
-                            const newWhStock: Record<string, number> = {};
-                            let sumWh = 0;
-                            const keys = Object.keys(currentWh);
-                            
-                            keys.forEach((whId) => {
-                                const val = currentWh[whId];
-                                const newVal = Math.round((Number(val) || 0) * ratio);
-                                newWhStock[whId] = newVal;
-                                sumWh += newVal;
+                        if (warehouseIds.length > 0) {
+                            const cleanedWh: Record<string, number> = {};
+                            warehouseIds.forEach(id => {
+                                cleanedWh[id] = Number(calculatedWh[id] ?? vCopy.warehouseStock?.[id] ?? 0);
                             });
-
-                            const diff = invStock - sumWh;
-                            if (diff !== 0 && keys.length > 0) {
-                                const firstKey = keys[0];
-                                newWhStock[firstKey] = Math.max(0, newWhStock[firstKey] + diff);
-                            }
-                            vCopy.warehouseStock = newWhStock;
+                            vCopy.warehouseStock = cleanedWh;
                         } else if (defaultWhId && invStock > 0) {
                             vCopy.warehouseStock = { [defaultWhId]: invStock };
                         } else {
@@ -408,32 +578,18 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                     });
                     updated.warehouseStock = combinedWhStock;
                 } else {
-                    const invStock = Math.max(0, invoicesStockMap.products[product.id] ?? 0);
+                    const calculatedWh = invoicesStockMap.productWarehouseStock?.[pId] || {};
+                    const invStock = invoicesStockMap.products[pId] ?? Object.values(calculatedWh).reduce((s, val) => s + (Number(val) || 0), 0);
+                    
                     updated.stockQuantity = invStock;
                     updated.stock = invStock;
                     
-                    const currentWh = updated.warehouseStock || {};
-                    const currentWhTotal = Object.values(currentWh).reduce((sum, val) => sum + (Number(val) || 0), 0);
-                    
-                    if (currentWhTotal > 0 && invStock > 0) {
-                        const ratio = invStock / currentWhTotal;
-                        const newWhStock: Record<string, number> = {};
-                        let sumWh = 0;
-                        const keys = Object.keys(currentWh);
-                        
-                        keys.forEach((whId) => {
-                            const val = currentWh[whId];
-                            const newVal = Math.round((Number(val) || 0) * ratio);
-                            newWhStock[whId] = newVal;
-                            sumWh += newVal;
+                    if (warehouseIds.length > 0) {
+                        const cleanedWh: Record<string, number> = {};
+                        warehouseIds.forEach(id => {
+                            cleanedWh[id] = Number(calculatedWh[id] ?? updated.warehouseStock?.[id] ?? 0);
                         });
-
-                        const diff = invStock - sumWh;
-                        if (diff !== 0 && keys.length > 0) {
-                            const firstKey = keys[0];
-                            newWhStock[firstKey] = Math.max(0, newWhStock[firstKey] + diff);
-                        }
-                        updated.warehouseStock = newWhStock;
+                        updated.warehouseStock = cleanedWh;
                     } else if (defaultWhId && invStock > 0) {
                         updated.warehouseStock = { [defaultWhId]: invStock };
                     } else {
@@ -445,7 +601,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             });
 
             setSettings(prev => ({ ...prev, products: updatedProducts }));
-            showAlert("تمت الاستعادة بنجاح", "تمت إعادة بناء المخزون وتوزيع المستودعات بدقة من واقع الفواتير ومرتجعات المشتريات.", "success");
+            showAlert("تمت الاستعادة بنجاح", "تمت إعادة بناء المخزون وتوزيع المستودعات بدقة من واقع جلسات الجرد، الفواتير، وحركات المخازن.", "success");
         }
     );
   };

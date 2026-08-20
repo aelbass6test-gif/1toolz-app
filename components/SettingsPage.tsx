@@ -1269,10 +1269,21 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     storeId TEXT,
     partner_id TEXT,
     partnerId TEXT,
+    partner_name TEXT,
+    partnerName TEXT,
+    treasury_account_id TEXT,
+    treasuryAccountId TEXT,
     type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
-    note TEXT
+    note TEXT,
+    notes TEXT,
+    description TEXT,
+    category TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)
@@ -1324,6 +1335,9 @@ CREATE TABLE IF NOT EXISTS inventory_audits (
     totalVarianceQty NUMERIC DEFAULT 0,
     total_variance_value NUMERIC DEFAULT 0,
     totalVarianceValue NUMERIC DEFAULT 0,
+    total_items_audited NUMERIC DEFAULT 0,
+    totalItemsAudited NUMERIC DEFAULT 0,
+    timestamp BIGINT,
     discrepancies JSONB DEFAULT '[]'::jsonb,
     notes TEXT
 );
@@ -1539,10 +1553,21 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     storeId TEXT,
     partner_id TEXT,
     partnerId TEXT,
+    partner_name TEXT,
+    partnerName TEXT,
+    treasury_account_id TEXT,
+    treasuryAccountId TEXT,
     type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
-    note TEXT
+    note TEXT,
+    notes TEXT,
+    description TEXT,
+    category TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)

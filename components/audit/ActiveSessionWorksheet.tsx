@@ -369,7 +369,8 @@ export default function ActiveSessionWorksheet({
                         totalVarianceQty += diff;
                         totalVarianceValue += diff * item.costPrice;
 
-                        if (diff !== 0 && countData) {
+                        // Include items that were explicitly counted, even if variance is 0, to set a baseline timestamp
+                        if (countData) {
                             discrepancies.push({
                                 productId: item.productId,
                                 variantId: item.variantId,

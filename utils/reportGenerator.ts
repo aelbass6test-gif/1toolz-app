@@ -1709,7 +1709,8 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
                 <th>اسم الشريك</th>
                 <th style="text-align: center;">نسبة الأرباح</th>
                 <th style="text-align: left;">رأس المال</th>
-                <th style="text-align: left;">أرباح مستلمة</th>
+                <th style="text-align: left;">أرباح موزعة</th>
+                <th style="text-align: left;">أرباح متبقية</th>
                 <th style="text-align: left;">سحوبات شخصية</th>
                 <th style="text-align: left;">السلف القائمة</th>
                 <th style="text-align: left;">العربونات</th>
@@ -1719,9 +1720,10 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
               </tr>
             </thead>
             <tbody>
-              ${partnerDetails.length === 0 ? '<tr><td colspan="10" style="text-align: center; padding: 30px; color: #94a3b8; font-weight: 600;">لا يوجد شركاء مسجلين حالياً.</td></tr>' : partnerDetails.map((p: any, idx: number) => {
+              ${partnerDetails.length === 0 ? '<tr><td colspan="12" style="text-align: center; padding: 30px; color: #94a3b8; font-weight: 600;">لا يوجد شركاء مسجلين حالياً.</td></tr>' : partnerDetails.map((p: any, idx: number) => {
                 const partnerNetLoan = (p.loans || 0) - (p.repayments || 0);
                 const isPositive = p.balance >= 0;
+                const remProfit = p.profitShare !== undefined ? p.profitShare : Math.max(0, ((p.profitRatio / 100) * (stats.allTimeNetProfit || 0)) - (p.distributions || 0));
                 return `
                 <tr>
                   <td style="text-align: center; color: #94a3b8; font-weight: 700;">${idx + 1}</td>
@@ -1734,6 +1736,7 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
                   </td>
                   <td class="font-mono" style="text-align: left;">${(p.capital || 0).toLocaleString('ar-EG')}</td>
                   <td class="font-mono green" style="text-align: left;">+${(p.distributions || 0).toLocaleString('ar-EG')}</td>
+                  <td class="font-mono" style="text-align: left; color: ${remProfit > 0 ? '#d97706' : '#64748b'};">${remProfit > 0 ? '+' + remProfit.toLocaleString('ar-EG') : '0 (مصفّر)'}</td>
                   <td class="font-mono orange" style="text-align: left;">-${(p.withdrawals || 0).toLocaleString('ar-EG')}</td>
                   <td class="font-mono red" style="text-align: left;">${partnerNetLoan.toLocaleString('ar-EG')}</td>
                   <td class="font-mono" style="text-align: left; color: #0d9488;">${(p.advances || 0).toLocaleString('ar-EG')}</td>
@@ -1755,6 +1758,7 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
                 <td colspan="3" style="text-align: right;">المجموع الإجمالي الشامل:</td>
                 <td class="font-mono" style="text-align: left;">${totalCapital.toLocaleString('ar-EG')}</td>
                 <td class="font-mono green" style="text-align: left;">+${distributedProfit.toLocaleString('ar-EG')}</td>
+                <td class="font-mono" style="text-align: left; color: ${undistributedProfit > 0 ? '#d97706' : '#64748b'};">${undistributedProfit > 0 ? '+' + undistributedProfit.toLocaleString('ar-EG') : '0 (مصفّر)'}</td>
                 <td class="font-mono" style="text-align: left;">-</td>
                 <td class="font-mono red" style="text-align: left;">${netLoans.toLocaleString('ar-EG')}</td>
                 <td class="font-mono" style="text-align: left; color: #0d9488;">${totalAdvances.toLocaleString('ar-EG')}</td>
@@ -2481,6 +2485,17 @@ export interface ComprehensiveReportSections {
 }
 
 export const generateComprehensiveFinancialReportHTML = (orders: Order[], settings: Settings, wallet: Wallet, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, treasury?: Treasury, sections?: ComprehensiveReportSections): string => {
+    const reportStartDate = (dateRangeText && (dateRangeText.includes('كل البيانات') || dateRangeText.includes('جميع البيانات'))) ? null : (settings.activePeriodStartDate ? new Date(settings.activePeriodStartDate) : null);
+    
+    // Filter historical data to ensure custody section respects current period
+    const filteredHandovers = reportStartDate 
+        ? (settings.cashHandovers || []).filter(h => new Date(h.date) >= reportStartDate)
+        : (settings.cashHandovers || []);
+        
+    const filteredPartnerTransactions = reportStartDate
+        ? (settings.partnerTransactions || []).filter(t => new Date(t.date) >= reportStartDate)
+        : (settings.partnerTransactions || []);
+
     const s = {
         showSummary: sections?.showSummary !== false,
         showIncomeStatement: sections?.showIncomeStatement !== false,
@@ -3182,7 +3197,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         );
         const partnerUserIds = [holderId, p.id, ...partnerHolders.map(h => h.userId)];
 
-        const partnerHandovers = (settings.cashHandovers || []).filter(h => 
+        const partnerHandovers = filteredHandovers.filter(h => 
             partnerUserIds.includes(h.fromUserId) || 
             partnerUserIds.includes(h.toUserId) || 
             normalizeName(h.toUserName || '').includes(nName) || 
@@ -3194,7 +3209,23 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
         }, 0);
 
+        const partnerTxs = filteredPartnerTransactions.filter(t => {
+            const matchesId = t.partnerId === p.id || t.partnerId === `part_${p.id}` || t.partnerId === `partner_${p.id}`;
+            const matchesName = t.partnerName && normalizeName(t.partnerName) === nName;
+            return matchesId || matchesName;
+        });
+
+        const equalizationSum = partnerTxs
+            .filter(t => {
+                const notes = (t.notes || t.description || '').toLowerCase();
+                return notes.includes('تسوية') && (notes.includes('مخزون') || notes.includes('بضاعة') || notes.includes('مقاصة'));
+            })
+            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
         let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
+        // Adjust holder sum to exclude accounting equalization settlements that were added to balance
+        holderSum = Math.max(0, holderSum - equalizationSum);
+
         let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
         if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
 
@@ -3279,68 +3310,78 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         );
         const partnerUserIds = [holderId, p.id, ...partnerHolders.map(h => h.userId)];
 
-        const partnerHandovers = (settings.cashHandovers || []).filter(h => 
+        const partnerHandovers = filteredHandovers.filter(h => 
             partnerUserIds.includes(h.fromUserId) || 
             partnerUserIds.includes(h.toUserId) || 
             normalizeName(h.toUserName || '').includes(nName) || 
             normalizeName(h.fromUserName || '').includes(nName)
         );
 
-        const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
-        const hasSettlement = settlements.length > 0;
-
-        let activeHandovers = [];
-        if (hasSettlement) {
-            const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-            activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-        } else {
-            activeHandovers = partnerHandovers;
-        }
-
         const account = custodyAccounts.find(a => normalizeName(a.name) === nName || a.name.includes(p.name) || p.name.includes(a.name) || normalizeName(a.name).includes(nName));
         const targetName = account ? account.name : `${p.name} (شريك)`;
 
-        activeHandovers.forEach(h => {
+        if (!custodyDetails[targetName]) {
+            custodyDetails[targetName] = [];
+        }
+
+        partnerHandovers.forEach(h => {
             const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
-            const noteText = h.notes || (isGive ? 'تسليم عهدة تشغيلية للشريك' : 'تسوية واسترداد عهدة من الشريك');
+            const isDeductionOrSettlement = h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')) || (h.notes && (h.notes.includes('خصم') || h.notes.includes('تسوية')));
+            const noteText = h.notes || (isDeductionOrSettlement ? 'تسوية وخصم عهدة معلقة من الرصيد الجاري للشريك' : (isGive ? 'تسليم عهدة تشغيلية للشريك' : 'تسوية واسترداد عهدة من الشريك'));
             
-            if (!custodyDetails[targetName]) {
-                custodyDetails[targetName] = [];
+            // Check if this positive handover is an automatic mirror of an order already listed in custodyDetails
+            if (!isDeductionOrSettlement && isGive) {
+                const isAutoOrderHandover = (h.id && (h.id.startsWith('pos-handover') || h.id.startsWith('virtual-adv') || h.id.startsWith('hd-'))) ||
+                                           (h.notes && (h.notes.includes('طلب #') || h.notes.includes('دفع مقدم') || h.notes.includes('مبيعات كاشير') || h.notes.includes('عربون')));
+                
+                const matchInDetails = custodyDetails[targetName].some(d => {
+                    const orderNumMatch = d.orderNumber && (h.id.includes(d.orderNumber) || (h.notes && h.notes.includes(d.orderNumber)));
+                    const custNameMatch = d.customerName && h.notes && h.notes.includes(d.customerName);
+                    return orderNumMatch || custNameMatch;
+                });
+
+                if (isAutoOrderHandover && matchInDetails) {
+                    return;
+                }
             }
+
             const alreadyExists = custodyDetails[targetName].some(d => d.orderNumber === h.id);
             if (!alreadyExists) {
                 custodyDetails[targetName].push({
                     customerName: noteText,
-                    orderNumber: h.id || '---',
-                    amount: isGive ? (Number(h.amount) || 0) : -(Number(h.amount) || 0),
-                    type: noteText.includes('فرق جرد') ? 'فرق جرد' : (isGive ? 'تسليم عهدة' : 'تسوية عهدة')
+                    orderNumber: h.id || 'سند تسوية',
+                    amount: isDeductionOrSettlement ? -(Math.abs(Number(h.amount) || 0)) : (isGive ? (Number(h.amount) || 0) : -(Number(h.amount) || 0)),
+                    type: isDeductionOrSettlement ? 'تسوية عهدة' : (noteText.includes('فرق جرد') ? 'فرق جرد' : (isGive ? 'تسليم عهدة' : 'تسوية عهدة'))
                 });
             }
         });
 
-        // Add partner transactions (such as inventory audit differences/withdrawals)
-        const partnerTxs = ((settings as any).partnerTransactions || []).filter((tx: any) => {
+        // Add partner transactions (such as custody deductions / personal withdrawals that settled custody / inventory audit differences)
+        const partnerTxs = (filteredPartnerTransactions).filter((tx: any) => {
             const matchesPartner = tx.partnerId === p.id || 
+                                   tx.partnerId === `part_${p.id}` ||
                                    normalizeName(tx.partnerName || '').includes(nName) || 
                                    nName.includes(normalizeName(tx.partnerName || ''));
+            const notesNorm = normalizeName(tx.notes || tx.description || '');
+            const isCustodySettlement = notesNorm.includes('تسوية عهدة') || notesNorm.includes('خصم عهدة') || notesNorm.includes('تسوية عهده') || notesNorm.includes('خصم عهده') || notesNorm.includes('عهدة معلقة') || notesNorm.includes('عهده معلقة');
             const isAuditOrWithdrawal = tx.type === 'personal_withdrawal' || 
                                         (tx.notes && (tx.notes.includes('جرد') || tx.notes.includes('تسوية'))) ||
                                         (tx.description && (tx.description.includes('جرد') || tx.description.includes('تسوية')));
-            return matchesPartner && isAuditOrWithdrawal;
+            return matchesPartner && (isCustodySettlement || isAuditOrWithdrawal);
         });
 
         partnerTxs.forEach((tx: any) => {
-            if (!custodyDetails[targetName]) {
-                custodyDetails[targetName] = [];
-            }
-            const txNotes = tx.notes || tx.description || 'فارق تسوية جرد';
+            const txNotes = tx.notes || tx.description || 'تسوية وخصم عهدة من الرصيد الجاري للشريك';
+            const notesNorm = normalizeName(txNotes);
+            const isCustodySettlement = notesNorm.includes('تسوية عهدة') || notesNorm.includes('خصم عهدة') || notesNorm.includes('تسوية عهده') || notesNorm.includes('خصم عهده') || notesNorm.includes('عهدة معلقة') || notesNorm.includes('عهده معلقة') || notesNorm.includes('خصم عهد');
+            
             const alreadyExists = custodyDetails[targetName].some(d => d.orderNumber === tx.id);
             if (!alreadyExists) {
                 custodyDetails[targetName].push({
                     customerName: txNotes,
-                    orderNumber: tx.id || '---',
-                    amount: Number(tx.amount) || 0,
-                    type: 'فرق جرد'
+                    orderNumber: tx.id || 'سند تسوية',
+                    amount: isCustodySettlement ? -(Math.abs(Number(tx.amount) || 0)) : (Number(tx.amount) || 0),
+                    type: isCustodySettlement ? 'تسوية عهدة' : (txNotes.includes('جرد') ? 'فرق جرد' : 'تسوية عهدة')
                 });
             }
         });
@@ -3358,7 +3399,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         );
         const empUserIds = [holderId, e.id, ...empHolders.map(h => h.userId)];
 
-        const empHandovers = (settings.cashHandovers || []).filter(h => 
+        const empHandovers = filteredHandovers.filter(h => 
             empUserIds.includes(h.fromUserId) || 
             empUserIds.includes(h.toUserId) || 
             normalizeName(h.toUserName || '').includes(nName) || 
@@ -3381,8 +3422,25 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
         activeHandovers.forEach(h => {
             const isGive = empUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
-            const noteText = h.notes || (isGive ? 'تسليم عهدة تشغيلية للموظف' : 'تسوية واسترداد عهدة من الموظف');
+            const isDeductionOrSettlement = h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')) || (h.notes && (h.notes.includes('خصم') || h.notes.includes('تسوية')));
+            const noteText = h.notes || (isDeductionOrSettlement ? 'تسوية وخصم عهدة من الموظف' : (isGive ? 'تسليم عهدة تشغيلية للموظف' : 'تسوية واسترداد عهدة من الموظف'));
             
+            // Check if this positive handover is an automatic mirror of an order already listed in custodyDetails
+            if (!isDeductionOrSettlement && isGive) {
+                const isAutoOrderHandover = (h.id && (h.id.startsWith('pos-handover') || h.id.startsWith('virtual-adv') || h.id.startsWith('hd-'))) ||
+                                           (h.notes && (h.notes.includes('طلب #') || h.notes.includes('دفع مقدم') || h.notes.includes('مبيعات كاشير') || h.notes.includes('عربون')));
+                
+                const matchInDetails = custodyDetails[targetName].some(d => {
+                    const orderNumMatch = d.orderNumber && (h.id.includes(d.orderNumber) || (h.notes && h.notes.includes(d.orderNumber)));
+                    const custNameMatch = d.customerName && h.notes && h.notes.includes(d.customerName);
+                    return orderNumMatch || custNameMatch;
+                });
+
+                if (isAutoOrderHandover && matchInDetails) {
+                    return;
+                }
+            }
+
             if (!custodyDetails[targetName]) {
                 custodyDetails[targetName] = [];
             }
@@ -3390,9 +3448,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             if (!alreadyExists) {
                 custodyDetails[targetName].push({
                     customerName: noteText,
-                    orderNumber: h.id || '---',
-                    amount: isGive ? (Number(h.amount) || 0) : -(Number(h.amount) || 0),
-                    type: noteText.includes('فرق جرد') ? 'فرق جرد' : (isGive ? 'تسليم عهدة' : 'تسوية عهدة')
+                    orderNumber: h.id || 'سند تسوية',
+                    amount: isDeductionOrSettlement ? -(Math.abs(Number(h.amount) || 0)) : (isGive ? (Number(h.amount) || 0) : -(Number(h.amount) || 0)),
+                    type: isDeductionOrSettlement ? 'تسوية عهدة' : (noteText.includes('فرق جرد') ? 'فرق جرد' : (isGive ? 'تسليم عهدة' : 'تسوية عهدة'))
                 });
             }
         });
@@ -3423,13 +3481,19 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
     Object.keys(custodyDetails).forEach(targetName => {
         if (isBankOrTreasuryAccount(targetName)) return;
-        const exists = custodyAccounts.some(a => normalizeName(a.name) === normalizeName(targetName) || a.name.includes(targetName) || targetName.includes(a.name));
-        if (!exists) {
-            const detailsSum = custodyDetails[targetName].reduce((s, d) => s + d.amount, 0);
+        const existsIdx = custodyAccounts.findIndex(a => normalizeName(a.name) === normalizeName(targetName) || a.name.includes(targetName) || targetName.includes(a.name));
+        const details = custodyDetails[targetName] || [];
+        const positiveSum = details.filter(d => d.amount > 0).reduce((s, d) => s + d.amount, 0);
+        const negativeSum = details.filter(d => d.amount < 0).reduce((s, d) => s + Math.abs(d.amount), 0);
+        const netBalance = Math.max(0, positiveSum - negativeSum);
+
+        if (existsIdx === -1) {
             custodyAccounts.push({
                 name: targetName,
-                balance: detailsSum
+                balance: netBalance
             });
+        } else {
+            custodyAccounts[existsIdx].balance = netBalance;
         }
     });
 
@@ -3747,7 +3811,7 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
     const partnerExpenseBreakdown = (partners || []).map(p => {
         const normP = normalizeName(p.name);
-        const pTxs = (settings?.partnerTransactions || []).filter(t => {
+        const pTxs = filteredPartnerTransactions.filter(t => {
             const matchesId = t.partnerId === p.id || t.partnerId === `part_${p.id}` || t.partnerId === `partner_${p.id}`;
             const matchesName = t.partnerName && normalizeName(t.partnerName) === normP;
             const matchesNote = t.notes && normalizeName(t.notes).includes(normP);
@@ -3878,36 +3942,51 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 return nK === nName || nK.includes(nName) || nName.includes(nK);
             });
             const details = detailsKey ? custodyDetails[detailsKey] : [];
-            const sumDetails = details.reduce((s, d) => s + d.amount, 0);
+            const posSum = details.filter(d => d.amount > 0).reduce((s, d) => s + d.amount, 0);
+            const negSum = details.filter(d => d.amount < 0).reduce((s, d) => s + Math.abs(d.amount), 0);
+            const netFromDetails = Math.max(0, posSum - negSum);
 
-            const baseBalance = acc ? acc.balance : (mergedHolders[nName]?.balance || 0);
-            const isZahra = nName.includes('زهره') || nName.includes('زهرة');
-            const hasSettlement = (settings.cashHandovers || []).some((h: any) => 
-                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم'))) && 
-                (normalizeName(h.fromUserName || '').includes('زهره') || normalizeName(h.fromUserName || '').includes('زهرة'))
+            const allTxs = filteredPartnerTransactions.filter(t => {
+                const notes = (t.notes || t.description || '').toLowerCase();
+                const isEqualization = notes.includes('تسوية') && (notes.includes('مخزون') || notes.includes('بضاعة') || notes.includes('مقاصة'));
+                return !isEqualization;
+            });
+            const hasCustodySettlementTx = allTxs.some((t: any) => {
+                const matchesPartner = (t.partnerName && normalizeName(t.partnerName).includes(nName)) || (t.notes && normalizeName(t.notes).includes(nName));
+                const notesNorm = normalizeName(t.notes || t.description || '');
+                return matchesPartner && (notesNorm.includes('تسوية عهدة') || notesNorm.includes('خصم عهدة') || notesNorm.includes('تسوية عهده') || notesNorm.includes('خصم عهده') || notesNorm.includes('عهدة معلقة') || notesNorm.includes('عهده معلقة'));
+            });
+
+            const hasSettlementHandover = filteredHandovers.some((h: any) => 
+                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')) || (h.notes && (h.notes.includes('خصم') || h.notes.includes('تسوية')))) && 
+                (normalizeName(h.fromUserName || '').includes(nName) || normalizeName(h.toUserName || '').includes(nName))
             );
 
-            if (isZahra) {
-                if (!hasSettlement) {
-                    return sumDetails > 0 ? Math.max(7275, sumDetails) : (baseBalance > 0 ? baseBalance : 7275);
-                } else {
-                    return baseBalance;
-                }
+            if (hasCustodySettlementTx || hasSettlementHandover || negSum > 0) {
+                return netFromDetails;
             }
-            return sumDetails > 0 ? Math.max(baseBalance, sumDetails) : baseBalance;
+
+            if (details.length > 0) {
+                return netFromDetails;
+            }
+
+            const baseBalance = acc ? acc.balance : (mergedHolders[nName]?.balance || 0);
+            return Math.max(0, baseBalance);
         };
 
         let totalCapitalSum = 0;
         let totalProfitShareSum = 0;
+        let totalDistributedSum = 0;
+        let totalUndistributedSum = 0;
         let totalInventoryShareSum = 0;
         let totalWithdrawalsSum = 0;
         let totalCustodySum = 0;
         let totalBalanceSum = 0;
 
         const partnerRowsHtml = partners.map(p => {
-            const partnerShare = (p.profitRatio / 100) * finalNet;
+            const partnerGrossShare = (p.profitRatio / 100) * finalNet;
             const normPName = normalizeName(p.name);
-            const allTxs = settings.partnerTransactions || [];
+            const allTxs = filteredPartnerTransactions;
             const partnerTxs = allTxs.filter(t => {
                 const matchesId = t.partnerId === p.id || t.partnerId === `part_${p.id}` || t.partnerId === `partner_${p.id}`;
                 const matchesName = t.partnerName && normalizeName(t.partnerName) === normPName;
@@ -3918,22 +3997,51 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             const partnerCapital = (p as any).capital || (p as any).initialCapital || 
                 partnerTxs.filter(t => ['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage'].includes(t.type)).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
 
+            const partnerDistributed = partnerTxs
+                .filter(t => t.type === 'profit_distribution')
+                .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+            const partnerUndistributed = Math.max(0, partnerGrossShare - partnerDistributed);
+
             const inventoryShare = (p.profitRatio / 100) * (totalInventoryValue || 0);
 
-            const withdrawalTxs = partnerTxs.filter(t => 
-                ['profit_withdrawal', 'loan', 'profit_distribution', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
-                (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage')
-            );
+            const withdrawalTxs = partnerTxs.filter(t => {
+                const isWithdrawalType = ['profit_withdrawal', 'loan', 'personal_withdrawal', 'custody_withdrawal', 'wallet_withdrawal', 'withdrawal', 'draw'].includes(t.type) ||
+                    (t.amount > 0 && t.type !== 'capital_addition' && t.type !== 'profit_distribution' && t.type !== 'repayment' && t.type !== 'supply_funding' && t.type !== 'shipping_funding' && t.type !== 'expense_coverage' && t.type !== 'internal_transfer_in' && t.type !== 'custody_receive');
+                
+                if (!isWithdrawalType) return false;
+                
+                // Exclude equalization settlements from being listed as active withdrawals in the new period
+                const notes = (t.notes || t.description || '').toLowerCase();
+                const isEqualization = notes.includes('تسوية') && (notes.includes('مخزون') || notes.includes('بضاعة') || notes.includes('مقاصة'));
+                
+                // If it's an equalization transaction and we are in a filtered period report, exclude it
+                if (isEqualization && reportStartDate) {
+                    const txDate = new Date(t.date);
+                    // Only exclude if it happened at the exact start of the period (likely a closing adjustment)
+                    if (txDate.getTime() <= reportStartDate.getTime() + 86400000) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
 
             const totalWithdrawals = withdrawalTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
             const partnerCustody = getPartnerCustody(p.name);
+            const curBalance = p.balance || 0;
+
+            // حساب معادلة البضاعة (الفارق بين الرصيد المتاح وحصة البضاعة)
+            const balanceDiff = curBalance - inventoryShare;
 
             totalCapitalSum += partnerCapital;
-            totalProfitShareSum += partnerShare;
+            totalProfitShareSum += partnerGrossShare;
+            totalDistributedSum += partnerDistributed;
+            totalUndistributedSum += partnerUndistributed;
             totalInventoryShareSum += inventoryShare;
             totalWithdrawalsSum += totalWithdrawals;
             totalCustodySum += partnerCustody;
-            totalBalanceSum += (p.balance || 0);
+            totalBalanceSum += curBalance;
 
             let statusLabel = 'مسدد بالكامل';
             let statusBg = '#eff6ff';
@@ -3990,11 +4098,6 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                                 badgeBg = '#f0f9ff';
                                 badgeColor = '#0369a1';
                                 badgeBorder = '#bae6fd';
-                            } else if (t.type === 'profit_distribution') {
-                                badge = 'توزيع أرباح';
-                                badgeBg = '#faf5ff';
-                                badgeColor = '#6b21a8';
-                                badgeBorder = '#e9d5ff';
                             }
 
                             const displayNote = notes || (badge === 'سلفة' ? 'مسحوبات شخصية' : 'مسحوبات شريك');
@@ -4021,17 +4124,50 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 withdrawalsHtml = `<span style="color: #94a3b8; font-style: italic; font-size: 11px;">لا توجد مسحوبات</span>`;
             }
 
+            const distributedHtml = partnerDistributed > 0
+                ? `<div style="font-weight: bold; color: #059669; font-family: monospace;">+${partnerDistributed.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</div><div style="font-size: 8.5px; color: #15803d; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; font-weight: bold;">✓ موزع بالكامل</div>`
+                : `<span style="color: #94a3b8; font-family: monospace;">0 ج.م</span>`;
+
+            const undistributedHtml = partnerUndistributed > 0
+                ? `<div style="font-weight: bold; color: #d97706; font-family: monospace;">+${partnerUndistributed.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</div><div style="font-size: 8.5px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px;">قيد التوزيع</div>`
+                : `<div style="font-weight: bold; color: #64748b; font-family: monospace;">0 ج.م</div><div style="font-size: 8.5px; color: #047857; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; font-weight: bold;">(مصفّر)</div>`;
+
+            let equalizationHtml = '';
+            if (balanceDiff > 0.01) {
+                equalizationHtml = `
+                    <div style="font-weight: 800; color: #0284c7; font-size: 11px; font-family: monospace;">يسحب: +${balanceDiff.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</div>
+                    <div style="font-size: 8.5px; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; font-weight: bold;">فائض متاح للسحب</div>
+                `;
+            } else if (balanceDiff < -0.01) {
+                const deficit = Math.abs(balanceDiff);
+                equalizationHtml = `
+                    <div style="font-weight: 800; color: #dc2626; font-size: 11px; font-family: monospace;">يودع: ${deficit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</div>
+                    <div style="font-size: 8.5px; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; font-weight: bold;">عجز لتغطية البضاعة</div>
+                `;
+            } else {
+                equalizationHtml = `
+                    <div style="font-weight: bold; color: #059669; font-size: 11px; font-family: monospace;">0 ج.م</div>
+                    <div style="font-size: 8.5px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; font-weight: bold;">متعادل مع البضاعة ✓</div>
+                `;
+            }
+
             return `<tr>
-                <td style="font-weight: bold; color: #1e3a8a; font-size: 13px;">${p.name}</td>
-                <td style="font-weight: bold;">${p.profitRatio}%</td>
-                <td style="font-weight: bold; color: #4338ca; font-family: monospace;">${partnerCapital > 0 ? partnerCapital.toLocaleString() + ' ج.م' : '0 ج.م'}</td>
-                <td style="font-weight: bold; color: ${partnerShare >= 0 ? '#059669' : '#dc2626'}; font-family: monospace;">+${partnerShare.toLocaleString()} ج.م</td>
-                <td style="font-weight: bold; color: #0284c7; font-family: monospace;">${inventoryShare > 0 ? inventoryShare.toLocaleString() + ' ج.م' : '0 ج.م'}</td>
-                <td style="padding: 8px;">${withdrawalsHtml}</td>
-                <td style="font-weight: bold; color: ${partnerCustody > 0 ? '#d97706' : '#64748b'}; font-family: monospace;">${partnerCustody.toLocaleString()} ج.م</td>
-                <td style="font-weight: 800; background: #f8fafc; font-size: 14px; font-family: monospace; color: ${p.balance >= 0 ? '#0f172a' : '#dc2626'};">${p.balance.toLocaleString()} ج.م</td>
-                <td>
-                    <span style="font-size: 10px; font-weight: bold; background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusBorder}; padding: 3px 6px; border-radius: 12px; white-space: nowrap; display: inline-block;">
+                <td style="font-weight: bold; color: #1e3a8a; font-size: 12.5px;">${p.name}</td>
+                <td style="font-weight: bold; text-align: center;">${p.profitRatio}%</td>
+                <td style="font-weight: bold; color: #4338ca; font-family: monospace; text-align: center;">${partnerCapital > 0 ? partnerCapital.toLocaleString() + ' ج.م' : '0 ج.م'}</td>
+                <td style="font-weight: bold; text-align: center;">${distributedHtml}</td>
+                <td style="font-weight: bold; text-align: center;">${undistributedHtml}</td>
+                <td style="font-weight: bold; color: #0284c7; font-family: monospace; text-align: center;">${inventoryShare > 0 ? inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' ج.م' : '0 ج.م'}</td>
+                <td style="padding: 6px;">${withdrawalsHtml}</td>
+                <td style="font-weight: bold; color: ${partnerCustody > 0 ? '#d97706' : '#059669'}; font-family: monospace; text-align: center;">
+                    ${partnerCustody > 0 
+                        ? `${partnerCustody.toLocaleString()} ج.م` 
+                        : `0 ج.م<div style="font-size: 8px; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 3px; padding: 1px 4px; display: inline-block; margin-top: 2px; font-weight: bold;">(مصفّرة / مسواة)</div>`}
+                </td>
+                <td style="font-weight: 800; background: #f8fafc; font-size: 13px; font-family: monospace; color: ${p.balance >= 0 ? '#0f172a' : '#dc2626'}; text-align: center;">${curBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
+                <td style="text-align: center; background: ${balanceDiff > 0.01 ? '#f0fdfa' : balanceDiff < -0.01 ? '#fff7ed' : '#f8fafc'};">${equalizationHtml}</td>
+                <td style="text-align: center;">
+                    <span style="font-size: 9.5px; font-weight: bold; background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusBorder}; padding: 2px 5px; border-radius: 12px; white-space: nowrap; display: inline-block;">
                         ${statusLabel}
                     </span>
                 </td>
@@ -4044,20 +4180,39 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         <div style="margin-top: 25px; page-break-inside: avoid;">
             <h3 style="background: #1e3a8a; color: white; padding: 10px 14px; border-radius: 6px; font-size: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                 <span>${sectionCounter++}. توزيع أرباح الشركاء والمراكز المالية الشاملة</span>
-                <span style="font-size: 11px; font-weight: normal; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">شامل الأرباح، المخزون، ورأس المال</span>
+                <span style="font-size: 11px; font-weight: normal; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">شامل الأرباح، المخزون، ورأس المال ومقاصة البضاعة</span>
             </h3>
-            <table class="modern-table" style="font-size: 11px;">
+
+            <!-- ملخص توزيع الأرباح وتصفير الأرباح المتبقية -->
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; text-align: right;">
+                    <span style="font-size: 10px; color: #64748b; font-weight: bold; display: block; margin-bottom: 2px;">صافي أرباح الفترة الإجمالية:</span>
+                    <span style="font-size: 14px; font-weight: 900; color: #0f172a; font-family: monospace;">+${finalNet.toLocaleString()} ج.م</span>
+                </div>
+                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; text-align: right;">
+                    <span style="font-size: 10px; color: #166534; font-weight: bold; display: block; margin-bottom: 2px;">الأرباح الموزعة (المعتمدة والمضافة للرصيد):</span>
+                    <span style="font-size: 14px; font-weight: 900; color: #15803d; font-family: monospace;">+${totalDistributedSum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م ${totalUndistributedSum === 0 && totalDistributedSum > 0 ? '<span style="font-size: 9px; background: #dcfce7; color: #15803d; padding: 2px 5px; border-radius: 4px; margin-right: 4px;">✓ تم التوزيع بالكامل</span>' : ''}</span>
+                </div>
+                <div style="background: ${totalUndistributedSum > 0 ? '#fffbeb' : '#f8fafc'}; border: 1px solid ${totalUndistributedSum > 0 ? '#fde68a' : '#e2e8f0'}; border-radius: 6px; padding: 8px 12px; text-align: right;">
+                    <span style="font-size: 10px; color: ${totalUndistributedSum > 0 ? '#92400e' : '#475569'}; font-weight: bold; display: block; margin-bottom: 2px;">الأرباح المتبقية للتوزيع:</span>
+                    <span style="font-size: 14px; font-weight: 900; color: ${totalUndistributedSum > 0 ? '#d97706' : '#64748b'}; font-family: monospace;">${totalUndistributedSum.toLocaleString()} ج.م ${totalUndistributedSum === 0 ? '<span style="font-size: 9px; background: #e2e8f0; color: #334155; padding: 2px 5px; border-radius: 4px; margin-right: 4px;">(مصفّر 0)</span>' : ''}</span>
+                </div>
+            </div>
+
+            <table class="modern-table" style="font-size: 10.5px;">
                 <thead>
                     <tr>
-                        <th style="width: 12%;">اسم الشريك</th>
-                        <th style="width: 6%;">النسبة</th>
-                        <th style="width: 11%;">رأس المال / الاستثمار</th>
-                        <th style="width: 11%;">نصيب الأرباح</th>
-                        <th style="width: 11%;">حصة المخزون (البضاعة)</th>
-                        <th style="width: 25%;">تفاصيل المسحوبات والتسويات</th>
-                        <th style="width: 8%;">العهدة</th>
+                        <th style="width: 10%;">اسم الشريك</th>
+                        <th style="width: 5%;">النسبة</th>
+                        <th style="width: 9%;">رأس المال</th>
+                        <th style="width: 10%;">الأرباح الموزعة</th>
+                        <th style="width: 8%;">الأرباح المتبقية</th>
+                        <th style="width: 9%;">حصة البضاعة</th>
+                        <th style="width: 19%;">تفاصيل المسحوبات والتسويات</th>
+                        <th style="width: 6%;">العهدة</th>
                         <th style="width: 9%;">الرصيد المتاح</th>
-                        <th style="width: 7%;">الحالة</th>
+                        <th style="width: 11%;">معادلة البضاعة (سحب/إيداع)</th>
+                        <th style="width: 4%;">الحالة</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -4066,19 +4221,69 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                 <tfoot>
                     <tr style="background: #f1f5f9; font-weight: 800; border-top: 2px solid #cbd5e1;">
                         <td style="color: #0f172a; text-align: right; padding: 10px 8px;">الإجمالي العام</td>
-                        <td style="color: #0f172a; font-family: monospace;">${totalProfitRatios}%</td>
-                        <td style="color: #4338ca; font-family: monospace;">${totalCapitalSum.toLocaleString()} ج.م</td>
-                        <td style="color: #059669; font-family: monospace;">+${totalProfitShareSum.toLocaleString()} ج.م</td>
-                        <td style="color: #0284c7; font-family: monospace;">${totalInventoryShareSum.toLocaleString()} ج.م</td>
-                        <td style="color: #b91c1c; font-family: monospace; text-align: right; padding: 8px;">
+                        <td style="color: #0f172a; font-family: monospace; text-align: center;">${totalProfitRatios}%</td>
+                        <td style="color: #4338ca; font-family: monospace; text-align: center;">${totalCapitalSum.toLocaleString()} ج.م</td>
+                        <td style="color: #059669; font-family: monospace; text-align: center;">+${totalDistributedSum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
+                        <td style="color: ${totalUndistributedSum > 0 ? '#d97706' : '#64748b'}; font-family: monospace; text-align: center;">${totalUndistributedSum.toLocaleString()} ج.م</td>
+                        <td style="color: #0284c7; font-family: monospace; text-align: center;">${totalInventoryShareSum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
+                        <td style="color: #b91c1c; font-family: monospace; text-align: right; padding: 6px;">
                             <span style="background: #fee2e2; padding: 2px 6px; border-radius: 4px;">-${totalWithdrawalsSum.toLocaleString()} ج.م</span>
                         </td>
-                        <td style="color: #d97706; font-family: monospace;">${totalCustodySum.toLocaleString()} ج.م</td>
-                        <td style="color: #0f172a; font-size: 13px; font-family: monospace; background: #e2e8f0;">${totalBalanceSum.toLocaleString()} ج.م</td>
-                        <td style="color: #64748b; font-size: 10px;">معتمد</td>
+                        <td style="color: #d97706; font-family: monospace; text-align: center;">${totalCustodySum.toLocaleString()} ج.م</td>
+                        <td style="color: #0f172a; font-size: 12px; font-family: monospace; background: #e2e8f0; text-align: center;">${totalBalanceSum.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</td>
+                        <td style="color: #0369a1; font-size: 10.5px; font-family: monospace; text-align: center;">
+                            فائض إجمالي: +${Math.max(0, totalBalanceSum - totalInventoryShareSum).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                        </td>
+                        <td style="color: #64748b; font-size: 10px; text-align: center;">معتمد</td>
                     </tr>
                 </tfoot>
             </table>
+
+            <!-- بيان مقاصة وتسوية الأرصدة مع بضاعة المخزن (معادلة الحصص) -->
+            <div style="margin-top: 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; page-break-inside: avoid;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 14px;">⚖️</span>
+                        <strong style="color: #0f172a; font-size: 12.5px;">بيان مقاصة وتسوية الأرصدة مع بضاعة المخزن (معادلة الحصص)</strong>
+                    </div>
+                    <span style="font-size: 10px; color: #475569; background: #e2e8f0; padding: 2px 8px; border-radius: 4px; font-weight: bold;">
+                        إجمالي قيمة بضاعة المخزن: ${(totalInventoryValue || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                    </span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px;">
+                    ${partners.map(p => {
+                        const invShare = (p.profitRatio / 100) * (totalInventoryValue || 0);
+                        const curBal = p.balance || 0;
+                        const diff = curBal - invShare;
+                        const isSurplus = diff > 0.01;
+                        const isDeficit = diff < -0.01;
+                        const absDiff = Math.abs(diff);
+
+                        return `
+                        <div style="background: ${isSurplus ? '#f0fdf4' : isDeficit ? '#fef2f2' : '#ffffff'}; border: 1px solid ${isSurplus ? '#86efac' : isDeficit ? '#fca5a5' : '#e2e8f0'}; border-radius: 6px; padding: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <strong style="color: #0f172a; font-size: 12px;">الشريك: ${p.name} (${p.profitRatio}%)</strong>
+                                <span style="font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px; ${isSurplus ? 'background: #dcfce7; color: #166534;' : isDeficit ? 'background: #fee2e2; color: #991b1b;' : 'background: #f1f5f9; color: #334155;'}">
+                                    ${isSurplus ? '🟢 لديه فائض رصيد متاح للسحب' : isDeficit ? '🔴 عليه عجز مطلوب إيداعه' : '⚪ متطابق تماماً'}
+                                </span>
+                            </div>
+                            <div style="font-size: 10px; color: #475569; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 8px; background: rgba(255,255,255,0.7); padding: 6px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.05);">
+                                <div>حصة البضاعة: <strong style="color: #0284c7; font-family: monospace;">${invShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong></div>
+                                <div>الرصيد المتاح: <strong style="color: #0f172a; font-family: monospace;">${curBal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong></div>
+                            </div>
+                            <div style="font-size: 11px; line-height: 1.6; font-weight: 700; ${isSurplus ? 'color: #15803d;' : isDeficit ? 'color: #b91c1c;' : 'color: #334155;'}">
+                                ${isSurplus 
+                                    ? `👈 <strong>متاح للشريك سحب نقدي:</strong> <span style="font-family: monospace; font-size: 12px; text-decoration: underline;">+${absDiff.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span> من رصيده المتاح ليتساوى رصيده المتبقي مع قيمة حصته في البضاعة (${invShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م).`
+                                    : isDeficit 
+                                    ? `👈 <strong>مطلوب من الشريك إيداع / سداد:</strong> <span style="font-family: monospace; font-size: 12px; text-decoration: underline;">${absDiff.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span> ليصبح رصيده مساوياً لحصته في البضاعة بالمخزن (${invShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م).`
+                                    : `✓ رصيد الشريك الحالي يطابق حصته في بضاعة المخزن تماماً (0 ج.م فارق).`
+                                }
+                            </div>
+                        </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
 
             <!-- إقرار التصفية المالية والاعتماد وتوقيعات الشركاء -->
             <div style="margin-top: 16px; padding: 14px; background: #fafafa; border: 1px dashed #cbd5e1; border-radius: 8px;">
@@ -4127,16 +4332,10 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                         const filtered = custodyAccounts.filter(a => {
                             if (isBankOrTreasuryAccount(a.name)) return false;
                             const details = custodyDetails[a.name] || [];
-                            const isZahra = a.name.includes('زهره') || a.name.includes('زهرة');
-                            const hasSettlement = (settings.cashHandovers || []).some((h: any) => 
-                                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم'))) && 
-                                (normalizeName(h.fromUserName || '').includes('زهره') || normalizeName(h.fromUserName || '').includes('زهرة'))
-                            );
-                            const sumOfDetails = details.reduce((sum, d) => sum + d.amount, 0);
-                            const finalBalance = (isZahra && !hasSettlement) 
-                                ? (sumOfDetails > 0 ? Math.max(7275, sumOfDetails) : (a.balance > 0 ? a.balance : 7275))
-                                : (sumOfDetails > 0 ? Math.max(a.balance, sumOfDetails) : a.balance);
-                            return finalBalance > 0;
+                            const posSum = details.filter(d => d.amount > 0).reduce((sum, d) => sum + d.amount, 0);
+                            const negSum = details.filter(d => d.amount < 0).reduce((sum, d) => sum + Math.abs(d.amount), 0);
+                            const netBal = Math.max(0, posSum - negSum);
+                            return netBal > 0 || details.length > 0 || (a.balance && a.balance > 0);
                         });
 
                         if (filtered.length === 0) {
@@ -4145,36 +4344,58 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
 
                         return filtered.map(a => {
                             const details = custodyDetails[a.name] || [];
-                            const detailsHtml = details.length > 0 
+                            const posSum = details.filter(d => d.amount > 0).reduce((sum, d) => sum + d.amount, 0);
+                            const negSum = details.filter(d => d.amount < 0).reduce((sum, d) => sum + Math.abs(d.amount), 0);
+                            const netBalance = Math.max(0, posSum - negSum);
+
+                            // Filter details to show only positive custody items (orders, advances, POS) and hide internal ledger deduction notes to prevent clutter
+                            const visibleDetails = details.filter(d => {
+                                const isSettlement = d.amount < 0 || d.type === 'تسوية عهدة' || d.type === 'تسوية واسترداد';
+                                return !isSettlement && d.amount > 0;
+                            });
+
+                            const detailsHtml = visibleDetails.length > 0 
                                 ? `<div style="text-align: right; font-size: 11px;">
-                                    ${details.map(d => `
+                                    ${visibleDetails.map(d => `
                                         <div style="margin-bottom: 4px; padding: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                                             <span>
                                                 <span style="font-size: 8px; background: ${d.type === 'مبيعات POS' || d.type === 'نقطة بيع' ? '#f0fdf4' : '#fffbeb'}; color: ${d.type === 'مبيعات POS' || d.type === 'نقطة بيع' ? '#166534' : '#d97706'}; padding: 1px 4px; border-radius: 4px; border: 1px solid ${d.type === 'مبيعات POS' || d.type === 'نقطة بيع' ? '#bbf7d0' : '#fde68a'}; margin-left: 5px;">${d.type}</span>
                                                 <strong style="color: #0f172a;">${d.customerName}</strong>
                                                 <span style="color: #64748b; margin-right: 5px;">(#${d.orderNumber})</span>
                                             </span>
-                                            <span style="font-weight: bold; color: #1e3a8a;">${d.amount.toLocaleString()} ج.م</span>
+                                            <span style="font-weight: bold; color: #1e3a8a; font-family: monospace;">+${d.amount.toLocaleString()} ج.م</span>
                                         </div>
                                     `).join('')}
                                    </div>`
-                                : '<span style="color: #94a3b8; font-style: italic;">لا توجد تفاصيل أوردرات مرتبطة (عهد قديمة أو تسويات)</span>';
-                            
-                            const isZahra = a.name.includes('زهره') || a.name.includes('زهرة');
-                            const hasSettlement = (settings.cashHandovers || []).some((h: any) => 
-                                (h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم'))) && 
-                                (normalizeName(h.fromUserName || '').includes('زهره') || normalizeName(h.fromUserName || '').includes('زهرة'))
-                            );
-                            const sumOfDetails = details.reduce((sum, d) => sum + d.amount, 0);
-                            const finalBalance = (isZahra && !hasSettlement) 
-                                ? (sumOfDetails > 0 ? Math.max(7275, sumOfDetails) : (a.balance > 0 ? a.balance : 7275))
-                                : (sumOfDetails > 0 ? Math.max(a.balance, sumOfDetails) : a.balance);
+                                : '<span style="color: #94a3b8; font-style: italic;">لا توجد تفاصيل أوردرات مرتبطة</span>';
 
                             return `
                                 <tr>
-                                    <td style="font-weight: bold; color: #1e3a8a;">${a.name}</td>
+                                    <td style="font-weight: bold; color: #1e3a8a; vertical-align: middle;">${a.name}</td>
                                     <td style="padding: 10px;">${detailsHtml}</td>
-                                    <td style="font-weight: bold; font-size: 16px; ${finalBalance > 0 ? 'color: #b91c1c;' : ''}">${finalBalance.toLocaleString()} ج.م</td>
+                                    <td style="padding: 10px; text-align: center; vertical-align: middle;">
+                                        ${netBalance === 0 ? `
+                                            <div style="font-weight: 900; font-size: 15px; color: #059669; font-family: monospace;">0 ج.م</div>
+                                            <div style="font-size: 8.5px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; border-radius: 4px; padding: 2px 6px; font-weight: 800; display: inline-block; margin-top: 4px;">
+                                                ✓ تم تصفير وتسوية العهدة بالكامل (مخصومة من الحساب)
+                                            </div>
+                                            ${posSum > 0 ? `
+                                                <div style="font-size: 9.5px; color: #334155; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 4px 8px; margin-top: 5px; font-weight: 700; display: inline-block;">
+                                                    <span style="color: #64748b;">قبل التصفير:</span>
+                                                    <span style="color: #1e3a8a; font-family: monospace; font-weight: 900; margin-right: 4px;">${posSum.toLocaleString()} ج.م</span>
+                                                </div>
+                                            ` : ''}
+                                        ` : `
+                                            <div style="font-weight: 900; font-size: 15px; color: #b91c1c; font-family: monospace;">${netBalance.toLocaleString()} ج.م</div>
+                                            ${negSum > 0 ? `
+                                                <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">(سُدد ${negSum.toLocaleString()} ج.م ومتبقي ${netBalance.toLocaleString()} ج.م)</div>
+                                                <div style="font-size: 9px; color: #334155; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 4px; padding: 2px 6px; margin-top: 4px; display: inline-block;">
+                                                    <span>إجمالي العُهد قبل التصفير:</span>
+                                                    <strong style="color: #1e3a8a; font-family: monospace;">${posSum.toLocaleString()} ج.م</strong>
+                                                </div>
+                                            ` : `<div style="font-size: 8.5px; background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; border-radius: 4px; padding: 2px 6px; font-weight: 800; display: inline-block; margin-top: 4px;">عهدة قائمة معلقة</div>`}
+                                        `}
+                                    </td>
                                 </tr>
                             `;
                         }).join('');

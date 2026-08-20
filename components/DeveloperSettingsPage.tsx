@@ -352,7 +352,14 @@ CREATE TABLE IF NOT EXISTS partners (
     notes TEXT,
     balance NUMERIC DEFAULT 0,
     profit_ratio NUMERIC DEFAULT 0,
-    profitRatio NUMERIC DEFAULT 0
+    profitRatio NUMERIC DEFAULT 0,
+    capital NUMERIC DEFAULT 0,
+    initialCapital NUMERIC DEFAULT 0,
+    initial_capital NUMERIC DEFAULT 0,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 23. PARTNER_TRANSACTIONS (الحركات والمسحوبات مع الشركاء)
@@ -362,17 +369,40 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     storeId TEXT,
     partner_id TEXT,
     partnerId TEXT,
+    partner_name TEXT,
+    partnerName TEXT,
     treasury_account_id TEXT,
     treasuryAccountId TEXT,
     type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
-    note TEXT
+    note TEXT,
+    notes TEXT,
+    description TEXT,
+    category TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- Ensure columns exist for partner_transactions
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS treasury_account_id TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS treasuryAccountId TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
 
 -- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -423,6 +453,9 @@ CREATE TABLE IF NOT EXISTS inventory_audits (
     totalVarianceQty NUMERIC DEFAULT 0,
     total_variance_value NUMERIC DEFAULT 0,
     totalVarianceValue NUMERIC DEFAULT 0,
+    total_items_audited NUMERIC DEFAULT 0,
+    totalItemsAudited NUMERIC DEFAULT 0,
+    timestamp BIGINT,
     discrepancies JSONB DEFAULT '[]'::jsonb,
     notes TEXT
 );
@@ -776,13 +809,17 @@ ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS store_id TEXT;
 
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "capital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initialCapital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initial_capital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profit_ratio" NUMERIC DEFAULT 0;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
 
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
@@ -802,14 +839,22 @@ ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
 ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS treasury_account_id TEXT;
 
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
@@ -823,6 +868,9 @@ ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalSystemQty" NUMERIC D
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalActualQty" NUMERIC DEFAULT 0;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceQty" NUMERIC DEFAULT 0;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceValue" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalItemsAudited" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "total_items_audited" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "timestamp" BIGINT;
 
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
@@ -1621,13 +1669,17 @@ ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS store_id TEXT;
 
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "capital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initialCapital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initial_capital" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profit_ratio" NUMERIC DEFAULT 0;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
 
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
@@ -1647,16 +1699,22 @@ ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
 ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
 
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
@@ -1670,6 +1728,9 @@ ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalSystemQty" NUMERIC D
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalActualQty" NUMERIC DEFAULT 0;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceQty" NUMERIC DEFAULT 0;
 ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceValue" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalItemsAudited" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "total_items_audited" NUMERIC DEFAULT 0;
+ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "timestamp" BIGINT;
 
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
