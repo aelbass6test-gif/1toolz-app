@@ -24,6 +24,31 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': fileURLToPath(new URL('.', import.meta.url)),
         }
+      },
+      build: {
+        reportCompressedSize: false,
+        sourcemap: false,
+        minify: 'esbuild',
+        target: 'es2020',
+        cssCodeSplit: true,
+        chunkSizeWarningLimit: 3000,
+        rollupOptions: {
+          output: {
+            manualChunks(id) {
+              if (id.includes('node_modules')) {
+                if (id.includes('firebase')) return 'vendor-firebase';
+                if (id.includes('recharts')) return 'vendor-recharts';
+                if (id.includes('xlsx')) return 'vendor-xlsx';
+                if (id.includes('lucide-react')) return 'vendor-lucide';
+                if (id.includes('@supabase')) return 'vendor-supabase';
+                if (id.includes('framer-motion') || id.includes('motion')) return 'vendor-motion';
+                if (id.includes('date-fns')) return 'vendor-date-fns';
+                if (id.includes('dexie')) return 'vendor-dexie';
+                return 'vendor-others';
+              }
+            }
+          }
+        }
       }
     };
 });

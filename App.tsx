@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction } from './types';
@@ -16,78 +16,82 @@ import { triggerWebhooks } from './utils/webhook';
 import { audioSynth } from './utils/audioSynth';
 
 // Page Components (will be loaded via router)
-import SignUpPage from './components/SignUpPage';
-import EmployeeLoginPage from './components/EmployeeLoginPage';
-import CreateStorePage from './components/CreateStorePage';
-import ManageSitesPage from './components/ManageSitesPage';
-import Dashboard from './components/Dashboard';
+const SignUpPage = lazy(() => import('./components/SignUpPage'));
+const EmployeeLoginPage = lazy(() => import('./components/EmployeeLoginPage'));
+const CreateStorePage = lazy(() => import('./components/CreateStorePage'));
+const ManageSitesPage = lazy(() => import('./components/ManageSitesPage'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const OrdersList = lazy(() => import('./components/OrdersList'));
+const ProductsPage = lazy(() => import('./components/ProductsPage'));
+const CustomersPage = lazy(() => import('./components/CustomersPage'));
+const WalletPage = lazy(() => import('./components/WalletPage'));
+const SettingsPage = lazy(() => import('./components/SettingsPage'));
+const StorefrontPage = lazy(() => import('./components/StorefrontPage'));
+const CheckoutPage = lazy(() => import('./components/CheckoutPage'));
+const OrderSuccessPage = lazy(() => import('./components/OrderSuccessPage'));
+const StoreCustomizationPage = lazy(() => import('./components/StoreCustomizationPage'));
+const ShippingPage = lazy(() => import('./components/ShippingPage'));
+const ConfirmationQueuePage = lazy(() => import('./components/ConfirmationQueuePage'));
+const AbandonedCartsPage = lazy(() => import('./components/AbandonedCartsPage'));
+const DiscountsPage = lazy(() => import('./components/DiscountsPage'));
+const ReviewsPage = lazy(() => import('./components/ReviewsPage'));
+const CollectionsPage = lazy(() => import('./components/CollectionsPage'));
+const ProductOptionsPage = lazy(() => import('./components/ProductOptionsPage'));
+const ExpensesPage = lazy(() => import('./components/ExpensesPage'));
+const MarketingPage = lazy(() => import('./components/MarketingPage'));
+const AnalyticsPage = lazy(() => import('./components/AnalyticsPage'));
+const AdminPage = lazy(() => import('./components/AdminPage'));
+const MaintenancePage = lazy(() => import('./src/pages/MaintenancePage'));
+const EmployeeLayout = lazy(() => import('./components/EmployeeLayout'));
+const EmployeeDashboardPage = lazy(() => import('./components/EmployeeDashboardPage'));
+const EmployeeAccountSettingsPage = lazy(() => import('./components/EmployeeAccountSettingsPage'));
+const EmployeeActivityPage = lazy(() => import('./components/EmployeeActivityPage'));
+const AccountSettingsPage = lazy(() => import('./components/AccountSettingsPage'));
+const CollectionsReportPage = lazy(() => import('./components/CollectionsReportPage'));
+const ActivityLogsPage = lazy(() => import('./components/ActivityLogsPage'));
+const SuppliersPage = lazy(() => import('./components/SuppliersPage'));
+const PartnersPage = lazy(() => import('./components/PartnersPage'));
+const PartnerProfilePage = lazy(() => import('./components/PartnerProfilePage'));
+const PagesManager = lazy(() => import('./components/PagesManager'));
+const PaymentSettingsPage = lazy(() => import('./components/PaymentSettingsPage'));
+const DeveloperSettingsPage = lazy(() => import('./components/DeveloperSettingsPage'));
+const TeamChatPage = lazy(() => import('./components/TeamChatPage'));
+const WhatsAppPage = lazy(() => import('./components/WhatsAppPage'));
+const WelcomeLoader = lazy(() => import('./components/WelcomeLoader'));
+const GlobalLoader = lazy(() => import('./components/GlobalLoader'));
+const EmployeesPage = lazy(() => import('./components/EmployeesPage'));
+const EmployeesPayrollPage = lazy(() => import('./components/EmployeesPayrollPage'));
+const ReportsPage = lazy(() => import('./components/ReportsPage'));
+const InventoryTransfers = lazy(() => import('./components/InventoryTransfers'));
+const OrderReturnsPage = lazy(() => import('./components/OrderReturnsPage'));
+const PurchaseReturnsPage = lazy(() => import('./components/PurchaseReturnsPage'));
+const POSPage = lazy(() => import('./components/POSPage'));
+const CashManagement = lazy(() => import('./components/CashManagement'));
+const CreateOrderPage = lazy(() => import('./components/CreateOrderPage'));
+const EditOrderPage = lazy(() => import('./components/EditOrderPage'));
+const ChatBot = lazy(() => import('./components/ChatBot'));
+const CongratsModal = lazy(() => import('./components/CongratsModal'));
+const OrderTrackingPage = lazy(() => import('./components/OrderTrackingPage'));
+const OtpVerificationPage = lazy(() => import('./components/OtpVerificationPage'));
+const FirebaseActionPage = lazy(() => import('./components/FirebaseActionPage'));
+const IosInstallPrompt = lazy(() => import('./components/IosInstallPrompt'));
+const ComingSoonPage = lazy(() => import('./components/ComingSoonPage'));
+const AppsPage = lazy(() => import('./components/AppsPage'));
+const UniversalInstallPrompt = lazy(() => import('./components/UniversalInstallPrompt'));
+const CreateDropshippingOrderPage = lazy(() => import('./components/CreateDropshippingOrderPage'));
+const WarehouseSubmitPage = lazy(() => import('./components/WarehouseSubmitPage'));
+
+const TreasuryPage = lazy(() => import('./components/TreasuryPage').then(m => ({ default: m.TreasuryPage })));
+const DomainSettingsPage = lazy(() => import('./components/DomainSettingsPage').then(m => ({ default: m.DomainSettingsPage })));
+const SharedReportView = lazy(() => import('./components/SharedReportView').then(m => ({ default: m.SharedReportView })));
+const FailedDeliveryCompensationPage = lazy(() => import('./components/FailedDeliveryCompensationPage').then(m => ({ default: m.FailedDeliveryCompensationPage })));
+const DropshippingPage = lazy(() => import('./components/DropshippingPage').then(m => ({ default: m.DropshippingPage })));
+const SmartUpdatesWidget = lazy(() => import('./components/SmartUpdatesWidget').then(m => ({ default: m.SmartUpdatesWidget })));
+
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import OrdersList from './components/OrdersList';
-import ProductsPage from './components/ProductsPage';
-import CustomersPage from './components/CustomersPage';
-import WalletPage from './components/WalletPage';
-import SettingsPage from './components/SettingsPage';
-import StorefrontPage from './components/StorefrontPage';
-import { SmartUpdatesWidget } from './components/SmartUpdatesWidget';
-import CheckoutPage from './components/CheckoutPage';
-import OrderSuccessPage from './components/OrderSuccessPage';
-import StoreCustomizationPage from './components/StoreCustomizationPage';
-import ShippingPage from './components/ShippingPage';
-import ConfirmationQueuePage from './components/ConfirmationQueuePage';
-import AbandonedCartsPage from './components/AbandonedCartsPage';
-import DiscountsPage from './components/DiscountsPage';
-import ReviewsPage from './components/ReviewsPage';
-import CollectionsPage from './components/CollectionsPage';
-import ProductOptionsPage from './components/ProductOptionsPage';
-import ExpensesPage from './components/ExpensesPage';
-import MarketingPage from './components/MarketingPage';
-import AnalyticsPage from './components/AnalyticsPage';
-import AdminPage from './components/AdminPage';
-import MaintenancePage from './src/pages/MaintenancePage';
-import EmployeeLayout from './components/EmployeeLayout';
-import EmployeeDashboardPage from './components/EmployeeDashboardPage';
-import EmployeeAccountSettingsPage from './components/EmployeeAccountSettingsPage';
-import EmployeeActivityPage from './components/EmployeeActivityPage';
-import AccountSettingsPage from './components/AccountSettingsPage';
-import CollectionsReportPage from './components/CollectionsReportPage';
-import ActivityLogsPage from './components/ActivityLogsPage';
-import SuppliersPage from './components/SuppliersPage';
-import PartnersPage from './components/PartnersPage';
-import PartnerProfilePage from './components/PartnerProfilePage';
-import PagesManager from './components/PagesManager';
-import PaymentSettingsPage from './components/PaymentSettingsPage';
-import DeveloperSettingsPage from './components/DeveloperSettingsPage';
-import TeamChatPage from './components/TeamChatPage';
-import WhatsAppPage from './components/WhatsAppPage';
-import WelcomeLoader from './components/WelcomeLoader';
-import GlobalLoader from './components/GlobalLoader';
-import EmployeesPage from './components/EmployeesPage';
-import EmployeesPayrollPage from './components/EmployeesPayrollPage';
-import ReportsPage from './components/ReportsPage';
-import { TreasuryPage } from './components/TreasuryPage';
-import { DomainSettingsPage } from './components/DomainSettingsPage';
-import InventoryTransfers from './components/InventoryTransfers';
-import OrderReturnsPage from './components/OrderReturnsPage';
-import PurchaseReturnsPage from './components/PurchaseReturnsPage';
-import POSPage from './components/POSPage';
-import CashManagement from './components/CashManagement';
-import CreateOrderPage from './components/CreateOrderPage';
-import EditOrderPage from './components/EditOrderPage';
-import ChatBot from './components/ChatBot';
-import CongratsModal from './components/CongratsModal';
-import OrderTrackingPage from './components/OrderTrackingPage';
-import { SharedReportView } from './components/SharedReportView';
-import OtpVerificationPage from './components/OtpVerificationPage';
-import FirebaseActionPage from './components/FirebaseActionPage';
-import IosInstallPrompt from './components/IosInstallPrompt';
-import ComingSoonPage from './components/ComingSoonPage';
-import AppsPage from './components/AppsPage';
-import UniversalInstallPrompt from './components/UniversalInstallPrompt';
-import { FailedDeliveryCompensationPage } from './components/FailedDeliveryCompensationPage';
-import { DropshippingPage } from './components/DropshippingPage';
-import CreateDropshippingOrderPage from './components/CreateDropshippingOrderPage';
-import WarehouseSubmitPage from './components/WarehouseSubmitPage';
+import MobileNavigation from './components/MobileNavigation';
+import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
 
 interface EmployeeRegisterRequestData {
   fullName: string;
@@ -96,9 +100,6 @@ interface EmployeeRegisterRequestData {
   storeId: string;
   email: string;
 }
-
-import MobileNavigation from './components/MobileNavigation';
-import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
 
 const normalizeName = (name: string): string => {
   if (!name) return name;
@@ -2970,19 +2971,21 @@ export const AppComponent = () => {
         if (!activeStoreId || isInitialLoad) return <WelcomeLoader userName="" />;
         
         return (
-            <Routes>
-                <Route path="/" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
-                <Route path="/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <Suspense fallback={<WelcomeLoader userName="" />}>
+                <Routes>
+                    <Route path="/" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
+                    <Route path="/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+            </Suspense>
         );
     }
 
     return (
-        <>
+        <Suspense fallback={<GlobalLoader />}>
             <Routes>
                 <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user) => completeLogin(user, null)} users={users} setUsers={setUsers} />} />
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
@@ -3193,7 +3196,7 @@ export const AppComponent = () => {
             {currentUser && !isStandaloneStorefront && (
                 <SmartUpdatesWidget isAdminView={true} primaryColor="#6366f1" />
             )}
-        </>
+        </Suspense>
     );
 };
 
