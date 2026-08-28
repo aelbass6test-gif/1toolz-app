@@ -23,6 +23,96 @@ const normalizeName = (name: string): string => {
 
 const getPrintControlBarHTML = (reportTitle: string) => ``;
 
+const getAccountingCycleExplanationHTML = (): string => {
+    return `
+    <div style="background: #f8fafc; border: 2px solid #3b82f6; border-radius: 12px; padding: 20px; margin-bottom: 24px; direction: rtl; text-align: right; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); page-break-inside: avoid;">
+        <div style="display: flex; align-items: center; gap: 8px; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; margin-bottom: 15px;">
+            <span style="font-size: 20px;">🔄</span>
+            <strong style="color: #1e3a8a; font-size: 16px; font-weight: 800;">الدليل الشامل والدورة المحاسبية الكاملة للمشروع (دورة تدفق وحماية الأموال)</strong>
+        </div>
+        
+        <p style="font-size: 11.5px; color: #334155; line-height: 1.6; margin: 0 0 15px 0;">
+            هذا الدليل مُعد لتوضيح كيفية حركة وإدارة أموال المشروع بالكامل من البداية وحتى تحقيق وتوزيع الأرباح، مع شرح الفارق الحاسم بين مبيعات التحصيل وصافي الربح لضمان عدم تآكل رأس المال واستمرارية المحل:
+        </p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 15px;">
+            <!-- 1. رأس المال -->
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-top: 4px solid #3b82f6; padding: 12px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); text-align: right;">
+                <strong style="color: #1e3a8a; font-size: 12px; display: block; margin-bottom: 6px;">🪙 1. رأس المال المستثمر</strong>
+                <span style="font-size: 10.5px; color: #475569; line-height: 1.5; display: block;">
+                    هو المبلغ الأساسي المودع من الشركاء لتأسيس المحل وتوفير بضاعة المخزن. يُعد <strong>ديناً على المشروع للشريك</strong> يظل مجمداً كأصول ومخزون لدعم الاستمرارية، ولا يجوز نهائياً سحبه أو اعتباره أرباحاً قابلة للاستهلاك.
+                </span>
+            </div>
+
+            <!-- 2. التحصيلات والمبيعات -->
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-top: 4px solid #f59e0b; padding: 12px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); text-align: right;">
+                <strong style="color: #b45309; font-size: 12px; display: block; margin-bottom: 6px;">📦 2. المبيعات الإجمالية (التحصيل)</strong>
+                <span style="font-size: 10.5px; color: #475569; line-height: 1.5; display: block;">
+                    إجمالي التحصيل النقدي من الزبائن <strong>ليس ربحاً بالكامل</strong>! بل يشتمل على (تكلفة البضاعة الأصلية بسعر الجملة + مصاريف الشحن والتغليف + رسوم شركات الشحن والمعاينة والتأمين + هامش الربح الصغير المتبقي).
+                </span>
+            </div>
+
+            <!-- 3. تكلفة البضاعة COGS -->
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-top: 4px solid #ef4444; padding: 12px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); text-align: right;">
+                <strong style="color: #b91c1c; font-size: 12px; display: block; margin-bottom: 6px;">🛠️ 3. تكلفة البضاعة المباعة (COGS)</strong>
+                <span style="font-size: 10.5px; color: #475569; line-height: 1.5; display: block;">
+                    تساوي (عدد القطع المباعة × سعر شرائها من المورد بسعر الجملة). يجب استقطاع هذا المبلغ فوراً من كل تحصيل وإعادته لتدوير المخزون لشراء بضاعة بديلة. تسييلها وتوزيعها يعني نفاد الرفوف تدريجياً وإغلاق المحل.
+                </span>
+            </div>
+
+            <!-- 4. المصاريف والتشغيل -->
+            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-top: 4px solid #8b5cf6; padding: 12px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); text-align: right;">
+                <strong style="color: #6d28d9; font-size: 12px; display: block; margin-bottom: 6px;">📢 4. مصاريف التشغيل والإعلان</strong>
+                <span style="font-size: 10.5px; color: #475569; line-height: 1.5; display: block;">
+                    تشمل كافة النفقات التشغيلية المباشرة وغير المباشرة مثل (الإعلانات الممولة على فيسبوك، إيجار المقر، أجور الموظفين والمناديب، بوابات الدفع، والاشتراكات). تُخصم بالكامل من أرباح المشروع قبل احتساب الأرباح.
+                </span>
+            </div>
+        </div>
+
+        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 12px; margin-bottom: 12px; text-align: right;">
+            <strong style="color: #065f46; font-size: 12px; display: block; margin-bottom: 4px;">📈 5. الربح الصافي الفعلي (الوحيد القابل للتوزيع):</strong>
+            <span style="font-size: 10.5px; color: #065f46; line-height: 1.5; display: block;">
+                هو المتبقي بعد المعادلة الذهبية: 
+                <strong style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #86efac; font-family: monospace; display: inline-block; margin: 2px 0;">الربح الصافي = المبيعات الإجمالية - تكلفة البضاعة بسعر الجملة - مصاريف الشحن والتشغيل والإرجاع</strong>.
+                هذا الفارق الصافي فقط هو ما يتم تقسيمه وإضافته للشريك في رصيده بنسبة حصته، ويحرم محاسبياً وقانونياً توزيع غير ذلك.
+            </span>
+        </div>
+
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px; font-size: 11px; color: #78350f; line-height: 1.6; text-align: right;">
+            <strong style="color: #92400e; font-size: 13px; display: block; margin-bottom: 6px;">📝 مثال توضيحي عملي بالأرقام لشريكين (أحمد وباسم):</strong>
+            نفترض أن <strong>أحمد</strong> و<strong>باسم</strong> أسسا محلاً تجارياً بالتساوي (نسبة 50% لكل منهما):
+            <div style="margin: 6px 0; padding-right: 10px; border-right: 2px solid #fcd34d; font-size: 10.5px;">
+                • <strong>رأس المال المودع:</strong> ساهم كل شريك بـ <strong>10,000 ج.م</strong> (إجمالي رأس مال المتجر = <strong>20,000 ج.م</strong> مجمّدة لشراء البضاعة).<br/>
+                • <strong>مبيعات المتجر (التحصيل):</strong> عمل المحل مبيعات إجمالية قدرها <strong>100,000 ج.م</strong> كاش مبيعات.<br/>
+                • <strong>تكلفة البضاعة المباعة (بسعر الجملة):</strong> بلغت تكلفة البضاعة التي خرجت من الرفوف <strong>70,000 ج.م</strong> (هذا المبلغ يجب تجميده فوراً لإعادة شراء بضاعة جديدة ولا يُوزع أبداً).<br/>
+                • <strong>مصاريف التشغيل والتسويق والشحن والإرجاع:</strong> بلغت <strong>18,000 ج.م</strong> خلال الشهر.<br/>
+                • <strong>الربح الصافي الفعلي للمتجر:</strong> 100,000 مبيعات - 70,000 تكلفة بضاعة - 18,000 مصاريف = <strong style="color: #166534;">12,000 ج.م</strong> (هذا فقط هو الربح القابل للتوزيع).
+            </div>
+            <div style="margin-top: 6px; font-size: 10.5px;">
+                👥 <strong>توزيع الأرباح وحساب الأرصدة (50% لكل منهما):</strong><br/>
+                • <strong>الشريك أحمد:</strong> نصيبه من الربح <strong>6,000 ج.م</strong> تضاف لرأس ماله الأصلي ليصبح إجمالي مستحقاته <strong>16,000 ج.م</strong>. فإذا سحب مسحوبات شخصية بـ <strong style="color: #991b1b;">2,000 ج.م</strong>، فإن صافي ما يستلمه كاش عند التخارج هو <strong style="color: #1e3a8a;">14,000 ج.م</strong>.<br/>
+                • <strong>الشريك باسم:</strong> نصيبه من الربح <strong>6,000 ج.م</strong> تضاف لرأس ماله الأصلي ليصبح إجمالي مستحقاته <strong>16,000 ج.م</strong>. وبما أنه لم يسحب أي مسحوبات (0 ج.م)، فإن صافي ما يستلمه كاش عند التخارج هو <strong style="color: #1e3a8a;">16,000 ج.م</strong>.
+            </div>
+            
+            <div style="margin-top: 12px; padding: 10px; background: rgba(255, 255, 255, 0.7); border: 1px dashed #fcd34d; border-radius: 6px; font-size: 10px; color: #475569; line-height: 1.5;">
+                💡 <strong>توضيح مالي حاسم (كيف تبلغ التكلفة 70 ألف بينما رأس المال 20 ألف فقط؟):</strong><br/>
+                السر يكمن في سرعة <strong>دوران رأس المال وتكرار تدويره (Capital Turnover)</strong> خلال الشهر. الشريكان لم يشتريا بضاعة بـ 70,000 ج.م دفعة واحدة، بل قاما بتشغيل الـ 20,000 ج.م الأصلية عدة مرات متتالية:
+                <div style="margin-top: 4px; padding-right: 8px; border-right: 1.5px solid #cbd5e1;">
+                    • <strong>الأسبوع الأول:</strong> يتم شراء بضاعة بـ 20,000 ج.م كاش وعرضها للبيع (أصبح الكاش 0 ج.م ورأس المال تجسد في بضاعة).<br/>
+                    • <strong>الأسبوع الثاني:</strong> عند بيع نصف البضاعة بـ 15,000 ج.م (تكلفة جملتها 10,000 ج.م)، يتم فوراً سحب <strong>10,000 ج.م</strong> وإعادة شراء بضاعة بديلة لملء الرفوف بها مجدداً، مع ترك الـ 5,000 ج.م المتبقية في الخزنة كأرباح معلقة وسيولة تشغيلية.<br/>
+                    • <strong>تكرار العملية:</strong> تكرار هذه الدورة (البيع ⬅️ استقطاع قيمة الجملة لشراء بضاعة جديدة فوراً) بمعدل 3 إلى 4 مرات شهرياً يراكم مبيعات بـ 100,000 ج.م وتكلفة بضاعة بـ 70,000 ج.م، مع بقاء قيمة الـ 20,000 ج.م (رأس المال الأصلي) مجمّدة ومستمرة دائماً كبضائع تملأ رفوف المحل في أي وقت لحمايته من التصفية.
+                </div>
+            </div>
+
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #475569; direction: rtl;">
+                <span>🛡️ تم إعداد وحفظ حقوق هذا الدليل والمثال المحاسبي بموجب:</span>
+                <strong style="color: #1e3a8a; background: #eff6ff; padding: 4px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">سياسة التعامل في التسويق مع شركة عبده ميديا © 2026</strong>
+            </div>
+        </div>
+    </div>
+    `;
+};
+
 export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: string, orientation: 'portrait' | 'landscape' = 'landscape', isContinuous: boolean = false, dateRangeText?: string, showInventoryValue: boolean = true): string => {
     return `
     <!DOCTYPE html>
@@ -1670,6 +1760,8 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
             </div>
           </div>
 
+          ${getAccountingCycleExplanationHTML()}
+
           <div class="summary-grid">
             <div class="summary-card blue">
               <div class="title">إجمالي رأس المال المودع</div>
@@ -1775,6 +1867,75 @@ export const generatePartnersFinancialReportHTML = (stats: any, storeName: strin
               <strong style="color: #1e293b; font-weight: 800; display: block; margin-bottom: 4px; font-size: 11.5px;">توضيح مالي هام بخصوص العهد والذمم القائمة:</strong>
               مبالغ <span style="color: #0d9488; font-weight: 700; background: #f0fdf4; padding: 1px 4px; border-radius: 4px; border: 1px solid #ccfbf1;">العربونات المحصلة</span> و<span style="color: #4f46e5; font-weight: 700; background: #eef2ff; padding: 1px 4px; border-radius: 4px; border: 1px solid #e0e7ff;">عهد المبيعات (POS)</span> الموضحة أعلاه هي مبالغ وعهد مؤقتة في حوزة الشركاء لغرض تسوية طلبات العملاء وتحصيلها، وليست <strong style="color: #f59e0b;">سحوبات شخصية</strong> مقتطعة نهائياً من مستحقاتهم أو حصتهم في رأس المال، ولا تؤثر كخصم قطعي أو تقليل للملاءة المالية للشركاء إلا في حال تسويتها رسمياً مع الطلبات أو قيدها وتوثيقها كـ <strong style="color: #4f46e5;">سحوبات شخصية</strong>.
             </div>
+          </div>
+
+          <!-- توضيح محاسبي تعليمي مبسط مع مثال بالأرقام -->
+          <div style="background: #f0f5ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 12px; margin-bottom: 15px; line-height: 1.5; font-size: 11px; color: #1e293b; text-align: right; direction: rtl;">
+              <strong style="color: #4338ca; font-size: 12px; display: block; margin-bottom: 4px;">💡 توضيح محاسبي هام: كيف يتم احتساب مستحقات التصفية؟</strong>
+              تتم التصفية وحساب حقوق كل شريك بناءً على <strong style="color: #4338ca;">الربح الصافي الفعلي</strong> المضاف إلى <strong style="color: #4338ca;">رأس المال المستثمر</strong>، وليس بناءً على مبالغ التحصيل (المبيعات الإجمالية):
+              <div style="margin: 4px 0; padding-right: 12px;">
+                  • <strong>رأس المال الأصلي:</strong> يظل ثابتاً كما هو دون مساس (لأنه يمثل قيمة الأصول والأساس الذي يمتلكه الشريك).<br/>
+                  • <strong>الأرباح الصافية (هي التي تُوزع):</strong> الربح الصافي هو ما يتبقى من المبيعات بعد خصم تكلفة البضاعة المباعة بسعر الجملة وكافة المصاريف والتشغيل.<br/>
+                  • <strong>مبالغ التحصيل (لا تُوزع):</strong> لا يجوز تقسيم المبيعات الإجمالية; لأنها تشتمل على ثمن البضاعة الأصلي وتكلفة التشغيل، وتوزيعها يعني خسارة وتآكل رأس مال المتجر بالكامل.
+              </div>
+              <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 10px; margin-top: 6px; font-size: 10px; color: #78350f; line-height: 1.5;">
+                  <strong>📝 مثال توضيحي عملي بالأرقام لشريكين (أحمد وباسم):</strong><br/>
+                  نفترض أن <strong>أحمد</strong> و<strong>باسم</strong> أسسا محلاً تجارياً بالتساوي (بنسبة 50% لكل منهما):<br/>
+                  • <strong>رأس المال:</strong> ساهم كل منهما بـ <strong>10,000 ج.م</strong> (إجمالي 20,000 ج.م لشراء البضاعة).<br/>
+                  • <strong>مبيعات المحل الإجمالية:</strong> بلغت <strong>100,000 ج.م</strong>، بينما بلغت <strong>تكلفة البضاعة والمصاريف بالكامل 88,000 ج.م</strong> (منها 70,000 ج.م ثمن بضاعة الجملة لإعادة تدويرها + 18,000 ج.م مصاريف تشغيل وشحن).<br/>
+                  • <strong>الربح الصافي الفعلي:</strong> هو <strong style="color: #166534;">12,000 ج.م</strong> فقط (وليس 100,000 ج.م مبيعات!).<br/>
+                  • <strong>الشريك أحمد (سحب 2,000 ج.م):</strong> نصيبه من الأرباح 6,000 ج.م، يضاف لرأس ماله الأصلي ليصبح مستحقاته 16,000 ج.م، وبعد خصم مسحوباته، يستلم كاش <strong style="color: #1e3a8a;">14,000 ج.م</strong> عند التخارج.<br/>
+                  • <strong>الشريك باسم (لم يسحب شيئاً):</strong> نصيبه 6,000 ج.م، ومستحقاته 16,000 ج.م، وبما أن مسحوباته 0 ج.م، يستلم كاش <strong style="color: #1e3a8a;">16,000 ج.م</strong> عند التخارج.
+                  
+                  <div style="margin-top: 8px; padding: 6px 8px; background: rgba(255, 255, 255, 0.7); border: 1px dashed #cbd5e1; border-radius: 4px; font-size: 9.5px; color: #475569; line-height: 1.4;">
+                      💡 <strong>توضيح مالي هام (كيف تبلغ التكلفة 70 ألف بينما رأس المال 20 ألف فقط؟):</strong><br/>
+                      السبب هو <strong>دوران رأس المال (Capital Turnover)</strong>. الشريكان لم يشتريا بضاعة بـ 70,000 ج.م دفعة واحدة، بل قاما بتشغيل الـ 20,000 ج.م الأصلية عدة مرات متتالية (يشترون بضاعة ⬅️ يبيعونها بـ 15 ألف مثلاً ⬅️ يستقطعون تكلفة الجملة 10 آلاف لإعادة شراء بضاعة فوراً ⬅️ يكررون الدورة 3-4 مرات شهرياً)، مما يراكم مبيعات بـ 100 ألف وتكلفة بـ 70 ألف، مع الحفاظ على قيمة الـ 20,000 ج.م الأصلية كبضائع مستمرة على الرفوف.
+                  </div>
+
+                  <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #cbd5e1; text-align: left; font-size: 9px; color: #475569;">
+                      🛡️ تم التوثيق والاعتماد بموجب: <strong style="color: #1e3a8a;">سياسة التعامل في التسويق مع شركة عبده ميديا © 2026</strong>
+                  </div>
+              </div>
+          </div>
+
+          <!-- صيغ وتوضيح التصفية الفردية للشركاء في تقرير الشركاء -->
+          <div style="margin-top: 15px; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-bottom: 20px; direction: rtl;">
+              ${partnerDetails.map((p: any) => {
+                  const capital = p.capital || 0;
+                  const remProfit = p.profitShare !== undefined ? p.profitShare : Math.max(0, ((p.profitRatio / 100) * (allTimeNetProfit || 0)) - (p.distributions || 0));
+                  const profits = (p.distributions || 0) + remProfit;
+                  const totalRights = capital + profits;
+                  const withdrawals = p.withdrawals || 0;
+                  const netCash = p.balance || 0;
+                  const otherPartnerNames = partnerDetails.filter((o: any) => o.name !== p.name).map((o: any) => o.name).join(' أو ') || 'الشريك المستمر';
+
+                  return `
+                      <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 6px; padding: 12px; font-size: 11px; color: #1e293b; text-align: right; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                          <div style="font-weight: bold; color: #92400e; font-size: 12px; margin-bottom: 6px; border-bottom: 1px solid #fef3c7; padding-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                              <span>🤝 إرشاد وصيغة التخارج الشفاف للشريك: <strong>${p.name}</strong></span>
+                              <span style="font-size: 9px; color: #b45309; background: #fef3c7; padding: 1px 6px; border-radius: 4px; font-weight: bold;">تصفية ودية آمنة</span>
+                          </div>
+
+                          <!-- 1. التصفية كاش -->
+                          <div style="background: #fffdf5; border-right: 3px solid #f59e0b; padding: 8px 10px; border-radius: 4px; line-height: 1.7; margin-bottom: 8px;">
+                              <strong style="color: #92400e; font-size: 11px; display: block; margin-bottom: 2px;">💵 خيار 1: التصفية والتخارج النقدي (الكاش):</strong>
+                              "يا <strong>${p.name}</strong>، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:<br/>
+                              • إنت ليك رأس مال <strong>${capital.toLocaleString('ar-EG')} ج.م.</strong><br/>
+                              • وليك أرباح موزعة وغير موزعة إجماليتها <strong>${profits.toLocaleString('ar-EG')} ج.م.</strong><br/>
+                              • يبقى إجمالي حقك بالكامل <strong>${totalRights.toLocaleString('ar-EG')} ج.م.</strong><br/>
+                              • نخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ <strong style="color: #dc2626;">${withdrawals.toLocaleString('ar-EG')} ج.م.</strong><br/>
+                              💰 <strong style="color: #1e293b;">يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وتخرج بالخير هي: <span style="color: #15803d; font-size: 12px; background: #dcfce7; padding: 1px 6px; border-radius: 4px; font-family: monospace;">${netCash.toLocaleString('ar-EG')} ج.م</span></strong>"
+                          </div>
+
+                          <!-- 2. شراء وحساب الحصة للشريك المشتري -->
+                          <div style="background: #faf5ff; border-right: 3px solid #a855f7; padding: 8px 10px; border-radius: 4px; line-height: 1.6;">
+                              <strong style="color: #6b21a8; font-size: 11px; display: block; margin-bottom: 2px;">🛍️ خيار 2: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong>
+                              • في حال رغبة الشريك المشتري <strong>(${otherPartnerNames})</strong> في تملك كافة البضاعة والمتجر بالكامل:<br/>
+                              🤝 <strong>صيغة الاتفاق والشراء:</strong> يدفع الشريك المشتري لـ <strong>${p.name}</strong> مبلغ كاش صافي مستحقاته قدره <strong style="color: #15803d; background: #dcfce7; padding: 1px 6px; border-radius: 3px; font-family: monospace;">${netCash.toLocaleString('ar-EG')} ج.م</strong> مقابل شراء كافة حقوقه وحصته بالبضاعة وتنازل الشريك <strong>${p.name}</strong> وتخارجه وتملك الشريك المشتري للمتجر بالكامل.
+                          </div>
+                      </div>
+                  `;
+              }).join('')}
           </div>
 
           <div class="audit-footer">
@@ -4349,9 +4510,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     </div>
 
                     <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 6px; padding: 8px; text-align: right;">
-                        <strong style="color: #d97706; font-size: 11px; display: block; margin-bottom: 3px;">2. خيارات التسوية المتاحة</strong>
+                        <strong style="color: #d97706; font-size: 11px; display: block; margin-bottom: 3px;">2. الربح الصافي ضد التحصيل</strong>
                         <span style="font-size: 9.5px; color: #475569; line-height: 1.4; display: block;">
-                            <strong>نقداً:</strong> سحب المستحقات من الخزينة. <strong>بضاعة:</strong> استلام منتجات بسعر التكلفة. <strong>مختلط:</strong> دمج كاش وبضاعة.
+                            التوزيع يتم فقط للربح الصافي الفعلي (بعد خصم تكلفة البضاعة والمصاريف) لضمان عدم تآكل رأس مال المحل.
                         </span>
                     </div>
 
@@ -4360,6 +4521,35 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                         <span style="font-size: 9.5px; color: #475569; line-height: 1.4; display: block;">
                             توليد <strong>"سند إخلاء طرف رسمي"</strong> مطبوع وموثق بتوقيع الشريك والإدارة الماليّة لخصم حسابه نهائياً.
                         </span>
+                    </div>
+                </div>
+
+                <!-- توضيح محاسبي تعليمي مبسط مع مثال بالأرقام -->
+                <div style="background: #f0f5ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 10px; margin-bottom: 10px; line-height: 1.5; font-size: 10px; color: #1e293b; text-align: right;">
+                    <strong style="color: #4338ca; font-size: 11px; display: block; margin-bottom: 4px;">💡 توضيح محاسبي هام: كيف يتم احتساب مستحقات التصفية?</strong>
+                    تتم التصفية وحساب حقوق كل شريك بناءً على <strong style="color: #4338ca;">الربح الصافي الفعلي</strong> المضاف إلى <strong style="color: #4338ca;">رأس المال المستثمر</strong>، وليس بناءً على مبالغ التحصيل (المبيعات الإجمالية):
+                    <div style="margin: 4px 0; padding-right: 12px;">
+                        • <strong>رأس المال الأصلي:</strong> يظل ثابتاً كما هو دون مساس (لأنه يمثل قيمة الأصول والأساس الذي يمتلكه الشريك).<br/>
+                        • <strong>الأرباح الصافية (هي التي تُوزع):</strong> الربح الصافي هو ما يتبقى من المبيعات بعد خصم تكلفة البضاعة المباعة بسعر الجملة وكافة المصاريف والتشغيل.<br/>
+                        • <strong>مبالغ التحصيل (لا تُوزع):</strong> لا يجوز تقسيم المبيعات الإجمالية؛ لأنها تشتمل على ثمن البضاعة الأصلي وتكلفة التشغيل، وتوزيعها يعني خسارة وتآكل رأس مال المتجر بالكامل.
+                    </div>
+                    <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 6px 8px; margin-top: 4px; font-size: 9.5px; color: #78350f; line-height: 1.4;">
+                        <strong>📝 مثال توضيحي عملي بالأرقام لشريكين (أحمد وباسم):</strong><br/>
+                        نفترض أن <strong>أحمد</strong> و<strong>باسم</strong> أسسا محلاً تجارياً بالتساوي (بنسبة 50% لكل منهما):<br/>
+                        • <strong>رأس المال:</strong> ساهم كل منهما بـ <strong>10,000 ج.م</strong> (إجمالي 20,000 ج.م لشراء البضاعة).<br/>
+                        • <strong>مبيعات المحل الإجمالية:</strong> بلغت <strong>100,000 ج.م</strong>، بينما بلغت <strong>تكلفة البضاعة والمصاريف بالكامل 88,000 ج.م</strong> (منها 70,000 ج.م ثمن بضاعة الجملة لإعادة تدويرها + 18,000 ج.م مصاريف تشغيل وشحن).<br/>
+                        • <strong>الربح الصافي الفعلي:</strong> هو <strong style="color: #166534;">12,000 ج.م</strong> فقط (وليس 100,000 ج.م مبيعات!).<br/>
+                        • <strong>الشريك أحمد (سحب 2,000 ج.م):</strong> نصيبه من الأرباح 6,000 ج.م، يضاف لرأس ماله الأصلي ليصبح مستحقاته 16,000 ج.م، وبعد خصم مسحوباته، يستلم كاش <strong style="color: #1e3a8a;">14,000 ج.م</strong> عند التخارج.<br/>
+                        • <strong>الشريك باسم (لم يسحب شيئاً):</strong> نصيبه 6,000 ج.م، ومستحقاته 16,000 ج.م، وبما أن مسحوباته 0 ج.م، يستلم كاش <strong style="color: #1e3a8a;">16,000 ج.م</strong> عند التخارج.
+                        
+                        <div style="margin-top: 6px; padding: 6px 8px; background: rgba(255, 255, 255, 0.7); border: 1px dashed #cbd5e1; border-radius: 4px; font-size: 9px; color: #475569; line-height: 1.4;">
+                            💡 <strong>توضيح مالي هام (كيف تبلغ التكلفة 70 ألف بينما رأس المال 20 ألف فقط؟):</strong><br/>
+                            السبب هو <strong>دوران رأس المال (Capital Turnover)</strong>. الشريكان لم يشتريا بضاعة بـ 70,000 ج.م دفعة واحدة، بل قاما بتشغيل الـ 20,000 ج.م الأصلية عدة مرات متتالية (يشترون بضاعة ⬅️ يبيعونها ⬅️ يستقطعون تكلفة الجملة لإعادة شراء بضاعة فوراً ⬅️ يكررون الدورة)، مما يراكم مبيعات بـ 100 ألف وتكلفة بـ 70 ألف، مع بقاء رأس المال الأصلي (20,000 ج.م) مجمّداً ومستمرّاً دائماً على شكل بضائع على الرفوف لحماية المتجر.
+                        </div>
+
+                        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #cbd5e1; text-align: left; font-size: 8.5px; color: #475569;">
+                            🛡️ تم التوثيق والاعتماد بموجب: <strong style="color: #1e3a8a;">سياسة التعامل في التسويق مع شركة عبده ميديا © 2026</strong>
+                        </div>
                     </div>
                 </div>
 
@@ -4383,20 +4573,9 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                                 💰 <strong style="color: #1e293b;">يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وتخرج بالخير هي: <span style="color: #15803d; font-size: 11.5px; background: #dcfce7; padding: 1px 6px; border-radius: 4px; font-family: monospace;">${item.netExitCash.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span></strong>"
                             </div>
 
-                            <!-- 2. التصفية بالبضاعة -->
-                            <div style="background: #f0fdf4; border-right: 3px solid #10b981; padding: 8px 10px; border-radius: 4px; line-height: 1.6; margin-bottom: 8px;">
-                                <strong style="color: #065f46; font-size: 10.5px; display: block; margin-bottom: 2px;">📦 خيار 2: التصفية العينية (خروج الشريك وأخذه نصيبه بضاعة بسعر التكلفة):</strong>
-                                • حصتك من البضاعة المتاحة بنسبة (${item.profitRatio}%): <strong>${item.inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م.</strong><br/>
-                                ${item.inventoryDiff < 0 ? `
-                                    ⚠️ <strong>النتيجة والتسوية بالبضاعة:</strong> تستلم <strong>بضاعة بسعر التكلفة بـ ${item.inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong>، وتدفع إنت للمتجر/للخزينة <strong style="color: #b45309; background: #fef3c7; padding: 1px 4px; border-radius: 3px;">فرق عجز قدره ${Math.abs(item.inventoryDiff).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م كاش</strong> لتصفية حسابك بالكامل.
-                                ` : `
-                                    ✨ <strong>النتيجة والتسوية بالبضاعة:</strong> تستلم <strong>بضاعة بسعر التكلفة بـ ${item.inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong>، وتاخد كمان فوق البضاعة <strong style="color: #15803d; background: #dcfce7; padding: 1px 4px; border-radius: 3px;">فرق فائض كاش في إيدك بـ ${item.inventoryDiff.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م من الخزينة</strong> لتصفية حسابك بالكامل.
-                                `}
-                            </div>
-
-                            <!-- 3. شراء وحساب الحصة للشريك المشتري -->
+                             <!-- 2. شراء وحساب الحصة للشريك المشتري -->
                             <div style="background: #faf5ff; border-right: 3px solid #a855f7; padding: 8px 10px; border-radius: 4px; line-height: 1.6;">
-                                <strong style="color: #6b21a8; font-size: 10.5px; display: block; margin-bottom: 2px;">🛍️ خيار 3: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong>
+                                <strong style="color: #6b21a8; font-size: 10.5px; display: block; margin-bottom: 2px;">🛍️ خيار 2: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong>
                                 • في حال رغبة الشريك المشتري <strong>(${partnerCalculatedList.filter(o => o.name !== item.name).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> في تملك كافة البضاعة والمتجر بالكامل:<br/>
                                 🤝 <strong>صيغة الاتفاق والشراء:</strong> يدفع الشريك المشتري لـ <strong>${item.name}</strong> مبلغ كاش صافي مستحقاته قدره <strong style="color: #15803d; background: #dcfce7; padding: 1px 6px; border-radius: 3px; font-family: monospace;">${item.netExitCash.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong> مقابل شراء كافة حقوقه وحصته بالبضاعة وتنازل الشريك <strong>${item.name}</strong> وتخارجه وتملك الشريك المشتري للمتجر بالكامل.
                             </div>
@@ -4652,6 +4831,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                     <div style="font-size: 11px; opacity: 0.8; margin-top: 10px; text-align: left;">تاريخ الاستخراج: ${new Date().toLocaleDateString('ar-EG')} - ${new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
                 </div>
             </div>
+
+            ${getAccountingCycleExplanationHTML()}
 
             ${summaryHtml}
             ${incomeStatementHtml}
@@ -5188,5 +5369,416 @@ export const generatePosReportHTML = (
     </html>
   `;
 };
+
+export const generateAbdoMediaPolicyHTML = (storeName: string): string => {
+  return `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --primary: #1e3a8a;
+                --primary-dark: #0f172a;
+                --accent: #b45309;
+                --accent-light: #fef3c7;
+                --success: #047857;
+                --success-soft: #ecfdf5;
+                --slate-100: #f1f5f9;
+                --slate-700: #334155;
+                --slate-900: #0f172a;
+            }
+            @page { 
+                size: A4 portrait; 
+                margin: 10mm; 
+            }
+            body { 
+                font-family: 'Cairo', system-ui, -apple-system, sans-serif; 
+                background: #f8fafc; 
+                color: var(--slate-900); 
+                margin: 0; 
+                padding: 10px; 
+                line-height: 1.6; 
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .policy-container { 
+                width: 100%; 
+                max-width: 800px; 
+                margin: 0 auto; 
+                background: white; 
+                padding: 30px 35px; 
+                box-sizing: border-box; 
+                border-radius: 12px; 
+                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+                border: 1px solid #e2e8f0;
+            }
+            
+            /* Premium Corporate Header */
+            .header-charter {
+                border-bottom: 3px double var(--primary);
+                padding-bottom: 18px;
+                margin-bottom: 25px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .brand-box {
+                text-align: right;
+            }
+            .brand-title {
+                color: var(--primary);
+                font-size: 24px;
+                font-weight: 900;
+                margin: 0;
+                letter-spacing: -0.5px;
+            }
+            .brand-subtitle {
+                color: var(--accent);
+                font-size: 13px;
+                font-weight: 800;
+                margin-top: 3px;
+            }
+            .charter-badge {
+                border: 2px solid var(--accent);
+                background: var(--accent-light);
+                color: var(--accent);
+                padding: 5px 15px;
+                border-radius: 30px;
+                font-size: 11px;
+                font-weight: 800;
+            }
+            
+            .document-title {
+                text-align: center;
+                margin: 10px 0 25px 0;
+            }
+            .document-title h1 {
+                font-size: 20px;
+                font-weight: 900;
+                color: var(--primary-dark);
+                margin: 0;
+                display: inline-block;
+                border-bottom: 2px solid var(--accent);
+                padding-bottom: 6px;
+            }
+            .document-title p {
+                font-size: 11.5px;
+                color: var(--slate-700);
+                margin: 6px 0 0 0;
+                font-weight: 600;
+            }
+
+            /* Policy Card */
+            .policy-section {
+                margin-bottom: 20px;
+                page-break-inside: avoid;
+            }
+            .section-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--primary);
+                font-size: 14px;
+                font-weight: 800;
+                border-bottom: 2px solid #e2e8f0;
+                padding-bottom: 6px;
+                margin-bottom: 12px;
+            }
+            .section-icon {
+                font-size: 18px;
+            }
+            
+            .grid-pillars {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+                margin-bottom: 20px;
+            }
+            .pillar-card {
+                background: #f8fafc;
+                border: 1px solid #cbd5e1;
+                border-top: 3.5px solid var(--primary);
+                padding: 12px;
+                border-radius: 6px;
+            }
+            .pillar-card.accent {
+                border-top-color: var(--accent);
+            }
+            .pillar-title {
+                font-weight: 800;
+                font-size: 12px;
+                color: var(--primary-dark);
+                display: block;
+                margin-bottom: 5px;
+            }
+            .pillar-text {
+                font-size: 11px;
+                color: var(--slate-700);
+                line-height: 1.5;
+                display: block;
+            }
+
+            /* Visual Formula */
+            .formula-box {
+                background: var(--success-soft);
+                border: 1.5px solid #a7f3d0;
+                border-radius: 8px;
+                padding: 12px 16px;
+                margin-bottom: 20px;
+                text-align: center;
+            }
+            .formula-title {
+                color: var(--success);
+                font-size: 13px;
+                font-weight: 800;
+                margin-bottom: 4px;
+                display: block;
+            }
+            .formula-code {
+                background: white;
+                border: 1px solid #86efac;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-weight: 900;
+                font-size: 12px;
+                color: var(--slate-900);
+                display: inline-block;
+                margin-top: 4px;
+                letter-spacing: 0.2px;
+            }
+
+            /* Double Partner Example */
+            .example-box {
+                background: #fffbeb;
+                border: 1.5px solid #fde68a;
+                border-radius: 8px;
+                padding: 15px 18px;
+                font-size: 11px;
+                color: #78350f;
+                line-height: 1.6;
+                margin-bottom: 20px;
+            }
+            .example-title {
+                font-size: 13px;
+                font-weight: 800;
+                color: var(--accent);
+                display: block;
+                margin-bottom: 6px;
+            }
+            .example-subgrid {
+                padding-right: 12px;
+                border-right: 2px solid #fcd34d;
+                font-size: 11px;
+                margin: 8px 0;
+                space-y: 4px;
+            }
+            
+            /* Turnover Explainer Card */
+            .turnover-card {
+                background: #f0f7ff;
+                border: 1px dashed #3b82f6;
+                border-radius: 8px;
+                padding: 14px;
+                font-size: 11px;
+                color: #1e3a8a;
+                line-height: 1.5;
+                margin-bottom: 20px;
+            }
+
+            /* Signature Block */
+            .signature-area {
+                margin-top: 35px;
+                border-top: 1.5px solid #cbd5e1;
+                padding-top: 20px;
+                display: flex;
+                justify-content: space-between;
+                page-break-inside: avoid;
+            }
+            .sig-box {
+                width: 45%;
+                text-align: center;
+            }
+            .sig-title {
+                font-weight: 800;
+                font-size: 12px;
+                color: var(--slate-700);
+                margin-bottom: 45px;
+            }
+            .sig-line {
+                border-bottom: 1.5px solid #94a3b8;
+                width: 80%;
+                margin: 0 auto 5px auto;
+            }
+            .sig-seal {
+                font-size: 9.5px;
+                color: #94a3b8;
+                font-weight: 600;
+            }
+
+            /* Print Optimization Controls */
+            @media print {
+                body { 
+                    background: white; 
+                    padding: 0;
+                }
+                .policy-container { 
+                    border: none; 
+                    box-shadow: none; 
+                    padding: 10px 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="policy-container">
+            <!-- Header Banner -->
+            <div class="header-charter">
+                <div class="brand-box">
+                    <h2 class="brand-title">شركة عبده ميديا للتسويق</h2>
+                    <div class="brand-subtitle">ريادة إدارة المتاجر وصناعة العلامات التجارية الرقمية</div>
+                </div>
+                <div class="charter-badge">وثيقة سياسات معتمدة</div>
+            </div>
+
+            <!-- Document Title -->
+            <div class="document-title">
+                <h1>سياسة المعاملات المالية والدورة المحاسبية للمشروعات المشتركة</h1>
+                <p>دليل حماية رأس المال وضوابط توزيع السيولة والأرباح للمتاجر (شراكة المتجر: ${storeName})</p>
+            </div>
+
+            <!-- Intro -->
+            <p style="font-size: 11px; color: var(--slate-700); line-height: 1.6; text-align: justify; margin-bottom: 20px;">
+                يهدف هذا الدليل المالي المعتمد إلى حوكمة وتوضيح دورة حركة الأموال وحمايتها بمشروعات التسويق المشتركة تحت إدارة وإشراف 
+                <strong>شركة عبده ميديا</strong>. تم تصميم القواعد المحاسبية التالية لضمان الحفاظ المستمر على تدفق المخزون وسلامة الهيكل المالي للمتجر وتجنب تآكل رأس المال تحت أي ظرف من الظروف.
+            </p>
+
+            <!-- Section 1: Pillars -->
+            <div class="policy-section">
+                <div class="section-header">
+                    <span class="section-icon">⚙️</span>
+                    <span>المادة الأولى: ركائز الدورة المحاسبية وحماية رأس المال</span>
+                </div>
+                
+                <div class="grid-pillars">
+                    <div class="pillar-card">
+                        <span class="pillar-title">🪙 1. رأس المال المودع (الأصول المجمّدة)</span>
+                        <span class="pillar-text">
+                            هو كاش مجمّد مخصص حصرياً لشراء المخزون وتأسيس المتجر. يعتبر <strong>ديناً ثابتاً في ذمة المتجر</strong> لصالح أصحابه، ولا يُسمح نهائياً بسحبه أو توزيعه كأرباح شهرية؛ بل تظل البضائع على الرفوف ممثلة ومحافظة على قيمته الكاملة.
+                        </span>
+                    </div>
+
+                    <div class="pillar-card accent">
+                        <span class="pillar-title">📦 2. المبيعات الإجمالية (التحصيلات)</span>
+                        <span class="pillar-text">
+                            إجمالي الأموال المحصّلة كاش من الزبائن <strong>ليست أرباحاً</strong>! بل تشتمل بالأساس على (تكلفة البضاعة الأصلية بسعر جملتها + مصاريف الشحن والتغليف + رسوم الدفع والمعاينة + هامش الربح البسيط). توزيعها يعني إفلاس المتجر.
+                        </span>
+                    </div>
+
+                    <div class="pillar-card accent">
+                        <span class="pillar-title">🛠️ 3. تكلفة البضاعة المباعة (COGS)</span>
+                        <span class="pillar-text">
+                            تساوي (عدد القطع المباعة × سعر شرائها الأصلي بسعر الجملة). يجب محاسبياً وعملياً استقطاع هذه القيمة فوراً من الكاش المحصّل وإعادتها لدرج المشتريات لتمويل البضاعة البديلة والحفاظ على ملء رفوف المتجر باستمرار.
+                        </span>
+                    </div>
+
+                    <div class="pillar-card">
+                        <span class="pillar-title">📢 4. مصاريف التشغيل والتسويق</span>
+                        <span class="pillar-text">
+                            تتضمن نفقات الإعلانات الممولة المدارة بواسطة <strong>عبده ميديا</strong>، وأجور الشحن والتوصيل، ورواتب الكاشير، والاشتراكات. تُخصم هذه المبالغ بالكامل من الأرباح المتبقية قبل ترحيل حصص الشركاء.
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Formula -->
+            <div class="formula-box">
+                <span class="formula-title">📈 المادة الثانية: المعادلة الذهبية المعتمدة لاحتساب الربح الصافي</span>
+                <span style="font-size: 11px; color: var(--slate-700); display: block;">الربح الصافي الفعلي هو المتبقي الوحيد القابل للتوزيع ولا يُعتد بأي طريقة حسابية أخرى:</span>
+                <div class="formula-code">
+                    صافي الربح الفعلي = إجمالي التحصيلات - تكلفة البضاعة بسعر الجملة - مصاريف الشحن والتشغيل والدعاية والإرجاع
+                </div>
+            </div>
+
+            <!-- Section 2: Practical Example -->
+            <div class="policy-section">
+                <div class="section-header">
+                    <span class="section-icon">📝</span>
+                    <span>المادة الثالثة: مثال توضيحي عملي بالأرقام لشريكين (أحمد وباسم)</span>
+                </div>
+                
+                <div class="example-box">
+                    <span class="example-title">💡 سيناريو الشراكة المتساوية (بنسبة 50% لكل منهما):</span>
+                    
+                    <div class="example-subgrid">
+                        • <strong>رأس المال المودع:</strong> ساهم أحمد بـ 10,000 ج.م وباسم بـ 10,000 ج.م (إجمالي رأس المال بالخزنة = 20,000 ج.م كاش تم شراء بضاعة بها).<br/>
+                        • <strong>حجم مبيعات المتجر (التحصيل):</strong> حقق المتجر مبيعات إجمالية كاش بلغت <strong>100,000 ج.م</strong>.<br/>
+                        • <strong>تكلفة البضاعة المباعة (بسعر الجملة):</strong> بلغت <strong>70,000 ج.م</strong> (هذا الكاش يتم تجميده فوراً لإعادة شراء البضاعة الجديدة ولا يلمسه أحد).<br/>
+                        • <strong>مصاريف التشغيل والإعلانات والشحن:</strong> بلغت <strong>18,000 ج.م</strong>.<br/>
+                        • <strong>الربح الصافي المتبقي للتوزيع:</strong> 100,000 مبيعات - 70,000 تكلفة - 18,000 مصاريف = <strong style="color: var(--success);">12,000 ج.م</strong> فقط.
+                    </div>
+                    
+                    <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #cbd5e1; font-size: 11px;">
+                        👤 <strong>توزيع الأرباح والمسحوبات الشخصية وتخارج الكاش:</strong><br/>
+                        • <strong>الشريك أحمد (سحب مسحوبات شخصية 2,000 ج.م):</strong> يضاف نصيبه من الربح (6,000 ج.م) لرأسماله الأصلي ليصبح إجمالي مستحقاته بالمتجر 16,000 ج.م. وعند التخارج يستلم كاش <strong>14,000 ج.م</strong> بعد استرداد مسحوباته الفردية.<br/>
+                        • <strong>الشريك باسم (مسحوباته 0 ج.م):</strong> يضاف نصيبه من الربح (6,000 ج.م) لرأسماله الأصلي لتصبح مستحقاته الإجمالية 16,000 ج.م. وبما أنه لم يسحب أي مسحوبات شخصية، يستلم كاش <strong>16,000 ج.م</strong> عند التخارج.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: Turnover Explainer -->
+            <div class="policy-section">
+                <div class="section-header">
+                    <span class="section-icon">🔄</span>
+                    <span>المادة الرابعة: تفسير سرعة دوران رأس المال (Capital Turnover)</span>
+                </div>
+                
+                <div class="turnover-card">
+                    <strong>❓ كيف تبلغ تكلفة البضائع 70,000 ج.م بينما إجمالي رأس المال المودع هو 20,000 ج.م فقط؟</strong><br/>
+                    <p style="margin: 6px 0 0 0; font-size: 10.5px; color: var(--slate-700); text-align: justify;">
+                        السر هو **تكرار تدوير رأس المال**. الشريكان لم يدفعا 70,000 ج.م للمورد في أول يوم بالكامل، بل قاما بتشغيل الـ 20,000 ج.م الأصلية 3 إلى 4 مرات متتالية خلال الشهر:
+                        شراء بضاعة بـ 20,000 ج.م ⬅️ بيعها تدريجياً للزبائن وتحصيل 30,000 ج.م ⬅️ استقطاع 20,000 ج.م (تكلفة جملة البضاعة) والنزول لشراء بضاعة جديدة فوراً لملء الرفوف ⬅️ تكرار هذه الدورة يراكم مبيعات قدرها 100 ألف وتكلفة قدرها 70 ألف بنهاية الشهر، مع الحفاظ الكامل على بقاء بضائع الـ 20,000 ج.م الأصلية حية على الرفوف دون تآكل.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Section 4: Abdo Media Commitment -->
+            <div class="policy-section">
+                <div class="section-header">
+                    <span class="section-icon">🛡️</span>
+                    <span>المادة الخامسة: الالتزام والتوافق في سياسة الدعاية والتسويق</span>
+                </div>
+                <p style="font-size: 11px; color: var(--slate-700); line-height: 1.6; text-align: justify; margin: 0;">
+                    تلتزم <strong>شركة عبده ميديا بالتسويق</strong> بإدارة الحملات الإعلانية الممولة وبناء قنوات المبيعات واستهداف العملاء لرفع معدل دوران رأس المال بالمتجر، بينما يلتزم الشركاء بتمويل شراء مخزون البضاعة بالجملة وتجميد تكلفة البضائع فور تحصيلها لضمان تغذية الرفوف، والامتناع التام عن سحب أو تجميد أي مبالغ من التحصيلات إلا بعد غلق الدفاتر الدورية واحتساب صافي الأرباح قانونياً.
+                </p>
+            </div>
+
+            <!-- Signature and Stamp Block -->
+            <div class="signature-area">
+                <div class="sig-box">
+                    <div class="sig-title">إشراف وتوثيق: شركة عبده ميديا للتسويق</div>
+                    <div class="sig-line"></div>
+                    <div class="sig-seal">قسم الحسابات والتدقيق المالي والسياسات</div>
+                </div>
+                <div class="sig-box">
+                    <div class="sig-title">اعتماد الشريك المستفيد / الطرف الثاني</div>
+                    <div class="sig-line"></div>
+                    <div class="sig-seal">التوقيع / البصمة وتاريخ الموافقة</div>
+                </div>
+            </div>
+
+            <p style="text-align: center; font-size: 9px; color: #94a3b8; font-weight: 700; margin-top: 35px; border-top: 1px solid #f1f5f9; padding-top: 10px;">
+                حقوق الملكية الفكرية والسياسة التنظيمية محفوظة لشركة عبده ميديا &copy; 2026. أي استخدام للوثيقة أو صياغتها لغير المتاجر المسجلة يعرض فاعله للمساءلة القانونية.
+            </p>
+        </div>
+        <script>
+            window.onload = function() { window.print(); }
+        </script>
+    </body>
+    </html>
+  `;
+};
+
 
 

@@ -6,7 +6,7 @@ import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { PeriodClosingModal } from './PeriodClosingModal';
 import { PartnerExitModal } from './PartnerExitModal';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from '../utils/financials';
-import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
+import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, generateAbdoMediaPolicyHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
@@ -2305,6 +2305,78 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 <h5 className="text-xs font-bold text-slate-800 dark:text-amber-300 flex items-center gap-1.5">
                                     🤝 صيغة وإرشادات التصفية والتخارج الشفافة للشركاء (حسب أرقام التقرير المعتمدة):
                                 </h5>
+
+                                {/* Educational Explanation Card */}
+                                <div className="bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 rounded-xl p-4 text-xs space-y-2.5 leading-relaxed text-slate-700 dark:text-slate-300">
+                                    <div className="flex items-center gap-1.5 text-indigo-900 dark:text-indigo-300 font-bold">
+                                        <span className="text-sm">💡</span>
+                                        <span>توضيح محاسبي هام: كيف يتم احتساب مستحقات الشركاء عند التصفية؟</span>
+                                    </div>
+                                    <p className="text-[11.5px] text-slate-600 dark:text-slate-400">
+                                        تتم التصفية وحساب حقوق كل شريك بناءً على <strong className="text-indigo-700 dark:text-indigo-400">الربح الصافي الفعلي</strong> المضاف إلى <strong className="text-indigo-700 dark:text-indigo-400">رأس المال المستثمر</strong>، وليس بناءً على مبالغ التحصيل (المبيعات الإجمالية).
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1.5">
+                                        <div className="bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60 shadow-xs">
+                                            <span className="font-semibold text-slate-800 dark:text-slate-200 block mb-0.5">🪙 1. رأس المال الأصلي</span>
+                                            <span className="text-[10.5px] text-slate-500 dark:text-slate-400">هو المبلغ المالي الأصلي الذي ساهم به الشريك عند التأسيس، ويظل ثابتاً ومحفوظاً باسمه دون تغيير.</span>
+                                        </div>
+                                        <div className="bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60 shadow-xs">
+                                            <span className="font-semibold text-emerald-700 dark:text-emerald-400 block mb-0.5">📈 2. الأرباح الصافية (تُوزع)</span>
+                                            <span className="text-[10.5px] text-slate-500 dark:text-slate-400">تساوي (إجمالي المبيعات والتحصيل - تكلفة البضاعة المباعة بسعر الجملة - مصاريف التشغيل والشحن)، والربح الصافي فقط هو ما يتم تقسيمه وإضافته للشريك.</span>
+                                        </div>
+                                        <div className="bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700/60 shadow-xs">
+                                            <span className="font-semibold text-red-600 dark:text-red-400 block mb-0.5">🛑 3. مبالغ التحصيل (لا تُوزع)</span>
+                                            <span className="text-[10.5px] text-slate-500 dark:text-slate-400">لا يجوز تقسيم مبيعات المحل الإجمالية؛ لأنها تشتمل على ثمن البضاعة الأصلي ومصاريف التشغيل، وتوزيعها يعني تصفية وخسارة رأسمال المحل بالكامل.</span>
+                                        </div>
+                                    </div>
+                                    <div className="bg-amber-50/70 dark:bg-amber-950/20 p-3 rounded-lg border border-amber-200/50 dark:border-amber-900/30 text-[11px] space-y-1.5">
+                                        <div className="font-bold text-amber-950 dark:text-amber-300 flex items-center gap-1">
+                                            <span>📝 مثال توضيحي عملي بالأرقام لشريكين (أحمد وباسم):</span>
+                                        </div>
+                                        <div className="text-slate-600 dark:text-slate-300 leading-relaxed space-y-1">
+                                            <p>نفترض أن <strong className="text-slate-800 dark:text-white">أحمد</strong> و<strong className="text-slate-800 dark:text-white">باسم</strong> أسسا محلاً تجارياً بالتساوي (بنسبة 50% لكل منهما):</p>
+                                            <div className="pr-2.5 border-r border-amber-300 dark:border-amber-800/80 text-[10.5px] space-y-0.5">
+                                                • <strong>رأس المال المودع:</strong> ساهم كل شريك بـ <strong>10,000 ج.م</strong> (إجمالي رأس مال المتجر = <strong>20,000 ج.م</strong> لشراء بضاعة المخزن).<br />
+                                                • <strong>مبيعات المحل (التحصيل):</strong> عمل المحل مبيعات إجمالية قدرها <strong>100,000 ج.م</strong> كاش.<br />
+                                                • <strong>تكلفة البضاعة المباعة بسعر الجملة:</strong> بلغت <strong>70,000 ج.م</strong> (يجب إعادتها للدرج فوراً لشراء بضاعة بديلة ولا تُوزع).<br />
+                                                • <strong>المصاريف (تشغيل، تسويق، شحن وإرجاع):</strong> بلغت <strong>18,000 ج.م</strong>.<br />
+                                                • <strong>الربح الصافي الفعلي للمحل:</strong> 100,000 مبيعات - 70,000 تكلفة - 18,000 مصاريف = <strong className="text-emerald-700 dark:text-emerald-400">12,000 ج.م</strong> (هو الربح القابل للتوزيع فقط).
+                                            </div>
+                                            <div className="pt-1 text-[10.5px]">
+                                                👥 <strong>توزيع الأرباح وحساب الأرصدة (50% لكل منهما):</strong><br />
+                                                • <strong className="text-slate-800 dark:text-white">الشريك أحمد (سحب 2,000 ج.م):</strong> نصيبه من الأرباح 6,000 ج.م، يضاف لرأس ماله الأصلي ليصبح مستحقاته 16,000 ج.م، وبعد خصم مسحوباته، يستلم كاش <strong className="text-indigo-600 dark:text-indigo-400">14,000 ج.م</strong> عند التخارج.<br />
+                                                • <strong className="text-slate-800 dark:text-white">الشريك باسم (لم يسحب شيئاً):</strong> نصيبه من الأرباح 6,000 ج.م، ومستحقاته 16,000 ج.م، وبما أنه لم يسحب أي مسحوبات شخصية (0 ج.م)، يستلم كاش <strong className="text-indigo-600 dark:text-indigo-400">16,000 ج.م</strong> عند التخارج.
+                                            </div>
+                                             <div className="mt-2.5 p-2.5 bg-white/60 dark:bg-slate-900/40 border border-amber-200/55 dark:border-amber-900/40 rounded-md text-[10px] text-slate-500 dark:text-slate-400 leading-normal">
+                                                💡 <strong className="text-amber-950 dark:text-amber-300">توضيح مالي حاسم (كيف تبلغ التكلفة 70 ألف ورأس المال 20 ألف فقط؟):</strong><br />
+                                                السر يكمن في سرعة <strong>دوران وتدوير رأس المال (Capital Turnover)</strong> خلال الشهر. الشريكان لم يشتريا بضاعة بـ 70,000 ج.م دفعة واحدة، بل قاما بتشغيل الـ 20,000 ج.م الأصلية عدة مرات متتالية:
+                                                <div className="mt-1 pr-2 border-r border-slate-300 dark:border-slate-700/80 space-y-0.5">
+                                                    • <strong>أسبوع 1:</strong> يشتريان بضاعة بـ 20,000 ج.م كاش ويعرضانها للبيع (رأس المال تحوّل لبضاعة).<br />
+                                                    • <strong>أسبوع 2:</strong> عند بيع جزء بـ 15,000 ج.م (جملتها 10,000 ج.م)، يسحبان <strong>10,000 ج.م</strong> ويعيدان شراء بضاعة بديلة لملء الرفوف بها مجدداً، مع ترك الـ 5,000 ج.م كأرباح وسيولة في الخزينة.<br />
+                                                    • <strong>تكرار الدورة:</strong> تكرار هذه الدورة 3 إلى 4 مرات شهرياً يراكم مبيعات بـ 100 ألف وتكلفة بـ 70 ألف، مع بقاء قيمة الـ 20,000 ج.م الأصلية كأصول وبضائع مستمرة على الرفوف لحماية المحل من التصفية والانهيار.
+                                                </div>
+
+                                                <div className="mt-3 pt-2.5 border-t border-amber-200/40 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 text-[9.5px]">
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                        <span>🛡️ تم إعداد الدليل والمثال المحاسبي بموجب:</span>
+                                                        <strong className="text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-100 dark:border-indigo-900/50">سياسة التعامل في التسويق مع شركة عبده ميديا © 2026</strong>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => {
+                                                            const html = generateAbdoMediaPolicyHTML(activeStore?.name || 'شركائنا للنجاح');
+                                                            printHTMLDirectly(html);
+                                                        }}
+                                                        className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold py-1 px-2.5 rounded-md text-[10px] cursor-pointer transition-colors shadow-sm hover:shadow active:scale-95"
+                                                    >
+                                                        <Printer className="w-3.5 h-3.5" />
+                                                        <span>طباعة وثيقة السياسة الرسمية (عبده ميديا)</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     {stats.partnerPerformance.map(p => {
                                         const capital = p.capitalContribution || 0;
@@ -2314,16 +2386,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                         const netCash = totalRights - withdrawals;
                                         
                                         const totalStockVal = stats.inventoryValue || 85200;
-                                        const inventoryShare = (p.profitRatio / 100) * totalStockVal;
-                                        const inventoryDiff = netCash - inventoryShare; // positive = partner gets cash refund over stock; negative = partner pays cash deficit for stock
 
                                         const copyCashMsg = `يا ${p.name}، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:\nإنت ليك رأس مال ${capital.toLocaleString('ar-EG')} ج.م.\nوليك أرباح موزعة وغير موزعة إجماليتها ${profits.toLocaleString('ar-EG')} ج.م.\nيبقى إجمالي حقك بالكامل ${totalRights.toLocaleString('ar-EG')} ج.م.\nنخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ ${withdrawals.toLocaleString('ar-EG')} ج.م.\n💰 يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وحسابك يتصفّى تماماً وتخرج بالخير هي: ${netCash.toLocaleString('ar-EG')} ج.م.`;
 
-                                        const inventoryResultText = inventoryDiff < 0
-                                            ? `تستلم بضاعة ومخزون بسعر التكلفة بقيمة ${inventoryShare.toLocaleString('ar-EG')} ج.م (حسب نسبة ملكيتك ${p.profitRatio}%)، وتدفع إنت للمتجر/الخزينة فرق عجز قدره ${Math.abs(inventoryDiff).toLocaleString('ar-EG')} ج.م كاش.`
-                                            : `تستلم بضاعة ومخزون بسعر التكلفة بقيمة ${inventoryShare.toLocaleString('ar-EG')} ج.م (حسب نسبة ملكيتك ${p.profitRatio}%)، وتاخد كمان فوق البضاعة فرق فائض كاش في إيدك بقيمة ${inventoryDiff.toLocaleString('ar-EG')} ج.م من الخزينة.`;
-
-                                        const copyInventoryMsg = `📦 ولو حابين نصفّي بالبضاعة والمخزون بسعر التكلفة للشريك (${p.name}):\n• إجمالي بضاعة المتجر = ${totalStockVal.toLocaleString('ar-EG')} ج.م.\n• حصتك من البضاعة بنسبة (${p.profitRatio}%) = ${inventoryShare.toLocaleString('ar-EG')} ج.م.\n• صافي مستحقاتك الكاش = ${netCash.toLocaleString('ar-EG')} ج.م.\n👉 النتيجة والتسوية بالبضاعة: ${inventoryResultText}`;
+                                        const otherPartnerName = stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك التاني';
 
                                         return (
                                             <div key={p.id} className="bg-white dark:bg-slate-800/95 border border-amber-200 dark:border-amber-800/60 rounded-xl p-3.5 space-y-3 shadow-sm text-xs">
@@ -2341,16 +2407,6 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                             title="نسخ نص التصفية كاش"
                                                         >
                                                             <Copy size={11} /> نسخ صياغة الكاش
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                navigator.clipboard.writeText(copyInventoryMsg);
-                                                                alert(`تم نسخ نص تسوية البضاعة للشريك (${p.name})!`);
-                                                            }}
-                                                            className="text-[10px] font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/50 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-800 flex items-center gap-1 transition-all cursor-pointer"
-                                                            title="نسخ نص تسوية البضاعة"
-                                                        >
-                                                            <Package size={11} /> نسخ صياغة البضاعة
                                                         </button>
                                                         <button
                                                             onClick={() => {
@@ -2387,28 +2443,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                     </div>
                                                 </div>
 
-                                                {/* Option 2: Inventory Settlement */}
-                                                <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-3 rounded-lg border-r-4 border-emerald-500 text-slate-700 dark:text-slate-300 leading-relaxed font-medium text-[11.5px] space-y-1">
-                                                    <p className="font-semibold flex items-center justify-between text-emerald-800 dark:text-emerald-300">
-                                                        <span>📦 <strong>خيار 2: التصفية العينية (خروج الشريك وأخذه نصيبه بضاعة بسعر التكلفة):</strong></span>
-                                                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded font-mono font-bold">حصة البضاعة ({p.profitRatio}%): {inventoryShare.toLocaleString('ar-EG')} ج.م</span>
-                                                    </p>
-                                                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
-                                                        إجمالي قيمة بضاعة المتجر بسعر التكلفة = <strong className="font-mono text-slate-800 dark:text-white">{totalStockVal.toLocaleString('ar-EG')} ج.م</strong> | حصة الشريك منها = <strong className="font-mono text-indigo-700 dark:text-indigo-300">{inventoryShare.toLocaleString('ar-EG')} ج.م</strong>.
-                                                    </p>
-                                                    <div className={`p-2 rounded-md text-[11px] font-bold border mt-1.5 ${inventoryDiff < 0 ? 'bg-amber-100/70 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700' : 'bg-emerald-100/70 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'}`}>
-                                                        {inventoryDiff < 0 ? (
-                                                            <span>⚠️ <strong>التسوية بالبضاعة:</strong> الشريك ياخد <strong>بضاعة بـ {inventoryShare.toLocaleString('ar-EG')} ج.م</strong>، ويدفع هو للمتجر/للخزينة <strong>فرق عجز قدره {Math.abs(inventoryDiff).toLocaleString('ar-EG')} ج.م كاش</strong> لتصفية حسابه تماماً.</span>
-                                                        ) : (
-                                                            <span>✨ <strong>التسوية بالبضاعة:</strong> الشريك ياخد <strong>بضاعة بـ {inventoryShare.toLocaleString('ar-EG')} ج.م</strong>، وياخد كمان فوقيها <strong>فرق فائض كاش في إيده بـ {inventoryDiff.toLocaleString('ar-EG')} ج.م من الخزينة</strong> لتصفية حسابه تماماً.</span>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                {/* Option 3: Buyout / Acquisition of Partner Share */}
+                                                {/* Option 2: Buyout / Acquisition of Partner Share */}
                                                 <div className="bg-purple-50/60 dark:bg-purple-950/30 p-3 rounded-lg border-r-4 border-purple-500 text-slate-700 dark:text-slate-300 leading-relaxed font-medium text-[11.5px] space-y-1">
                                                     <p className="font-semibold flex items-center justify-between text-purple-900 dark:text-purple-300">
-                                                        <span>🛍️ <strong>خيار 3: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong></span>
+                                                        <span>🛍️ <strong>خيار 2: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong></span>
                                                     </p>
                                                     <div className="p-2 rounded-md text-[11px] font-bold bg-purple-100/70 dark:bg-purple-950/80 text-purple-950 dark:text-purple-200 border border-purple-200 dark:border-purple-800 leading-normal">
                                                         🤝 <strong>اتفاق الاستحواذ والتملك الكامل:</strong> في حال رغبة الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> في تملك المتجر والمخزون بالكامل ({totalStockVal.toLocaleString('ar-EG')} ج.م):
