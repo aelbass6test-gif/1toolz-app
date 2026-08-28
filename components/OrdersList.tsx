@@ -1,4 +1,4 @@
-ï»¿ï»¿ï»¿ï»¿ï»¿ï»¿import React, { useState, useMemo, useEffect, useRef } from "react";
+ï»¿ï»¿ï»¿ï»¿ï»¿import React, { useState, useMemo, useEffect, useRef } from "react";
 import { parseSafeDate } from "../utils/dateUtils";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
@@ -1016,13 +1016,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         "ØªÙ…_ØªÙˆØµÙŠÙ„Ù‡Ø§",
         "ØªÙ…_Ø§Ù„ØªÙˆØµÙŠÙ„",
         "Ù…Ø¯ÙÙˆØ¹Ø©",
-      ].includes(o.status);
+      ].includes(o.status) || o.collectionProcessed === true || o.paymentStatus === "Ù…Ø¯ÙÙˆØ¹";
 
       const isFailedOrCancelled = [
         "Ù…Ù„ØºÙŠ",
         "Ù…Ø±ØªØ¬Ø¹",
+        "Ù…Ø±ØªØ¬Ø¹_Ø¬Ø²Ø¦ÙŠ",
+        "Ù…Ø±ØªØ¬Ø¹_Ø¨Ø¹Ø¯_Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù…",
         "ÙØ´Ù„_Ø§Ù„ØªÙˆØµÙŠÙ„",
         "ØªÙ…Øª_Ø§Ù„Ø§Ø¹Ø§Ø¯Ø©_Ù„Ø´Ø±ÙƒØ©_Ø§Ù„Ø´Ø­Ù†",
+        "Ù…Ø¤Ø±Ø´Ù",
       ].includes(o.status);
 
       const isUsingOverride = (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && String(o.totalAmountOverride).trim() !== '') || (o.source === 'synced');
@@ -10914,12 +10917,11 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         type="text"
                         placeholder="Ù‡Ø§ØªÙ Ø§Ù„Ù…Ø³ØªÙ„Ù…..."
                         value={orderData.advancePaymentRecipientPhone || ""}
-                        onChange={(e) =>
-                          handleFieldChange(
-                            "advancePaymentRecipientPhone",
-                            e.target.xœìWÍnÛF¾ë)DHAIÑ’ÿI.‚ÖiFZÀÇÀ@–âJb½äÜ¥,EÑ¡€y‹Œü´FQ¸hš>	õ6E‰”´´ƒ^+À09³Îï7‡„Å´Ú_M«›j5]F„xJ|Ú1B³iµÀé›—ORpItqˆw‚IÍÛ‡G.ÿòÊÓ“yéJ#.uÍÆˆ¤#i>Û±ÃÑ9ôx M‡‘îğX2/ fÀjh\¬km/c©LCŒI½Xg D/è€3t¼c$ïfo’·³WÉÛäàÅÕìçäfözveY–ŞÄPÕ¤3™ÿ‘Ä"î]úû4g4P
-*‰Ç¼|	†¡¯¾ æª´]àê‡ç\FŸx”¹é3Õ’Ã F‰WÆ—¥RK’¨O¥5ü¿û–¿vİõ†ÛTíºÏ¥Çk«¾6­lÈ&õ‡ğ8­,ÊßyBòh§¼ë›é›xâÄõ¤ôáÁĞõ^fåî#£A_àluz[/µ1 |¹|iîBhÎ+–f}Ç¶ë-{­pû(l®ªÑÄjhê¸zv­”¨04U´ò.iÊ<§ÖZØqÒ¨K¡sh^z.|Cê1:l@_˜]L:Ú'¡ÙĞx œÈÒ,¼8¹;»ÓŸÒ—ïÚ¶¡G3Hn“ßfW|Hn’ß‰~]âPò)ùÁéõì•¦-M~Öj&B„;sl6Á'#s€Ò¨Çø%JI,9Üİˆ3æH³í²vÌëÒjÍŠ(šêÊ'aµÊxÿH0VØ¶µÉrn_Ğqg‚X»™ĞÈë$v_³/T?em§ïº--‡-b@\LŠğõuß’ßyïüéõÆ¦Cå%¥A±—°ÅvJM¢Q¬R³:y®éëpd6 ›6Âf(ëÃ“Ró *©¤«@
-:İˆbØ®_	¤>sqVÒÉÉî©ö=„Ï4îRFsÆ#.èÒòüfaV)Ü/KåüF)K_8}>-Ï&6kY¼ÉuòØOÉ{åD™óHn“›¹«8¢ŸÔˆÎ®Jv¹úµëª–ŸWîŠ¨bÁcQ{d+ ‰3™Aì‹;Ú	ĞKÀa¥jş,éùˆuÄk–ä§¼K=“¢`Õ@ƒ'ßµÿ“v7.„ñD>ºUØ{Ù„ædM[·–«@İ”İ”EÓ®‡¥~Ş¿4ã8‘¸ïšn…ãì·ÉÇäıaêh,htâ£¯å®–§½4é5MMKXŒ¾ÜynC´&XÜ.ïıyÂ¹ÇÇóÑÆ³±zû
-ôr¼cƒs(ğßÏø¢)ï‰ùù}á˜ÏV+¢şù>°ğ…‚·XJ2’~ˆ¤Š"š!ßÇEy_x`XLo1êG*êæ*êU9ªuÑ)ãõ™óa ÁÊf33²&WÆ‘>ÂS%3»œñHäƒ+6Er,æìû_
-‘æä~ù±ã{kŸr[úb!/p½>WÛcÏB¶—%)e›ÉÈQF?£¸UW+ËŠÕj¸ââ¥Ba+îmËnœƒZ+CšÉlë`ÿ<Ÿ@Â˜>{í32¤½ÜŸ®sÈ9Lç>	Ô^»ÁöwÊ—ÛJÊt]ãWîŸªé‰ø÷Î˜nbÌf‰
-Ó¼üØéñÈO…K}í¨2=ªTè(ä‘—öHÌ$|¯fNœ"M<ªü  ÿÿ ¶ö¤Ë
+                 xœìWÍnÛF¾ë)DHAIÑ’ÿI.‚ÖiFÔÇÀ@–âJb½äÜ¥,UÑ¡€}‹Œü´FQ¸hš>	õ6E‰”´´ƒ=U€aîìr83ßÌ7³ ó> O;“*­Aç¸Ús}âQæ¦ïTKÄ’ KŸ’±Où-íz¡‡O< Æ§¥ïRK’¨O¥5$,¦%GkÚ½©v§Ëˆ_ŸvŒĞlZ-púæåÀ“\]âJ0"©y`ÛàğÈ¥ÑâßBŞ@yz2/İCiÄãÀ¥®Ù1t$Íg;v8:‡¤é0Ò½ KæÔT4&Öu(´½ Œ¥Ö19Ñ'õaf€­ ÎĞğ‘¼™ı”¼½L^'ï ®f?&7³W³+Ë²ô*æ˜t&sç¿ ’XE Ïh 6¨$ğâ†‹ÿ,ı
+VıŸ}Ÿ}íºë·mµë>—¬­ûµieC6©?„Ç):°€¾ò„äÑNyÖ7Ã7ñÄ‰ëI/èÃƒ Ë½LËİG,Fƒ¾À1Øêô¶\j£Cy¸|iîBhÎK£¾cÛõ–½Ü>
+›+4šˆ†ÇÕ»kPâ†¡AaĞÊ›¤y.Nµµ01â0¤Q—
+2ÂmŒ¡yé¹THğt©Çè0}av1@hhŸ„fCc2"³ğ¾ÇÊİÙnØ”~|×¶=›Ar›ü:»‚ä]r“ü†LôË’‡’ÉïHN¯f/5¹8hiâ³†™‘îÌ±ÙŸŒÌZ|H£ã—(%±äpSt#Î˜C"­ÏZ¶ËÒI0¯K«5+¢¨^¨'Ÿ„Õ*ãıC ÁXqÛÖ$Ë™}AÇ	¾`yîf@#¯?˜}Í¾Pù”¥>ë¶¤¦,ˆq1(Â×ã¾%¾óÜù.ÒëM‡ÊKJƒb.aŠí”ªD¥ˆRÓ:y®Éëpd6 ›6Òfæ(ëÃ'“Rõ *¨¤«H
+:İˆ¢Û®Ÿ¤>s±VÒÊÉÖTúÂG*w)£9åt©y¾X¨U›ö—åæ|¡6K?8}>-&&k™¿Éuò'–ØÉ[eD™ñ8Ü&7sS±D?¨]•ôrõk×–÷‚ÅØEòX`Ó
+HâÄŒDfûâtÂ ô°X©ª?Kz>rñÃš%ù)ïFÏd„,X5PáÉ—Fíßú¤íËá†¿#‘÷nåö^V¡9YÓÖõƒ¥ÇÊQ7nÊ¼i×ÃR;ïÃ8V$öÄ»ª[ñ8ûmò>y{˜øhk¹©åa/zMƒiÉ£_î<·!Z,–Ëµp®Èññ¼ôDaâY§X$½}Ez¹¹ccæPä¿ŸÍ‹¦¼'ççû…c>kX­ˆúç[æ5‚/ Şvb)yPˆHzI7Šl†ó>6Ê¼=à’a1¼E¯)¯›+¯W~äF­{”Na0^¯9j XélfJÖäJ9Oğdf—3‰¼sÅ¤H®qŠùóşçBb¤1¹_üDìøŞÚUnK^Ì#ä®×çª{¬üYÈö² ¥SÃf0r#£ŸØUO+ÍjªÕÌŠ‹
+Å­Ø·-»qª­i&³­ƒıó| 	cúèµÏÈfãåşt}†œÓÔqîJ úÚö´¿ÒéqÙ­Ô@™6°k¼åş¡àHO¼Ç¿7Æt“c6!*Tóò²Óã‘Ÿ
+—ûµ£Êô¨R¡£G\Ú#1“ğª9qŠcâQå   ÿÿ “ˆÊø

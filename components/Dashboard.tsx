@@ -753,17 +753,20 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           outForDeliveryCount++;
       }
       
-      if (o.status === 'مرتجع' || o.status === 'تمت_الاعادة_لشركة_الشحن' || o.status === 'فشل_التوصيل' || o.status === 'ملغي') {
+      const isCollected = o.collectionProcessed === true || o.paymentStatus === 'مدفوع' || ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);
+      const isTerminated = ['ملغي', 'مرتجع', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مؤرشف'].includes(o.status);
+
+      if (o.status === 'مرتجع' || o.status === 'تمت_الاعادة_لشركة_الشحن' || o.status === 'فشل_التوصيل' || o.status === 'ملغي' || o.status === 'مرتجع_جزئي' || o.status === 'مرتجع_بعد_الاستلام') {
           headedToYouCount++;
           totalReturnedExpenses += loss;
       }
       
-      if (o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل') {
+      if (isCollected) {
           successfulOrdersCount++;
           actualCollection += orderRevenue;
           totalCOGS += safeProductCost;
           totalShippingPaid += safeShippingFee;
-      } else if (!['ملغي', 'مرتجع', 'فشل_التوصيل'].includes(o.status)) {
+      } else if (!isTerminated) {
           expectedCollection += orderRevenue;
       }
     });
