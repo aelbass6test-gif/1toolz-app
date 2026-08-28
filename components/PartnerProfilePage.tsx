@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order } from '../types';
-import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon, PlusCircle, RefreshCw, CheckCircle2, Clock, Eye, Search } from 'lucide-react';
+import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon, PlusCircle, RefreshCw, CheckCircle2, Clock, Eye, Search, Lock, Share2, Copy, Sparkles, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { calculateOrderProfitLoss, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
@@ -53,7 +53,43 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   const [profileTxSearch, setProfileTxSearch] = useState('');
   const [profileTxFilter, setProfileTxFilter] = useState<'all' | 'positive' | 'negative' | 'custody'>('all');
 
+  // PIN Management & Portal Sharing State
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [partnerPinInput, setPartnerPinInput] = useState('');
+
   const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
+
+  const openPinModal = () => {
+    setPartnerPinInput(partner?.passcode || '0000');
+    setIsPinModalOpen(true);
+  };
+
+  const handleSavePartnerPin = () => {
+    if (!partner) return;
+    const cleanCode = partnerPinInput.trim().replace(/\D/g, '') || '0000';
+    updateSettings({
+      ...settings,
+      partners: (settings.partners || []).map(p => p.id === partner.id ? { ...p, passcode: cleanCode } : p)
+    });
+    alert(`تم تعيين وتحديث رمز PIN للشريك (${partner.name}) بنجاح: ${cleanCode}`);
+    setIsPinModalOpen(false);
+  };
+
+  const copyPortalLink = () => {
+    if (!partner) return;
+    const link = `${window.location.origin}/store/${storeId}/partner-portal?p=${partner.id}`;
+    navigator.clipboard.writeText(link);
+    alert(`تم نسخ رابط الدخول المباشر لبوابة الشريك (${partner.name}) بنجاح!`);
+  };
+
+  const shareWhatsApp = () => {
+    if (!partner) return;
+    const link = `${window.location.origin}/store/${storeId}/partner-portal?p=${partner.id}`;
+    const code = partner.passcode || '0000';
+    const storeTitle = settings.storeName || 'عبده ميديا';
+    const text = `مرحباً بك يا ${partner.name} 🌟\nإليك رابط بوابتك المالية المباشرة لمتابعة حساباتك وتفاصيل أرباحك في متجر ${storeTitle}:\n🔗 ${link}\n🔑 رمز المرور السري (PIN): ${code}\n\nتحياتنا، إدارة المتجر.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
   const transactions = useMemo(() => (settings.partnerTransactions || []).filter(t => t.partnerId === partnerId && t.type !== 'pos_collection'), [settings.partnerTransactions, partnerId]);
 
   const handoversForPartner = useMemo(() => {
@@ -974,13 +1010,40 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                   <h1 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white truncate max-w-[150px] sm:max-w-none">{partner.name}</h1>
                   <span className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-black px-3 py-1 rounded-full uppercase">نشط</span>
                 </div>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
-                  <PieChart size={14} className="sm:hidden" />
-                  <PieChart size={16} className="hidden sm:block" />
-                  <span className="hidden sm:inline">نسبة المشاركة في الأرباح:</span>
-                  <span className="sm:hidden">أرباح:</span>
-                  <span className="text-indigo-600 font-black">{partner.profitRatio}%</span>
-                </p>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium flex items-center gap-2">
+                    <PieChart size={14} className="sm:hidden" />
+                    <PieChart size={16} className="hidden sm:block" />
+                    <span className="hidden sm:inline">نسبة المشاركة في الأرباح:</span>
+                    <span className="sm:hidden">أرباح:</span>
+                    <span className="text-indigo-600 font-black">{partner.profitRatio}%</span>
+                  </p>
+
+                  <button
+                    onClick={openPinModal}
+                    className="text-[10px] font-black bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors border border-amber-300/40"
+                    title="انقر لتغيير أو تعيين رمز PIN"
+                  >
+                    <Lock size={10} /> PIN: {partner.passcode || '0000'}
+                    <span className="text-[9px] underline mr-1 text-amber-800 dark:text-amber-300">تعديل الرمز</span>
+                  </button>
+
+                  <button
+                    onClick={copyPortalLink}
+                    className="text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors"
+                    title="نسخ رابط الدخول المباشر للبوابة"
+                  >
+                    <Share2 size={10} /> نسخ الرابط
+                  </button>
+
+                  <button
+                    onClick={shareWhatsApp}
+                    className="text-[10px] font-black bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors"
+                    title="مشاركة رابط البوابة ورمز PIN للشريك عبر واتساب"
+                  >
+                    <span>📲 واتساب</span>
+                  </button>
+                </div>
             </div>
         </div>
 
@@ -1519,6 +1582,110 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
           onClose={() => setShowPrintModal(false)}
         />
       )}
+
+      {/* Dedicated Partner PIN Management Modal */}
+      <AnimatePresence>
+        {isPinModalOpen && partner && (
+          <div className="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 space-y-6 text-right"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-amber-500/10 text-amber-600 rounded-2xl flex items-center justify-center">
+                    <Lock size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 dark:text-white">تعيين رمز PIN للبوابة</h3>
+                    <p className="text-xs font-bold text-slate-400">{partner.name}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsPinModalOpen(false)}
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-xs font-black text-slate-600 dark:text-slate-300">
+                    رمز المرور السري (PIN) للشريك
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={partnerPinInput}
+                        onChange={(e) => setPartnerPinInput(e.target.value.replace(/\D/g, ''))}
+                        placeholder="أدخل 4-6 أرقام..."
+                        className="w-full pr-12 pl-4 py-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-amber-500/30 rounded-2xl outline-none font-black text-center text-xl tracking-widest text-slate-800 dark:text-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPartnerPinInput(Math.floor(1000 + Math.random() * 9000).toString())}
+                      className="px-3.5 py-3.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-2xl text-xs font-black transition-colors flex items-center gap-1 cursor-pointer border border-amber-300/40"
+                      title="توليد رمز PIN عشوائي جديد"
+                    >
+                      <Sparkles size={14} className="text-amber-500" />
+                      <span>توليد تلقائي</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    * هذا الرمز يُطلب من الشريك عند الدخول إلى رابط بوابته المالية المخصصة لحماية خصوصية الحساب.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-3">
+                  <span className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Share2 size={14} className="text-indigo-600" /> خيارات مشاركة الرابط المباشر:
+                  </span>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={copyPortalLink}
+                      className="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Copy size={13} />
+                      <span>نسخ الرابط</span>
+                    </button>
+
+                    <button
+                      onClick={shareWhatsApp}
+                      className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <span>📲 واتساب</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={handleSavePartnerPin}
+                  className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Check size={16} /> حفظ وتحديث رمز PIN
+                </button>
+                <button
+                  onClick={() => setIsPinModalOpen(false)}
+                  className="px-5 py-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

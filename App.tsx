@@ -52,6 +52,8 @@ const ActivityLogsPage = lazy(() => import('./components/ActivityLogsPage'));
 const SuppliersPage = lazy(() => import('./components/SuppliersPage'));
 const PartnersPage = lazy(() => import('./components/PartnersPage'));
 const PartnerProfilePage = lazy(() => import('./components/PartnerProfilePage'));
+const PartnerPortal = lazy(() => import('./components/PartnerPortal'));
+const ExcelReconciliationPage = lazy(() => import('./components/ExcelReconciliationPage'));
 const PagesManager = lazy(() => import('./components/PagesManager'));
 const PaymentSettingsPage = lazy(() => import('./components/PaymentSettingsPage'));
 const DeveloperSettingsPage = lazy(() => import('./components/DeveloperSettingsPage'));
@@ -1586,6 +1588,23 @@ export const AppComponent = () => {
             // Admin users will fetch the global users list when needed or via the snapshot listener.
             setUsers([]);
             
+            // Check if there is a store ID in the path (e.g. /store/:storeId/partner-portal or /store/:storeId)
+            const pathParts = window.location.pathname.split('/');
+            let pathStoreId = '';
+            if (pathParts[1] === 'store' && pathParts[2] && pathParts[2].startsWith('store-')) {
+                pathStoreId = pathParts[2];
+            }
+
+            if (pathStoreId) {
+                console.log('[STORE-PATH-LOOKUP] Preloading store data from URL path:', pathStoreId);
+                const storeData = await db.getStoreData(pathStoreId, dbSyncMode === 'auto') as StoreData | null;
+                if (storeData) {
+                    const sanitizedStoreData = sanitizeData(storeData);
+                    setAllStoresData(prev => ({ ...prev, [pathStoreId]: sanitizedStoreData }));
+                    setActiveStoreId(pathStoreId);
+                }
+            }
+
             const host = window.location.hostname.toLowerCase();
             const hostNoWww = host.replace(/^www\./, '');
             const mainDomains = ['app.abdomedi.com', 'abdomedi.com', 'fallback.abdomedi.com', 'localhost', '127.0.0.1'];
@@ -3139,6 +3158,7 @@ export const AppComponent = () => {
                     <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
                     <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="reconciliation" element={<ExcelReconciliationPage allStoresData={allStoresData} updateStoreData={(id, updater) => { setAllStoresData(p => { const draft = { ...p }; if(draft[id]) { const cloned = JSON.parse(JSON.stringify(draft[id])); updater(cloned); draft[id] = cloned; } return draft; }); }} showToast={(msg, type) => {}} />} />
                     <Route path="pages" element={<PagesManager {...pageProps} />} />
                     <Route path="settings/payment" element={<PaymentSettingsPage {...pageProps} />} />
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />
@@ -3173,6 +3193,20 @@ export const AppComponent = () => {
                         />
                     } />
                 </Route>
+
+                <Route path="/store/:storeId/partner-portal" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                // Will be updated by URL, but since it's view-only inside PartnerPortal, this is just a safe stub
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
 
                 <Route path="store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />

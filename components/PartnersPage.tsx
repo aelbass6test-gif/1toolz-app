@@ -20,7 +20,7 @@ const normalizeName = (name: string): string => {
 };
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
-import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock, LogOut } from 'lucide-react';
+import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock, LogOut, Share2, Copy } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
 import { PartnerExitModal } from './PartnerExitModal';
@@ -50,9 +50,11 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const walletBalance = useMemo(() => calculateWalletLiveBalance(wallet), [wallet]);
   const effectiveHiddenAmount = settings.enableHiddenWalletAmount ? (settings.hiddenWalletAmount || 0) : 0;
   const [partnerName, setPartnerName] = useState('');
+  const [partnerPasscode, setPartnerPasscode] = useState('');
   const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<string | null>(null);
   const [editPartnerName, setEditPartnerName] = useState('');
+  const [editPartnerPasscode, setEditPartnerPasscode] = useState('');
   const [transactionAmount, setTransactionAmount] = useState('');
   const [transactionType, setTransactionType] = useState<PartnerTransaction['type']>('loan');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
@@ -76,6 +78,45 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const [exitModalPartnerId, setExitModalPartnerId] = useState<string | null>(null);
+
+  // Dedicated PIN Management Modal State
+  const [pinModalPartner, setPinModalPartner] = useState<Partner | null>(null);
+  const [pinModalCode, setPinModalCode] = useState('');
+
+  const openPinModal = (partner: Partner) => {
+    setPinModalPartner(partner);
+    setPinModalCode(partner.passcode || '0000');
+  };
+
+  const handleSavePin = () => {
+    if (!pinModalPartner) return;
+    const cleanCode = pinModalCode.trim().replace(/\D/g, '') || '0000';
+    updateSettings({
+      ...settings,
+      partners: partners.map(p => p.id === pinModalPartner.id ? { ...p, passcode: cleanCode } : p)
+    });
+    showToast(`تم تعيين رمز PIN للشريك (${pinModalPartner.name}) بنجاح: ${cleanCode}`);
+    setPinModalPartner(null);
+  };
+
+  const generateRandomPin = () => {
+    const randomPin = Math.floor(1000 + Math.random() * 9000).toString();
+    setPinModalCode(randomPin);
+  };
+
+  const copyPartnerPortalLink = (partner: Partner) => {
+    const link = `${window.location.origin}/store/${storeId}/partner-portal?p=${partner.id}`;
+    navigator.clipboard.writeText(link);
+    showToast(`تم نسخ رابط الدخول المباشر للشريك (${partner.name}) بنجاح!`);
+  };
+
+  const sharePartnerWhatsApp = (partner: Partner) => {
+    const link = `${window.location.origin}/store/${storeId}/partner-portal?p=${partner.id}`;
+    const code = partner.passcode || '0000';
+    const storeTitle = settings.storeName || 'عبده ميديا';
+    const text = `مرحباً بك يا ${partner.name} 🌟\nإليك رابط بوابتك المالية المباشرة لمتابعة حساباتك وتفاصيل أرباحك في متجر ${storeTitle}:\n🔗 ${link}\n🔑 رمز المرور السري (PIN): ${code}\n\nتحياتنا، إدارة المتجر.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
 
   const handleExecuteLiquidationTransaction = (partnerId: string, amount: number, method: string, note: string) => {
     const partner = (settings.partners || []).find(p => p.id === partnerId);
@@ -315,13 +356,15 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       id: generateSafeId('part'),
       name: partnerName,
       balance: 0,
-      profitRatio: 0
+      profitRatio: 0,
+      passcode: partnerPasscode || Math.floor(1000 + Math.random() * 9000).toString()
     };
     updateSettings({
       ...settings,
       partners: [...partners, newPartner]
     });
     setPartnerName('');
+    setPartnerPasscode('');
     showToast('تم إضافة الشريك بنجاح');
   };
 
@@ -525,16 +568,18 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const startEditPartner = (partner: Partner) => {
     setEditPartnerId(partner.id);
     setEditPartnerName(partner.name);
+    setEditPartnerPasscode(partner.passcode || '');
   };
 
   const savePartnerName = () => {
     if (!editPartnerId || !editPartnerName) return;
     updateSettings({
       ...settings,
-      partners: partners.map(p => p.id === editPartnerId ? {...p, name: editPartnerName} : p)
+      partners: partners.map(p => p.id === editPartnerId ? {...p, name: editPartnerName, passcode: editPartnerPasscode} : p)
     });
     setEditPartnerId(null);
-    showToast('تم تعديل اسم الشريك بنجاح');
+    setEditPartnerPasscode('');
+    showToast('تم تعديل بيانات الشريك بنجاح');
   };
 
   const recalculatePartnerBalances = () => {
@@ -1004,6 +1049,13 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 <BookOpen size={18} className="text-amber-500" />
                 {showHelpGuide ? 'إخفاء الدليل السريع' : '💡 كيف يعمل حساب الشركاء والمسحوبات؟'}
               </button>
+              <Link 
+                to={`/store/${storeId}/partner-portal`}
+                className="bg-indigo-50 dark:bg-indigo-950/30 border-2 border-indigo-500/20 text-indigo-700 dark:text-indigo-400 px-5 py-3 rounded-2xl font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all flex items-center gap-2"
+              >
+                <Users2 size={18} className="text-indigo-500" />
+                <span>دخول بوابة الشركاء الاستعلامية (PIN) 🔑</span>
+              </Link>
               <button 
                 onClick={() => window.print()}
                 className="bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-6 py-3 rounded-2xl font-bold hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-all flex items-center gap-2"
@@ -1434,22 +1486,44 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       </div>
       
       <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="flex flex-col sm:flex-row gap-4 items-center">
-            <div className="flex-1 w-full relative">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+            <div className="md:col-span-2 relative">
               <User className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                   type="text" 
                   value={partnerName}
                   onChange={(e) => setPartnerName(e.target.value)}
                   placeholder="أدخل اسم الشريك الجديد..."
-                  className="w-full pr-12 py-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-transparent focus:border-indigo-600/20 rounded-2xl outline-none transition-all font-bold"
+                  className="w-full pr-12 py-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-transparent focus:border-indigo-600/20 rounded-2xl outline-none transition-all font-bold text-xs"
               />
+            </div>
+            <div className="relative flex items-center gap-2">
+              <div className="relative flex-1">
+                <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                    type="text" 
+                    maxLength={6}
+                    value={partnerPasscode}
+                    onChange={(e) => setPartnerPasscode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="رمز PIN للدخول (افتراضي 0000)"
+                    className="w-full pr-12 pl-4 py-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-transparent focus:border-indigo-600/20 rounded-2xl outline-none transition-all font-bold text-xs"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setPartnerPasscode(Math.floor(1000 + Math.random() * 9000).toString())}
+                className="px-3 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl text-[10px] font-black text-slate-700 dark:text-slate-200 whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer"
+                title="توليد رمز PIN عشوائي مكون من 4 أرقام"
+              >
+                <Sparkles size={12} className="text-amber-500" />
+                <span>توليد PIN</span>
+              </button>
             </div>
             <button 
               onClick={addPartner} 
-              className="w-full sm:w-auto bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+              className="md:col-span-3 bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer shadow-lg shadow-indigo-500/10 active:scale-[0.99]"
             >
-                إضافة الشريك
+                <Plus size={16} /> إضافة الشريك الجديد وتعيين حسابه
             </button>
         </div>
       </div>
@@ -1662,32 +1736,69 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   </div>
                   <div className="space-y-1">
                     {editPartnerId === partner.id ? (
-                      <div className="flex items-center gap-2">
-                        <input 
-                          value={editPartnerName} 
-                          onChange={(e) => setEditPartnerName(e.target.value)} 
-                          className="font-black text-lg bg-slate-50 dark:bg-slate-900 border-2 border-indigo-600/30 rounded-lg px-2 py-1 outline-none w-40"
-                          autoFocus
-                        />
-                        <button onClick={savePartnerName} className="text-emerald-600 hover:scale-110 transition-transform"><Check size={20}/></button>
-                        <button onClick={() => setEditPartnerId(null)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={20}/></button>
+                      <div className="flex flex-col gap-2 bg-slate-50 dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-400">اسم الشريك</label>
+                          <input 
+                            value={editPartnerName} 
+                            onChange={(e) => setEditPartnerName(e.target.value)} 
+                            className="font-black text-sm bg-white dark:bg-slate-800 border-2 border-indigo-600/30 rounded-lg px-2 py-1 outline-none w-48"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-400">رمز المرور للبوابة (PIN)</label>
+                          <input 
+                            value={editPartnerPasscode} 
+                            onChange={(e) => setEditPartnerPasscode(e.target.value.replace(/\D/g, ''))} 
+                            className="font-black text-sm bg-white dark:bg-slate-800 border-2 border-indigo-600/30 rounded-lg px-2 py-1 outline-none w-48"
+                            maxLength={6}
+                          />
+                        </div>
+                        <div className="flex gap-2 mt-1">
+                          <button onClick={savePartnerName} className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-2 py-1 rounded"><Check size={12}/> حفظ</button>
+                          <button onClick={() => setEditPartnerId(null)} className="flex items-center gap-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-[10px] font-black px-2 py-1 rounded"><X size={12}/> إلغاء</button>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex flex-col">
                         <h3 className="text-xl font-black text-slate-800 dark:text-white leading-none">
                             <Link to={`/store/${storeId}/partners/${partner.id}`} className="hover:text-indigo-600 transition-colors">{partner.name}</Link>
                         </h3>
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
                            <span className="text-[10px] font-black bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full">شريك مؤسس</span>
                            {partner.profitRatio > 0 && (
                              <span className="text-[10px] font-black bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full">نسبة {partner.profitRatio}%</span>
                            )}
+                           <button
+                             onClick={() => openPinModal(partner)}
+                             className="text-[10px] font-black bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors border border-amber-300/40"
+                             title="انقر لتغيير أو تعيين رمز PIN"
+                           >
+                             <Lock size={10} /> PIN: {partner.passcode || '0000'}
+                             <span className="text-[9px] underline mr-1 text-amber-800 dark:text-amber-300">تعديل</span>
+                           </button>
+                           <button
+                             onClick={() => copyPartnerPortalLink(partner)}
+                             className="text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors"
+                             title="نسخ رابط الدخول المباشر للبوابة"
+                           >
+                             <Share2 size={10} /> نسخ الرابط
+                           </button>
+                           <button
+                             onClick={() => sharePartnerWhatsApp(partner)}
+                             className="text-[10px] font-black bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-800/50 px-2.5 py-0.5 rounded-full flex items-center gap-1 cursor-pointer transition-colors"
+                             title="مشاركة رابط البوابة ورمز PIN للشريك عبر واتساب"
+                           >
+                             <span>📲 واتساب</span>
+                           </button>
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => openPinModal(partner)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition-all" title="تعيين وتعديل رمز PIN"><Lock size={16}/></button>
+                    <button onClick={() => sharePartnerWhatsApp(partner)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all" title="إرسال الرابط والرمز عبر واتساب"><Share2 size={16}/></button>
                     <button onClick={() => setPreviewPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="معاينة وطباعة كشف الحساب"><Printer size={16}/></button>
                     <button onClick={() => startEditPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="تعديل"><Edit2 size={16}/></button>
                     <button onClick={() => {
@@ -2703,6 +2814,110 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
           }}
         />
       )}
+
+      {/* Dedicated Partner PIN Management & Direct Link Sharing Modal */}
+      <AnimatePresence>
+        {pinModalPartner && (
+          <div className="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 space-y-6 text-right"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-amber-500/10 text-amber-600 rounded-2xl flex items-center justify-center">
+                    <Lock size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800 dark:text-white">تعيين ومشاركة رمز PIN</h3>
+                    <p className="text-xs font-bold text-slate-400">{pinModalPartner.name} - بوابة الشركاء</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPinModalPartner(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="block text-xs font-black text-slate-600 dark:text-slate-300">
+                    رمز المرور السري (PIN) للشريك
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={pinModalCode}
+                        onChange={(e) => setPinModalCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="أدخل 4-6 أرقام..."
+                        className="w-full pr-12 pl-4 py-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-amber-500/30 rounded-2xl outline-none font-black text-center text-xl tracking-widest text-slate-800 dark:text-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={generateRandomPin}
+                      className="px-3.5 py-3.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-2xl text-xs font-black transition-colors flex items-center gap-1 cursor-pointer border border-amber-300/40"
+                      title="توليد رمز PIN عشوائي جديد"
+                    >
+                      <Sparkles size={14} className="text-amber-500" />
+                      <span>توليد تلقائي</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    * هذا الرمز يُطلب من الشريك عند الدخول إلى رابط بوابته المالية المخصصة لحماية خصوصية الحساب.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-3">
+                  <span className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Share2 size={14} className="text-indigo-600" /> خيارات مشاركة الرابط المباشر:
+                  </span>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => copyPartnerPortalLink(pinModalPartner)}
+                      className="py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Copy size={13} />
+                      <span>نسخ الرابط</span>
+                    </button>
+
+                    <button
+                      onClick={() => sharePartnerWhatsApp(pinModalPartner)}
+                      className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <span>📲 واتساب</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={handleSavePin}
+                  className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-2xl font-black text-xs transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Check size={16} /> حفظ وتحديث رمز PIN
+                </button>
+                <button
+                  onClick={() => setPinModalPartner(null)}
+                  className="px-5 py-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-bold text-xs transition-colors cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

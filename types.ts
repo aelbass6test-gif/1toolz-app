@@ -416,6 +416,7 @@ export interface Partner {
   profitRatio: number; // Added profit ratio
   capital?: number; // رأس المال / الاستثمار
   initialCapital?: number;
+  passcode?: string; // رمز المرور لبوابة الشركاء
 }
 
 export interface PartnerTransaction {
@@ -673,6 +674,7 @@ export interface StaffDocument {
 
 export interface Settings {
   id?: string;
+  storeName?: string;
   data?: any; // For flexible local storage
   storeBranches?: any[];
   companyNames?: string[];

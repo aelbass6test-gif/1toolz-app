@@ -5,7 +5,7 @@ import {
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
     Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, ShieldAlert,
     AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake,
-    Search, ChevronDown, Minimize2, Maximize2, Wrench
+    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet
 } from 'lucide-react';
 import { Store as StoreType, Settings } from '../types';
 
@@ -121,6 +121,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
                 { to: `${storePrefix}/employees-payroll`, label: 'إدارة شؤون الموظفين والرواتب', icon: <Users size={18} />, badge: { text: "جديد", color: "bg-blue-500/10 text-blue-600 border border-blue-500/10 text-[9px]" } },
                 { to: `${storePrefix}/partners`, label: 'حسابات الشركاء والمسحوبات الشخصية', icon: <Users size={18} /> },
+                { to: `${storePrefix}/partner-portal`, label: 'بوابة الشركاء الاستعلامية (PIN)', icon: <Users2 size={18} />, badge: { text: "مؤمن 🔒", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px] font-bold" } },
+                { to: `${storePrefix}/reconciliation`, label: 'مطابقة ومصالحة كشوف الإكسيل', icon: <FileSpreadsheet size={18} />, badge: { text: "ذكي ⚡", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[9px] font-bold" } },
                 { to: `${storePrefix}/collections-report`, label: 'سجلات التحصيل والمقاصة المالية', icon: <Receipt size={18} /> },
                 { to: `${storePrefix}/wallet`, label: 'المحفظة الإلكترونية لعمولات المتجر', icon: <WalletIcon size={18} /> },
                 { to: `${storePrefix}/withdrawals`, label: 'معاملات وتفاصيل سحب الأموال', icon: <ArrowRightLeft size={18} /> },
