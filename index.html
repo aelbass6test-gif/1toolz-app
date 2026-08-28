@@ -19,12 +19,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>مدير الأوردرات الذكي</title>
 
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="مدير الأوردرات">
     <link rel="apple-touch-icon" href="/logo192.png">
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#1e293b" />
+    
+    <script>
+      // Automatically handle dynamic import chunk load errors on new releases
+      window.addEventListener('vite:preloadError', function(event) {
+        console.warn('Vite preload dynamic import error caught. Reloading application...', event);
+        var lastReload = parseInt(sessionStorage.getItem('last_preload_reload') || '0', 10);
+        var now = Date.now();
+        if (now - lastReload > 10000) {
+          sessionStorage.setItem('last_preload_reload', now.toString());
+          window.location.reload();
+        }
+      });
+    </script>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
