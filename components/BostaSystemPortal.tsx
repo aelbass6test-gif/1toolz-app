@@ -121,7 +121,9 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
         if (t.details?.paidByPartnerId) return sum;
         if (t.type === 'إيداع') {
-             return t.status === 'completed' ? sum + amount : sum;
+            if (t.status === 'cancelled') return sum;
+            if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+            return sum + amount;
         }
         if (t.type === 'سحب') {
              return t.status === 'cancelled' ? sum : sum - amount;

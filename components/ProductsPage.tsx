@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft, Printer } from 'lucide-react';
 import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
@@ -1093,6 +1093,103 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     document.body.removeChild(link);
   };
 
+  const handlePrintInventory = () => {
+    let totalStockValue = 0;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    // Filter available stock (quantity > 0)
+    const availableStock = filteredProducts.filter(p => (p.stockQuantity || 0) > 0);
+
+    let tableRows = '';
+    availableStock.forEach((p, index) => {
+        const cost = p.costPrice || 0;
+        const qty = p.stockQuantity || 0;
+        const itemTotal = cost * qty;
+        totalStockValue += itemTotal;
+        
+        tableRows += `
+            <tr>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; font-weight: bold;">${p.name}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center; color: #64748b; font-family: monospace;">${p.sku || '-'}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #0284c7;">${qty}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center;">${cost.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td style="padding: 10px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold;">${itemTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            </tr>
+        `;
+    });
+
+    const htmlContent = `
+        <html dir="rtl" lang="ar">
+        <head>
+            <title>تقرير جرد المخزون - بسعر التكلفة</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #334155; margin: 0; }
+                .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
+                h1 { color: #0f172a; margin: 0 0 10px 0; font-size: 24px; }
+                p.subtitle { color: #64748b; margin: 0; font-size: 14px; }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
+                th { background-color: #f8fafc; padding: 12px; border: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #475569; }
+                tbody tr:nth-child(even) { background-color: #f8fafc; }
+                .summary-box { background-color: #f1f5f9; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px; text-align: left; float: left; min-width: 300px; }
+                .summary-box h3 { margin: 0 0 5px 0; color: #0f172a; font-size: 18px; }
+                .summary-box p { margin: 0; font-size: 13px; color: #64748b; }
+                .footer { clear: both; margin-top: 50px; text-align: center; font-size: 12px; color: #94a3b8; }
+                @media print {
+                    button { display: none; }
+                    body { padding: 0; }
+                    .header { margin-top: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>تقرير البضاعة المتاحة وجرد المخزون (بالتكلفة)</h1>
+                <p class="subtitle">تاريخ الطباعة: ${new Date().toLocaleString('ar-EG')}</p>
+                <p class="subtitle">عدد الأصناف المتاحة: ${availableStock.length} صنف</p>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">#</th>
+                        <th style="text-align: right;">اسم المنتج / الصنف</th>
+                        <th>الباركود / SKU</th>
+                        <th>الكمية المتاحة</th>
+                        <th>تكلفة الوحدة (ج.م)</th>
+                        <th>إجمالي التكلفة (ج.م)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows.length > 0 ? tableRows : '<tr><td colspan="6" style="text-align:center; padding:20px;">لا توجد بضاعة متاحة حالياً</td></tr>'}
+                </tbody>
+            </table>
+            
+            <div class="summary-box" dir="rtl">
+                <h3>إجمالي قيمة بضاعة المخزون: ${totalStockValue.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م</h3>
+                <p>* تم احتساب القيمة بضرب تكلفة كل وحدة في الكمية المتاحة.</p>
+            </div>
+            
+            <div class="footer">
+                <button onclick="window.print()" style="padding: 12px 24px; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; margin-bottom: 20px;">🖨️ طباعة التقرير</button>
+                <p>تم استخراج هذا التقرير من نظام إدارة المخزون.</p>
+            </div>
+            
+            <script>
+                // Auto trigger print dialog slightly after loading
+                setTimeout(() => { window.print(); }, 500);
+            </script>
+        </body>
+        </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   const handleParseCsv = (file: File) => {
     setIsParsingCsv(true);
     setImportPreview(null);
@@ -1320,7 +1417,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <FileUp size={14} /> استيراد
             </button>
             <button onClick={handleExportCSV} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-                <Download size={14} /> تصدير
+                <Download size={14} /> تصدير CSV
+            </button>
+            <button onClick={handlePrintInventory} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
+                <Printer size={14} /> طباعة المخزون (بالتكلفة)
             </button>
             <button onClick={restoreAllStockFromInvoices} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900 rounded-lg font-bold text-[10px] sm:text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all">
                 <FileText size={14} /> استعادة من الفواتير
@@ -2461,10 +2561,63 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
 
     const convertToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = error => reject(error);
+            if (!file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = error => reject(error);
+                return;
+            }
+
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                try {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    const maxDim = 800;
+
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        ctx.drawImage(img, 0, 0, width, height);
+                        // Compact high-quality JPEG (~30KB-60KB) to respect Firestore 1MB document quota
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        resolve(dataUrl);
+                        return;
+                    }
+                } catch (e) {
+                    console.warn('[Image Compress] Canvas error, fallback to raw reader:', e);
+                }
+
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = error => reject(error);
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = error => reject(error);
+            };
+
+            img.src = url;
         });
     };
 

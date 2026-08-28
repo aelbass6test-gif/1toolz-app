@@ -249,9 +249,11 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
 
-        // Deposits: only include when completed
+        // Deposits: include completed, approved, or implicit deposits (exclude pending charge requests and cancelled)
         if (t.type === 'إيداع') {
-             return t.status === 'completed' ? sum + amount : sum;
+             if (t.status === 'cancelled') return sum;
+             if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+             return sum + amount;
         }
         
         // Withdrawals: include both completed AND pending (reserve them)
@@ -326,6 +328,57 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         inRouteTotal
     };
   }, [wallet.transactions, wallet.supplyBalance, orders, settings.hiddenWalletAmount, settings.enableHiddenWalletAmount, settings.enableAutoClosingDifference]);
+
+  // Auto-heal missing order collection transactions in Wallet
+  useEffect(() => {
+    if (!orders || orders.length === 0 || !setWallet) return;
+    
+    const currentTxs = wallet?.transactions || [];
+    const missingTxOrders = orders.filter(o => {
+      const isCollected = (o.status === 'تم_التحصيل' || o.status === 'تم_الاستبدال' || o.collectionProcessed);
+      if (!isCollected) return false;
+      const hasCollectTx = currentTxs.some(t => 
+        t.id === `collect_${o.id}` || 
+        t.orderId === o.id || 
+        (t.orderNumber && String(t.orderNumber) === String(o.orderNumber) && t.type === 'إيداع')
+      );
+      return !hasCollectTx;
+    });
+
+    if (missingTxOrders.length > 0) {
+      const newTxsToPush: any[] = [];
+      missingTxOrders.forEach(o => {
+        const advancePayment = Number(o.advancePayment) || 0;
+        const orderPrice = Number(o.productPrice) || 0;
+        const orderShip = Number(o.shippingFee) || 0;
+        const orderDisc = Number(o.discount) || 0;
+        const orderTax = Number((o as any).tax) || 0;
+        const orderInsp = (o.includeInspectionFee && (o.inspectionFeePaidByCustomer !== false)) ? (settings?.enableInspection ? settings.inspectionFee : 0) : 0;
+        const baseAmountToCollect = o.totalAmountOverride ?? (orderPrice + orderShip + orderTax + orderInsp - orderDisc - advancePayment);
+
+        if (baseAmountToCollect > 0) {
+          newTxsToPush.push({
+            id: `collect_heal_${o.id}`,
+            type: 'إيداع',
+            amount: baseAmountToCollect,
+            date: o.updatedAt || o.createdAt || new Date().toISOString(),
+            note: `رصيد تحصيل أوردر #${o.orderNumber} (تزامن المحفظة)`,
+            category: 'collection',
+            status: 'completed',
+            orderId: o.id,
+            orderNumber: o.orderNumber,
+          });
+        }
+      });
+
+      if (newTxsToPush.length > 0) {
+        setWallet(prev => ({
+          ...prev,
+          transactions: [...newTxsToPush, ...(prev.transactions || [])]
+        }));
+      }
+    }
+  }, [orders, wallet?.transactions, setWallet, settings]);
 
 
   const handleDeleteTransaction = (transactionId: string) => {
@@ -1463,7 +1516,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">التصنيف</p>
-                                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">{item.category === 'wallet_charge' ? 'شحن محفظة' : item.category === 'wallet_withdrawal' ? 'سحب رصيد' : item.category === 'cod' ? 'تحصيل COD' : item.category === 'shipping_compensation' || item.category === 'compensation' || (item.note && item.note.includes('تعويض')) ? 'تعويض شركة الشحن' : item.category === 'collection' ? 'تحصيل عند الاستلام' : item.category || 'أخرى'}</p>
+                                        <p className="text-xs font-black text-slate-700 dark:text-slate-300">{item.category === 'wallet_charge' ? 'شحن محفظة' : item.category === 'wallet_withdrawal' ? 'سحب رصيد' : item.category === 'cod' ? 'تحصيل COD' : item.category === 'pos_cash' ? 'مبيعات كاشير (نقدي)' : item.category === 'pos_digital' ? 'مبيعات كاشير (دفع إلكتروني)' : item.category === 'shipping_compensation' || item.category === 'compensation' || (item.note && item.note.includes('تعويض')) ? 'تعويض شركة الشحن' : item.category === 'collection' ? 'تحصيل عند الاستلام' : item.category || 'أخرى'}</p>
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">تاريخ التنفيذ</p>

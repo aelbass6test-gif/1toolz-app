@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+ï»¿ï»¿ï»¿ï»¿ï»¿ï»¿import React, { useState, useMemo, useEffect, useRef } from "react";
 import { parseSafeDate } from "../utils/dateUtils";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
@@ -73,6 +73,7 @@ import {
   Wallet as WalletIcon,
 } from "lucide-react";
 import { db } from "../services/firebaseClient";
+import { deleteStoreItem } from "../services/databaseService";
 import {
   collection,
   query,
@@ -124,6 +125,7 @@ import { triggerWebhooks } from "../utils/webhook";
 import { printHTMLDirectly } from "../utils/printHelper";
 import { exportHTMLToPDF } from "../utils/pdfHelper";
 import { OrderDetailsModal } from "./OrderDetailsModal";
+import { ConfirmationModal } from "./ConfirmationModal";
 import { whatsappService } from "../utils/whatsappService";
 import {
   AreaChart,
@@ -1701,6 +1703,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         transactions: updatedTransactions,
       };
     });
+
+    if (activeStore?.id) {
+      deleteStoreItem(activeStore.id, 'orders', orderIdToDelete);
+      if (orderNumberToDelete) {
+        deleteStoreItem(activeStore.id, 'orders', orderNumberToDelete);
+      }
+    }
 
     // 3. Close the confirmation modal
     setOrderToDelete(null);
@@ -8711,6 +8720,77 @@ const TabButton: React.FC<TabButtonProps> = ({
     </button>
   );
 };
+
+const AutoWhatsappModal: React.FC<{
+  order: Order;
+  newStatus: string;
+  onClose: () => void;
+  settings: Settings;
+}> = ({ order, newStatus, onClose, settings }) => {
+  const getWhatsAppUrl = () => {
+    let phone = (order.customerPhone || "").replace(/\D/g, "");
+    if (phone.startsWith("0") && phone.length === 11) {
+      phone = "2" + phone;
+    } else if (phone.length === 10 && !phone.startsWith("0")) {
+      phone = "20" + phone;
+    }
+
+    const template = ((settings.whatsappConfig as any)?.templates || []).find(
+      (t: any) => t.id === newStatus || t.label === newStatus
+    ) || {
+      text: "Ø£Ù‡Ù„Ø§Ù‹ " + (order.customerName || "") + " ğŸ‘‹ ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ Ø±Ù‚Ù… " + order.orderNumber + " Ø¥Ù„Ù‰: " + newStatus,
+    };
+
+    const message = whatsappService?.formatMessage
+      ? whatsappService.formatMessage(template.text, order, settings, (template as any).buttons, (template as any).footer)
+      : "Ø£Ù‡Ù„Ø§Ù‹ " + (order.customerName || "") + " ğŸ‘‹ ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ Ø±Ù‚Ù… " + order.orderNumber + " Ø¥Ù„Ù‰: " + newStatus;
+
+    return "https://wa.me/" + phone + "?text=" + encodeURIComponent(message);
+  };
+
+  const handleSend = () => {
+    window.open(getWhatsAppUrl(), "_blank");
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-6 text-right border border-slate-200 dark:border-slate-800"
+      >
+        <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-2xl flex items-center justify-center mb-4">
+          <MessageCircle size={24} />
+        </div>
+        <h3 className="text-lg font-black text-slate-800 dark:text-white mb-2">
+          Ø¥Ø±Ø³Ø§Ù„ ØªØ­Ø¯ÙŠØ« Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨ØŸ
+        </h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+          ØªÙ… ØªØºÙŠÙŠØ± Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ù„Ø¨ <strong>#{order.orderNumber}</strong> Ù„Ù„Ø¹Ù…ÙŠÙ„ <strong>{order.customerName}</strong> Ø¥Ù„Ù‰ (<strong>{newStatus}</strong>). Ù‡Ù„ ØªØ±ØºØ¨ ÙÙŠ Ø¥Ø±Ø³Ø§Ù„ Ø±Ø³Ø§Ù„Ø© ÙˆØ§ØªØ³Ø§Ø¨ Ù„Ù„Ø¹Ù…ÙŠÙ„ Ù„Ø¥Ø¨Ù„Ø§ØºÙ‡ØŸ
+        </p>
+        <div className="flex items-center gap-3 justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+          >
+            Ø¥Ù„ØºØ§Ø¡
+          </button>
+          <button
+            type="button"
+            onClick={handleSend}
+            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition-all"
+          >
+            <MessageSquare size={16} />
+            <span>Ø¥Ø±Ø³Ø§Ù„ Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨</span>
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 interface OrderModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -10837,650 +10917,6 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         onChange={(e) =>
                           handleFieldChange(
                             "advancePaymentRecipientPhone",
-                            e.target.value,
-                          )
-                        }
-                        className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­ÙˆÙ„..."
-                        value={orderData.advancePaymentSenderDetails || ""}
-                        onChange={(e) =>
-                          handleFieldChange(
-                            "advancePaymentSenderDetails",
-                            e.target.value,
-                          )
-                        }
-                        className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black outline-none"
-                      />
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Advance Payment History Log */}
-                {isEditing && orderData.advancePaymentHistory && orderData.advancePaymentHistory.length > 0 && (
-                  <div className="mt-4 p-5 bg-slate-100/50 dark:bg-slate-800/30 rounded-3xl border border-slate-200/50 dark:border-slate-700/50">
-                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                       <History size={14} className="text-slate-400" />
-                       Ø³Ø¬Ù„ ØªØ­Ø¯ÙŠØ«Ø§Øª Ø§Ù„Ø¹Ø±Ø¨ÙˆÙ†
-                    </h5>
-                    <div className="space-y-3 max-h-40 overflow-y-auto no-scrollbar">
-                      {orderData.advancePaymentHistory.slice().reverse().map((log: any) => (
-                        <div key={log.id} className="text-right p-3 bg-white dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
-                              log.action === 'created' ? 'bg-emerald-50 text-emerald-600' : 
-                              log.action === 'deleted' ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'
-                            }`}>
-                              {log.action === 'created' ? 'Ø¥Ø¶Ø§ÙØ©' : log.action === 'deleted' ? 'Ù…Ø³Ø­' : 'ØªØ¹Ø¯ÙŠÙ„'}
-                            </span>
-                            <span className="text-[9px] text-slate-400 font-bold tabular-nums">
-                              {new Date(log.timestamp).toLocaleString('ar-EG')}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-baseline">
-                             <span className="text-xs font-black text-slate-700 dark:text-slate-200">
-                               Ø§Ù„Ù…Ø¨Ù„Øº: {log.amount.toLocaleString()} Ø¬.Ù…
-                             </span>
-                             <span className="text-[9px] text-slate-500 font-medium">
-                               Ø¨ÙˆØ§Ø³Ø·Ø©: {log.userName}
-                             </span>
-                          </div>
-                          {log.reason && (
-                            <p className="text-[9px] text-slate-400 mt-1 italic leading-relaxed border-t border-slate-50 dark:border-slate-800 pt-1">
-                              {log.reason}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Profit Simulator - Modernized */}
-            <div className="p-8 bg-emerald-950 dark:bg-black rounded-[2rem] border border-emerald-500/20 shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-150 duration-700"></div>
-              <h4 className="font-extrabold text-emerald-400 text-sm flex items-center gap-2 mb-6 uppercase tracking-[0.2em] relative z-10 leading-none">
-                <Sparkles size={16} className="animate-pulse" />
-                Ù…Ø­Ø§ÙƒÙŠ Ø§Ù„Ø±Ø¨Ø­ÙŠØ© Ø§Ù„Ø­ÙŠØ©
-              </h4>
-              <div className="grid grid-cols-2 gap-2 relative z-10">
-                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 backdrop-blur-sm">
-                  <p className="text-[9px] text-emerald-300/60 font-black uppercase tracking-tight mb-1">
-                    ØªÙƒÙ„ÙØ© Ø§Ù„Ø¨Ø¶Ø§Ø¹Ø©
-                  </p>
-                  <p className="text-sm font-black text-white italic">
-                    {liveProfitMargin.costOfItems.toLocaleString()}
-                  </p>
-                </div>
-                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 backdrop-blur-sm">
-                  <p className="text-[9px] text-emerald-300/60 font-black uppercase tracking-tight mb-1">
-                    Ù…ØµØ§Ø±ÙŠÙ Ø§Ù„ØªØ´ØºÙŠÙ„
-                  </p>
-                  <p className="text-sm font-black text-white italic">
-                    {(
-                      liveProfitMargin.insuranceFee + liveProfitMargin.codFee
-                    ).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 p-5 bg-emerald-500/10 rounded-3xl border border-emerald-500/20 flex justify-between items-center relative z-10">
-                <div>
-                  <p className="text-[9px] text-emerald-400 font-black uppercase tracking-[0.15em] mb-1">
-                    ØµØ§ÙÙŠ Ø§Ù„Ø±Ø¨Ø­ Ø§Ù„Ù…ØªÙˆÙ‚Ø¹
-                  </p>
-                  <h3 className="text-2xl font-black text-emerald-400 tracking-tighter italic">
-                    {liveProfitMargin.profit.toLocaleString()}
-                    <span className="text-[10px] ml-1 uppercase not-italic opacity-60">
-                      L.E
-                    </span>
-                  </h3>
-                </div>
-                <div className="text-right">
-                  <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-emerald-950 font-black text-xs shadow-lg shadow-emerald-500/20">
-                    {liveProfitMargin.profitPercent}%
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Additional Settings - Modernized */}
-            <div className="p-8 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm space-y-4">
-              <h4 className="font-extrabold text-slate-800 dark:text-white mb-6 flex items-center gap-3">
-                <div className="w-10 h-10 bg-slate-50 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 border border-slate-200 dark:border-slate-700 shadow-sm">
-                  <SettingsIcon size={18} />
-                </div>
-                Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø¥Ø¶Ø§ÙÙŠØ©
-              </h4>
-              <div className="grid grid-cols-1 gap-3">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleFieldChange(
-                      "includeInspectionFee",
-                      !orderData.includeInspectionFee,
-                    )
-                  }
-                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${orderData.includeInspectionFee ? "bg-indigo-50 border-indigo-400 text-indigo-700" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"}`}
-                >
-                  <div
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center ${orderData.includeInspectionFee ? "bg-indigo-600" : "bg-slate-100 dark:bg-slate-800"}`}
-                  >
-                    {orderData.includeInspectionFee && (
-                      <div className="w-2 h-2 bg-white rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-black text-xs uppercase tracking-wider">
-                    ØªÙØ¹ÙŠÙ„ Ø±Ø³ÙˆÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleFieldChange("isInsured", !orderData.isInsured)
-                  }
-                  className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all ${orderData.isInsured !== false ? "bg-indigo-50 border-indigo-400 text-indigo-700" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400"}`}
-                >
-                  <div
-                    className={`w-6 h-6 rounded-lg flex items-center justify-center ${orderData.isInsured !== false ? "bg-indigo-600" : "bg-slate-100 dark:bg-slate-800"}`}
-                  >
-                    {orderData.isInsured !== false && (
-                      <div className="w-2 h-2 bg-white rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-black text-xs uppercase tracking-wider">
-                    ØªØ£Ù…ÙŠÙ† Ø§Ù„Ø´Ø­Ù†Ø©
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {showEditTotalModal && (
-          <EditTotalModal
-            currentTotal={orderData.totalAmountOverride ?? finalAmount}
-            onClose={() => setShowEditTotalModal(false)}
-            onApply={(amount, reason) => {
-              handleFieldChange("totalAmountOverride", amount);
-              handleFieldChange("totalAmountOverrideReason", reason);
-              setShowEditTotalModal(false);
-            }}
-          />
-        )}
-
-        <div className="px-10 py-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800 flex items-center justify-between rounded-b-[2.5rem] sticky bottom-0 z-50">
-          <div className="flex items-center gap-10">
-            <div className="hidden sm:block text-right">
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mb-2 leading-none">
-                Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨
-              </p>
-              <h3 className="text-4xl font-black text-indigo-600 dark:text-indigo-400 leading-none italic tracking-tighter">
-                {finalAmount.toLocaleString()}{" "}
-                <span className="text-xs uppercase opacity-30 not-italic tracking-normal">
-                  Ø¬.Ù…
-                </span>
-              </h3>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-8 font-black text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white transition-all text-sm uppercase tracking-widest"
-            >
-              Ø¥Ù„ØºØ§Ø¡
-            </button>
-            <button
-              type="submit"
-              className="h-16 px-12 bg-indigo-600 dark:bg-indigo-500 text-white font-black rounded-3xl shadow-[0_20px_40px_-5px_rgba(79,70,229,0.3)] hover:bg-indigo-700 hover:scale-[1.05] active:scale-[0.98] transition-all flex items-center gap-4 text-base"
-            >
-              <span>{isEditing ? "Ø­ÙØ¸ Ø§Ù„ØªØ­Ø¯ÙŠØ«Ø§Øª" : "ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø·Ù„Ø¨"}</span>
-              <ArrowLeft size={20} strokeWidth={3} />
-            </button>
-          </div>
-        </div>
-      </motion.form>
-    </div>
-  );
-};
-interface OrderConfirmationSummaryProps {
-  order: Order;
-  settings: Settings;
-  onClose: () => void;
-  storeName: string;
-}
-const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> = ({
-  order,
-  settings,
-  onClose,
-  storeName,
-}) => {
-  const compFees = settings?.companySpecificFees?.[order.shippingCompany];
-  const inspectionFee = order.includeInspectionFee
-    ? compFees?.useCustomFees
-      ? compFees.inspectionFee
-      : settings.inspectionFee
-    : 0;
-  const insuranceRate = order.isInsured
-    ? compFees?.useCustomFees
-      ? compFees.insuranceFeePercent
-      : settings.insuranceFeePercent
-    : 0;
-  const insuranceFee = calculateInsuranceFee(order, insuranceRate, settings);
-  const safeAdvance = Number(order.advancePayment) || 0;
-
-  // Explicitly use the exact mathematical logic calculated for WalletPage
-  const actualShippingFee = calculateOrderShippingAndFees(order, settings);
-
-  const total =
-    order.totalAmountOverride ??
-    order.productPrice + actualShippingFee - order.discount - safeAdvance;
-
-  // ...
-  // Note: To preserve line count and simplicity, I'm replacing just the calculation part first.
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in duration-300 border border-slate-200 dark:border-slate-800">
-        <div className="w-20 h-20 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-5 border-4 border-white dark:border-slate-800 shadow-sm">
-          <CheckCircle size={40} />
-        </div>
-        <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-3">
-          ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨ Ø¨Ù†Ø¬Ø§Ø­!
-        </h2>
-        <p className="text-slate-500 dark:text-slate-400 mb-6">
-          Ù…Ù„Ø®Øµ Ø§Ù„Ø·Ù„Ø¨ Ø§Ù„Ù…Ø§Ù„ÙŠ Ù„Ù„Ø¹Ù…ÙŠÙ„{" "}
-          <span className="font-bold text-slate-700 dark:text-slate-200">
-            {order.customerName}
-          </span>
-        </p>
-        <div className="space-y-3 text-right bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700">
-          <div className="flex justify-between items-center text-sm">
-            <span className="font-bold text-slate-500">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª:</span>
-            <span className="font-black text-slate-700 dark:text-slate-200">
-              {order.productPrice.toLocaleString()} Ø¬.Ù…
-            </span>
-          </div>
-          <div className="flex justify-between items-center text-sm">
-            <div className="flex items-center gap-1">
-              <span className="font-bold text-slate-500">Ù…ØµØ§Ø±ÙŠÙ Ø§Ù„Ø´Ø­Ù†:</span>
-              {(order.weight || 0) > 0 && (
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                  (Ø§Ù„ÙˆØ²Ù†: {order.weight.toFixed(2)} ÙƒØ¬Ù…)
-                </span>
-              )}
-            </div>
-            <span className="font-black text-slate-700 dark:text-slate-200">
-              {actualShippingFee.toLocaleString("ar-EG", {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 2,
-              })}{" "}
-              Ø¬.Ù…
-            </span>
-          </div>
-          {inspectionFee > 0 && (
-            <div className="flex justify-between items-center text-sm">
-              <span className="font-bold text-slate-500">Ø±Ø³ÙˆÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©:</span>
-              <span className="font-black text-slate-700 dark:text-slate-200">
-                {inspectionFee.toLocaleString()} Ø¬.Ù…
-              </span>
-            </div>
-          )}
-          {insuranceFee > 0 && (
-            <div className="flex justify-between items-center text-sm">
-              <span className="font-bold text-slate-500">
-                Ø±Ø³ÙˆÙ… Ø§Ù„ØªØ£Ù…ÙŠÙ† ({insuranceRate}%):
-              </span>
-              <span className="font-black text-slate-700 dark:text-slate-200">
-                {insuranceFee.toFixed(2)} Ø¬.Ù…
-              </span>
-            </div>
-          )}
-          {order.discount > 0 && (
-            <div className="flex justify-between items-center text-sm text-red-500">
-              <span className="font-bold">Ø§Ù„Ø®ØµÙ…:</span>
-              <span className="font-black">
-                -{order.discount.toLocaleString()} Ø¬.Ù…
-              </span>
-            </div>
-          )}
-          <div className="border-t border-slate-200 dark:border-slate-700 my-2"></div>
-          <div className="flex justify-between items-center text-xl">
-            <span className="font-black text-indigo-600 dark:text-indigo-400">
-              Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨ ØªØ­ØµÙŠÙ„Ù‡:
-            </span>
-            <span className="font-black text-indigo-600 dark:text-indigo-400">
-              {total.toLocaleString()} Ø¬.Ù…
-            </span>
-          </div>
-          {order.totalAmountOverride !== undefined &&
-            order.totalAmountOverrideReason && (
-              <div className="mt-3 text-right">
-                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase tracking-wider mb-1">
-                  Ø³Ø¨Ø¨ ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ
-                </span>
-                <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 italic">
-                  "{order.totalAmountOverrideReason}"
-                </p>
-              </div>
-            )}
-        </div>
-        <div className="flex flex-col gap-3 mt-8">
-          <button
-            onClick={() => {
-              const html = generateInvoiceHTML(order, settings, storeName);
-              printHTMLDirectly(html);
-            }}
-            className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-3"
-          >
-            <Printer size={20} />
-            <span>Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„ÙØ§ØªÙˆØ±Ø©</span>
-          </button>
-          <button
-            onClick={() => {
-              const html = generateShippingLabelHTML(order, storeName, settings);
-              printHTMLDirectly(html);
-            }}
-            className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-all flex items-center justify-center gap-3"
-          >
-            <FileDown size={20} />
-            <span>Ø·Ø¨Ø§Ø¹Ø© Ø¨ÙˆÙ„ÙŠØµØ© Ø§Ù„Ø´Ø­Ù†</span>
-          </button>
-          <button
-            onClick={onClose}
-            className="w-full py-3 text-slate-400 dark:text-slate-500 font-bold hover:text-slate-600 dark:hover:text-slate-300 transition-all mt-2"
-          >
-            Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„Ù…Ù„Ø®Øµ
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-const ConfirmationModal: React.FC<{
-  title: string;
-  description: string;
-  onConfirm: (deleteRelated?: boolean) => void;
-  onCancel: () => void;
-  checkboxLabel?: string;
-}> = ({ title, description, onConfirm, onCancel, checkboxLabel }) => {
-  const [deleteRelated, setDeleteRelated] = React.useState(false);
-  return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl p-6 text-center animate-in zoom-in duration-200 border border-slate-200 dark:border-slate-800">
-        <div className="w-16 h-16 bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <AlertCircle size={32} />
-        </div>
-        <h3 className="text-xl font-bold text-slate-800 dark:text-white mb-2">
-          {title}
-        </h3>
-        <p className="text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-          {description}
-        </p>
-
-        {checkboxLabel && (
-          <label className="flex items-center gap-2 mb-6 text-right cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 p-3 rounded-xl transition-all">
-            <input
-              type="checkbox"
-              checked={deleteRelated}
-              onChange={(e) => setDeleteRelated(e.target.checked)}
-              className="w-5 h-5 rounded border-slate-300 text-red-600 focus:ring-red-500"
-            />
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
-              {checkboxLabel}
-            </span>
-          </label>
-        )}
-
-        <div className="flex flex-col gap-2">
-          <button
-            onClick={() => onConfirm(deleteRelated)}
-            className="w-full py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-sm hover:shadow"
-          >
-            ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø­Ø°Ù
-          </button>
-          <button
-            onClick={onCancel}
-            className="w-full py-3 text-slate-500 dark:text-slate-400 font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-all"
-          >
-            ØªØ±Ø§Ø¬Ø¹
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-interface OrderPreConfirmationModalProps {
-  order: Omit<Order, "id">;
-  settings: Settings;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps> = ({
-  order,
-  settings,
-  onConfirm,
-  onCancel,
-}) => {
-  const compFees = settings?.companySpecificFees?.[order.shippingCompany];
-  const inspectionFee = order.includeInspectionFee
-    ? compFees?.useCustomFees
-      ? compFees.inspectionFee
-      : settings.inspectionFee
-    : 0;
-  const insuranceRate = order.isInsured
-    ? compFees?.useCustomFees
-      ? compFees.insuranceFeePercent
-      : settings.insuranceFeePercent
-    : 0;
-  const insuranceFee = calculateInsuranceFee(
-    order as Order,
-    insuranceRate,
-    settings,
-  );
-  const safeAdvance = Number((order as any).advancePayment) || 0;
-
-  const actualShippingFee = calculateOrderShippingAndFees(
-    order as Order,
-    settings,
-  );
-
-  const total =
-    (order as any).totalAmountOverride ??
-    order.productPrice +
-      actualShippingFee +
-      inspectionFee -
-      (order.discount || 0) -
-      safeAdvance;
-
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in duration-300 border border-slate-200 dark:border-slate-800">
-        <div className="w-20 h-20 bg-blue-50 dark:bg-blue-500/10 text-blue-500 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-5 border-4 border-white dark:border-slate-800 shadow-sm">
-          <AlertTriangle size={40} />
-        </div>
-        <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-3">
-          Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨ØŸ
-        </h2>
-        <p className="text-slate-500 dark:text-slate-400 mb-6">
-          ÙŠØ±Ø¬Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ù…Ù„Ø®Øµ Ø§Ù„Ù…Ø§Ù„ÙŠ Ù‚Ø¨Ù„ ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø·Ù„Ø¨.
-        </p>
-        <div className="space-y-3 text-right bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700">
-          <div className="flex justify-between items-center text-sm">
-            <span className="font-bold text-slate-500">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª:</span>
-            <span className="font-black text-slate-700 dark:text-slate-200">
-              {order.productPrice.toLocaleString()} Ø¬.Ù…
-            </span>
-          </div>
-          <div className="flex justify-between items-center text-sm">
-            <div className="flex items-center gap-1">
-              <span className="font-bold text-slate-500">Ù…ØµØ§Ø±ÙŠÙ Ø§Ù„Ø´Ø­Ù†:</span>
-              {(order.weight || 0) > 0 && (
-                <span className="text-[10px] text-slate-400 font-medium">
-                  (Ø§Ù„ÙˆØ²Ù†: {order.weight.toFixed(2)} ÙƒØ¬Ù…)
-                </span>
-              )}
-            </div>
-            <span className="font-black text-slate-700 dark:text-slate-200">
-              {actualShippingFee.toLocaleString("ar-EG", {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 2,
-              })}{" "}
-              Ø¬.Ù…
-            </span>
-          </div>
-          {inspectionFee > 0 && (
-            <div className="flex justify-between items-center text-sm">
-              <span className="font-bold text-slate-500">Ø±Ø³ÙˆÙ… Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©:</span>
-              <span className="font-black text-slate-700 dark:text-slate-200">
-                {inspectionFee.toLocaleString()} Ø¬.Ù…
-              </span>
-            </div>
-          )}
-          {insuranceFee > 0 && (
-            <div className="flex justify-between items-center text-sm">
-              <span className="font-bold text-slate-500">
-                Ø±Ø³ÙˆÙ… Ø§Ù„ØªØ£Ù…ÙŠÙ† ({insuranceRate}%):
-              </span>
-              <span className="font-black text-slate-700 dark:text-slate-200">
-                {insuranceFee.toFixed(2)} Ø¬.Ù…
-              </span>
-            </div>
-          )}
-          {order.discount > 0 && (
-            <div className="flex justify-between items-center text-sm text-red-500">
-              <span className="font-bold">Ø§Ù„Ø®ØµÙ…:</span>
-              <span className="font-black">
-                -{order.discount.toLocaleString()} Ø¬.Ù…
-              </span>
-            </div>
-          )}
-          <div className="border-t border-slate-200 dark:border-slate-700 my-2"></div>
-          <div className="flex justify-between items-center text-xl">
-            <span className="font-black text-indigo-600 dark:text-indigo-400">
-              Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨ ØªØ­ØµÙŠÙ„Ù‡:
-            </span>
-            <span className="font-black text-indigo-600 dark:text-indigo-400">
-              {total.toLocaleString()} Ø¬.Ù…
-            </span>
-          </div>
-        </div>
-        <div className="mt-8 flex gap-3">
-          <button
-            onClick={onConfirm}
-            className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-sm hover:shadow"
-          >
-            ØªØ£ÙƒÙŠØ¯ ÙˆØ¥Ø¶Ø§ÙØ©
-          </button>
-          <button
-            onClick={onCancel}
-            className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
-          >
-            Ø±ÙØ¶ ÙˆØªØ¹Ø¯ÙŠÙ„
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const AutoWhatsappModal: React.FC<{
-  order: Order;
-  newStatus: string;
-  onClose: () => void;
-  settings: Settings;
-}> = ({ order, newStatus, onClose, settings }) => {
-  const defaultTemplate =
-    settings.whatsappTemplates?.find((t) => t.id === "confirm")?.text ||
-    "Ø£Ù‡Ù„Ø§Ù‹ [Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„] ğŸ‘‹ØŒ ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ [Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬] Ø¥Ù„Ù‰ [Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ù„Ø¨].";
-
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    let msg = defaultTemplate;
-    msg = msg.replace(/\[Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„\]/g, order.customerName || "Ø¹Ù…ÙŠÙ„Ù†Ø§ Ø§Ù„Ø¹Ø²ÙŠØ²");
-    msg = msg.replace(/\[Ø§Ø³Ù… Ø§Ù„Ù…ØªØ¬Ø±\]/g, "Ù…ØªØ¬Ø±Ù†Ø§");
-    msg = msg.replace(
-      /\[Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬\]/g,
-      (order.items || []).map((i) => i.name).join(" Ùˆ "),
-    );
-    msg = msg.replace(/\[Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ù„Ø¨\]/g, newStatus.replace(/_/g, " "));
-    setMessage(msg);
-  }, [order, newStatus, defaultTemplate, settings]);
-
-  const handleSend = () => {
-    const phone = order.customerPhone.replace(/[^0-9]/g, "");
-    const formattedPhone = phone.startsWith("20")
-      ? phone
-      : `20${phone.replace(/^0+/, "")}`;
-    const encodedMessage = encodeURIComponent(message);
-    window.open(
-      `https://wa.me/${formattedPhone}?text=${encodedMessage}`,
-      "_blank",
-    );
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-8 text-right animate-in zoom-in duration-300 border border-slate-200 dark:border-slate-800">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl border border-emerald-100 dark:border-emerald-500/20">
-              <MessageSquare size={24} />
-            </div>
-            <h3 className="text-xl font-black dark:text-white">
-              Ø¥Ø´Ø¹Ø§Ø± ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø­Ø§Ù„Ø©
-            </h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
-          >
-            <X size={20} />
-          </button>
-        </div>
-
-        <p className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-2">
-          Ù‡Ù„ ØªÙˆØ¯ ØªÙ†Ø¨ÙŠÙ‡ Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨ØªØºÙŠØ± Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ù„Ø¨ Ø¥Ù„Ù‰{" "}
-          <span className="bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-lg">
-            {newStatus.replace(/_/g, " ")}
-          </span>
-          ØŸ
-        </p>
-        <div className="mb-6">
-          <label className="block text-xs font-bold text-slate-500 mb-2">
-            Ù†Øµ Ø±Ø³Ø§Ù„Ø© Ø§Ù„ÙˆØ§ØªØ³Ø§Ø¨:
-          </label>
-          <textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all min-h-[120px] resize-none"
-          />
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            onClick={handleSend}
-            className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98] flex justify-center items-center gap-2"
-          >
-            Ø¥Ø±Ø³Ø§Ù„ Ø¹Ø¨Ø± Ø§Ù„ÙˆØ§ØªØ³Ø§Ø¨
-            <ExternalLink size={18} />
-          </button>
-          <button
-            onClick={onClose}
-            className="py-3.5 px-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black hover:bg-slate-50 dark:hover:bg-slate-700 transition-all whitespace-nowrap"
-          >
-            ØªØ®Ø·ÙŠ
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default OrdersList;
+                            e.target.xœìWÍnÛF¾û)DYAIÑ–å8” h“ö´|d%%ÖK.Á]ÊR
+8AĞ·è!ˆ“Æ(ŠMÓ'¡Ş¦³¢(“’–rĞK@9³ÎÏ7CÆü|ŒWİÈ›9=Î¤ü–Ø±"»é´ Û·Ï¾BğX|zHO’3…ö]×…®ˆ=Œçsú.Ñ³“Eê¢Æ"	=ôìİ…#e?Ùq£Ñ1œˆPÙ]Îz§ ÅıíP„hTlÜ70Ú~%Êh˜Gd“ş°I2@DZà@pR¼c¥—ÓŸÓ×Óéëô-ĞÍÅôyz5}9½pÇ,b¨ƒÒ9ŸÿSÌaŞ…=üÕ†šŠù\Â³g`YæXˆğËû$nëĞ1®/:çq|ä#÷²w¶+XZYU@G±¸Êş¿ë«İğüá:V»å‹ĞYË¯O¶VhçÛğE˜Ç¾ñ¥ñ‹>Ün¬ºïÜ—=_ùanİør)›8Ã¾À}põéu`j“AÅpÊŞƒÈE,óúë6ZîRàˆØ¼F“¢aˆãõ»K¡$†eˆÂ UTÉæ9“Ö"`$Q„qI›|hŸùJA—L:á8` í9ˆí³ÈŞ5h •Èİ,ı)uwö&+:eßs]Ë\Î }Ÿ¾›^@ú6½J£Rôë¢¥Óß©:½œ¾0`qĞ2øg)f2¢zgí&ldH#CŒO¸8#*K”€PØ²Î»,6Úl,w9œ$÷{¸]wb$ñRß,ÚŞæ¢,ëâ¶dµOqÜ9§ß[uhì÷ŠĞ×¬¨O9ìÌ¨[9‚,ÈóÈ)20Ç}gØù!‘Ê?Û]TgˆaK±J‘$”¢¤?5à:Ù»m—Êfn(ïÃgç•â´SYO)èt:PëÅHf{5x 5r 3îQ®d™“?ï»ná…{È± <’gs±šÙ¥³`Î4³òƒ“§“joX«ìM_¥RŠı”¾ÑJT)OÓÀûôj¦*¥èG¢Ó‹š¹³é«İĞ±ü´pÏ«Ø]ìrñ˜ÇÆP¬›pÛaÈp"„x”¬¨óÏQ~@µQİQâ±è1G*¦*¸]#¿®Õÿ­MÆŞ¸8pó´éRÖ=z“‘ë½8’†>p'OüŠÁFWæsá%å¿çĞ
+(÷Ô²3ëHß9ÓçÔ¾@nŠV =?©.\™-ÔR¨Ç¼O?¤oæ¶$cıjü˜}QR®&‚´èf	B3É‡Q÷ÌÓ½=FÎFèå…_•;ÀÚ™C7€Hm,Ô%#6%MT%«"å*Y7¼X1šÆÒçVHK„ùãâYµ„ĞMï³šZœd—k 5³İÌZ†@[µnó«3Ûr5ÉÇ„ÆÁò€ª'"v©Bx±ˆtß‰íÀ[tÔ®ıd×iÅ—àĞî&J‰°ä¢låÌå}‚6;Âä)í‰tC]¯ìï²öµš¥ıåÓ6ŸBRì¯©sÍr'™1èAğ°8Ëg/.ÑujĞØJ_GÔfœ-#&}¥«$U˜_J¨Éüs3_Ê¤øKüĞÌÆ@?ôü¾˜™¼PzN[x%‹®]éA>ûÑ(5¿»–¬WÃ‚0ÿ¨Ô=€†5Çİ==K1§¹Îİƒã{¯}Ä†˜ï“åÅaÖîöÀ`¥W4Èü•­‹EoM-…ãEú‡Gvâı.­Éj-_Q)Õî‰ˆƒŒ¸à×ïmMîmmá(±OXÂ|§*Ónpoë   ÿÿ ÆÈ+4

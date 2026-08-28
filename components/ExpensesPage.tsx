@@ -4,6 +4,7 @@ import { Wallet, Transaction, TransactionCategory, Settings, Treasury, TreasuryT
 import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Trash2, Tag, Receipt, Landmark, User, Info, Printer, Download, Filter, Search, Grid, List, Zap, CreditCard, ArrowUpRight, CheckCircle2, AlertCircle, RefreshCw, Layers, Sparkles, Building2, Wallet as WalletIcon, Copy, Check, ChevronRight, X, ArrowDownRight, ShieldCheck } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
+import { generateSafeId } from '../utils/idUtils';
 
 interface ExpensesPageProps {
   wallet: Wallet;
@@ -249,7 +250,11 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         const amount = Number(t.amount) || 0;
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
-        if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+        if (t.type === 'إيداع') {
+            if (t.status === 'cancelled') return sum;
+            if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+            return sum + amount;
+        }
         if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
         return sum;
     }, 0);
@@ -471,7 +476,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       return;
     }
 
-    const newTransactionId = Date.now().toString();
+    const newTransactionId = generateSafeId('exp');
 
     if (paymentSource === 'partner') {
       const partner = (settings.partners || []).find(p => p.id === selectedPartnerId);
@@ -480,7 +485,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       const categoryLabel = TRANSACTION_CATEGORY_LABELS[category] || category;
 
       const partnerTx: PartnerTransaction = {
-          id: newTransactionId + 'pt',
+          id: newTransactionId + '_pt',
           partnerId: selectedPartnerId,
           type: 'expense_coverage',
           amount: numAmount,
@@ -526,7 +531,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       );
 
       // Record a handover/deduction transaction for custody tracking
-      const handoverId = `HND-EXP-${Date.now()}`;
+      const handoverId = generateSafeId('hnd_exp');
       const handoverData: any = {
          id: handoverId,
          fromUserId: selectedCustodyId,

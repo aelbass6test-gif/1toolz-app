@@ -3226,32 +3226,39 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         // Adjust holder sum to exclude accounting equalization settlements that were added to balance
         holderSum = Math.max(0, holderSum - equalizationSum);
 
-        let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-        if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
-
-        const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const settlements = partnerHandovers.filter(h => 
+            h.toUserId === 'admin_deduction' || 
+            h.toUserId === 'admin_manual' ||
+            (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+            (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية')))
+        );
         const hasSettlement = settlements.length > 0;
 
-        if (nName.includes('زهره')) {
-            if (!hasSettlement) {
-                if (custodyAmt <= 0) custodyAmt = 7275;
-            } else {
-                const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-                const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-                const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
-                    const isGive_act = partnerUserIds.includes(h_act.toUserId) || normalizeName(h_act.toUserName || '').includes(nName);
-                    return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
-                }, 0);
-                custodyAmt = Math.max(0, activeHandoverSum);
-            }
+        let custodyAmt = 0;
+        if (hasSettlement) {
+            const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+            const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
+                const isGive_act = partnerUserIds.includes(h_act.toUserId) || normalizeName(h_act.toUserName || '').includes(nName);
+                return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
+            }, 0);
+            custodyAmt = Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+        } else {
+            let handoverSum = partnerHandovers.reduce((sum, h) => {
+                const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
+                return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+            }, 0);
+            custodyAmt = Math.max(holderSum, Math.max(0, handoverSum));
+            if (custodyAmt <= 0 && holderSum > 0) custodyAmt = holderSum;
         }
+        custodyAmt = Math.max(0, custodyAmt);
 
         if (!mergedHolders[nName]) {
             mergedHolders[nName] = {
                 displayName: `${p.name} (شريك)`,
                 balance: custodyAmt
             };
-        } else if (custodyAmt > mergedHolders[nName].balance) {
+        } else {
             mergedHolders[nName].balance = custodyAmt;
         }
     });

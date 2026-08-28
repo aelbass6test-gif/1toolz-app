@@ -780,6 +780,10 @@ ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS store_id TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS supplier_id TEXT;
+
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "treasuryPayments" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "custodyPayments" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "discount" NUMERIC DEFAULT 0;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
 ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
@@ -1524,6 +1528,24 @@ ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "phone" TEXT;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "address" TEXT;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "notes" TEXT;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "balance" NUMERIC DEFAULT 0;
+
+-- 10. جدول أوامر التوريد المفقودة (supply_orders)
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerPayments" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "treasuryPayments" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "custodyPayments" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFees" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFees" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "discount" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "taxRate" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "taxAmount" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "grandTotal" NUMERIC DEFAULT 0;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "attachmentUrl" TEXT;
+ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
+
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "category" TEXT;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "creditLimit" NUMERIC DEFAULT 0;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "taxNumber" TEXT;

@@ -9,6 +9,7 @@ import {
   Trash2, 
   CheckCircle2, 
   User, 
+  Landmark,
   Hash, 
   CreditCard, 
   Banknote, 
@@ -223,6 +224,7 @@ const POSPage: React.FC<POSPageProps> = (props) => {
   const employeesList = settings.employees || [];
 
   const allPossibleHolders = useMemo(() => [
+    { id: 'wallet', name: 'المحفظة العامة (الرئيسية)' },
     { id: 'admin', name: 'المدير (أنت)' },
     ...(employeesList).map((e, index) => ({ id: `emp_${e.id || e.phone || index}`, name: normalizeName(e.name) })),
     ...(partnersList).map((p, index) => ({ id: `part_${p.id || index}`, name: `${normalizeName(p.name)} (شريك)` })),
@@ -277,6 +279,10 @@ const POSPage: React.FC<POSPageProps> = (props) => {
 
   // Set default cash holder
   useEffect(() => {
+    if (settings.disableCustodySelling) {
+      setSelectedCashHolder('wallet');
+      return;
+    }
     if (allPossibleHolders.length > 0) {
       const match = allPossibleHolders.find(h => 
         h.id === `emp_${currentUser?.id}` || 
@@ -290,7 +296,70 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         setSelectedCashHolder(allPossibleHolders[0].id);
       }
     }
-  }, [allPossibleHolders, currentUser]);
+  }, [allPossibleHolders, currentUser, settings.disableCustodySelling]);
+
+  // Auto-heal missing wallet transactions for POS sales targeted at the central wallet
+  useEffect(() => {
+    const posSales = settings.posSales || [];
+    if (posSales.length === 0) return;
+
+    const existingWalletTxs = wallet?.transactions || [];
+    const missingSales = posSales.filter(s => {
+      if (s.paymentMethod === 'credit' || s.cashHolderId === 'credit') return false;
+      
+      const isWalletTarget = 
+        s.cashHolderId === 'wallet' || 
+        s.cashHolderName === 'المحفظة العامة' || 
+        s.paymentMethod === 'wallet' || 
+        s.paymentMethod === 'card' ||
+        !s.cashHolderId;
+      
+      if (!isWalletTarget) return false;
+
+      const hasTx = existingWalletTxs.some(t => t.orderId === s.id || t.orderNumber === s.saleNumber);
+      return !hasTx;
+    });
+
+    if (missingSales.length > 0) {
+      let addedBalance = 0;
+      const newTxs: Transaction[] = missingSales.map(s => {
+        addedBalance += (Number(s.totalAmount) || 0);
+        return {
+          id: `pos-tx-heal-${s.id}`,
+          type: 'إيداع',
+          amount: Number(s.totalAmount) || 0,
+          date: s.date || new Date().toISOString(),
+          note: `مبيعات كاشير (إيداع مباشر بالمحفظة) - طلب #${s.saleNumber}`,
+          category: s.paymentMethod === 'card' ? 'pos_digital' : 'pos_cash',
+          status: 'completed',
+          orderId: s.id,
+          orderNumber: s.saleNumber
+        };
+      });
+
+      const updatedSales = posSales.map(s => {
+        if (missingSales.some(ms => ms.id === s.id)) {
+          return {
+            ...s,
+            cashHolderId: 'wallet',
+            cashHolderName: 'المحفظة العامة'
+          };
+        }
+        return s;
+      });
+
+      const updatedWallet: WalletType = {
+        ...(wallet || { balance: 0, transactions: [] }),
+        balance: ((wallet?.balance) || 0) + addedBalance,
+        transactions: [...newTxs, ...existingWalletTxs]
+      };
+
+      updateStoreData({
+        settings: { ...settings, posSales: updatedSales },
+        wallet: updatedWallet
+      });
+    }
+  }, [settings.posSales, wallet?.transactions]);
 
   // Filtered Products
   const filteredProducts = useMemo(() => {
@@ -443,10 +512,46 @@ const POSPage: React.FC<POSPageProps> = (props) => {
       const saleId = `POS-${Date.now()}`;
       const saleNumber = `P-${String((settings.posSales?.length || 0) + 1).padStart(5, '0')}`;
       
-      const finalCashHolder = selectedCashHolder || allPossibleHolders[0]?.id || 'admin';
+      const defaultNonCustodyHolder = 'wallet';
+      let rawHolder = selectedCashHolder || (settings.disableCustodySelling ? 'wallet' : (allPossibleHolders[0]?.id || 'wallet'));
+      
+      // If custody selling is disabled, prevent personal custody options (admin, emp_*, part_*) and default to central wallet
+      const isPersonalHolder = rawHolder === 'admin' || rawHolder.startsWith('emp_') || rawHolder.startsWith('part_');
+      if (settings.disableCustodySelling && isPersonalHolder) {
+        rawHolder = 'wallet';
+      }
+
+      const finalCashHolder = rawHolder;
       const receiver = allPossibleHolders.find(h => h.id === finalCashHolder);
       const isCredit = paymentStatusType === 'credit';
       
+      const isTreasuryDeposit = !isCredit && finalCashHolder.startsWith('treas_');
+      const isWalletDeposit = !isCredit && !isTreasuryDeposit && (
+        paymentMethod === 'wallet' || 
+        paymentMethod === 'card' || 
+        finalCashHolder === 'wallet'
+      );
+      const isCustodyDeposit = !isCredit && !isTreasuryDeposit && !isWalletDeposit && !settings.disableCustodySelling;
+
+      let effectiveCashHolderId = 'wallet';
+      let effectiveCashHolderName = 'المحفظة العامة';
+
+      if (isCredit) {
+        effectiveCashHolderId = 'credit';
+        effectiveCashHolderName = 'حساب أجل';
+      } else if (isTreasuryDeposit) {
+        const tAccId = finalCashHolder.substring(6);
+        const tAcc = treasuryAccountsList.find((a: any) => String(a.id) === String(tAccId));
+        effectiveCashHolderId = finalCashHolder;
+        effectiveCashHolderName = tAcc ? `${tAcc.name}` : 'خزينة';
+      } else if (isWalletDeposit) {
+        effectiveCashHolderId = 'wallet';
+        effectiveCashHolderName = 'المحفظة العامة';
+      } else if (isCustodyDeposit) {
+        effectiveCashHolderId = finalCashHolder;
+        effectiveCashHolderName = normalizeName(receiver?.name || '') || 'نقطة البيع';
+      }
+
       const newSale: POSSale = {
         id: saleId,
         saleNumber,
@@ -459,8 +564,8 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         customerPhone: customerInfo.phone,
         customerAddress: customerInfo.address,
         performedBy: currentUser?.fullName || currentUser?.email || 'كاشير',
-        cashHolderId: isCredit ? 'credit' : (settings.disableCustodySelling ? 'wallet' : finalCashHolder),
-        cashHolderName: isCredit ? 'حساب أجل' : (settings.disableCustodySelling ? 'المحفظة العامة' : normalizeName(receiver?.name || '')),
+        cashHolderId: effectiveCashHolderId,
+        cashHolderName: effectiveCashHolderName,
         notes: `${isCredit ? '[أجل] ' : ''}${customerInfo.address ? `بيع مباشر - ${customerInfo.address}` : `بيع مباشر من منفذ ${activeStore?.name || 'الرئيسي'}`}`
       };
 
@@ -497,56 +602,54 @@ const POSPage: React.FC<POSPageProps> = (props) => {
       let updatedHandovers = [...(settings.cashHandovers || [])];
       let updatedTreasury = treasury ? { ...treasury, accounts: [...treasury.accounts], transactions: [...(treasury.transactions || [])] } : null;
 
-      if (!isCredit && !settings.disableCustodySelling) {
-        if (finalCashHolder.startsWith('treas_') && updatedTreasury) {
-          const treasuryId = finalCashHolder.substring(6);
-          const accIdx = updatedTreasury.accounts.findIndex(a => a.id === treasuryId);
-          if (accIdx > -1) {
-            updatedTreasury.accounts[accIdx] = {
-              ...updatedTreasury.accounts[accIdx],
-              balance: updatedTreasury.accounts[accIdx].balance + totalAmount
-            };
-            updatedTreasury.transactions.unshift({
-              id: `POS-TR-${Date.now()}`,
-              date: new Date().toISOString(),
-              type: 'deposit',
-              amount: totalAmount,
-              description: `مبيعات كاشير - طلب #${saleNumber}`,
-              toAccountId: treasuryId,
-              reference: saleId
-            });
-          }
-        } else {
-          const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(finalCashHolder));
-          const receiverName = normalizeName(receiver?.name || 'مستلم');
-          
-          if (hIdx > -1) {
-            updatedHolders[hIdx].currentBalance += totalAmount;
-            updatedHolders[hIdx].lastUpdated = new Date().toISOString();
-          } else {
-            updatedHolders.push({
-              userId: finalCashHolder,
-              userName: receiverName,
-              currentBalance: totalAmount,
-              lastUpdated: new Date().toISOString()
-            });
-          }
-
-          // Add to Cash Handovers log
-          updatedHandovers.unshift({
-            id: `pos-handover-${Date.now()}`,
-            fromUserId: 'system',
-            fromUserName: 'النظام',
-            toUserId: finalCashHolder,
-            toUserName: receiverName,
-            amount: totalAmount,
+      if (isTreasuryDeposit && updatedTreasury) {
+        const treasuryId = finalCashHolder.substring(6);
+        const accIdx = updatedTreasury.accounts.findIndex(a => String(a.id) === String(treasuryId));
+        if (accIdx > -1) {
+          updatedTreasury.accounts[accIdx] = {
+            ...updatedTreasury.accounts[accIdx],
+            balance: updatedTreasury.accounts[accIdx].balance + totalAmount
+          };
+          updatedTreasury.transactions.unshift({
+            id: `POS-TR-${Date.now()}`,
             date: new Date().toISOString(),
-            notes: `مبيعات كاشير - طلب #${saleNumber}`,
-            type: 'handover',
-            status: 'completed',
-            orderId: saleId
+            type: 'deposit',
+            amount: totalAmount,
+            description: `مبيعات كاشير - طلب #${saleNumber}`,
+            toAccountId: treasuryId,
+            reference: saleId
           });
         }
+      } else if (isCustodyDeposit) {
+        const hIdx = updatedHolders.findIndex(h => String(h.userId) === String(finalCashHolder));
+        const receiverName = normalizeName(receiver?.name || 'مستلم');
+        
+        if (hIdx > -1) {
+          updatedHolders[hIdx].currentBalance += totalAmount;
+          updatedHolders[hIdx].lastUpdated = new Date().toISOString();
+        } else {
+          updatedHolders.push({
+            userId: finalCashHolder,
+            userName: receiverName,
+            currentBalance: totalAmount,
+            lastUpdated: new Date().toISOString()
+          });
+        }
+
+        // Add to Cash Handovers log
+        updatedHandovers.unshift({
+          id: `pos-handover-${Date.now()}`,
+          fromUserId: 'system',
+          fromUserName: 'النظام',
+          toUserId: finalCashHolder,
+          toUserName: receiverName,
+          amount: totalAmount,
+          date: new Date().toISOString(),
+          notes: `مبيعات كاشير - طلب #${saleNumber}`,
+          type: 'handover',
+          status: 'completed',
+          orderId: saleId
+        });
       }
 
       const newSettings: Settings = {
@@ -598,26 +701,30 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         inspectionFee: 0,
         isInsured: false,
         insuranceFee: 0,
-        cashHolderId: isCredit ? 'credit' : (settings.disableCustodySelling ? 'wallet' : finalCashHolder),
-        cashHolderName: isCredit ? 'حساب أجل' : (settings.disableCustodySelling ? 'المحفظة العامة' : (normalizeName(receiver?.name || '') || 'نقطة البيع')),
+        cashHolderId: effectiveCashHolderId,
+        cashHolderName: effectiveCashHolderName,
         advancePayment: isCredit ? 0 : totalAmount,
-        advancePaymentPartnerId: !isCredit && !settings.disableCustodySelling && finalCashHolder.startsWith('part_') ? finalCashHolder.substring(5) : undefined,
-        advancePaymentEmployeeId: !isCredit && !settings.disableCustodySelling && (finalCashHolder.startsWith('emp_') || finalCashHolder === 'admin') ? (finalCashHolder === 'admin' ? 'admin' : finalCashHolder.substring(4)) : undefined,
-        advancePaymentTreasuryId: !isCredit && !settings.disableCustodySelling && finalCashHolder.startsWith('treas_') ? finalCashHolder.substring(6) : undefined,
+        advancePaymentPartnerId: isCustodyDeposit && finalCashHolder.startsWith('part_') ? finalCashHolder.substring(5) : undefined,
+        advancePaymentEmployeeId: isCustodyDeposit && (finalCashHolder.startsWith('emp_') || finalCashHolder === 'admin') ? (finalCashHolder === 'admin' ? 'admin' : finalCashHolder.substring(4)) : undefined,
+        advancePaymentTreasuryId: isTreasuryDeposit ? finalCashHolder.substring(6) : undefined,
       };
 
       // Wallet transaction
       let updatedWallet: WalletType = { ...wallet };
-      if (!isCredit && (paymentMethod !== 'cash' || settings.disableCustodySelling)) {
-        const isDigital = paymentMethod !== 'cash';
+      if (isWalletDeposit) {
+        const isDigital = paymentMethod === 'card';
+        const isWalletPay = paymentMethod === 'wallet';
+        
+        let txNote = `مبيعات كاشير (إيداع مباشر بالمحفظة) - طلب #${saleNumber}`;
+        if (isDigital) txNote = `مبيعات كاشير (دفع إلكتروني/فيزا) - طلب #${saleNumber}`;
+        if (isWalletPay) txNote = `مبيعات كاشير (دفع محفظة) - طلب #${saleNumber}`;
+
         const newTransaction: Transaction = {
           id: `pos-tx-${Date.now()}`,
           type: 'إيداع',
           amount: totalAmount,
           date: new Date().toISOString(),
-          note: isDigital 
-            ? `مبيعات كاشير (دفع إلكتروني) - طلب #${saleNumber}`
-            : `مبيعات كاشير (إيداع مباشر بالمحفظة) - طلب #${saleNumber}`,
+          note: txNote,
           category: isDigital ? 'pos_digital' : 'pos_cash',
           status: 'completed',
           orderId: saleId,
@@ -1099,9 +1206,9 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                   </button>
                </div>
 
-               {/* Custody / Cash Receiver */}
+               {/* Custody / Cash Receiver / Treasury Destination */}
                <AnimatePresence>
-                 {paymentStatusType === 'paid' && !settings.disableCustodySelling && (
+                 {paymentStatusType === 'paid' && (
                    <motion.div 
                      initial={{ opacity: 0, height: 0 }}
                      animate={{ opacity: 1, height: 'auto' }}
@@ -1109,15 +1216,27 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                      className="space-y-1 text-right overflow-hidden"
                    >
                       <label className="text-[10px] font-black text-slate-500 uppercase flex items-center justify-between">
-                         <span>المستلم (في العهدة)</span>
-                         <User size={12} />
+                         <span>
+                           {settings.disableCustodySelling 
+                             ? 'حساب الإيداع (خزينة / محفظة)' 
+                             : 'جهة الاستلام (العهدة / الخزينة)'}
+                         </span>
+                         {settings.disableCustodySelling ? <Landmark size={12} /> : <User size={12} />}
                       </label>
                       <select 
-                        value={selectedCashHolder || (allPossibleHolders[0]?.id || '')}
+                        value={
+                          selectedCashHolder || 
+                          (settings.disableCustodySelling 
+                            ? 'wallet' 
+                            : (allPossibleHolders[0]?.id || 'wallet'))
+                        }
                         onChange={(e) => setSelectedCashHolder(e.target.value)}
                         className="w-full bg-white dark:bg-slate-950 border-2 border-slate-200 dark:border-slate-800 h-10 px-3 rounded-xl text-xs font-black outline-none focus:border-indigo-500 cursor-pointer"
                       >
-                         <option value="">-- اختر جهة الاستلام --</option>
+                         <option value="">-- اختر جهة الإيداع --</option>
+                         <optgroup label="💼 المحفظة المالية المركزية">
+                           <option value="wallet">💼 المحفظة العامة (إيداع مباشر)</option>
+                         </optgroup>
                          {treasuryAccountsList.length > 0 && (
                             <optgroup label="🏦 الحسابات البنكية والخزائن">
                               {treasuryAccountsList.map((acc: any) => (
@@ -1126,8 +1245,8 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                                 </option>
                               ))}
                             </optgroup>
-                          )}
-                          {(employeesList.length > 0 || partnersList.length > 0) && (
+                         )}
+                         {!settings.disableCustodySelling && (
                             <optgroup label="👤 العهدة النقدية (المدير والموظفين)">
                               <option value="admin">👤 عهدة المدير (أنت)</option>
                               {partnersList.map((p: any, index: number) => (
@@ -1141,8 +1260,13 @@ const POSPage: React.FC<POSPageProps> = (props) => {
                                 </option>
                               ))}
                             </optgroup>
-                          )}
+                         )}
                       </select>
+                      {settings.disableCustodySelling && (
+                        <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium pt-0.5">
+                          ✓ تم إيقاف البيع بالعهدة الشخصية: يتم إيداع مبيعات الكاشير مباشرة في الخزينة أو المحفظة المحددة.
+                        </p>
+                      )}
                    </motion.div>
                  )}
                </AnimatePresence>
@@ -1725,10 +1849,10 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
 
     // 2. Remove Wallet Transaction if applicable
     let updatedWallet = { ...wallet || { balance: 0, transactions: [] } };
-    const affectedWallet = sale.paymentMethod !== 'cash' && sale.cashHolderId !== 'credit';
+    const affectedWallet = (sale.paymentMethod !== 'cash' || sale.cashHolderId === 'wallet' || settings.disableCustodySelling) && sale.cashHolderId !== 'credit';
     if (affectedWallet) {
       updatedWallet.balance = Math.max(0, (updatedWallet.balance || 0) - sale.totalAmount);
-      updatedWallet.transactions = (updatedWallet.transactions || []).filter(t => t.orderId !== sale.id);
+      updatedWallet.transactions = (updatedWallet.transactions || []).filter(t => t.orderId !== sale.id && t.orderNumber !== sale.saleNumber);
     }
 
     // Revert Cash Holder Balance

@@ -2878,7 +2878,6 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                     if (empId && String(empId) === String(p.id)) return true;
                     if (Array.isArray(o.advancePaymentHistory) && o.advancePaymentHistory.some((h: any) => h.recipientId === p.id || (h.recipientType === 'partner' && (h.recipientName === p.name || h.recipientId === p.id)))) return true;
                     if (partners.length === 1) return true;
-                    if (p.name.includes('زهره') && (o.cashHolderId === 'admin' || !o.advancePaymentPartnerId)) return true;
                     return false;
                 });
                 const pOrderAdvances = pOrderAdvancesItems.filter(o => !(o.channel === "pos" || o.shippingCompany === "كاشير - بيع مباشر")).reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);

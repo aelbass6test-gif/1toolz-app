@@ -119,8 +119,28 @@ export const PeriodClosingModal: React.FC<PeriodClosingModalProps> = ({
       }
     });
 
+    const isCustodyTx = (t: any) => {
+      const note = t.note || t.description || '';
+      const id = t.id || '';
+      const category = t.category || '';
+      return (
+        note.includes('عهدة') ||
+        note.includes('استرداد') ||
+        note.includes('تسوية') ||
+        note.includes('توريد') ||
+        note.includes('تسليم') ||
+        id.includes('CUST') ||
+        id.includes('custody') ||
+        id.includes('HND') ||
+        category === 'pos_collection' ||
+        category === 'custody_give' ||
+        category === 'custody_receive'
+      );
+    };
+
     const adminExpenses = (wallet?.transactions || [])
       .filter(t => {
+        if (isCustodyTx(t)) return false;
         const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || '');
         const isManualWithdrawal = t.category === 'manual_withdrawal';
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
@@ -130,6 +150,7 @@ export const PeriodClosingModal: React.FC<PeriodClosingModalProps> = ({
 
     const otherIncome = (wallet?.transactions || [])
       .filter(t => {
+        if (isCustodyTx(t)) return false;
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
         const isNotPosTx = !t.note?.includes('مبيعات كاشير');
         return t.type === 'إيداع' && t.category === 'manual_deposit' && isNotPartnerTx && isNotPosTx;

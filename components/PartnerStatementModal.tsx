@@ -128,32 +128,34 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
       h.userId === partner.id || 
       normalizeName(h.userName) === normalizeName(partner.name)
     );
-    let handoverSum = handoversForPartner.reduce((sum, h) => {
-      if (h.type === 'custody_give') return sum + h.amount;
-      if (h.type === 'custody_receive') return sum - h.amount;
+    const settlements = handoversForPartner.filter((h: any) => 
+        (h.toUserId && (h.toUserId === 'admin_deduction' || h.toUserId === 'admin_manual')) ||
+        (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+        (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية') || h.notes.includes('تبين عدم رد'))) ||
+        (h.note && (h.note.includes('خصم') || h.note.includes('تصفية') || h.note.includes('تسوية') || h.note.includes('تبين عدم رد')))
+    );
+    const hasSettlement = settlements.length > 0;
+    let holderSum = partnerHolders.reduce((sum: number, h: any) => sum + (h.currentBalance || 0), 0);
+
+    if (hasSettlement) {
+        const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const activeHandovers = handoversForPartner.filter((h: any) => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+        const activeHandoverSum = activeHandovers.reduce((sum: number, h: any) => {
+            if (h.type === 'custody_give') return sum + (Number(h.amount) || 0);
+            if (h.type === 'custody_receive') return sum - (Number(h.amount) || 0);
+            return sum;
+        }, 0);
+        return Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+    }
+
+    let handoverSum = handoversForPartner.reduce((sum: number, h: any) => {
+      if (h.type === 'custody_give') return sum + (Number(h.amount) || 0);
+      if (h.type === 'custody_receive') return sum - (Number(h.amount) || 0);
       return sum;
     }, 0);
-    let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-    let sum = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-    if (sum <= 0 && holderSum !== 0) sum = holderSum;
-
-    const settlements = handoversForPartner.filter(h => h.note && (h.note.includes('خصم') || h.note.includes('تسوية') || h.note.includes('تبين عدم رد')));
-    const hasSettlement = settlements.length > 0;
-
-    if (normalizeName(partner.name).includes('زهره')) {
-      if (!hasSettlement) {
-        if (sum <= 0) sum = 7275;
-      } else {
-        const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-        const activeHandovers = handoversForPartner.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-        const activeHandoverSum = activeHandovers.reduce((s_sum, h_act) => {
-          if (h_act.type === 'custody_give') return s_sum + h_act.amount;
-          if (h_act.type === 'custody_receive') return s_sum - h_act.amount;
-          return s_sum;
-        }, 0);
-        sum = Math.max(0, activeHandoverSum);
-      }
-    }
+    
+    let sum = Math.max(holderSum, Math.max(0, handoverSum));
+    if (sum <= 0 && holderSum > 0) sum = holderSum;
     return Math.max(0, sum);
   }, [settings.cashHolders, partner, handoversForPartner]);
 
@@ -261,8 +263,28 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
       }
     });
 
+    const isCustodyTx = (t: any) => {
+      const note = t.note || t.description || '';
+      const id = t.id || '';
+      const category = t.category || '';
+      return (
+        note.includes('عهدة') ||
+        note.includes('استرداد') ||
+        note.includes('تسوية') ||
+        note.includes('توريد') ||
+        note.includes('تسليم') ||
+        id.includes('CUST') ||
+        id.includes('custody') ||
+        id.includes('HND') ||
+        category === 'pos_collection' ||
+        category === 'custody_give' ||
+        category === 'custody_receive'
+      );
+    };
+
     const adminExpenses = (wallet?.transactions || [])
       .filter(t => {
+        if (isCustodyTx(t)) return false;
         const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category || '');
         const isManualWithdrawal = t.category === 'manual_withdrawal';
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
@@ -272,6 +294,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
 
     const otherIncome = (wallet?.transactions || [])
       .filter(t => {
+        if (isCustodyTx(t)) return false;
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
         const isNotPosTx = !t.note?.includes('مبيعات كاشير');
         return t.type === 'إيداع' && t.category === 'manual_deposit' && isNotPartnerTx && isNotPosTx;

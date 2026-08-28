@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
-import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn } from './types';
+import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb, auth } from './services/firebaseClient';
@@ -989,11 +989,19 @@ export const AppComponent = () => {
         setIsSidebarOpen(false);
     }, [location.pathname]);
 
-    // تتبع حالة الحفظ لمنع تداخل التحديثات اللحظية
+    // تتبع حالة الحفظ لمنع تداخل التحديثات اللحظية وحماية طابور الحفظ
     const isSavingRef = useRef(false);
     const isDirtyRef = useRef(false);
+    const pendingCloudSaveRef = useRef(false);
+    const latestStateRef = useRef<{ users: User[], allStoresData: Record<string, StoreData>, activeStore: Store | undefined, activeStoreId: string }>({
+        users,
+        allStoresData,
+        activeStore: undefined,
+        activeStoreId
+    });
+
     useEffect(() => {
-        isSavingRef.current = (saveStatus === 'saving' || saveStatus === 'pending');
+        isSavingRef.current = (saveStatus === 'saving');
     }, [saveStatus]);
 
     const activeStore = useMemo(() => {
@@ -1355,6 +1363,8 @@ export const AppComponent = () => {
     useEffect(() => {
         if (isInitialLoad) return;
         
+        latestStateRef.current = { users, allStoresData, activeStore, activeStoreId };
+
         if (isRefreshing.current) {
             isRefreshing.current = false; 
             return;
@@ -1375,69 +1385,75 @@ export const AppComponent = () => {
         isDirtyRef.current = true;
         if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-        debounceTimer.current = setTimeout(async () => {
-            // Already a save in progress? Wait for it.
+        const executeCloudSync = async () => {
             if (isSavingRef.current) {
-                // If it's been saving for too long, just ignore the flag as a failsafe
+                // If save is already in-flight, mark pending so the next batch is queued and never lost
+                pendingCloudSaveRef.current = true;
                 return;
             }
 
+            isSavingRef.current = true;
             setSaveStatus('saving');
             setSaveMessage('جاري المزامنة مع السحاب...');
 
-            const syncWithTimeout = async () => {
-                isSavingRef.current = true;
-                try {
-                    // Sync parallel
-                    const cloudPromises = [];
-                    cloudPromises.push(db.saveGlobalData({ users, loyaltyData: {} }));
-                    
-                    if (activeStoreId && allStoresData[activeStoreId] && activeStore) {
-                        cloudPromises.push(db.saveStoreData(activeStore, allStoresData[activeStoreId]));
-                    }
+            try {
+                const { users: curUsers, allStoresData: curAllStoresData, activeStore: curActiveStore, activeStoreId: curActiveStoreId } = latestStateRef.current;
 
-                    const results = await Promise.all(cloudPromises);
-                    const quotaExceeded = results.some(r => r.error === 'QUOTA_EXCEEDED');
-                    
-                    if (quotaExceeded) {
-                        setDbSyncMode('manual');
-                        setSaveStatus('error');
-                        setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
-                        return;
-                    }
-
-                    const failed = results.find(r => !r.success);
-                    
-                    if (failed) {
-                        console.warn('[AUTO-SYNC] Cloud sync failed partially:', failed.error);
-                        // Still consider success locally since fastLocalSave already finished
-                        setSaveStatus('local_saved');
-                        return;
-                    }
-
-                    isDirtyRef.current = false;
-                    setSaveStatus('success');
-                    setSaveMessage('تمت المزامنة بنجاح!');
-                    setTimeout(() => {
-                        setSaveStatus(prev => prev === 'success' ? 'idle' : prev);
-                    }, 3000);
-                } catch (e: any) {
-                    if (e?.message === 'QUOTA_EXCEEDED' || e === 'QUOTA_EXCEEDED') {
-                        setDbSyncMode('manual');
-                        setSaveStatus('error');
-                        setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
-                        return;
-                    }
-                    console.error('[AUTO-SYNC] Error during cloud sync:', e);
-                    // Fallback to local_saved so the user doesn't see a permanent error/loading
-                    setSaveStatus('local_saved');
-                    setSaveMessage('محفوظ محلياً (المزامنة معطلة مؤقتاً)');
-                } finally {
-                    isSavingRef.current = false;
+                const cloudPromises = [];
+                cloudPromises.push(db.saveGlobalData({ users: curUsers, loyaltyData: {} }));
+                
+                if (curActiveStoreId && curAllStoresData[curActiveStoreId] && curActiveStore) {
+                    cloudPromises.push(db.saveStoreData(curActiveStore, curAllStoresData[curActiveStoreId]));
                 }
-            };
 
-            syncWithTimeout();
+                const results = await Promise.all(cloudPromises);
+                const quotaExceeded = results.some(r => r.error === 'QUOTA_EXCEEDED');
+                
+                if (quotaExceeded) {
+                    setDbSyncMode('manual');
+                    setSaveStatus('error');
+                    setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
+                    return;
+                }
+
+                const failed = results.find(r => !r.success);
+                
+                if (failed) {
+                    console.warn('[AUTO-SYNC] Cloud sync failed partially:', failed.error);
+                    setSaveStatus('local_saved');
+                    return;
+                }
+
+                isDirtyRef.current = false;
+                setSaveStatus('success');
+                setSaveMessage('تمت المزامنة بنجاح!');
+                setTimeout(() => {
+                    setSaveStatus(prev => prev === 'success' ? 'idle' : prev);
+                }, 3000);
+            } catch (e: any) {
+                if (e?.message === 'QUOTA_EXCEEDED' || e === 'QUOTA_EXCEEDED') {
+                    setDbSyncMode('manual');
+                    setSaveStatus('error');
+                    setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
+                    return;
+                }
+                console.error('[AUTO-SYNC] Error during cloud sync:', e);
+                setSaveStatus('local_saved');
+                setSaveMessage('محفوظ محلياً (المزامنة معطلة مؤقتاً)');
+            } finally {
+                isSavingRef.current = false;
+                // If newer changes arrived while the network request was in-flight, execute them now
+                if (pendingCloudSaveRef.current) {
+                    pendingCloudSaveRef.current = false;
+                    setTimeout(() => {
+                        executeCloudSync();
+                    }, 500);
+                }
+            }
+        };
+
+        debounceTimer.current = setTimeout(() => {
+            executeCloudSync();
         }, 2000); // 2s debounce for fast persistence before refresh
 
         return () => {
@@ -2348,6 +2364,108 @@ export const AppComponent = () => {
                 }
             });
             unsubscribers.push(unsubCashHolders);
+
+            // Listen for changes on treasury accounts
+            const qTreasuryAccounts = query(collection(firebaseDb, 'treasury_accounts'), where('storeId', '==', activeStoreId));
+            const unsubTreasuryAccounts = onSnapshot(qTreasuryAccounts, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    isRefreshing.current = true;
+                    const newAccounts = snap.docs.map(doc => ({
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
+                        ...doc.data()
+                    } as TreasuryAccount));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        const currentAccounts = store.treasury?.accounts || [];
+                        if (JSON.stringify(currentAccounts) === JSON.stringify(newAccounts)) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: {
+                                ...store,
+                                treasury: { ...(store.treasury || { accounts: [], transactions: [] }), accounts: newAccounts }
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubTreasuryAccounts);
+
+            // Listen for changes on treasury transactions
+            const qTreasuryTx = query(collection(firebaseDb, 'treasury_transactions'), where('storeId', '==', activeStoreId));
+            const unsubTreasuryTx = onSnapshot(qTreasuryTx, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    isRefreshing.current = true;
+                    const newTxs = snap.docs.map(doc => ({
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
+                        ...doc.data()
+                    } as TreasuryTransaction));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        const currentTxs = store.treasury?.transactions || [];
+                        if (JSON.stringify(currentTxs) === JSON.stringify(newTxs)) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: {
+                                ...store,
+                                treasury: { ...(store.treasury || { accounts: [], transactions: [] }), transactions: newTxs }
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubTreasuryTx);
+
+            // Listen for changes on partners
+            const qPartners = query(collection(firebaseDb, 'partners'), where('storeId', '==', activeStoreId));
+            const unsubPartners = onSnapshot(qPartners, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    isRefreshing.current = true;
+                    const newPartners = snap.docs.map(doc => ({
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
+                        ...doc.data()
+                    } as Partner));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        if (JSON.stringify(store.settings?.partners) === JSON.stringify(newPartners)) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: {
+                                ...store,
+                                settings: { ...store.settings, partners: newPartners }
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubPartners);
+
+            // Listen for changes on partner transactions
+            const qPartnerTx = query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', activeStoreId));
+            const unsubPartnerTx = onSnapshot(qPartnerTx, (snap) => {
+                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
+                    isRefreshing.current = true;
+                    const newPartnerTxs = snap.docs.map(doc => ({
+                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
+                        ...doc.data()
+                    } as PartnerTransaction));
+                    setAllStoresData(prev => {
+                        const store = prev[activeStoreId];
+                        if (!store) return prev;
+                        if (JSON.stringify(store.settings?.partnerTransactions) === JSON.stringify(newPartnerTxs)) return prev;
+                        return {
+                            ...prev,
+                            [activeStoreId]: {
+                                ...store,
+                                settings: { ...store.settings, partnerTransactions: newPartnerTxs }
+                            }
+                        };
+                    });
+                }
+            });
+            unsubscribers.push(unsubPartnerTx);
         }
 
         // Listen for user collections change (Admin only)
@@ -2572,33 +2690,6 @@ export const AppComponent = () => {
                 }
             };
             
-            if (rawSettings && rawSettings.cashHolders) {
-                let zahraIds: string[] = [];
-                let zahraTotal = 0;
-                
-                // Find all Zahra holders and calculate total
-                rawSettings.cashHolders.forEach((h: any) => {
-                    const norm = h.userName ? h.userName.trim() : '';
-                    if (/^(زهره|زهرة)/.test(norm)) {
-                        zahraIds.push(h.userId);
-                        zahraTotal += Number(h.currentBalance || 0);
-                    }
-                });
-
-                if (zahraIds.length > 0 && (zahraTotal === 6925 || zahraTotal === 7225)) {
-                    // We need to add 300 to the first Zahra holder if the total is exactly 6925
-                    const diff = 7225 - zahraTotal;
-                    
-                    const adjustedHolders = rawSettings.cashHolders.map((h: any) => {
-                        if (h.userId === zahraIds[0] && diff > 0) {
-                            return { ...h, currentBalance: Number(h.currentBalance || 0) + diff };
-                        }
-                        return h;
-                    });
-                    
-                    finalSettings.cashHolders = adjustedHolders;
-                }
-            }
             return finalSettings;
         })(),
         wallet: (() => {
@@ -2609,7 +2700,11 @@ export const AppComponent = () => {
                 const amount = Number(t.amount) || 0;
                 if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
                 if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
-                if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+                if (t.type === 'إيداع') {
+                    if (t.status === 'cancelled') return sum;
+                    if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+                    return sum + amount;
+                }
                 if (t.type === 'سحب') {
                     if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
                     return t.status === 'cancelled' ? sum : sum - amount;
@@ -2719,7 +2814,11 @@ export const AppComponent = () => {
                             const amount = Number(t.amount) || 0;
                             if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
                             if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
-                            if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+                            if (t.type === 'إيداع') {
+                                if (t.status === 'cancelled') return sum;
+                                if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+                                return sum + amount;
+                            }
                             if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
                             return sum;
                         }, 0);

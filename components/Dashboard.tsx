@@ -616,53 +616,47 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             normalizeName(h.fromUserName || '').includes(normalizeName(user.name))
         );
 
-        let handoverSum = userHandovers.reduce((sum, h) => {
-            const isGive = userUserIds.includes(h.toUserId) || h.toUserId === user.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(user.name));
-            return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
-        }, 0);
-
-        let holderSum = userHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-        let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-        if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
-
-        const settlements = userHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const settlements = userHandovers.filter(h => 
+            h.toUserId === 'admin_deduction' || 
+            h.toUserId === 'admin_manual' ||
+            (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+            (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية')))
+        );
         const hasSettlement = settlements.length > 0;
+        let holderSum = userHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
 
-        if (normalizeName(user.name).includes('زهره')) {
-            if (!hasSettlement) {
-                if (custodyAmt <= 0) custodyAmt = 7275;
-            } else {
-                const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-                const activeHandovers = userHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-                const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
-                    const isGive_act = userUserIds.includes(h_act.toUserId) || h_act.toUserId === user.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(user.name));
-                    return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
-                }, 0);
-                custodyAmt = Math.max(0, activeHandoverSum);
-            }
+        let custodyAmt = 0;
+        if (hasSettlement) {
+            const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            const activeHandovers = userHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+            const activeHandoverSum = activeHandovers.reduce((sum, h) => {
+                const isGive = userUserIds.includes(h.toUserId) || h.toUserId === user.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(user.name));
+                return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+            }, 0);
+            custodyAmt = Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+        } else {
+            let handoverSum = userHandovers.reduce((sum, h) => {
+                const isGive = userUserIds.includes(h.toUserId) || h.toUserId === user.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(user.name));
+                return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+            }, 0);
+            custodyAmt = Math.max(holderSum, Math.max(0, handoverSum));
+            if (custodyAmt <= 0 && holderSum > 0) custodyAmt = holderSum;
         }
+        custodyAmt = Math.max(0, custodyAmt);
 
         const name = normalizeName(user.name);
-        if (!grouped[name] && custodyAmt > 0) {
-            grouped[name] = {
-                userId: holderId,
-                userName: user.name,
-                currentBalance: custodyAmt,
-                lastUpdated: new Date().toISOString(),
-                originalIds: [holderId, user.id]
-            };
-        } else if (grouped[name]) {
-            if (custodyAmt > grouped[name].currentBalance) {
-                grouped[name].currentBalance = custodyAmt;
+        if (!grouped[name]) {
+            if (custodyAmt > 0) {
+                grouped[name] = {
+                    userId: holderId,
+                    userName: user.name,
+                    currentBalance: custodyAmt,
+                    lastUpdated: new Date().toISOString(),
+                    originalIds: [holderId, user.id]
+                };
             }
-        } else if (normalizeName(user.name).includes('زهره')) {
-            grouped[name] = {
-                userId: holderId,
-                userName: user.name,
-                currentBalance: hasSettlement ? custodyAmt : 7275,
-                lastUpdated: new Date().toISOString(),
-                originalIds: [holderId, user.id]
-            };
+        } else {
+            grouped[name].currentBalance = custodyAmt;
         }
     });
 
@@ -803,7 +797,11 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         const amount = Number(t.amount) || 0;
         if (t.details?.paidByPartnerId) return sum;
 
-        if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+        if (t.type === 'إيداع') {
+            if (t.status === 'cancelled') return sum;
+            if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+            return sum + amount;
+        }
         if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
         return sum;
     }, 0);

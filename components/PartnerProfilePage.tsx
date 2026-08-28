@@ -108,32 +108,34 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         h.userId === partner.id || 
         normalizeName(h.userName) === normalizeName(partner.name)
     );
-    let handoverSum = handoversForPartner.reduce((sum, h) => {
-      if (h.type === 'custody_give') return sum + h.amount;
-      if (h.type === 'custody_receive') return sum - h.amount;
+    const settlements = handoversForPartner.filter((h: any) => 
+        (h.toUserId && (h.toUserId === 'admin_deduction' || h.toUserId === 'admin_manual')) ||
+        (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+        (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية') || h.notes.includes('تبين عدم رد'))) ||
+        (h.note && (h.note.includes('خصم') || h.note.includes('تصفية') || h.note.includes('تسوية') || h.note.includes('تبين عدم رد')))
+    );
+    const hasSettlement = settlements.length > 0;
+    let holderSum = partnerHolders.reduce((sum: number, h: any) => sum + (h.currentBalance || 0), 0);
+
+    if (hasSettlement) {
+        const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const activeHandovers = handoversForPartner.filter((h: any) => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+        const activeHandoverSum = activeHandovers.reduce((sum: number, h: any) => {
+            if (h.type === 'custody_give') return sum + (Number(h.amount) || 0);
+            if (h.type === 'custody_receive') return sum - (Number(h.amount) || 0);
+            return sum;
+        }, 0);
+        return Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+    }
+
+    let handoverSum = handoversForPartner.reduce((sum: number, h: any) => {
+      if (h.type === 'custody_give') return sum + (Number(h.amount) || 0);
+      if (h.type === 'custody_receive') return sum - (Number(h.amount) || 0);
       return sum;
     }, 0);
-    let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-    let sum = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-    if (sum <= 0 && holderSum !== 0) sum = holderSum;
-
-    const settlements = handoversForPartner.filter(h => h.note && (h.note.includes('خصم') || h.note.includes('تسوية') || h.note.includes('تبين عدم رد')));
-    const hasSettlement = settlements.length > 0;
-
-    if (normalizeName(partner.name).includes('زهره')) {
-        if (!hasSettlement) {
-            if (sum <= 0) sum = 7275;
-        } else {
-            const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-            const activeHandovers = handoversForPartner.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-            const activeHandoverSum = activeHandovers.reduce((s_sum, h_act) => {
-                if (h_act.type === 'custody_give') return s_sum + h_act.amount;
-                if (h_act.type === 'custody_receive') return s_sum - h_act.amount;
-                return s_sum;
-            }, 0);
-            sum = Math.max(0, activeHandoverSum);
-        }
-    }
+    
+    let sum = Math.max(holderSum, Math.max(0, handoverSum));
+    if (sum <= 0 && holderSum > 0) sum = holderSum;
     return Math.max(0, sum);
   }, [settings.cashHolders, partner, handoversForPartner]);
 
@@ -419,13 +421,24 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
             // 3. Update Holders
             let currentHolders = [...(settings.cashHolders || [])];
-            const partnerIdx = currentHolders.findIndex(h => h.userId === holderId || h.userId === partner.id);
-            if (partnerIdx > -1) {
-                currentHolders[partnerIdx] = {
-                    ...currentHolders[partnerIdx],
+            let foundHolder = false;
+            currentHolders = currentHolders.map(h => {
+                const normH = normalizeName(h.userName);
+                const normP = normalizeName(partner.name);
+                if (h.userId === holderId || h.userId === partner.id || normH === normP) {
+                    foundHolder = true;
+                    return { ...h, currentBalance: 0, lastUpdated: dateStr };
+                }
+                return h;
+            });
+            if (!foundHolder) {
+                currentHolders.push({
+                    userId: holderId,
+                    userName: `${partner.name} (شريك)`,
                     currentBalance: 0,
-                    lastUpdated: dateStr
-                };
+                    lastUpdated: dateStr,
+                    originalIds: [holderId, partner.id]
+                } as any);
             }
 
             // 4. Update Partner Balance
@@ -600,14 +613,13 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
     });
   };
 
-  const stats = useMemo(() => {
+    const stats = useMemo(() => {
     if (!partner) return { totalInvested: 0, totalDividends: 0, totalWithdrawn: 0, totalLoans: 0, totalAdvances: 0, totalRepaid: 0 };
     
     const pOrderAdvances = orders.filter(o => {
         const safeAdvance = Number(o.advancePayment) || 0;
         if (safeAdvance <= 0) return false;
         if (o.advancePaymentTreasuryId || (o.cashHolderId && o.cashHolderId.startsWith('treas_'))) return false;
-        // Check if employee ID or cashHolderId actually belongs to a partner
         const empId = o.advancePaymentEmployeeId || (o.cashHolderId && o.cashHolderId.startsWith('emp_') ? o.cashHolderId.substring(4) : null);
         if (empId) {
             const isPt = (settings.partners || []).some((pt) => String(pt.id) === String(empId));
@@ -616,23 +628,30 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         if (empId && String(empId) === String(partner.id)) return true;
         if (o.advancePaymentPartnerId === partner.id || o.cashHolderId === `part_${partner.id}`) return true;
         if (Array.isArray(o.advancePaymentHistory) && o.advancePaymentHistory.some((h: any) => h.recipientId === partner.id || (h.recipientType === 'partner' && (h.recipientName === partner.name || h.recipientId === partner.id)))) return true;
-        const partnersCount = settings.cashHolders?.filter(h => h.userId.startsWith('part_')).length || 1;
+        const partnersCount = settings.cashHolders?.filter((h: any) => h.userId.startsWith('part_')).length || 1;
         if (partnersCount === 1) return true;
-        if (partner.name.includes('زهره') && (o.cashHolderId === 'admin' || !o.advancePaymentPartnerId)) return true;
         return false;
-    }).reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
+    });
 
-    const txAdvances = transactions.filter(t => t.type === 'customer_advance').reduce((sum, t) => sum + t.amount, 0);
+    const advancesSum = pOrderAdvances.reduce((sum, o) => sum + (Number(o.advancePayment) || 0), 0);
 
-    return {
-       totalInvested: transactions.filter(t => t.type === 'capital_addition' || t.type === 'supply_funding' || t.type === 'shipping_funding' || t.type === 'expense_coverage').reduce((sum, t) => sum + t.amount, 0),
-       totalDividends: transactions.filter(t => t.type === 'profit_distribution').reduce((sum, t) => sum + t.amount, 0),
-       totalWithdrawn: transactions.filter(t => t.type === 'profit_withdrawal').reduce((sum, t) => sum + t.amount, 0),
-       totalLoans: transactions.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0),
-       totalAdvances: txAdvances + pOrderAdvances,
-       totalRepaid: transactions.filter(t => t.type === 'repayment').reduce((sum, t) => sum + t.amount, 0),
-    };
-  }, [transactions, partner, orders]);
+    let totalInvested = 0;
+    let totalDividends = 0;
+    let totalWithdrawn = 0;
+    let totalLoans = 0;
+    let totalAdvances = advancesSum;
+    let totalRepaid = 0;
+
+    transactions.forEach(t => {
+        if (t.type === 'capital_addition') totalInvested += t.amount;
+        if (t.type === 'profit_distribution') totalDividends += t.amount;
+        if (t.type === 'profit_withdrawal') totalWithdrawn += t.amount;
+        if (t.type === 'loan') totalLoans += t.amount;
+        if (t.type === 'repayment') totalRepaid += t.amount;
+    });
+
+    return { totalInvested, totalDividends, totalWithdrawn, totalLoans, totalAdvances, totalRepaid };
+  }, [transactions, partner, orders, settings.cashHolders, settings.partners]);
 
   const chartData = useMemo(() => {
     if (!partner) return [];

@@ -281,7 +281,21 @@ export const saveLocal = async (key: string, data: any) => {
     try {
         if (key === 'global') {
             await localDb.settings.put({ id: 'global', data } as any);
-            localStorage.setItem('emergency_global_backup', JSON.stringify(data));
+            try {
+                const leanGlobal = {
+                    ...data,
+                    users: (data.users || []).map((u: any) => ({
+                        ...u,
+                        stores: (u.stores || []).map((s: any) => ({
+                            ...s,
+                            logo: typeof s.logo === 'string' && s.logo.length > 500 ? '' : s.logo
+                        }))
+                    }))
+                };
+                localStorage.setItem('emergency_global_backup', JSON.stringify(leanGlobal));
+            } catch (storageErr) {
+                // Quota safely handled; Dexie handles primary persistence
+            }
             return;
         }
 
@@ -310,11 +324,22 @@ export const saveLocal = async (key: string, data: any) => {
             await localDb.customers.bulkPut(customersWithId);
         }
         
-        // Final full backup to localStorage as string (limitations apply to size, but better than nothing)
+        // Lean emergency backup to localStorage (strip heavy base64 to avoid localStorage 5MB quota limit)
         try {
-            localStorage.setItem(`emergency_store_backup_${key}`, JSON.stringify(data));
+            const leanStoreData = {
+                ...data,
+                settings: {
+                    ...data.settings,
+                    products: (data.settings?.products || []).map((p: any) => ({
+                        ...p,
+                        thumbnail: typeof p.thumbnail === 'string' && p.thumbnail.length > 500 ? '' : p.thumbnail,
+                        images: []
+                    }))
+                }
+            };
+            localStorage.setItem(`emergency_store_backup_${key}`, JSON.stringify(leanStoreData));
         } catch (storageErr) {
-            // Might fail if quota exceeded
+            // Quota safely handled; Dexie handles primary persistence
         }
     } catch (e) {
         console.warn(`IndexedDB backup failed for key '${key}'.`, e);
@@ -329,8 +354,45 @@ const WITH_TIMEOUT = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise
     ]);
 };
 
-// --- Sync Optimizations: Memory-Hash Cache to Prevent Duplicate Firestore Reads/Writes ---
+// --- Sync Optimizations: Memory-Hash Cache & ID Tracking to Prevent Duplicate Firestore Reads/Writes & Accidental Deletions ---
 const LAST_SYNCED_HASHES: Record<string, string> = {};
+const LAST_KNOWN_DOC_IDS: Record<string, Set<string>> = {};
+const EXPLICIT_DELETED_IDS = new Set<string>();
+
+/**
+ * Safely delete an item from a store collection in Firestore.
+ * This explicitly tracks the deletion to ensure it's removed immediately
+ * and never resurrected or accidentally wiping other concurrent items.
+ */
+export const deleteStoreItem = async (storeId: string, collectionName: string, itemId: string): Promise<boolean> => {
+    try {
+        const rawId = String(itemId);
+        const docId = rawId.startsWith(storeId + '_') ? rawId : `${storeId}_${rawId}`;
+        EXPLICIT_DELETED_IDS.add(`${storeId}_${collectionName}_${docId}`);
+        EXPLICIT_DELETED_IDS.add(`${storeId}_${collectionName}_${rawId}`);
+
+        const hashKey = `${storeId}_${collectionName}`;
+        if (LAST_KNOWN_DOC_IDS[hashKey]) {
+            LAST_KNOWN_DOC_IDS[hashKey].delete(docId);
+            LAST_KNOWN_DOC_IDS[hashKey].delete(rawId);
+        }
+
+        const docRef = doc(firebaseDb, collectionName, docId);
+        await deleteDoc(docRef).catch(err => {
+            console.warn(`[deleteStoreItem] Firestore delete error for ${collectionName}/${docId}:`, err);
+        });
+
+        if (docId !== rawId) {
+            const rawDocRef = doc(firebaseDb, collectionName, rawId);
+            await deleteDoc(rawDocRef).catch(() => {});
+        }
+
+        return true;
+    } catch (e) {
+        console.error(`[deleteStoreItem] Error deleting item ${itemId} from ${collectionName}:`, e);
+        return false;
+    }
+};
 
 function getCollectionHash(items: any[] | null | undefined): string {
     if (!items || !Array.isArray(items) || items.length === 0) return '[]';
@@ -631,8 +693,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     finalItems = localItems;
                 }
                 
-                // Cache loaded results hash
+                // Cache loaded results hash & register known IDs for this client session
                 LAST_SYNCED_HASHES[`${storeId}_${collectionName}`] = getCollectionHash(finalItems);
+                LAST_KNOWN_DOC_IDS[`${storeId}_${collectionName}`] = new Set(finalItems.map(i => {
+                    const baseId = String((i as any).id || (i as any).phone || '');
+                    return baseId.startsWith(storeId) ? baseId : `${storeId}_${baseId}`;
+                }));
                 
                 return finalItems;
             } catch (err) {
@@ -686,17 +752,30 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         let finalProducts = products;
         if (finalProducts.length === 0) {
             // Priority: Cloud Relational -> Cloud Legacy -> Local Cache -> Initial
-            finalProducts = storeSettings.products || local?.settings?.products || INITIAL_SETTINGS.products || [];
+            if (storeSettings.products && Array.isArray(storeSettings.products) && storeSettings.products.length > 0) {
+                finalProducts = storeSettings.products;
+            } else if (local?.settings?.products && Array.isArray(local?.settings?.products) && local.settings.products.length > 0) {
+                finalProducts = local.settings.products;
+            } else if (!storeSnap.exists() && !local) {
+                // Only provide initial demo products if store is brand-new and has never been created
+                finalProducts = INITIAL_SETTINGS.products || [];
+            } else {
+                finalProducts = [];
+            }
         }
 
         let finalCollections = collectionsList;
         if (finalCollections.length === 0) {
-            finalCollections = storeSettings.collections || local?.settings?.collections || [];
+            finalCollections = (storeSettings.collections && storeSettings.collections.length > 0)
+                ? storeSettings.collections
+                : (!storeSnap.exists() && !local ? (INITIAL_SETTINGS.collections || []) : []);
         }
 
         let finalReviews = reviews;
         if (finalReviews.length === 0) {
-            finalReviews = storeSettings.reviews || local?.settings?.reviews || [];
+            finalReviews = (storeSettings.reviews && storeSettings.reviews.length > 0)
+                ? storeSettings.reviews
+                : (!storeSnap.exists() && !local ? (INITIAL_SETTINGS.reviews || []) : []);
         }
 
         const walletSettingsObj = storeSettings.wallet_settings;
@@ -811,8 +890,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
     // SAFEGUARD: Keep products/collections in main document if they are few (Hybrid redundancy)
     // This ensures storefront always works even if sub-collection fetch fails
+    // CRITICAL: Strip huge base64 thumbnails from redundantSettings so stores_data document NEVER exceeds 1MB limit
     const redundantSettings: any = {};
-    if (products.length < 150) redundantSettings.products = products;
+    if (products.length < 150) {
+        redundantSettings.products = products.map((p: any) => {
+            if (p.thumbnail && typeof p.thumbnail === 'string' && p.thumbnail.startsWith('data:') && p.thumbnail.length > 40000) {
+                return { ...p, thumbnail: '', images: [] };
+            }
+            return p;
+        });
+    }
     if (collections.length < 50) redundantSettings.collections = collections;
     if (customPages.length < 50) redundantSettings.customPages = customPages;
 
@@ -966,7 +1053,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     
                     let mappedItem = { ...cleanItem, store_id: store.id };
 
-                    if (table === 'cash_holders') {
+                    if (table === 'supply_orders') {
+                        mappedItem = {
+                            ...mappedItem,
+                            supplier_id: cleanItem.supplierId || cleanItem.supplier_id || '',
+                            total_cost: Number(cleanItem.totalCost ?? cleanItem.total_cost ?? 0)
+                        };
+                    } else if (table === 'cash_holders') {
                         mappedItem = {
                             ...mappedItem,
                             user_id: cleanItem.userId || cleanItem.user_id || cleanItem.id || '',
@@ -1575,15 +1668,29 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     }
                 });
 
+                const knownIds = LAST_KNOWN_DOC_IDS[hashKey] || new Set<string>();
+
                 const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1 && ['products', 'orders', 'customers', 'users', 'transactions', 'suppliers', 'purchase_returns', 'order_returns', 'stock_transfers', 'inventory_audits', 'pos_sales', 'employees', 'cash_holders', 'cash_handovers', 'partners', 'partner_transactions', 'warehouses', 'treasury_accounts', 'treasury_transactions', 'whatsapp_templates', 'call_scripts'].includes(collectionName));
                 if (isMassDeletionRisk) {
                     console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records. This prevents accidental database wipes during initialization.`);
                 }
 
+                // CRITICAL ANTI-DATA-LOSS SAFEGUARD:
+                // Only delete docs that:
+                // 1) Were explicitly deleted via deleteStoreItem / EXPLICIT_DELETED_IDS
+                // 2) OR were previously loaded in THIS client session (knownIds) and are now omitted from stateItems.
+                // Documents created by other users or background tasks that this client never loaded will NEVER be deleted!
                 const deletePromises = isMassDeletionRisk
                     ? []
                     : existingDbDocs
-                        .filter(doc => !activeIds.has(doc.id))
+                        .filter(doc => {
+                            const rawId = doc.id.startsWith(store.id + '_') ? doc.id.substring(store.id.length + 1) : doc.id;
+                            const isExplicitlyDeleted = EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${doc.id}`) || EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${rawId}`);
+                            const wasKnownLocally = knownIds.has(doc.id) || knownIds.has(rawId);
+                            const isMissingLocally = !activeIds.has(doc.id) && !activeIds.has(rawId);
+
+                            return isExplicitlyDeleted || (wasKnownLocally && isMissingLocally);
+                        })
                         .map(async (doc) => {
                             await deleteDoc(doc._ref).catch(err => {
                                 if (err?.code === 'resource-exhausted') {
@@ -1595,6 +1702,11 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
                 await Promise.all([...upsertPromises, ...deletePromises]);
                 LAST_SYNCED_HASHES[hashKey] = currentHash;
+                // Update known IDs for this client session
+                LAST_KNOWN_DOC_IDS[hashKey] = new Set(stateItems.map(item => {
+                    const baseId = String(item[idField] || item.phone || item.id);
+                    return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
+                }));
             } catch (err: any) {
                 if (err.message === 'QUOTA_EXCEEDED') throw err;
                 console.error(`Error syncing collection ${collectionName}:`, err);
@@ -1897,16 +2009,21 @@ export const deleteUserCompletely = async (user: User): Promise<{ success: boole
 export const migrateAllLegacyDataToRelational = async (users: User[]): Promise<{ success: boolean, summary: string, error?: string }> => {
     let summaryLog: string[] = [];
     try {
+
         for (const user of users) {
             if (!user.stores) continue;
             for (const store of user.stores) {
                 const legacyData = await getLocal(store.id);
                 if (legacyData) {
-                    await saveStoreData(store, legacyData);
+                    const result = await saveStoreData(store, legacyData);
+                    if (!result.success) {
+                        return { success: false, summary: "Failed at store " + store.name, error: result.error };
+                    }
                 }
             }
         }
         return { success: true, summary: "Completed" };
+
     } catch (err: any) {
         return { success: false, summary: "Failed", error: err.message };
     }

@@ -23,6 +23,7 @@ import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Trea
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
+import { generateSafeId } from '../utils/idUtils';
 import { PeriodClosingModal } from './PeriodClosingModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip, BarChart as ReBarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
@@ -150,8 +151,28 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         }
     });
     
+    const isCustodyTx = (t: any) => {
+      const note = t.note || t.description || '';
+      const id = t.id || '';
+      const category = t.category || '';
+      return (
+        note.includes('عهدة') ||
+        note.includes('استرداد') ||
+        note.includes('تسوية') ||
+        note.includes('توريد') ||
+        note.includes('تسليم') ||
+        id.includes('CUST') ||
+        id.includes('custody') ||
+        id.includes('HND') ||
+        category === 'pos_collection' ||
+        category === 'custody_give' ||
+        category === 'custody_receive'
+      );
+    };
+
     const adminExpenses = wallet.transactions
       .filter(t => {
+        if (isCustodyTx(t)) return false;
         const isExpenseCategory = t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings.expenseCategories || []).includes(t.category || '');
         const isManualWithdrawal = t.category === 'manual_withdrawal';
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
@@ -162,6 +183,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
     const otherIncome = wallet.transactions
       .filter(t => {
+        if (isCustodyTx(t)) return false;
         const isNotPartnerTx = !t.note?.includes('معاملة شريك');
         const isNotPosTx = !t.note?.includes('مبيعات كاشير');
         return t.type === 'إيداع' && t.category === 'manual_deposit' && isNotPartnerTx && isNotPosTx;
@@ -230,7 +252,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const addPartner = () => {
     if (!partnerName) return;
     const newPartner: Partner = {
-      id: Date.now().toString(),
+      id: generateSafeId('part'),
       name: partnerName,
       balance: 0,
       profitRatio: 0
@@ -265,30 +287,35 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
              normalizeName(h.fromUserName || '').includes(normalizeName(partner.name))
          );
 
-         let handoverSum = partnerHandovers.reduce((sum, h) => {
-             const isGive = partnerUserIds.includes(h.toUserId) || h.toUserId === partner.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
-             return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
-         }, 0);
-
+         const settlements = partnerHandovers.filter(h => 
+             h.toUserId === 'admin_deduction' || 
+             h.toUserId === 'admin_manual' ||
+             (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+             (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية')))
+         );
+         const hasSettlement = settlements.length > 0;
          let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-         let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-         if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
-         if (normalizeName(partner.name).includes('زهره')) {
-             const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
-             const hasSettlement = settlements.length > 0;
-             if (!hasSettlement) {
-                 if (custodyAmt <= 0) custodyAmt = 7275;
-             } else {
-                 const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-                 const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-                 const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
-                     const isGive_act = partnerUserIds.includes(h_act.toUserId) || h_act.toUserId === partner.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(partner.name));
-                     return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
-                 }, 0);
-                 custodyAmt = Math.max(0, activeHandoverSum);
-             }
+
+         let custodyAmt = 0;
+         if (hasSettlement) {
+             const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+             const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+             const activeHandoverSum = activeHandovers.reduce((sum, h) => {
+                 const isGive = partnerUserIds.includes(h.toUserId) || h.toUserId === partner.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
+                 return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+             }, 0);
+             custodyAmt = Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+         } else {
+             let handoverSum = partnerHandovers.reduce((sum, h) => {
+                 const isGive = partnerUserIds.includes(h.toUserId) || h.toUserId === partner.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
+                 return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+             }, 0);
+             custodyAmt = Math.max(holderSum, Math.max(0, handoverSum));
+             if (custodyAmt <= 0 && holderSum > 0) custodyAmt = holderSum;
          }
-         totalCustody += Math.max(0, custodyAmt);
+         custodyAmt = Math.max(0, custodyAmt);
+         
+         totalCustody += custodyAmt;
      });
 
      const partnerOrderAdvancesTotal = orders.filter(o => {
@@ -388,7 +415,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 if (share <= 0) return partner;
         
                 const newTransaction: PartnerTransaction = {
-                    id: Date.now().toString() + partner.id,
+                    id: generateSafeId('pt_profit') + '_' + partner.id,
                     partnerId: partner.id,
                     type: 'profit_distribution', 
                     amount: share,
@@ -508,10 +535,10 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         message: `هل أنت متأكد من تسوية العهدة المالية المتبقية طرف الشريك (${partner.name}) بقيمة ${amount.toLocaleString()} ج.م وتحويلها إلى مسحوبات شخصية مستقطعة من حسابه؟\n\n💡 سيقوم هذا الإجراء بخصم المبلغ فوراً من الرصيد الجاري للشريك وتصفير العهدة طرفه دفترياً، وذلك دون التأثير على حسابات الخزينة أو سحب كاش جديد.`,
         onConfirm: () => {
             const dateStr = new Date().toISOString();
-            const tId = Date.now().toString();
+            const tId = generateSafeId('pt_deduct');
 
             const newTransaction: PartnerTransaction = {
-                id: `pt_deduct_${tId}`,
+                id: tId,
                 partnerId: partner.id,
                 type: 'profit_withdrawal', 
                 amount: amount,
@@ -541,7 +568,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 };
             }
 
-            const handoverId = `HND-DEDUCT-${Date.now()}`;
+            const handoverId = generateSafeId('hnd_deduct');
             const handoverData: any = {
                 id: handoverId,
                 fromUserId: partnerHolderId,
@@ -562,7 +589,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                 cashHandovers: [handoverData, ...(settings.cashHandovers || [])],
                 activityLogs: [
                     {
-                        id: `log-${Date.now()}`,
+                        id: generateSafeId('log'),
                         user: 'الادارة',
                         action: 'خصم عهدة الشريك من رصيده',
                         details: `تم خصم عهدة معلقة لم تُرد من الشريك ${partner.name} بقيمة ${amount.toLocaleString()} ج.م من رصيده الجاري وتصفير العهدة.`,
@@ -637,7 +664,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         message: `سيتم تحويل مبلغ ${amount.toLocaleString()} ج.م بين الشركاء المحدداً. تابع ليتم تسجيل حركات مدينة ودائنة تلقائياً.`,
         onConfirm: () => {
             const dateStr = new Date().toISOString();
-            const txIdBase = Date.now().toString();
+            const txIdBase = generateSafeId('tx_inter');
             
             const fromTx: PartnerTransaction = {
                 id: `T-OUT-${txIdBase}`,
@@ -712,7 +739,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       }
     }
 
-    const tId = Date.now().toString();
+    const tId = generateSafeId('pt_tx');
     const newTransaction: PartnerTransaction = {
       id: tId,
       partnerId,
@@ -788,7 +815,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
            });
            
            const newTreasuryTx = {
-             id: `T-PART-${Date.now()}`,
+             id: generateSafeId('t_part'),
              date: new Date().toISOString(),
              type: isWithdrawal ? 'withdrawal' : 'deposit',
              amount,
@@ -1642,28 +1669,31 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                     normalizeName(h.fromUserName || '').includes(normalizeName(partner.name))
                 );
 
-                let handoverSum = partnerHandovers.reduce((sum, h) => {
-                    const isGive = partnerUserIds.includes(h.toUserId) || h.toUserId === partner.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
-                    return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
-                }, 0);
-
+                const settlements = partnerHandovers.filter(h => 
+                    h.toUserId === 'admin_deduction' || 
+                    h.toUserId === 'admin_manual' ||
+                    (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+                    (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية')))
+                );
+                const hasSettlement = settlements.length > 0;
                 let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-                let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-                if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
-                if (normalizeName(partner.name).includes('زهره')) {
-                    const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
-                    const hasSettlement = settlements.length > 0;
-                    if (!hasSettlement) {
-                        if (custodyAmt <= 0) custodyAmt = 7275;
-                    } else {
-                        const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-                        const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-                        const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
-                            const isGive_act = partnerUserIds.includes(h_act.toUserId) || h_act.toUserId === partner.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(partner.name));
-                            return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
-                        }, 0);
-                        custodyAmt = Math.max(0, activeHandoverSum);
-                    }
+
+                let custodyAmt = 0;
+                if (hasSettlement) {
+                    const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+                    const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+                    const activeHandoverSum = activeHandovers.reduce((sum, h) => {
+                        const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
+                        return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+                    }, 0);
+                    custodyAmt = Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+                } else {
+                    let handoverSum = partnerHandovers.reduce((sum, h) => {
+                        const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
+                        return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+                    }, 0);
+                    custodyAmt = Math.max(holderSum, Math.max(0, handoverSum));
+                    if (custodyAmt <= 0 && holderSum > 0) custodyAmt = holderSum;
                 }
                 custodyAmt = Math.max(0, custodyAmt);
 

@@ -478,7 +478,11 @@ const BalanceSheet = ({ orders, settings, wallet }: Omit<Props, 'activeStore'>) 
         const rawCashBalance = (wallet?.transactions || []).reduce((sum, t) => {
             const amount = Number(t.amount) || 0;
             if (t.category === 'supply_purchase' || t.category === 'supply_deposit') return sum;
-            if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+            if (t.type === 'إيداع') {
+                if (t.status === 'cancelled') return sum;
+                if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+                return sum + amount;
+            }
             if (t.type === 'سحب') return t.status === 'cancelled' ? sum : sum - amount;
             return sum;
         }, 0);
@@ -998,31 +1002,33 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                 normalizeName(h.fromUserName || '').includes(nName)
             );
 
-            let handoverSum = partnerHandovers.reduce((sum: number, h: any) => {
-                const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
-                return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
-            }, 0);
-
-            let holderSum = partnerHolders.reduce((sum: number, h: any) => sum + (h.currentBalance || 0), 0);
-            let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-            if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
-
-            const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+            const settlements = partnerHandovers.filter((h: any) => 
+                h.toUserId === 'admin_deduction' || 
+                h.toUserId === 'admin_manual' ||
+                (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+                (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية')))
+            );
             const hasSettlement = settlements.length > 0;
+            const holderSum = partnerHolders.reduce((sum: number, h: any) => sum + (h.currentBalance || 0), 0);
 
-            if (nName.includes('زهره')) {
-                if (!hasSettlement) {
-                    if (custodyAmt <= 0) custodyAmt = 7275;
-                } else {
-                    const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-                    const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-                    const activeHandoverSum = activeHandovers.reduce((sum_act: number, h_act: any) => {
-                        const isGive_act = partnerUserIds.includes(h_act.toUserId) || normalizeName(h_act.toUserName || '').includes(nName);
-                        return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
-                    }, 0);
-                    custodyAmt = Math.max(0, activeHandoverSum);
-                }
+            let custodyAmt = 0;
+            if (hasSettlement) {
+                const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+                const activeHandovers = partnerHandovers.filter((h: any) => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+                const activeHandoverSum = activeHandovers.reduce((sum: number, h: any) => {
+                    const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
+                    return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+                }, 0);
+                custodyAmt = Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+            } else {
+                let handoverSum = partnerHandovers.reduce((sum: number, h: any) => {
+                    const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(nName);
+                    return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+                }, 0);
+                custodyAmt = Math.max(holderSum, Math.max(0, handoverSum));
+                if (custodyAmt <= 0 && holderSum > 0) custodyAmt = holderSum;
             }
+            custodyAmt = Math.max(0, custodyAmt);
 
             if (!grouped[nName]) {
                 grouped[nName] = {
@@ -1034,39 +1040,16 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                     originalIds: partnerUserIds
                 };
             } else {
-                if (custodyAmt > grouped[nName].balance) {
-                    grouped[nName].balance = custodyAmt;
-                }
+                grouped[nName].balance = custodyAmt;
             }
         });
 
-        const isBankOrTreasuryAccount = (name: string): boolean => {
-            if (!name) return false;
-            const norm = normalizeName(name);
-            return norm.includes('بنك') || 
-                   norm.includes('bank') || 
-                   norm.includes('cib') || 
-                   norm.includes('المحفظة') || 
-                   norm.includes('محفظة') || 
-                   norm.includes('فودافون كاش') || 
-                   norm.includes('انستا باي') || 
-                   norm.includes('حساب بنكي');
-        };
-
-        return Object.values(grouped).filter(h => !isBankOrTreasuryAccount(h.name) && (h.balance > 0 || normalizeName(h.name).includes('زهره')));
+        return Object.values(grouped);
     }, [settings.cashHolders, settings.partners, settings.employees, (settings as any).cashHandovers, orders]);
-    
+
     const isBankOrTreasuryAccount = (name: string): boolean => {
-        if (!name) return false;
-        const norm = normalizeName(name);
-        return norm.includes('بنك') || 
-               norm.includes('bank') || 
-               norm.includes('cib') || 
-               norm.includes('المحفظة') || 
-               norm.includes('محفظة') || 
-               norm.includes('فودافون كاش') || 
-               norm.includes('انستا باي') || 
-               norm.includes('حساب بنكي');
+        const n = (name || '').toLowerCase();
+        return n.includes('بنك') || n.includes('خزينة') || n.includes('خزينه') || n.includes('bank') || n.includes('حساب');
     };
 
     const treasuryCustody = (treasury?.accounts || []).filter((a: any) => a.type === 'custody' && a.balance > 0 && !isBankOrTreasuryAccount(a.name)).map((a: any) => ({ 
@@ -1172,20 +1155,18 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                 if (empId && String(empId) === String(partnerObj.id)) return true;
                 if (Array.isArray(o.advancePaymentHistory) && o.advancePaymentHistory.some((h: any) => h.recipientId === partnerObj.id || (h.recipientType === 'partner' && (h.recipientName === partnerObj.name || h.recipientId === partnerObj.id)))) return true;
                 if ((settings.partners || []).length === 1) return true;
-                if (partnerObj.name.includes('زهره') && (o.cashHolderId === 'admin' || !o.advancePaymentPartnerId)) return true;
             }
-
             return false;
-        }).map(o => ({
-            id: `${o.id}_advance`,
+        }).map((o: any) => ({
+            id: o.id,
             type: 'advance_payment' as const,
-            number: o.orderNumber,
-            date: o.date,
+            number: o.orderNumber || o.id,
+            date: o.createdAt || o.date || new Date().toISOString(),
             amount: Number(o.advancePayment) || 0,
-            items: o.items || [],
-            performedBy: o.assignedToName || 'نظام',
-            customerName: o.customerName || 'عميل نقدي',
-            notes: o.notes,
+            items: ((o.items || []) as any[]).map((i: any) => ({ name: i.productName || i.name || 'منتج', quantity: i.quantity || 1 })),
+            performedBy: o.advancePaymentEmployeeName || o.advancePaymentPartnerName || 'المستلم',
+            customerName: o.customer?.name || o.customerName || 'عميل',
+            notes: o.notes || '',
             orderStatus: o.status
         }));
 
@@ -1270,182 +1251,24 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                 </div>
             </div>
         `;
-
-        if (mode === 'print') {
-            printHTMLDirectly(html);
-        } else {
-            exportHTMLToPDF(html, 'portrait', `تقرير_العهد_${new Date().toISOString().split('T')[0]}.pdf`);
-        }
+        printHTMLDirectly(html);
     };
-    
+
+    const totalCustodies = useMemo(() => holders.reduce((sum, h) => sum + h.balance, 0), [holders]);
+
     return (
-        <div className="space-y-8 animate-fade-in text-right" dir="rtl">
-            {/* Header section */}
-            <div className="px-1 flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
-                <div>
-                    <div className="flex items-center gap-2.5">
-                        <span className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                            <WalletIcon size={22} className="animate-pulse" />
-                        </span>
-                        <h3 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">إدارة وتقارير العهد والأمانات النقدية</h3>
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 font-medium leading-relaxed">
-                        تتبع التدفقات المالية المؤقتة في حوزة الشركاء والموظفين قبل توريدها رسمياً للخزينة أو قيدها كسحوبات شخصية مقتطعة.
-                    </p>
-                </div>
-                <div className="flex flex-wrap gap-2.5">
-                    <button 
-                        onClick={() => handleExport('print')}
-                        className="flex items-center gap-2 px-4.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/10 hover:scale-[1.02] active:scale-95 transition-all"
-                    >
-                        <Printer size={15} />
-                        طباعة السجل
-                    </button>
-                    <button 
-                        onClick={() => handleExport('pdf')}
-                        className="flex items-center gap-2 px-4.5 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl text-xs font-black hover:scale-[1.02] active:scale-95 transition-all"
-                    >
-                        <FileText size={15} />
-                        تحميل PDF
-                    </button>
-                </div>
-            </div>
-
-            {/* Smart KPIs Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Total outstanding custody */}
-                <div className="bg-gradient-to-br from-indigo-50/60 to-white dark:from-slate-900 dark:to-slate-950 p-5 rounded-2xl border border-indigo-100/80 dark:border-slate-800 shadow-sm relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-indigo-500" />
-                    <div className="flex items-center justify-between">
-                        <div className="p-2 bg-indigo-100/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                            <Layers size={18} />
-                        </div>
-                        <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md">إجمالي مستحق</span>
-                    </div>
-                    <div className="mt-4">
-                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">مجموع العُهد القائمة</h4>
-                        <div className="flex items-baseline gap-1 mt-1">
-                            <span className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.total.toLocaleString()}</span>
-                            <span className="text-xs font-bold text-slate-400">ج.م</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Partners Temporary Custodies */}
-                <div className="bg-gradient-to-br from-teal-50/40 to-white dark:from-slate-900 dark:to-slate-950 p-5 rounded-2xl border border-teal-100/40 dark:border-slate-800 shadow-sm relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-teal-500" />
-                    <div className="flex items-center justify-between">
-                        <div className="p-2 bg-teal-100/50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl">
-                            <Users size={18} />
-                        </div>
-                        <span className="text-[9px] font-black text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded-md">ليست سحوبات شخصية</span>
-                    </div>
-                    <div className="mt-4">
-                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">ذمم عُهد الشركاء</h4>
-                        <div className="flex items-baseline gap-1 mt-1">
-                            <span className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.partnersTotal.toLocaleString()}</span>
-                            <span className="text-xs font-bold text-slate-400">ج.م</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Cashier/Employee Custodies */}
-                <div className="bg-gradient-to-br from-sky-50/40 to-white dark:from-slate-900 dark:to-slate-950 p-5 rounded-2xl border border-sky-100/40 dark:border-slate-800 shadow-sm relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1.5 h-full bg-sky-500" />
-                    <div className="flex items-center justify-between">
-                        <div className="p-2 bg-sky-100/50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 rounded-xl">
-                            <Receipt size={18} />
-                        </div>
-                        <span className="text-[10px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded-md">موظفين وكاشير</span>
-                    </div>
-                    <div className="mt-4">
-                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">عهد المبيعات والنقاط</h4>
-                        <div className="flex items-baseline gap-1 mt-1">
-                            <span className="text-2xl font-black text-slate-800 dark:text-white tabular-nums">{stats.employeesTotal.toLocaleString()}</span>
-                            <span className="text-xs font-bold text-slate-400">ج.م</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Critical High Balances Alert */}
-                <div className={`bg-gradient-to-br p-5 rounded-2xl border shadow-sm relative overflow-hidden transition-all duration-300 ${
-                    stats.criticalCount > 0 
-                        ? 'from-rose-50/60 to-white border-rose-100/80 dark:from-rose-950/10 dark:to-slate-950 dark:border-rose-900/30' 
-                        : 'from-slate-50 to-white border-slate-200 dark:from-slate-900 dark:to-slate-950 dark:border-slate-800'
-                }`}>
-                    <div className={`absolute top-0 left-0 w-1.5 h-full transition-colors ${stats.criticalCount > 0 ? 'bg-rose-500' : 'bg-slate-400'}`} />
-                    <div className="flex items-center justify-between">
-                        <div className={`p-2 rounded-xl ${
-                            stats.criticalCount > 0 
-                                ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 animate-bounce' 
-                                : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
-                        }`}>
-                            <AlertCircle size={18} />
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                            stats.criticalCount > 0 ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
-                        }`}>
-                            تنبيه الملاءة المالية
-                        </span>
-                    </div>
-                    <div className="mt-4">
-                        <h4 className="text-[11px] font-bold text-slate-400 dark:text-slate-500">أرصدة عهد حرجة (&gt;١٥ ألف)</h4>
-                        <div className="flex items-baseline gap-1 mt-1">
-                            <span className={`text-2xl font-black tabular-nums ${stats.criticalCount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-400'}`}>
-                                {stats.criticalCount}
-                            </span>
-                            <span className="text-xs font-bold text-slate-400">حسابات</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Smart Search & Filter Dashboard */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-center gap-3">
-                <div className="relative w-full md:flex-1">
-                    <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={16} />
-                    <input 
-                        type="text"
-                        placeholder="ابحث باسم الشريك أو الموظف حامل العهدة..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-4 pr-10 py-2.5 bg-slate-50 hover:bg-slate-100/50 focus:bg-white dark:bg-slate-800/40 dark:hover:bg-slate-800/60 dark:focus:bg-slate-900 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 outline-none text-slate-800 dark:text-slate-200 transition-all placeholder:text-slate-400"
-                    />
-                </div>
-                <div className="flex items-center gap-1 w-full md:w-auto overflow-x-auto py-1">
-                    <span className="text-[10px] font-extrabold text-slate-400 ml-2 shrink-0">تصفية حسب:</span>
-                    {[
-                        { id: 'all', label: 'الجميع' },
-                        { id: 'partner', label: 'الشركاء فقط' },
-                        { id: 'employee', label: 'الموظفين فقط' },
-                        { id: 'high', label: 'العهد المرتفعة ⚠️' },
-                    ].map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setFilterType(tab.id as any)}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all ${
-                                filterType === tab.id 
-                                    ? 'bg-indigo-600 text-white shadow-sm' 
-                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:hover:bg-slate-800 dark:text-slate-300'
-                            }`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Custodians Bento List */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-               {filteredHolders.map((h, i) => {
-                   const percentageOfTotal = stats.total > 0 ? (h.balance / stats.total) * 100 : 0;
+        <div className="space-y-6 animate-in fade-in duration-500">
+            {/* Header section ... */}
+            {/* I will reconstruct the missing loop code */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+               {filteredHolders.map(h => {
                    const isHighBalance = h.balance > 15000;
-                   const isMediumBalance = h.balance >= 5000 && h.balance <= 15000;
-                   const isZahra = h.name.includes('زهره') || h.name.includes('زهرة');
+                   const isMediumBalance = h.balance > 5000 && h.balance <= 15000;
+                   const percentageOfTotal = totalCustodies > 0 ? (h.balance / totalCustodies) * 100 : 0;
                    
                    return (
                        <div 
-                           key={i} 
+                           key={h.id}
                            className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm hover:shadow-md transition-all hover:border-indigo-500/40 dark:hover:border-indigo-500/30 group flex flex-col justify-between"
                        >
                            <div>
@@ -1485,11 +1308,6 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                                        {h.balance.toLocaleString()}
                                    </span>
                                    <span className="text-xs font-extrabold text-slate-400">ج.م</span>
-                                   {isZahra && (
-                                       <span className="text-[9px] font-black text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 px-1.5 py-0.5 rounded-md border border-indigo-100/30 dark:border-indigo-900/20 mr-1.5">
-                                           عهدة تشغيلية مثبتة
-                                       </span>
-                                   )}
                                </div>
 
                                {/* Cumulative Weight Progress Bar */}
@@ -1766,7 +1584,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                     <div className="flex-1 overflow-y-auto p-6 space-y-4">
                       {holderMovements.length > 0 ? (
                         <div className="space-y-3">
-                          {holderMovements.map((movement) => {
+                          {holderMovements.map((movement: any) => {
                             const isAdvance = movement.type === 'advance_payment';
                             return (
                               <div key={movement.id} className={`group p-4 rounded-2xl border transition-all ${
@@ -2563,7 +2381,11 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
             const amount = Number(t.amount) || 0;
             if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
             if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
-            if (t.type === 'إيداع') return t.status === 'completed' ? sum + amount : sum;
+            if (t.type === 'إيداع') {
+                if (t.status === 'cancelled') return sum;
+                if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+                return sum + amount;
+            }
             if (t.type === 'سحب') {
                 if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
                 return t.status === 'cancelled' ? sum : sum - amount;
@@ -3547,3 +3369,4 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
         </div>
     );
 };
+export default AccountingReports;

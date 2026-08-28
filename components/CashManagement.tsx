@@ -137,54 +137,48 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
             normalizeName(h.fromUserName || '').includes(normalizeName(partner.name))
         );
 
-        let handoverSum = partnerHandovers.reduce((sum, h) => {
-            const isGive = partnerUserIds.includes(h.toUserId) || h.toUserId === partner.id || h.toUserId === holderId || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
-            return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
-        }, 0);
-
-        let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
-        let custodyAmt = Math.max(holderSum, Math.abs(handoverSum), handoverSum);
-        if (custodyAmt <= 0 && holderSum !== 0) custodyAmt = holderSum;
-
-        const settlements = partnerHandovers.filter(h => h.toUserId === 'admin_deduction' || (h.toUserName && h.toUserName.includes('خصم')));
+        const settlements = partnerHandovers.filter(h => 
+            h.toUserId === 'admin_deduction' || 
+            h.toUserId === 'admin_manual' ||
+            (h.toUserName && (h.toUserName.includes('خصم') || h.toUserName.includes('تصفية') || h.toUserName.includes('تسوية'))) ||
+            (h.notes && (h.notes.includes('خصم') || h.notes.includes('تصفية') || h.notes.includes('تسوية')))
+        );
         const hasSettlement = settlements.length > 0;
+        let holderSum = partnerHolders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
 
-        if (normalizeName(partner.name).includes('زهره')) {
-            if (!hasSettlement) {
-                if (custodyAmt <= 0) custodyAmt = 7275;
-            } else {
-                const lastSettlementDate = settlements.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date;
-                const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlementDate).getTime());
-                const activeHandoverSum = activeHandovers.reduce((sum_act, h_act) => {
-                    const isGive_act = partnerUserIds.includes(h_act.toUserId) || h_act.toUserId === partner.id || h_act.toUserId === holderId || normalizeName(h_act.toUserName || '').includes(normalizeName(partner.name));
-                    return isGive_act ? sum_act + (Number(h_act.amount) || 0) : sum_act - (Number(h_act.amount) || 0);
-                }, 0);
-                custodyAmt = Math.max(0, activeHandoverSum);
-            }
+        let custodyAmt = 0;
+        if (hasSettlement) {
+            const lastSettlement = settlements.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+            const activeHandovers = partnerHandovers.filter(h => new Date(h.date).getTime() > new Date(lastSettlement.date).getTime());
+            const activeHandoverSum = activeHandovers.reduce((sum, h) => {
+                const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
+                return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+            }, 0);
+            custodyAmt = Math.max(0, holderSum) + Math.max(0, activeHandoverSum);
+        } else {
+            let handoverSum = partnerHandovers.reduce((sum, h) => {
+                const isGive = partnerUserIds.includes(h.toUserId) || normalizeName(h.toUserName || '').includes(normalizeName(partner.name));
+                return isGive ? sum + (Number(h.amount) || 0) : sum - (Number(h.amount) || 0);
+            }, 0);
+            custodyAmt = Math.max(holderSum, Math.max(0, handoverSum));
+            if (custodyAmt <= 0 && holderSum > 0) custodyAmt = holderSum;
         }
+        custodyAmt = Math.max(0, custodyAmt);
 
         const name = normalizeName(partner.name);
-        if (!grouped[name] && custodyAmt > 0) {
-            grouped[name] = {
-                userId: holderId,
-                userName: partner.name,
-                currentBalance: custodyAmt,
-                lastUpdated: new Date().toISOString(),
-                originalIds: [holderId, partner.id]
-            };
-        } else if (grouped[name]) {
-            if (custodyAmt > grouped[name].currentBalance) {
-                grouped[name].currentBalance = custodyAmt;
+        if (!grouped[name]) {
+            if (custodyAmt > 0) {
+                grouped[name] = {
+                    userId: holderId,
+                    userName: partner.name,
+                    currentBalance: custodyAmt,
+                    lastUpdated: new Date().toISOString(),
+                    originalIds: [holderId, partner.id]
+                };
             }
-        } else if (normalizeName(partner.name).includes('زهره')) {
-            grouped[name] = {
-                userId: holderId,
-                userName: partner.name,
-                currentBalance: hasSettlement ? custodyAmt : 7275,
-                lastUpdated: new Date().toISOString(),
-                originalIds: [holderId, partner.id]
-            };
-        }
+        } else {
+            grouped[name].currentBalance = custodyAmt;
+        } 
     });
     
     return Object.values(grouped);

@@ -798,9 +798,11 @@ export const calculateWalletLiveBalance = (wallet?: Wallet, treasury?: Treasury)
         // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
 
-        // Deposits: only include when completed
+        // Deposits: include completed, approved, or implicit deposits (exclude pending charge requests and cancelled)
         if (t.type === 'إيداع') {
-             return t.status === 'completed' ? sum + amount : sum;
+             if (t.status === 'cancelled') return sum;
+             if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
+             return sum + amount;
         }
         
         // Withdrawals: include both completed AND pending (reserve them)
