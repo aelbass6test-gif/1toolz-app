@@ -1,4 +1,4 @@
-ï»¿ï»¿ï»¿ï»¿ï»¿import React, { useState, useMemo, useEffect, useRef } from "react";
+ï»¿ï»¿import React, { useState, useMemo, useEffect, useRef } from "react";
 import { parseSafeDate } from "../utils/dateUtils";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
@@ -10917,9 +10917,87 @@ const OrderModal: React.FC<OrderModalProps> = ({
                         type="text"
                         placeholder="Ù‡Ø§ØªÙ Ø§Ù„Ù…Ø³ØªÙ„Ù…..."
                         value={orderData.advancePaymentRecipientPhone || ""}
-                 xœ¼WÍnÛF¾û)DXAHÑ–ÿDr´I{0Ú >²Wë%—Ø]ÊR
-¸AĞ·èÁˆ“ÖM“'¡Ş¦³¤(“’–v.%`˜»³Î|3óÍ,@úğğ›	û´=Ù¤5h®<FŸú”y™dÓ"Ş„]úŒŒªŸh×||y6à!µ u}ªœ!a1­M7Àğt‘òĞ¶uf÷bÆ ²·¡Ã…G‡õ,Ã¯ë‡AË£X¿©Æ~NÑ‘2iˆéÒghFÛJ.g¿'of¯’7É;À—óÙoÉÕìõìÜq³ŠÔõö$uå[¢ˆSÆì˜†Z@ñ™„—/Á²Ì0-‡ÄxÖ«â0€Ua•õ ò§å W­eÿkb´ê?\'jÕ®|:kå˜½+{“ú}xœsäà{_*.ÆpÄûp¿¾êÙÄ—O<_ùaîİSZäZn?â0öÕ ÁÕ§×…¹…‘”½ƒ86¡Ó·%#ŠÚ[®[oºàqz°ØÜÃÍ†›£l7F,>û7?¶]ümQ°›
-,CÍ¢Iºíç[n4:•İÁÊ;…t;ÓÖt]ˆ£ˆŠ.‘”@1bhŸù•
-‚ºÔct¾¢´»Ú'˜.´9ÌÒÿ‹jkgºbSöñ×µÌDÉuò×ì’wÉUòIâÏE$Ÿ’È¯g¯¹8hğYŠ™Œ‰ì±İ€€ŒìZ|HEñ3Ü%±âr[vg¬C„Ñg#åé$™ß¥›5GPT/õ[@¢ÍMÆûi0ÓHjñ)·'xÖñ½U,…ß(L¼†N¼³Fj)ãö³TÊ3Îœpk²³ä€xˆ‡Ì!_mš6?ÇRù½±İ¡êŒÒ°œF˜][•*Q)(,h¼0¤t4B‹Æ¶ë4²>|5©T A%]ÍOĞn·Áê
-Šn{|H*ó°L²¢É×uæÀ*÷(£å‚KºĞœ.æjµ°ƒ¬¿¦-¬üàôÅ´MÌÓ*“‹ä¬®_“·Úˆ*ã±E_'W©©XŸtuÎÎ+:¬~ZuË/÷œÀöu°Ë¼1=Î H'fDØaÈ[Ò	é`R]zò¤9D5Gñ#Ş%Œ+ˆ3˜°Ÿ|gUWwóÉØ¢G²èİÛ»y…ö®©äÆêóóÁ<øV‡Zv·6;“‹|ÚÔ¥“Sò¹÷ƒÖƒ4œ¼¯s«U:{÷øvÇ²ÆzEè>€á:ù˜¼ûK*´şjK«CW¸š!/*† Óôsë¹•­¥ùr±ÖÓÓSÎ5Á>NËW–¦ešFâÜÓÄY[VFİ@öÜ¼]¨;öbÏéØÏ·¦ ÁÉšqb©I”âİêÄJñ°„HvÅÈeFÄIûì)Şğ	µoÙë‡ÚëÆ×7~&µ;”ßÂÇml¬ËuÀ@Ï7:¹’¥}­§¯Pú:dv—3.dÑ¹rR$º¤1íÿ(%F†Éİğ“q'ğ—.ikò"EÈ=¿Ïuºñg¾·›ƒ”M«`&Î %°3Ïßn4ë¡Ø0jÎ?*5aaïwÜíĞ­iHó=×Ùß;)H3£×:&CšO§{Óå4e©ÃÂB÷Æ+ì‹ÿfÃç¢ãéy4k‚xı[‡#;ñÿ.­é*Ç¬†¨TÍ‹»R‹ Û\Èk6¦66è(âBG{$f
-~Ô5'pÊ|´ñ   ÿÿ '=“¿
+                        onChange={(e) =>
+                          handleFieldChange(
+                            "advancePaymentRecipientPhone",
+                            e.target.value
+                          )
+                        }
+                        className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­ÙˆÙ„..."
+                        value={orderData.advancePaymentSenderDetails || ""}
+                        onChange={(e) =>
+                          handleFieldChange(
+                            "advancePaymentSenderDetails",
+                            e.target.value
+                          )
+                        }
+                        className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-black outline-none"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Advance Payment History Log */}
+                {isEditing && orderData.advancePaymentHistory && orderData.advancePaymentHistory.length > 0 && (
+                  <div className="mt-4 p-5 bg-slate-100/50 dark:bg-slate-800/30 rounded-3xl border border-slate-200/50 dark:border-slate-700/50">
+                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                       <History size={14} className="text-slate-400" />
+                       Ø³Ø¬Ù„ ØªØ­Ø¯ÙŠØ«Ø§Øª Ø§Ù„Ø¹Ø±Ø¨ÙˆÙ†
+                    </h5>
+                    <div className="space-y-3 max-h-40 overflow-y-auto no-scrollbar">
+                      {orderData.advancePaymentHistory.slice().reverse().map((log) => (
+                        <div key={log.id} className="text-right p-3 bg-white dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${
+                              log.action === "created" ? "bg-emerald-50 text-emerald-600" : 
+                              log.action === "deleted" ? "bg-rose-50 text-rose-600" : "bg-blue-50 text-blue-600"
+                            }`}>
+                              {log.action === "created" ? "Ø¥Ø¶Ø§ÙØ©" : log.action === "deleted" ? "Ù…Ø³Ø­" : "ØªØ¹Ø¯ÙŠÙ„"}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-bold tabular-nums">
+                              {new Date(log.timestamp).toLocaleString("ar-EG")}
+                            </span>
+                          </div>
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                            Ù…Ø¨Ù„Øº: {log.amount.toLocaleString()} - {log.recipientName || "ØºÙŠØ± Ù…Ø­Ø¯Ø¯"}
+                          </p>
+                          <span className="text-[9px] text-slate-400 block mt-1">
+                            Ø¨ÙˆØ§Ø³Ø·Ø©: {log.userName}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="px-8 py-5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800/50 rounded-b-[2.5rem] flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-3 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-bold text-sm hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
+          >
+            Ø¥Ù„ØºØ§Ø¡
+          </button>
+          <button
+            type="submit"
+            className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black text-sm shadow-lg shadow-indigo-600/30 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <Save size={18} />
+            <span>{isEditing ? "Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª" : "Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨"}</span>
+          </button>
+        </div>
+      </motion.form>
+    </div>
+  );
+};
+
+export default OrdersList;
