@@ -3990,6 +3990,20 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         let totalCustodySum = 0;
         let totalBalanceSum = 0;
 
+        const partnerCalculatedList: Array<{
+            name: string;
+            profitRatio: number;
+            capital: number;
+            distributed: number;
+            undistributed: number;
+            totalProfits: number;
+            totalRights: number;
+            withdrawals: number;
+            netExitCash: number;
+            inventoryShare: number;
+            inventoryDiff: number;
+        }> = [];
+
         const partnerRowsHtml = partners.map(p => {
             const partnerGrossShare = (p.profitRatio / 100) * finalNet;
             const normPName = normalizeName(p.name);
@@ -4049,6 +4063,24 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
             totalWithdrawalsSum += totalWithdrawals;
             totalCustodySum += partnerCustody;
             totalBalanceSum += curBalance;
+
+            const totalPartnerProfits = partnerDistributed + partnerUndistributed;
+            const totalRights = partnerCapital + totalPartnerProfits;
+            const netExitCash = totalRights - totalWithdrawals;
+
+            partnerCalculatedList.push({
+                name: p.name,
+                profitRatio: p.profitRatio,
+                capital: partnerCapital,
+                distributed: partnerDistributed,
+                undistributed: partnerUndistributed,
+                totalProfits: totalPartnerProfits,
+                totalRights: totalRights,
+                withdrawals: totalWithdrawals,
+                netExitCash: netExitCash,
+                inventoryShare: inventoryShare,
+                inventoryDiff: netExitCash - inventoryShare
+            });
 
             let statusLabel = 'مسدد بالكامل';
             let statusBg = '#eff6ff';
@@ -4289,6 +4321,91 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
                         </div>
                         `;
                     }).join('')}
+                </div>
+            </div>
+
+            <!-- دليل وسياسة تخارج الشركاء وحساب التصفية -->
+            <div style="margin-top: 14px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; page-break-inside: avoid;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #fef3c7; padding-bottom: 8px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 15px;">📘</span>
+                        <strong style="color: #92400e; font-size: 12.5px;">الدليل التنفيذي والسياسة المحاسبية لتخارج الشركاء (Exit Policy Guide)</strong>
+                    </div>
+                    <span style="font-size: 9.5px; font-weight: bold; color: #b45309; background: #fef3c7; padding: 2px 8px; border-radius: 4px; border: 1px solid #fde68a;">
+                        إجراء محاسبي معتمد ⚖️
+                    </span>
+                </div>
+
+                <p style="font-size: 10.5px; color: #78350f; margin: 0 0 10px 0; line-height: 1.6;">
+                    عند رغبة أحد الشركاء في <strong>التخارج النهائي وتصفية حصته</strong>، يتم احتساب وتنفيذ التصفية بدقة وفق الضوابط والخيارات المحاسبية التالية:
+                </p>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px;">
+                    <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 6px; padding: 8px; text-align: right;">
+                        <strong style="color: #4338ca; font-size: 11px; display: block; margin-bottom: 3px;">1. معادلة مستحقات التخارج</strong>
+                        <span style="font-size: 9.5px; color: #475569; line-height: 1.4; display: block;">
+                            <strong>صافي حق الكاش</strong> = (رأس المال المساهم + الأرباح المستحقة) - (إجمالي المسحوبات الشخصية والسلف + العرابين).
+                        </span>
+                    </div>
+
+                    <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 6px; padding: 8px; text-align: right;">
+                        <strong style="color: #d97706; font-size: 11px; display: block; margin-bottom: 3px;">2. خيارات التسوية المتاحة</strong>
+                        <span style="font-size: 9.5px; color: #475569; line-height: 1.4; display: block;">
+                            <strong>نقداً:</strong> سحب المستحقات من الخزينة. <strong>بضاعة:</strong> استلام منتجات بسعر التكلفة. <strong>مختلط:</strong> دمج كاش وبضاعة.
+                        </span>
+                    </div>
+
+                    <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 6px; padding: 8px; text-align: right;">
+                        <strong style="color: #059669; font-size: 11px; display: block; margin-bottom: 3px;">3. الإثبات وتوثيق الخروج</strong>
+                        <span style="font-size: 9.5px; color: #475569; line-height: 1.4; display: block;">
+                            توليد <strong>"سند إخلاء طرف رسمي"</strong> مطبوع وموثق بتوقيع الشريك والإدارة الماليّة لخصم حسابه نهائياً.
+                        </span>
+                    </div>
+                </div>
+
+                <!-- صيغ وتوضيح التصفية الفردية الشفافة للشركاء -->
+                <div style="margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; margin-bottom: 10px;">
+                    ${partnerCalculatedList.map(item => `
+                        <div style="background: #ffffff; border: 1px solid #fde68a; border-radius: 6px; padding: 10px; font-size: 10.5px; color: #1e293b;">
+                            <div style="font-weight: bold; color: #92400e; font-size: 11.5px; margin-bottom: 6px; border-bottom: 1px solid #fef3c7; padding-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+                                <span>🤝 إرشاد وصيغة التخارج الشفاف للشريك: <strong>${item.name}</strong></span>
+                                <span style="font-size: 9px; color: #b45309; background: #fef3c7; padding: 1px 6px; border-radius: 4px;">تصفية ودية أمنة</span>
+                            </div>
+
+                            <!-- 1. التصفية كاش -->
+                            <div style="background: #fffdf5; border-right: 3px solid #f59e0b; padding: 8px 10px; border-radius: 4px; line-height: 1.7; margin-bottom: 8px;">
+                                <strong style="color: #92400e; font-size: 10.5px; display: block; margin-bottom: 2px;">💵 خيار 1: التصفية والتخارج النقدي (الكاش):</strong>
+                                "يا <strong>${item.name}</strong>، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:<br/>
+                                • إنت ليك رأس مال <strong>${item.capital.toLocaleString()} ج.م.</strong><br/>
+                                • وليك أرباح موزعة وغير موزعة إجماليتها <strong>${item.totalProfits.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م.</strong><br/>
+                                • يبقى إجمالي حقك بالكامل <strong>${item.totalRights.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م.</strong><br/>
+                                • نخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ <strong style="color: #dc2626;">${item.withdrawals.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م.</strong><br/>
+                                💰 <strong style="color: #1e293b;">يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وتخرج بالخير هي: <span style="color: #15803d; font-size: 11.5px; background: #dcfce7; padding: 1px 6px; border-radius: 4px; font-family: monospace;">${item.netExitCash.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</span></strong>"
+                            </div>
+
+                            <!-- 2. التصفية بالبضاعة -->
+                            <div style="background: #f0fdf4; border-right: 3px solid #10b981; padding: 8px 10px; border-radius: 4px; line-height: 1.6; margin-bottom: 8px;">
+                                <strong style="color: #065f46; font-size: 10.5px; display: block; margin-bottom: 2px;">📦 خيار 2: التصفية العينية (خروج الشريك وأخذه نصيبه بضاعة بسعر التكلفة):</strong>
+                                • حصتك من البضاعة المتاحة بنسبة (${item.profitRatio}%): <strong>${item.inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م.</strong><br/>
+                                ${item.inventoryDiff < 0 ? `
+                                    ⚠️ <strong>النتيجة والتسوية بالبضاعة:</strong> تستلم <strong>بضاعة بسعر التكلفة بـ ${item.inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong>، وتدفع إنت للمتجر/للخزينة <strong style="color: #b45309; background: #fef3c7; padding: 1px 4px; border-radius: 3px;">فرق عجز قدره ${Math.abs(item.inventoryDiff).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م كاش</strong> لتصفية حسابك بالكامل.
+                                ` : `
+                                    ✨ <strong>النتيجة والتسوية بالبضاعة:</strong> تستلم <strong>بضاعة بسعر التكلفة بـ ${item.inventoryShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong>، وتاخد كمان فوق البضاعة <strong style="color: #15803d; background: #dcfce7; padding: 1px 4px; border-radius: 3px;">فرق فائض كاش في إيدك بـ ${item.inventoryDiff.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م من الخزينة</strong> لتصفية حسابك بالكامل.
+                                `}
+                            </div>
+
+                            <!-- 3. شراء وحساب الحصة للشريك المشتري -->
+                            <div style="background: #faf5ff; border-right: 3px solid #a855f7; padding: 8px 10px; border-radius: 4px; line-height: 1.6;">
+                                <strong style="color: #6b21a8; font-size: 10.5px; display: block; margin-bottom: 2px;">🛍️ خيار 3: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong>
+                                • في حال رغبة الشريك المشتري <strong>(${partnerCalculatedList.filter(o => o.name !== item.name).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> في تملك كافة البضاعة والمتجر بالكامل:<br/>
+                                🤝 <strong>صيغة الاتفاق والشراء:</strong> يدفع الشريك المشتري لـ <strong>${item.name}</strong> مبلغ كاش صافي مستحقاته قدره <strong style="color: #15803d; background: #dcfce7; padding: 1px 6px; border-radius: 3px; font-family: monospace;">${item.netExitCash.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</strong> مقابل شراء كافة حقوقه وحصته بالبضاعة وتنازل الشريك <strong>${item.name}</strong> وتخارجه وتملك الشريك المشتري للمتجر بالكامل.
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div style="font-size: 10px; color: #92400e; background: #fef3c7; padding: 6px 10px; border-radius: 5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                    <span>💡 <strong>تصفية الحساب بالبرنامج:</strong> اضغط زر <strong>"تصفية وتخارج"</strong> بصفحة الشركاء أو التقارير لتنفيذ التسوية فوراً.</span>
                 </div>
             </div>
 

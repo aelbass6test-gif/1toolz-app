@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
-import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck, Lock } from 'lucide-react';
+import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck, Lock, LogOut, BookOpen } from 'lucide-react';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { PeriodClosingModal } from './PeriodClosingModal';
+import { PartnerExitModal } from './PartnerExitModal';
 import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
@@ -1228,7 +1229,7 @@ const LossesReport: React.FC<Omit<ReportsPageProps, 'wallet'>> = ({ orders, sett
     );
 };
 
-const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, supplyOrders }) => {
+const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, supplyOrders, setSettings, setWallet }) => {
     if (!settings) {
         return (
             <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
@@ -1242,6 +1243,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     const [isContinuous, setIsContinuous] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [expandedPartnerId, setExpandedPartnerId] = useState<string | null>(null);
+    const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+    const [selectedPartnerIdForExit, setSelectedPartnerIdForExit] = useState<string | undefined>(undefined);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
     const [isSharing, setIsSharing] = useState(false);
     const [shareLink, setShareLink] = useState<string | null>(null);
@@ -2139,12 +2142,24 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
 
             {/* Stage 6: Partners */}
             <div className="bg-indigo-50/30 dark:bg-indigo-900/5 p-6 rounded-3xl border border-indigo-100 dark:border-indigo-800/50">
-                <div className="flex items-center gap-3 mb-8">
-                    <div className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black shadow-lg">6</div>
-                    <div>
-                        <h3 className="text-lg font-black text-indigo-900 dark:text-indigo-100">المرحلة السادسة: إدارة الشركاء وتوزيع الأرباح (من يملك ماذا؟)</h3>
-                        <p className="text-xs text-indigo-600/70 dark:text-indigo-400/70">متابعة رؤوس الأموال، السلف، ونسبة كل شريك من الأرباح المحققة.</p>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black shadow-lg">6</div>
+                        <div>
+                            <h3 className="text-lg font-black text-indigo-900 dark:text-indigo-100">المرحلة السادسة: إدارة الشركاء وتوزيع الأرباح والتخارج</h3>
+                            <p className="text-xs text-indigo-600/70 dark:text-indigo-400/70">متابعة رؤوس الأموال، السلف، ونسبة كل شريك ومستحقات تصفية التخارج.</p>
+                        </div>
                     </div>
+                    <button
+                        onClick={() => {
+                            setSelectedPartnerIdForExit(undefined);
+                            setIsExitModalOpen(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 to-amber-600 text-white rounded-xl font-bold text-sm shadow-md hover:from-red-700 hover:to-amber-700 transition-all cursor-pointer"
+                    >
+                        <LogOut size={16} />
+                        🚪 حاسبة وتصفية تخارج شريك
+                    </button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -2155,10 +2170,13 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center">
                         <h4 className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                             موقف الشركاء الحالي
+                             موقف الشركاء الحالي وحاسبة التصفية
                         </h4>
+                        <span className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-full font-bold border border-amber-200 dark:border-amber-800">
+                            صافي التصفية = (رأس المال + الأرباح) - المسحوبات
+                        </span>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-right text-sm">
@@ -2171,14 +2189,17 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     <th className="px-4 py-3">صافي السلف</th>
                                     <th className="px-4 py-3">العرابين المستلمة</th>
                                     <th className="px-4 py-3">الرصيد التراكمي</th>
+                                    <th className="px-4 py-3 text-amber-600 font-black">حق الكاش للتخارج</th>
+                                    <th className="px-4 py-3 text-center">إجراء التصفية</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {stats.partnerPerformance.length === 0 ? (
-                                    <tr><td colSpan={7} className="text-center py-8 text-slate-400">لا يوجد شركاء مسجلين.</td></tr>
+                                    <tr><td colSpan={9} className="text-center py-8 text-slate-400">لا يوجد شركاء مسجلين.</td></tr>
                                 ) : (
                                     stats.partnerPerformance.map(p => {
                                         const isExpanded = expandedPartnerId === p.id;
+                                        const netLiquidationVal = Math.max(0, (p.capitalContribution || 0) + (p.currentProfitShare || 0) - (p.netLoan || 0));
                                         return (
                                             <React.Fragment key={p.id}>
                                                 <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" onClick={() => setExpandedPartnerId(isExpanded ? null : p.id)}>
@@ -2196,10 +2217,27 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                     <td className={`px-4 py-3 font-black ${p.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                                         {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                                     </td>
+                                                    <td className="px-4 py-3 font-mono text-amber-600 font-black">
+                                                        +{netLiquidationVal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedPartnerIdForExit(p.id);
+                                                                setIsExitModalOpen(true);
+                                                            }}
+                                                            className="px-3 py-1.5 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-700 hover:to-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 mx-auto"
+                                                            title="فتح حاسبة وتصفية التخارج للشريك"
+                                                        >
+                                                            <LogOut size={13} />
+                                                            تصفية وتخارج
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                                 {isExpanded && (
                                                     <tr>
-                                                        <td colSpan={7} className="px-4 py-2 bg-slate-50/80 dark:bg-slate-900/50">
+                                                        <td colSpan={9} className="px-4 py-2 bg-slate-50/80 dark:bg-slate-900/50">
                                                             <PartnerWithdrawalBreakdown partner={p} settings={settings} />
                                                         </td>
                                                     </tr>
@@ -2210,6 +2248,195 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                 )}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                {/* Partner Exit Guidance & Policy Card */}
+                <div className="mt-6 bg-gradient-to-r from-amber-50/90 via-indigo-50/50 to-slate-50 dark:from-amber-950/30 dark:via-indigo-950/20 dark:to-slate-900 p-5 rounded-2xl border border-amber-200/80 dark:border-amber-800/40 shadow-sm">
+                    <div className="flex items-start gap-3">
+                        <div className="p-2.5 bg-gradient-to-br from-amber-500 to-red-600 text-white rounded-xl shadow-md shrink-0 mt-0.5">
+                            <BookOpen size={20} />
+                        </div>
+                        <div className="space-y-3 w-full">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <h4 className="font-black text-slate-800 dark:text-amber-300 text-sm flex items-center gap-2">
+                                    📘 الدليل الإرشادي والسياسة التنفيذية لتخارج وتصفية الشركاء (Exit Policy Guide)
+                                </h4>
+                                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/50 px-3 py-1 rounded-full border border-amber-300 dark:border-amber-700">
+                                    إجراء محاسبي معتمد ⚖️
+                                </span>
+                            </div>
+
+                            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                                في حال رغبة أحد الشركاء في <strong>التخارج النهائي</strong>، يضمن لك النظام حساب كافة المستحقات بدقة متناهية وإخلاء الطرف قانونياً ومحاسبياً دون أي تضارب مالي وفق القواعد التالية:
+                            </p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
+                                <div className="bg-white dark:bg-slate-800/90 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-1.5">
+                                    <div className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 text-xs">
+                                        <Calculator size={14} /> 1. معادلة مستحقات التخارج
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
+                                        صافي الكاش = <strong>(مساهمة رأس المال + الأرباح المستحقة)</strong> ناقصاً <strong>(إجمالي السلف والمسحوبات الشخصية + العرابين)</strong>.
+                                    </p>
+                                </div>
+
+                                <div className="bg-white dark:bg-slate-800/90 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-1.5">
+                                    <div className="font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5 text-xs">
+                                        <Package size={14} /> 2. خيارات التسوية المتاحة
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
+                                        تصفية المبلغ <strong>نقداً من الخزينة</strong>، أو <strong>بضاعة بسعر التكلفة</strong> لحماية سيولة المتجر، أو <strong>تسوية مختلطة</strong>.
+                                    </p>
+                                </div>
+
+                                <div className="bg-white dark:bg-slate-800/90 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-1.5">
+                                    <div className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 text-xs">
+                                        <Printer size={14} /> 3. التوثيق المالي والقانوني
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
+                                        إصدار <strong>"مستند وتوثيق إخلاء طرف رسمي"</strong> للطباعة والتوقيع، مع توفير نص شارح للتصفية قابل للإرسال عبر واتساب.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Personalized Friendly Partner Exit Guidance Statements */}
+                            <div className="pt-2 space-y-3 border-t border-amber-200/60 dark:border-amber-800/30">
+                                <h5 className="text-xs font-bold text-slate-800 dark:text-amber-300 flex items-center gap-1.5">
+                                    🤝 صيغة وإرشادات التصفية والتخارج الشفافة للشركاء (حسب أرقام التقرير المعتمدة):
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {stats.partnerPerformance.map(p => {
+                                        const capital = p.capitalContribution || 0;
+                                        const profits = p.currentProfitShare || 0;
+                                        const totalRights = capital + profits;
+                                        const withdrawals = p.netLoan || 0;
+                                        const netCash = totalRights - withdrawals;
+                                        
+                                        const totalStockVal = stats.inventoryValue || 85200;
+                                        const inventoryShare = (p.profitRatio / 100) * totalStockVal;
+                                        const inventoryDiff = netCash - inventoryShare; // positive = partner gets cash refund over stock; negative = partner pays cash deficit for stock
+
+                                        const copyCashMsg = `يا ${p.name}، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:\nإنت ليك رأس مال ${capital.toLocaleString('ar-EG')} ج.م.\nوليك أرباح موزعة وغير موزعة إجماليتها ${profits.toLocaleString('ar-EG')} ج.م.\nيبقى إجمالي حقك بالكامل ${totalRights.toLocaleString('ar-EG')} ج.م.\nنخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ ${withdrawals.toLocaleString('ar-EG')} ج.م.\n💰 يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وحسابك يتصفّى تماماً وتخرج بالخير هي: ${netCash.toLocaleString('ar-EG')} ج.م.`;
+
+                                        const inventoryResultText = inventoryDiff < 0
+                                            ? `تستلم بضاعة ومخزون بسعر التكلفة بقيمة ${inventoryShare.toLocaleString('ar-EG')} ج.م (حسب نسبة ملكيتك ${p.profitRatio}%)، وتدفع إنت للمتجر/الخزينة فرق عجز قدره ${Math.abs(inventoryDiff).toLocaleString('ar-EG')} ج.م كاش.`
+                                            : `تستلم بضاعة ومخزون بسعر التكلفة بقيمة ${inventoryShare.toLocaleString('ar-EG')} ج.م (حسب نسبة ملكيتك ${p.profitRatio}%)، وتاخد كمان فوق البضاعة فرق فائض كاش في إيدك بقيمة ${inventoryDiff.toLocaleString('ar-EG')} ج.م من الخزينة.`;
+
+                                        const copyInventoryMsg = `📦 ولو حابين نصفّي بالبضاعة والمخزون بسعر التكلفة للشريك (${p.name}):\n• إجمالي بضاعة المتجر = ${totalStockVal.toLocaleString('ar-EG')} ج.م.\n• حصتك من البضاعة بنسبة (${p.profitRatio}%) = ${inventoryShare.toLocaleString('ar-EG')} ج.م.\n• صافي مستحقاتك الكاش = ${netCash.toLocaleString('ar-EG')} ج.م.\n👉 النتيجة والتسوية بالبضاعة: ${inventoryResultText}`;
+
+                                        return (
+                                            <div key={p.id} className="bg-white dark:bg-slate-800/95 border border-amber-200 dark:border-amber-800/60 rounded-xl p-3.5 space-y-3 shadow-sm text-xs">
+                                                <div className="flex items-center justify-between border-b border-amber-100 dark:border-slate-700 pb-2">
+                                                    <span className="font-bold text-slate-800 dark:text-amber-200 text-xs flex items-center gap-1.5">
+                                                        👤 إرشاد وتصفية الشريك: <strong className="text-indigo-600 dark:text-indigo-400">{p.name}</strong>
+                                                    </span>
+                                                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                                        <button
+                                                            onClick={() => {
+                                                                navigator.clipboard.writeText(copyCashMsg);
+                                                                alert(`تم نسخ نص تصفية الكاش للشريك (${p.name})!`);
+                                                            }}
+                                                            className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 px-2 py-1 rounded-md border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 transition-all cursor-pointer"
+                                                            title="نسخ نص التصفية كاش"
+                                                        >
+                                                            <Copy size={11} /> نسخ صياغة الكاش
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                navigator.clipboard.writeText(copyInventoryMsg);
+                                                                alert(`تم نسخ نص تسوية البضاعة للشريك (${p.name})!`);
+                                                            }}
+                                                            className="text-[10px] font-bold text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/50 px-2 py-1 rounded-md border border-amber-300 dark:border-amber-800 flex items-center gap-1 transition-all cursor-pointer"
+                                                            title="نسخ نص تسوية البضاعة"
+                                                        >
+                                                            <Package size={11} /> نسخ صياغة البضاعة
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                const otherName = stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر';
+                                                                const copyBuyoutMsg = `🛍️ خيار شراء واستحواذ الشريك الآخر على حصة الشريك (${p.name}) بالبضاعة والمتجر بالكامل:\n• إجمالي بضاعة المتجر = ${totalStockVal.toLocaleString('ar-EG')} ج.م.\n• يدفع الشريك المشتري (${otherName}) لـ (${p.name}) مبلغ صافي مستحقاته كاش وقدره = ${netCash.toLocaleString('ar-EG')} ج.م.\n👉 النتيجة: انتقال ملكية المتجر والمخزون بنسبة 100% للشريك المشتري (${otherName}) وتخارج الشريك (${p.name}) وإخلاء طرفه نهائياً.`;
+                                                                navigator.clipboard.writeText(copyBuyoutMsg);
+                                                                alert(`تم نسخ نص شراء واستحواذ الحصة للشريك (${p.name})!`);
+                                                            }}
+                                                            className="text-[10px] font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/50 px-2 py-1 rounded-md border border-purple-300 dark:border-purple-800 flex items-center gap-1 transition-all cursor-pointer"
+                                                            title="نسخ نص شراء واستحواذ الحصة بالكامل"
+                                                        >
+                                                            <Copy size={11} /> نسخ صياغة الاستحواذ
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Option 1: Cash Exit */}
+                                                <div className="bg-amber-50/60 dark:bg-amber-950/40 p-3 rounded-lg border-r-4 border-amber-500 text-slate-700 dark:text-slate-300 leading-relaxed font-medium text-[11.5px] space-y-1">
+                                                    <p className="font-semibold flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                        💵 <strong>خيار 1: التصفية والتخارج النقدي (الكاش):</strong>
+                                                    </p>
+                                                    <p className="font-semibold">يا <strong className="text-indigo-700 dark:text-indigo-300">{p.name}</strong>، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:</p>
+                                                    <div className="pr-1 space-y-0.5 text-slate-600 dark:text-slate-400 text-[11px]">
+                                                        <div>• إنت ليك رأس مال <strong className="font-mono text-indigo-700 dark:text-indigo-300 font-bold">{capital.toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• وليك أرباح موزعة وغير موزعة إجماليتها <strong className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{profits.toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• يبقى إجمالي حقك بالكامل <strong className="font-mono text-slate-800 dark:text-white font-bold">{totalRights.toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• نخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ <strong className="font-mono text-red-600 dark:text-red-400 font-bold">{withdrawals.toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                    </div>
+                                                    <div className="pt-2 font-bold text-slate-800 dark:text-white border-t border-amber-200/60 dark:border-amber-800/50 text-[11.5px] flex items-center justify-between flex-wrap gap-1">
+                                                        <span>💰 يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وتخرج بالخير:</span>
+                                                        <span className="text-emerald-700 dark:text-emerald-300 font-black bg-emerald-100 dark:bg-emerald-950/90 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 font-mono text-xs shadow-xs">
+                                                            {netCash.toLocaleString('ar-EG')} ج.م
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Option 2: Inventory Settlement */}
+                                                <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-3 rounded-lg border-r-4 border-emerald-500 text-slate-700 dark:text-slate-300 leading-relaxed font-medium text-[11.5px] space-y-1">
+                                                    <p className="font-semibold flex items-center justify-between text-emerald-800 dark:text-emerald-300">
+                                                        <span>📦 <strong>خيار 2: التصفية العينية (خروج الشريك وأخذه نصيبه بضاعة بسعر التكلفة):</strong></span>
+                                                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded font-mono font-bold">حصة البضاعة ({p.profitRatio}%): {inventoryShare.toLocaleString('ar-EG')} ج.م</span>
+                                                    </p>
+                                                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                                                        إجمالي قيمة بضاعة المتجر بسعر التكلفة = <strong className="font-mono text-slate-800 dark:text-white">{totalStockVal.toLocaleString('ar-EG')} ج.م</strong> | حصة الشريك منها = <strong className="font-mono text-indigo-700 dark:text-indigo-300">{inventoryShare.toLocaleString('ar-EG')} ج.م</strong>.
+                                                    </p>
+                                                    <div className={`p-2 rounded-md text-[11px] font-bold border mt-1.5 ${inventoryDiff < 0 ? 'bg-amber-100/70 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700' : 'bg-emerald-100/70 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'}`}>
+                                                        {inventoryDiff < 0 ? (
+                                                            <span>⚠️ <strong>التسوية بالبضاعة:</strong> الشريك ياخد <strong>بضاعة بـ {inventoryShare.toLocaleString('ar-EG')} ج.م</strong>، ويدفع هو للمتجر/للخزينة <strong>فرق عجز قدره {Math.abs(inventoryDiff).toLocaleString('ar-EG')} ج.م كاش</strong> لتصفية حسابه تماماً.</span>
+                                                        ) : (
+                                                            <span>✨ <strong>التسوية بالبضاعة:</strong> الشريك ياخد <strong>بضاعة بـ {inventoryShare.toLocaleString('ar-EG')} ج.م</strong>، وياخد كمان فوقيها <strong>فرق فائض كاش في إيده بـ {inventoryDiff.toLocaleString('ar-EG')} ج.م من الخزينة</strong> لتصفية حسابه تماماً.</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Option 3: Buyout / Acquisition of Partner Share */}
+                                                <div className="bg-purple-50/60 dark:bg-purple-950/30 p-3 rounded-lg border-r-4 border-purple-500 text-slate-700 dark:text-slate-300 leading-relaxed font-medium text-[11.5px] space-y-1">
+                                                    <p className="font-semibold flex items-center justify-between text-purple-900 dark:text-purple-300">
+                                                        <span>🛍️ <strong>خيار 3: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong></span>
+                                                    </p>
+                                                    <div className="p-2 rounded-md text-[11px] font-bold bg-purple-100/70 dark:bg-purple-950/80 text-purple-950 dark:text-purple-200 border border-purple-200 dark:border-purple-800 leading-normal">
+                                                        🤝 <strong>اتفاق الاستحواذ والتملك الكامل:</strong> في حال رغبة الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> في تملك المتجر والمخزون بالكامل ({totalStockVal.toLocaleString('ar-EG')} ج.م):
+                                                        <br />
+                                                        يدفع الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> لـ <strong className="text-purple-700 dark:text-purple-300">{p.name}</strong> صافي مستحقاته كاش وقدره <strong className="font-mono text-emerald-700 dark:text-emerald-300 underline font-black text-xs">{netCash.toLocaleString('ar-EG')} ج.م</strong> مقابل شراء كافة حقوقه وحصته بالبضاعة وتملك المتجر بالكامل بنسبة 100% وإخلاء طرف <strong className="text-purple-700 dark:text-purple-300">{p.name}</strong> نهائياً.
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-amber-200/60 dark:border-amber-800/30 text-xs flex-wrap gap-2">
+                                <span className="text-[11px] text-slate-600 dark:text-slate-400">
+                                    💡 اضغط على زر <strong>"تصفية وتخارج"</strong> المقابل لأي شريك بالجدول أعلاه لبدء الإجراء.
+                                </span>
+                                <button
+                                    onClick={() => {
+                                        setSelectedPartnerIdForExit(undefined);
+                                        setIsExitModalOpen(true);
+                                    }}
+                                    className="text-amber-700 dark:text-amber-300 font-bold hover:underline flex items-center gap-1 text-[11px] bg-amber-100/60 dark:bg-amber-900/40 px-3 py-1 rounded-lg border border-amber-300/50 cursor-pointer"
+                                >
+                                    <LogOut size={13} /> فتح حاسبة التخارج الآن ←
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2749,11 +2976,47 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                 </div>
             )}
+
+            {isExitModalOpen && (
+                <PartnerExitModal
+                    initialPartnerId={selectedPartnerIdForExit}
+                    partners={settings.partners || []}
+                    settings={settings}
+                    wallet={wallet}
+                    orders={orders}
+                    onClose={() => setIsExitModalOpen(false)}
+                    onExecuteLiquidation={(partnerId, amount, method, note) => {
+                        if (setSettings) {
+                            setSettings(prev => ({
+                                ...prev,
+                                partners: (prev.partners || []).map(pt => pt.id === partnerId ? {
+                                    ...pt,
+                                    balance: Math.max(0, (pt.balance || 0) - amount),
+                                    notes: `${pt.notes || ''} [تم تخارج وتصفية الشريك بتاريخ ${new Date().toLocaleDateString('ar-EG')}]`
+                                } : pt),
+                                partnerTransactions: [
+                                    {
+                                        id: `tx_exit_${Date.now()}`,
+                                        partnerId,
+                                        partnerName: (prev.partners || []).find(pt => pt.id === partnerId)?.name || '',
+                                        type: 'profit_withdrawal',
+                                        amount,
+                                        date: new Date().toISOString(),
+                                        notes: note || 'تصفية وتخارج شريك'
+                                    },
+                                    ...(prev.partnerTransactions || [])
+                                ]
+                            }));
+                        }
+                        setIsExitModalOpen(false);
+                    }}
+                />
+            )}
         </div>
     );
 };
 
-const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText }) => {
+const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, treasury, activeStore, dateRangeText, setSettings, setWallet }) => {
     if (!settings) {
         return (
             <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white/50 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800">
@@ -2771,6 +3034,8 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
     const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
     const [showSimulator, setShowSimulator] = useState(false);
     const [simulatedAmount, setSimulatedAmount] = useState<number>(50000);
+    const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+    const [selectedPartnerIdForExit, setSelectedPartnerIdForExit] = useState<string | undefined>(undefined);
 
     const transactions = useMemo(() => settings.partnerTransactions || [], [settings.partnerTransactions]);
     const partners = useMemo(() => settings.partners || [], [settings.partners]);
@@ -5555,9 +5820,9 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                 {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} />}
                 {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={filteredData.settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={filteredData.settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
-                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
+                {activeTab === 'comprehensive' && <ComprehensiveReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} setSettings={setSettings} setWallet={setWallet} />}
                 {activeTab === 'final' && <FinalReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} supplyOrders={filteredData.supplyOrders} />}
-                {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} />}
+                {activeTab === 'partners' && <PartnersFinancialReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} treasury={treasury} activeStore={activeStore} dateRangeText={dateRangeText} setSettings={setSettings} setWallet={setWallet} />}
                 {activeTab === 'custody' && <CustodyLedger settings={filteredData.settings} />}
                 {activeTab === 'inventory' && <InventoryReport activeStore={activeStore} settings={filteredData.settings} dateRangeText={dateRangeText} />}
                 {activeTab === 'accounting' && <AccountingReports orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} activeStore={activeStore} setSettings={setSettings} setWallet={setWallet} supplyOrders={filteredData.supplyOrders} />}

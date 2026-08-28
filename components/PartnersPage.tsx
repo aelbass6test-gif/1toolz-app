@@ -20,9 +20,10 @@ const normalizeName = (name: string): string => {
 };
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
-import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock } from 'lucide-react';
+import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock, LogOut } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
+import { PartnerExitModal } from './PartnerExitModal';
 import { generateSafeId } from '../utils/idUtils';
 import { PeriodClosingModal } from './PeriodClosingModal';
 import { motion, AnimatePresence } from 'motion/react';
@@ -73,6 +74,65 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [transferNotes, setTransferNotes] = useState('');
   const [previewPartner, setPreviewPartner] = useState<Partner | null>(null);
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+  const [exitModalPartnerId, setExitModalPartnerId] = useState<string | null>(null);
+
+  const handleExecuteLiquidationTransaction = (partnerId: string, amount: number, method: string, note: string) => {
+    const partner = (settings.partners || []).find(p => p.id === partnerId);
+    if (!partner) return;
+
+    const newTx: PartnerTransaction = {
+      id: generateSafeId('tx_exit'),
+      partnerId: partner.id,
+      partnerName: partner.name,
+      type: 'profit_withdrawal',
+      amount: amount,
+      date: new Date().toISOString(),
+      note: note || `تصفية وتخارج نهائي للشريك (${partner.name})`
+    };
+
+    const updatedTxs = [newTx, ...(settings.partnerTransactions || [])];
+
+    const updatedPartners = (settings.partners || []).map(p => {
+      if (p.id === partnerId) {
+        return {
+          ...p,
+          balance: Math.max(0, p.balance - amount),
+          notes: `${p.notes || ''} [تم تخارج وتصفية الشريك بتاريخ ${new Date().toLocaleDateString('ar-EG')}]`
+        };
+      }
+      return p;
+    });
+
+    if (amount > 0 && method !== 'inventory') {
+      setWallet(prev => ({
+        ...prev,
+        balance: Math.max(0, (prev.balance || 0) - amount),
+        transactions: [
+          {
+            id: generateSafeId('wtx_exit'),
+            type: 'سحب',
+            amount: amount,
+            note: `سحب تصفية وتخارج الشريك: ${partner.name}`,
+            date: new Date().toISOString(),
+            category: 'تصفية_شراكة' as any,
+            status: 'completed'
+          },
+          ...(prev.transactions || [])
+        ]
+      }));
+    }
+
+    updateSettings({
+      ...settings,
+      partnerTransactions: updatedTxs,
+      partners: updatedPartners
+    });
+
+    setIsExitModalOpen(false);
+    setExitModalPartnerId(null);
+    showToast(`تم تسجيل تصفية وتخارج الشريك (${partner.name}) بنجاح!`, 'success');
+  };
   
   // Custom dialog states
   const [dialog, setDialog] = useState<{
@@ -1072,6 +1132,13 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             onClick={() => setActiveSection('summary_table')}
             className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'summary_table' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
           ><FileText size={16}/> جدول المركز المالي المجمع</button>
+          <button 
+            onClick={() => {
+              setExitModalPartnerId(partners[0]?.id || null);
+              setIsExitModalOpen(true);
+            }}
+            className="px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-md hover:opacity-95 cursor-pointer"
+          ><LogOut size={16}/> 🚪 حاسبة وتصفية التخارج</button>
       </div>
 
       {activeSection === 'overview' && (
@@ -2419,22 +2486,12 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                          <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-800">
                             <button 
                               onClick={() => {
-                                setDialog({
-                                  isOpen: true,
-                                  title: `محاكاة تصفية حساب: ${partner.name}`,
-                                  message: `أنت على وشك حساب مستحقات الشريك في حال الرغبة في التخارج. 
-                                            المبلغ المتوقع لتصفيته الآن هو: ${(partner.balance + profitShare + inventoryShare).toLocaleString()} ج.م 
-                                            (يشمل استرداد حصته في البضاعة والأرباح والسيولة). هل تريد الانتقال لتسوية دفتتية؟`,
-                                  onConfirm: () => {
-                                    setDialog(null);
-                                    // This is just a guidance dialog, actual liquidation would involve a manual withdrawal of the full amount
-                                    showToast('يمكنك تصفية الحساب عن طريق تسجيل "سحب تصفية نهائية" بالقيمة الموضحة.', 'success');
-                                  }
-                                });
+                                setExitModalPartnerId(partner.id);
+                                setIsExitModalOpen(true);
                               }}
-                              className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/20 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 font-black text-xs rounded-xl transition-all border border-indigo-100 dark:border-indigo-800/50"
+                              className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-rose-600 to-indigo-600 hover:opacity-90 text-white font-black text-xs rounded-xl transition-all shadow-sm cursor-pointer"
                             >
-                               <ArrowRightLeft size={14} /> حساب تصفية الشريك (Exit Settlement)
+                               <LogOut size={14} /> حاسبة وتقرير تخارج الشريك ({partner.name})
                             </button>
                          </div>
                       </div>
@@ -2628,6 +2685,24 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         treasury={treasury}
         setTreasury={setTreasury}
       />
+
+      {/* Partner Exit & Settlement Modal */}
+      {isExitModalOpen && (
+        <PartnerExitModal
+          initialPartnerId={exitModalPartnerId || undefined}
+          partners={partners}
+          settings={settings}
+          wallet={wallet}
+          orders={orders}
+          onClose={() => {
+            setIsExitModalOpen(false);
+            setExitModalPartnerId(null);
+          }}
+          onExecuteLiquidation={(partnerId, amount, method, note) => {
+            handleExecuteLiquidationTransaction(partnerId, amount, method, note);
+          }}
+        />
+      )}
 
     </div>
   );

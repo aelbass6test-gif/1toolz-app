@@ -4,12 +4,13 @@ import {
   Printer, X, Download, Share2, Filter, Calendar, Search, 
   Check, Eye, RefreshCw, FileText, User, Coins, TrendingUp, 
   ArrowDownRight, ArrowUpLeft, DollarSign, Wallet as WalletIcon, 
-  Building2, Landmark, CheckCircle2, Copy, Loader2, Link as LinkIcon
+  Building2, Landmark, CheckCircle2, Copy, Loader2, Link as LinkIcon, LogOut
 } from 'lucide-react';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { shareReport } from '../services/reportShareService';
 import { parseSafeDate } from '../utils/dateUtils';
 import { getVirtualOrderHandovers, calculateOrderProfitLoss } from '../utils/financials';
+import { PartnerExitModal } from './PartnerExitModal';
 
 interface PartnerStatementModalProps {
   partner: Partner;
@@ -64,6 +65,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
   const [isSharing, setIsSharing] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showExitModal, setShowExitModal] = useState(false);
 
   // 1. Gather all transactions
   const transactions = useMemo(() => {
@@ -707,6 +709,15 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
             </button>
 
             <button
+              onClick={() => setShowExitModal(true)}
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-md shadow-rose-600/20 cursor-pointer"
+              title="تصفية حساب الشريك وإصدار وثيقة التخارج"
+            >
+              <LogOut size={16} />
+              <span>تصفية وتخارج</span>
+            </button>
+
+            <button
               onClick={handlePrint}
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
             >
@@ -1024,6 +1035,17 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
         </div>
 
       </div>
+
+      {showExitModal && (
+        <PartnerExitModal
+          initialPartnerId={partner.id}
+          partners={settings.partners || []}
+          settings={settings}
+          wallet={wallet}
+          orders={orders}
+          onClose={() => setShowExitModal(false)}
+        />
+      )}
     </div>
   );
 };
