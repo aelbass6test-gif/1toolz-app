@@ -1210,24 +1210,30 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
           
           <div className="p-8">
              {/* 💡 ملخص السيولة والربح للشركاء */}
-             <div className="mb-10 grid grid-cols-1 md:grid-cols-2 gap-6">
+             <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-emerald-50/80 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30 p-6 rounded-3xl relative overflow-hidden">
                     <div className="flex justify-between items-start mb-2">
                         <div>
-                            <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-1">إجمالي السيولة المتاحة (كاش)</p>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">إجمالي السيولة المتاحة (كاش)</p>
+                              <span className="text-[9px] bg-emerald-200/60 dark:bg-emerald-800/60 text-emerald-800 dark:text-emerald-200 px-2 py-0.5 rounded-full font-bold">خزائن وبنوك</span>
+                            </div>
                             <h3 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums">{availableLiquidity.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span></h3>
                         </div>
                         <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl text-emerald-600">
                             <WalletIcon size={24} />
                         </div>
                     </div>
-                    <p className="text-[10px] text-slate-500 font-bold">هذا هو المبلغ المتوفر حالياً في (الخزينة + البنك + المحافظ) ويمكن استخدامه لشراء البضاعة.</p>
+                    <p className="text-[10px] text-slate-500 font-bold">هذا هو المبلغ المتوفر حالياً كسيولة حية في (الخزينة + البنك + المحافظ) ويمكن استخدامه لشراء بضاعة جديدة أو سداد التزامات فورية.</p>
                 </div>
 
                 <div className="bg-blue-50/80 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 p-6 rounded-3xl relative overflow-hidden">
                     <div className="flex justify-between items-start mb-2">
                         <div>
-                            <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">صـافي الأربـاح المتاحة للتوزيع</p>
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">صـافي الأربـاح المتاحة للتوزيع</p>
+                              <span className="text-[9px] bg-blue-200/60 dark:bg-blue-800/60 text-blue-800 dark:text-blue-200 px-2 py-0.5 rounded-full font-bold">غير موزعة</span>
+                            </div>
                             <h3 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums">{undistributedProfit.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span></h3>
                         </div>
                         <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-2xl text-blue-600">
@@ -1235,6 +1241,51 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                         </div>
                     </div>
                     <p className="text-[10px] text-slate-500 font-bold">هذا هو صافي المكسب الفعلي بعد خصم كل المصاريف والخسائر والمبالغ التي تم توزيعها سابقاً.</p>
+                </div>
+             </div>
+
+             {/* 💡 بطاقة التوضيح الاسترشادي لتجنب لبس المخزون والسيولة للشركاء */}
+             <div className="mb-10 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-emerald-500/10 border border-amber-200 dark:border-amber-900/40 p-6 rounded-3xl space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                   <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black">💡</div>
+                      <div>
+                        <h4 className="text-sm font-black text-slate-800 dark:text-white">دليل الشركاء الاسترشادي: أين توجد أموال المشروع والبضاعة؟</h4>
+                        <p className="text-[10px] font-bold text-slate-500">توضيح الفرق المحاسبي بين قيمة البضاعة على الرفوف، السيولة الكاش، ورصيد رأس المال</p>
+                      </div>
+                   </div>
+                   <div className="text-xs font-black bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                      قيمة المخزون الحالي: <span className="text-amber-600">{inventoryValue.toLocaleString()} ج.م</span>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-medium">
+                   <div className="bg-white/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-black text-[11px]">
+                         <span>📦 1. بضاعة المخزن (أصول عينية)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                         هي تكلفة المنتجات المتوفرة حالياً بالمتجر ({inventoryValue.toLocaleString()} ج.م). هذه أموال <strong className="text-slate-800 dark:text-white">تم استثمارها وشراء بضاعة بها بالفعل</strong> وتنتظر البيع لتحقيق الربح.
+                      </p>
+                   </div>
+
+                   <div className="bg-white/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-black text-[11px]">
+                         <span>💵 2. السيولة الحية (كاش الخزينة)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                         هي أموال نقدية حرة ({availableLiquidity.toLocaleString()} ج.م) متوفرة في حسابات البنوك والخزائن، جاهزة لتمويل شحنات جديدة أو سداد التزامات المتجر.
+                      </p>
+                   </div>
+
+                   <div className="bg-white/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-400 font-black text-[11px]">
+                         <span>⚖️ 3. المركز المالي الكلي</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                         إجمالي أصول المشروع = <strong className="text-indigo-600 dark:text-indigo-400 font-black">{(availableLiquidity + inventoryValue).toLocaleString()} ج.م</strong> (كاش متاح + بضاعة بالمخزن)، ويتم توزيع نصيب الشريك بناءً على رأس ماله ونسبة أرباحه.
+                      </p>
+                   </div>
                 </div>
              </div>
 

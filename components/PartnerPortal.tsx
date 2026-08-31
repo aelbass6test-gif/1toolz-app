@@ -559,6 +559,14 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const partnerEstimatedProfit = (storeNetProfit * partnerRatio) / 100;
     const undistributedProfit = Math.max(0, partnerEstimatedProfit - dividends);
 
+    // Inventory value calculation
+    const totalInventoryValue = (settings.products || []).reduce((sum, p) => {
+      const stock = Number(p.stockQuantity) || 0;
+      const cost = Number(p.costPrice) || 0;
+      return sum + (stock * cost);
+    }, 0);
+    const partnerInventoryShare = (totalInventoryValue * partnerRatio) / 100;
+
     return {
       transactions: [...sortedTxs].reverse(), // Show newest first in table
       chartData,
@@ -572,7 +580,9 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       storeNetProfit,
       partnerRatio,
       partnerEstimatedProfit,
-      undistributedProfit
+      undistributedProfit,
+      totalInventoryValue,
+      partnerInventoryShare
     };
   }, [livePartner, rawPartnerTransactions, rawCashHandovers, rawWalletTransactions, rawTreasuryTransactions, rawSupplyOrders, rawOrders, rawTreasury, settings]);
 
@@ -1017,6 +1027,27 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
             <p className="text-[11px] font-bold text-indigo-200">نصيبك التقديري من أرباح المتجر</p>
             <p className="text-xl font-black text-amber-300">{(partnerData?.partnerEstimatedProfit || 0).toLocaleString()} <span className="text-xs font-normal text-indigo-200">ج.م</span></p>
             <p className="text-[10px] text-indigo-200 font-bold">بناءً على نسبة شراكتك ({partnerData?.partnerRatio || 0}%)</p>
+          </div>
+        </div>
+
+        {/* 📦 بطاقة حصة البضاعة بالمخزن */}
+        <div className="bg-slate-800/80 border border-indigo-400/20 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-400/40 text-amber-400 flex items-center justify-center flex-shrink-0">
+              <PackageIcon size={18} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-amber-300">حصة الشريك التقديرية من بضاعة المخزن:</span>
+                <span className="text-sm font-black text-white">{(partnerData?.partnerInventoryShare || 0).toLocaleString()} ج.م</span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-bold">
+                إجمالي قيمة البضاعة المتوفرة على الرفوف بالمتجر حالياً هي {(partnerData?.totalInventoryValue || 0).toLocaleString()} ج.م (هذه أموال مستثمرة في منتجات بالمخزن).
+              </p>
+            </div>
+          </div>
+          <div className="text-left bg-white/10 px-3 py-1.5 rounded-xl text-xs font-black text-indigo-200 flex-shrink-0">
+            نسبتك من البضاعة: {partnerData?.partnerRatio || 0}%
           </div>
         </div>
       </div>

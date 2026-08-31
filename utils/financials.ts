@@ -1151,7 +1151,23 @@ export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, tre
   const isBankOrTreasuryAccount = (name: string): boolean => {
     if (!name) return false;
     const norm = name.toLowerCase().trim();
-    return norm.includes('بنك') || norm.includes('bank') || norm.includes('cib') || norm.includes('المحفظة') || norm.includes('محفظة') || norm.includes('فودافون كاش') || norm.includes('انستا باي') || norm.includes('حساب بنكي');
+
+    if (treasury?.accounts && Array.isArray(treasury.accounts)) {
+      const found = treasury.accounts.find((a: any) => {
+        const aNorm = (a.name || '').toLowerCase().trim();
+        return (a.id === name || aNorm === norm || (aNorm && norm.includes(aNorm)) || (aNorm && aNorm.includes(norm))) && a.type !== 'custody';
+      });
+      if (found) return true;
+    }
+
+    const bankKeywords = [
+      'بنك', 'bank', 'cib', 'qnb', 'hsbc', 'faisal', 'فيصل', 'الاهلي', 'الأهلي', 'مصر',
+      'القاهرة', 'القاهره', 'الاسكندرية', 'الإسكندرية', 'البركة', 'بركة', 'ابوظبي', 'أبوظبي',
+      'الراجحي', 'راجحي', 'خزنة', 'خزينة', 'خزينه', 'المحفظة', 'محفظة', 'فودافون كاش',
+      'فودافون', 'اورنج', 'أورنج', 'اتصالات', 'وي كاش', 'we cash', 'انستا باي', 'انستاباي',
+      'instapay', 'حساب بنكي', 'الخزينة العامة', 'الخزينة', 'درج', 'كاشير'
+    ];
+    return bankKeywords.some(kw => norm.includes(kw));
   };
 
   orders.forEach((o: any) => {
@@ -1160,8 +1176,12 @@ export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, tre
     const isCollectedPos = isPosOrder && ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);
 
     if (advance > 0 || isCollectedPos) {
+      if (o.advancePaymentTreasuryId || (o.cashHolderId && (o.cashHolderId === 'wallet' || o.cashHolderId.startsWith('treas_')))) {
+        return;
+      }
+
       const holderLabel = getAdvancePaymentCustodyName(o, settings, treasury);
-      if (!holderLabel || holderLabel === "---" || holderLabel.includes("أودعت في المحفظة العامة")) return;
+      if (!holderLabel || holderLabel === "---" || holderLabel.startsWith('🏦') || holderLabel.includes("أودعت في المحفظة العامة") || holderLabel.includes('خزينة') || holderLabel.includes('بنك')) return;
 
       let recipientName = "";
       if (holderLabel.includes(': ')) {

@@ -436,15 +436,20 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     if (supabase) {
         try {
             const fetchTable = async (table: string) => {
-                const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
-                if (error) {
-                    if (error.code === 'PGRST205' || error.code === 'PGRST116') {
-                        console.warn(`Table ${table} not found in Supabase schema. Skipping fetch.`);
-                        return [];
+                try {
+                    const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
+                    if (error) {
+                        if (error.code === 'PGRST205' || error.code === 'PGRST116') {
+                            console.warn(`Table ${table} not found in Supabase schema. Skipping fetch.`);
+                            return [];
+                        }
+                        throw error;
                     }
-                    throw error;
+                    return data || [];
+                } catch (fetchErr: any) {
+                    console.warn(`[SUPABASE-FETCH] Could not fetch ${table}:`, fetchErr?.message || fetchErr);
+                    return [];
                 }
-                return data || [];
             };
 
             const [
@@ -932,13 +937,19 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     // --- Custom Supabase Save Logic ---
     const supabase = getSupabaseClient();
     if (supabase) {
+        let supabaseSaveSucceeded = false;
         try {
             // First: Ensure store record exists in stores_data (to satisfy FK constraints)
-            await supabase.from('stores_data').upsert({
-                id: store.id,
-                name: store.name,
-                settings: cleanSettingsFinal
-            });
+            try {
+                await supabase.from('stores_data').upsert({
+                    id: store.id,
+                    name: store.name,
+                    settings: cleanSettingsFinal
+                });
+            } catch (storesDataErr: any) {
+                console.warn('[SUPABASE-SYNC] Error updating stores_data:', storesDataErr?.message || storesDataErr);
+                throw storesDataErr;
+            }
 
             // Synchronize Users to Supabase first to ensure employee and user relations are valid
             const localGlobal = await getLocal('global');
@@ -994,9 +1005,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             }
 
             if (mappedUsersList.length > 0) {
-                const { error: usersError } = await supabase.from('users').upsert(mappedUsersList);
-                if (usersError) {
-                    console.warn('Upserting users during saveStoreData failed:', usersError);
+                try {
+                    const { error: usersError } = await supabase.from('users').upsert(mappedUsersList);
+                    if (usersError) {
+                        console.warn('Upserting users during saveStoreData failed:', usersError);
+                    }
+                } catch (uErr: any) {
+                    console.warn('Upserting users threw error:', uErr?.message || uErr);
                 }
             }
 
@@ -1020,16 +1035,19 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 }
             }
             if (placeholderUsers.length > 0) {
-                const { error: stubError } = await supabase.from('users').upsert(placeholderUsers);
-                if (stubError) {
-                    console.warn('Upserting placeholderUsers failed:', stubError);
+                try {
+                    const { error: stubError } = await supabase.from('users').upsert(placeholderUsers);
+                    if (stubError) {
+                        console.warn('Upserting placeholderUsers failed:', stubError);
+                    }
+                } catch (pErr: any) {
+                    console.warn('Upserting placeholderUsers threw error:', pErr?.message || pErr);
                 }
             }
 
             const syncTable = async (table: string, rawItems: any[], omitFields: string[] = []) => {
                 const items = Array.isArray(rawItems) ? rawItems : [];
                 // 1. Handle Deletions (Relational Sync)
-                // We need to identify items currently in Supabase for this store that are NOT in the incoming 'items' list
                 try {
                     const idField = table === 'employees' ? 'phone' : (table === 'cash_holders' ? 'user_id' : 'id');
                     const { data: cloudItems, error: fetchError } = await supabase
@@ -1044,8 +1062,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             .filter(id => id && !localIds.has(id));
 
                         if (idsToDelete.length > 0) {
-                            // Defensive check: only block if EVERYTHING is being deleted and there were MANY items
-                            // This prevents accidental wipes if the app fails to load the local state correctly
                             const isTotalWipeOfLargeCollection = items.length === 0 && idsToDelete.length > 50;
                             if (!isTotalWipeOfLargeCollection) {
                                 await supabase.from(table).delete().eq('store_id', store.id).in(idField, idsToDelete);
@@ -1054,8 +1070,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             }
                         }
                     }
-                } catch (deletionErr) {
-                    console.error(`Failed to handle deletions for ${table}:`, deletionErr);
+                } catch (deletionErr: any) {
+                    console.warn(`[SYNC] Failed to handle deletions for ${table}:`, deletionErr?.message || deletionErr);
                 }
 
                 if (!items || items.length === 0) return;
@@ -1483,51 +1499,62 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 let attempts = 0;
                 
                 while (!upsertSuccess && attempts < 30) {
-                    const { error } = await supabase.from(table).upsert(currentItemsToUpsert);
-                    if (!error) {
-                        upsertSuccess = true;
-                        break;
-                    }
-                    
-                    if (error.code === 'PGRST205' || error.code === 'PGRST116') {
-                        console.warn(`Table ${table} not found in Supabase schema. Skipping sync.`);
-                        return;
-                    }
-                    
-                    if (error.code === 'PGRST204') {
-                        console.warn(`Column missing in table ${table}: ${error.message}`);
-                        // Return error specifically about columns so UI can show warning/button
-                        (window as any).SUPABASE_SCHEMA_ERROR = {
-                            table,
-                            message: error.message,
-                            code: error.code
-                        };
-                        
-                        // Parse missing column name
-                        const msg = error.message || '';
-                        const match = msg.match(/Could not find the '([^']+)' column/i) || 
-                                      msg.match(/column "([^"]+)"/i) ||
-                                      msg.match(/column '([^']+)'/i);
-                                      
-                        if (match && match[1]) {
-                            const missingCol = match[1];
-                            console.warn(`[SYNC-SELF-HEAL] Stripping missing column '${missingCol}' from table '${table}' payload and retrying...`);
-                            currentItemsToUpsert = currentItemsToUpsert.map(item => {
-                                const copy = { ...item };
-                                if (copy.details && typeof copy.details === 'object') {
-                                    copy.details = { ...copy.details, [missingCol]: item[missingCol] };
-                                } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates'].includes(table)) {
-                                    copy.details = { [missingCol]: item[missingCol] };
-                                }
-                                delete copy[missingCol];
-                                return copy;
-                            });
-                            attempts++;
-                            continue;
+                    try {
+                        const { error } = await supabase.from(table).upsert(currentItemsToUpsert);
+                        if (!error) {
+                            upsertSuccess = true;
+                            break;
                         }
+                        
+                        if (error.code === 'PGRST205' || error.code === 'PGRST116') {
+                            console.warn(`Table ${table} not found in Supabase schema. Skipping sync.`);
+                            return;
+                        }
+                        
+                        if (error.code === 'PGRST204') {
+                            console.warn(`Column missing in table ${table}: ${error.message}`);
+                            // Return error specifically about columns so UI can show warning/button
+                            (window as any).SUPABASE_SCHEMA_ERROR = {
+                                table,
+                                message: error.message,
+                                code: error.code
+                            };
+                            
+                            // Parse missing column name
+                            const msg = error.message || '';
+                            const match = msg.match(/Could not find the '([^']+)' column/i) || 
+                                          msg.match(/column "([^"]+)"/i) ||
+                                          msg.match(/column '([^']+)'/i);
+                                          
+                            if (match && match[1]) {
+                                const missingCol = match[1];
+                                console.warn(`[SYNC-SELF-HEAL] Stripping missing column '${missingCol}' from table '${table}' payload and retrying...`);
+                                currentItemsToUpsert = currentItemsToUpsert.map(item => {
+                                    const copy = { ...item };
+                                    if (copy.details && typeof copy.details === 'object') {
+                                        copy.details = { ...copy.details, [missingCol]: item[missingCol] };
+                                    } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates'].includes(table)) {
+                                        copy.details = { [missingCol]: item[missingCol] };
+                                    }
+                                    delete copy[missingCol];
+                                    return copy;
+                                });
+                                attempts++;
+                                continue;
+                            }
+                        }
+                        
+                        throw error;
+                    } catch (upsertErr: any) {
+                        const isNetworkErr = upsertErr?.message?.includes('Failed to fetch') || 
+                                             upsertErr?.name === 'TypeError' || 
+                                             upsertErr?.message?.includes('NetworkError');
+                        if (isNetworkErr) {
+                            console.warn(`[SUPABASE-SYNC] Network fetch failed for table ${table}:`, upsertErr?.message || upsertErr);
+                            throw upsertErr;
+                        }
+                        throw upsertErr;
                     }
-                    
-                    throw error;
                 }
             };
 
@@ -1573,25 +1600,43 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     await fn();
                 } catch (e: any) {
                     syncErrors.push(e);
-                    console.error(`Table sync failed:`, e);
+                    const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
+                    if (!isNet) {
+                        console.warn(`Table sync warning:`, e?.message || e);
+                    }
                 }
             }));
 
             if (syncErrors.length > 0) {
-                // If there are errors, check if any are schema related
                 const isSchemaError = syncErrors.some(e => e.code === 'PGRST204');
-                return { 
-                    success: false, 
-                    error: isSchemaError 
-                        ? `كود الخطأ PGRST204: هناك أعمدة مفقودة في قاعدة البيانات (مثل minStockLevel). يرجى الضغط على زر "إصلاح الأعمدة المفقودة" في إعدادات المطورين.` 
-                        : syncErrors[0].message 
-                };
+                const isNetworkError = syncErrors.every(e => e?.message?.includes('Failed to fetch') || e?.name === 'TypeError');
+                
+                if (isNetworkError) {
+                    console.warn('[SUPABASE-SYNC] Supabase is offline or unreachable. Falling back to local & cloud backup.');
+                    // Don't terminate - continue to Firestore / local backup
+                } else {
+                    return { 
+                        success: false, 
+                        error: isSchemaError 
+                            ? `كود الخطأ PGRST204: هناك أعمدة مفقودة في قاعدة البيانات (مثل minStockLevel). يرجى الضغط على زر "إصلاح الأعمدة المفقودة" في إعدادات المطورين.` 
+                            : (syncErrors[0]?.message || 'Sync error')
+                    };
+                }
+            } else {
+                supabaseSaveSucceeded = true;
             }
 
-            return { success: true };
+            if (supabaseSaveSucceeded) {
+                return { success: true };
+            }
         } catch (e: any) {
-            console.error('Supabase save failed', e);
-            return { success: false, error: e.message };
+            const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
+            if (isNet) {
+                console.warn('[SUPABASE-SYNC] Supabase unreachable on save, proceeding to fallback:', e?.message || e);
+            } else {
+                console.error('Supabase save failed', e);
+                return { success: false, error: e.message };
+            }
         }
     }
 

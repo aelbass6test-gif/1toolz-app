@@ -1056,6 +1056,104 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         </div>
       </motion.div>
 
+      {/* 💡 شريط توزيع مستحقات الشريك بين البضاعة والسيولة */}
+      {(() => {
+        const inventoryVal = (settings.products || []).reduce((sum, p) => {
+          const stock = Number(p.stockQuantity) || 0;
+          const cost = Number(p.costPrice) || 0;
+          return sum + (stock * cost);
+        }, 0);
+        const partnerInventoryShare = (inventoryVal * (partner.profitRatio || 0)) / 100;
+        const totalNetWorth = Math.max(0, partner.balance) + partnerInventoryShare;
+        const invPercent = totalNetWorth > 0 ? Math.round((partnerInventoryShare / totalNetWorth) * 100) : 0;
+        const cashPercent = 100 - invPercent;
+
+        return (
+          <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700/60 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 flex items-center justify-center font-black">
+                  <PackageIcon size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 dark:text-white">أين تتركز أموال وحصة الشريك ({partner.name}) حالياً؟</h3>
+                  <p className="text-[10px] font-bold text-slate-400">توزيع إجمالي مستحقات الشريك بين بضاعة المخزن العينية والسيولة المتاحة</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-black">
+                <span className="text-slate-400">إجمالي القيمة التقديرية لحصته:</span>
+                <span className="text-indigo-600 dark:text-indigo-400 text-sm">{(partner.balance + partnerInventoryShare).toLocaleString()} ج.م</span>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="space-y-1.5">
+              <div className="h-3 w-full bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden flex">
+                <div 
+                  className="bg-amber-500 transition-all" 
+                  style={{ width: `${Math.min(100, Math.max(5, invPercent))}%` }}
+                  title={`حصة بضاعة بالمخزن: ${partnerInventoryShare.toLocaleString()} ج.م`}
+                ></div>
+                <div 
+                  className="bg-emerald-500 transition-all" 
+                  style={{ width: `${Math.max(0, cashPercent)}%` }}
+                  title={`رصيد جاري وسيولة: ${partner.balance.toLocaleString()} ج.م`}
+                ></div>
+              </div>
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-500">
+                <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
+                  بضاعة بالمخزن: {partnerInventoryShare.toLocaleString()} ج.م ({invPercent}%)
+                </span>
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                  رصيد جاري وسيولة: {partner.balance.toLocaleString()} ج.م ({cashPercent}%)
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
+              <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 rounded-2xl border border-amber-100 dark:border-amber-900/30">
+                <p className="text-[10px] font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
+                  📦 <strong>البضاعة:</strong> حصتك التقديرية من بضاعة المخزن الحالية البالغة {inventoryVal.toLocaleString()} ج.م هي <strong className="underline">{partnerInventoryShare.toLocaleString()} ج.م</strong> بناءً على نسبة حصتك ({partner.profitRatio}%).
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 rounded-2xl border border-emerald-100 dark:border-emerald-900/30">
+                <p className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                  💰 <strong>الرصيد الدفتري (صافي الحقوق):</strong> رصيدك الجاري المتبقي بالمتجر هو <strong className="underline">{partner.balance.toLocaleString()} ج.م</strong>، ويمثل حقك المالي بعد احتساب رأس المال المودع وأي مدفوعات شخصية + الأرباح الموزعة وخصم المسحوبات.
+                </p>
+              </div>
+            </div>
+
+            {/* دليل الدورة المحاسبية لرأس المال والأرباح */}
+            <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-900/40 rounded-2xl border border-slate-200 dark:border-slate-800 text-[10px] leading-relaxed space-y-2">
+              <div className="flex items-center gap-1.5 font-black text-slate-800 dark:text-slate-200">
+                <span>🔄</span>
+                <span>الدورة المحاسبية لحقوق الشريك والمدفوعات والمبيعات:</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-slate-600 dark:text-slate-400">
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <strong className="text-indigo-600 dark:text-indigo-400 block mb-0.5">1. شراء بضاعة من الجيب:</strong>
+                  المبلغ يزيد رأس مال الشريك كحق دائن ثابت، وتدخل البضاعة للمخزن كأصل عيني مشترك وتُسترد قيمتها كاش عند بيعها.
+                </div>
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <strong className="text-amber-600 dark:text-amber-400 block mb-0.5">2. مصاريف وتغليف من الجيب:</strong>
+                  تزيد رأس مال الشريك الذي دفع، وتُخصم كمصروف من إجمالي أرباح المبيعات المشتركة فيتحمل الشريكان تكلفتها مناصفة.
+                </div>
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <strong className="text-emerald-600 dark:text-emerald-400 block mb-0.5">3. الأرباح الصافية المتبقية:</strong>
+                  الفائض بعد تصفية كافة التكاليف والمصاريف والخسائر هو الربح الصافي، ويُقسم بنسبة ({partner.profitRatio}%) ويُضاف لخانة "الأرباح الموزعة".
+                </div>
+                <div className="bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-100 dark:border-slate-700">
+                  <strong className="text-rose-600 dark:text-rose-400 block mb-0.5">4. المسحوبات والرصيد:</strong>
+                  أي مسحوبات كاش تُخصم من رصيد الشريك، والرصيد النهائي = (رأس المال + مساهمات الجيب + الأرباح) - المسحوبات.
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 sm:gap-6">
           {[
             { label: 'إجمالي رأس المال المضاف', value: stats.totalInvested, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/20', icon: ArrowUpLeft },

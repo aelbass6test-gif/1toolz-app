@@ -13,6 +13,7 @@ import { jsPDF } from 'jspdf';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, LineChart, Line, CartesianGrid, Legend } from 'recharts';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { exportHTMLToPDF } from '../utils/pdfHelper';
+import { exportComprehensiveFinancialReportExcel } from '../utils/excelExport';
 import { useLocalStorage } from '../src/hooks/useLocalStorage';
 import { shareReport } from '../services/reportShareService';
 
@@ -1251,20 +1252,40 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
     const [copied, setCopied] = useState(false);
     const [reportSections, setReportSections] = useLocalStorage<ComprehensiveReportSections>('report_sections_prefs', {
         showSummary: true,
+        showKpis: true,
+        showWaterfall: true,
         showIncomeStatement: true,
+        showTrialBalance: true,
         showOperational: true,
+        showGeoPerformance: true,
         showProductProfitability: true,
         showPartners: true,
+        showPartnerEqualization: true,
         showCustody: true,
         showCollectionLog: true,
         showLossLog: true,
         showExpensesLog: true,
         showInventoryLog: true,
+        showSignatures: true,
         showRecommendations: true,
         showInventoryValue: showInventoryValue,
         includeMarkupsInProductRevenue: false,
         showExtraServicesRow: true,
-        showFlexShipAmount: true
+        showFlexShipAmount: true,
+        showColProducts: true,
+        showColPrice: true,
+        showColPriceAfterDiscount: true,
+        showColCost: true,
+        showColSurplusProfit: true,
+        showColPercentageProfit: true,
+        showColTotalProfitBeforeExpenses: true,
+        showColDiscounts: true,
+        showColShipping: true,
+        showColInsurance: true,
+        showColTax: true,
+        showColInspection: true,
+        showColCod: true,
+        showColNetProfit: true,
     });
     const [isControlsExpanded, setIsControlsExpanded] = useState(false);
 
@@ -1633,6 +1654,15 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         }
     };
 
+    const handleExportExcel = () => {
+        const storeName = activeStore?.name || 'متجري';
+        exportComprehensiveFinancialReportExcel(orders, settings, wallet, {
+            storeName,
+            dateRangeText,
+            supplyOrders
+        });
+    };
+
     const handleActualExportPDF = async () => {
         if (!previewHtml) return;
         setIsExporting(true);
@@ -1754,6 +1784,14 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </span>
                         </button>
                         <button 
+                            onClick={handleExportExcel}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 dark:shadow-none"
+                            title="تصدير شيت إكسيل احترافي متعدد الصفحات بمعادلات ميزان المراجعة والأرباح"
+                        >
+                            <Download size={16}/>
+                            تصدير Excel
+                        </button>
+                        <button 
                             onClick={handlePreview} 
                             disabled={isExporting}
                             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none disabled:opacity-50"
@@ -1790,13 +1828,15 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setReportSections({
-                                        showSummary: true, showIncomeStatement: true, showOperational: true,
-                                        showProductProfitability: true, showPartners: true, showCustody: true,
-                                        showCollectionLog: true, showLossLog: true, showExpensesLog: true,
-                                        showInventoryLog: true, showRecommendations: true, showInventoryValue: true, showExtraServicesRow: true,
-                                        includeMarkupsInProductRevenue: reportSections.includeMarkupsInProductRevenue
-                                    });
+                                    setReportSections(prev => ({
+                                        ...prev,
+                                        showSummary: true, showKpis: true, showWaterfall: true, showIncomeStatement: true,
+                                        showTrialBalance: true, showOperational: true, showGeoPerformance: true,
+                                        showProductProfitability: true, showPartners: true, showPartnerEqualization: true,
+                                        showCustody: true, showCollectionLog: true, showLossLog: true, showExpensesLog: true,
+                                        showInventoryLog: true, showSignatures: true, showRecommendations: true,
+                                        showInventoryValue: true, showExtraServicesRow: true, showFlexShipAmount: true
+                                    }));
                                 }}
                                 className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold transition-all border border-indigo-100 dark:border-indigo-800"
                             >
@@ -1805,31 +1845,73 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setReportSections({
-                                        showSummary: true, showIncomeStatement: true, showOperational: false,
-                                        showProductProfitability: false, showPartners: false, showCustody: false,
-                                        showCollectionLog: false, showLossLog: false, showExpensesLog: false,
-                                        showInventoryLog: false, showRecommendations: true, showInventoryValue: false, showExtraServicesRow: true,
-                                        includeMarkupsInProductRevenue: reportSections.includeMarkupsInProductRevenue
-                                    });
+                                    setReportSections(prev => ({
+                                        ...prev,
+                                        showSummary: true, showKpis: true, showWaterfall: true, showIncomeStatement: true,
+                                        showTrialBalance: true, showOperational: false, showGeoPerformance: false,
+                                        showProductProfitability: false, showPartners: false, showPartnerEqualization: false,
+                                        showCustody: false, showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                        showInventoryLog: false, showSignatures: true, showRecommendations: true,
+                                        showInventoryValue: false, showExtraServicesRow: true, showFlexShipAmount: true
+                                    }));
                                 }}
                                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold transition-all border border-slate-200 dark:border-slate-600"
                             >
                                 الأساسيات فقط
                             </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReportSections(prev => ({
+                                        ...prev,
+                                        showSummary: true, showKpis: true, showWaterfall: true, showIncomeStatement: true,
+                                        showTrialBalance: true, showOperational: true, showGeoPerformance: true,
+                                        showProductProfitability: true, showPartners: true, showPartnerEqualization: true,
+                                        showCustody: true, showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                        showInventoryLog: false, showSignatures: true, showRecommendations: true,
+                                        showInventoryValue: true, showExtraServicesRow: true, showFlexShipAmount: true
+                                    }));
+                                }}
+                                className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg text-xs font-bold transition-all border border-amber-200 dark:border-amber-800"
+                            >
+                                تقرير مدقق بدون جداول السجلات
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReportSections(prev => ({
+                                        ...prev,
+                                        showSummary: false, showKpis: false, showWaterfall: false, showIncomeStatement: false,
+                                        showTrialBalance: false, showOperational: false, showGeoPerformance: false,
+                                        showProductProfitability: false, showPartners: false, showPartnerEqualization: false,
+                                        showCustody: false, showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                        showInventoryLog: false, showSignatures: false, showRecommendations: false,
+                                        showInventoryValue: false, showExtraServicesRow: false, showFlexShipAmount: false
+                                    }));
+                                }}
+                                className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 rounded-lg text-xs font-bold transition-all border border-rose-200 dark:border-rose-800"
+                            >
+                                إلغاء الكل
+                            </button>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                             {[
                                 { key: 'showSummary', label: 'ملخص الإيرادات والتكاليف' },
+                                { key: 'showKpis', label: 'شريط مؤشرات الأداء (KPIs)' },
+                                { key: 'showWaterfall', label: 'المسار المالي (Waterfall)' },
                                 { key: 'showIncomeStatement', label: 'قائمة الدخل الموحدة' },
+                                { key: 'showTrialBalance', label: 'ميزان المراجعة والتدقيق' },
                                 { key: 'showOperational', label: 'الأداء التشغيلي (الشحن)' },
-                                { key: 'showProductProfitability', label: 'ربحية المنتجات' },
+                                { key: 'showGeoPerformance', label: 'التحليل الجغرافي للمحافظات' },
+                                { key: 'showProductProfitability', label: 'ربحية وأداء المنتجات' },
+                                { key: 'showPartners', label: 'توزيع أرباح الشركاء' },
+                                { key: 'showPartnerEqualization', label: 'مقاصة ومعادلة بضاعة الشركاء' },
+                                { key: 'showCustody', label: 'العهد والذمم المعلقة' },
                                 { key: 'showCollectionLog', label: 'سجل التحصيل المالي' },
-                                { key: 'showLossLog', label: 'سجل المرتجعات' },
-                                { key: 'showExpensesLog', label: 'المصروفات الإدارية' },
-                                { key: 'showInventoryLog', label: 'حركة المخزون' },
-                                { key: 'showPartners', label: 'أرباح الشركاء' },
-                                { key: 'showCustody', label: 'العهد والموظفين' },
+                                { key: 'showLossLog', label: 'سجل المرتجعات والخسائر' },
+                                { key: 'showExpensesLog', label: 'سجل المصروفات والإكراميات' },
+                                { key: 'showInventoryLog', label: 'سجل وحركة المخزون' },
+                                { key: 'showSignatures', label: 'التوقيعات والاعتماد الرسمي' },
                                 { key: 'showRecommendations', label: 'التوصيات الذكية' },
                                 { key: 'showInventoryValue', label: 'قيمة البضاعة بالمخزن' },
                                 { key: 'showExtraServicesRow', label: 'أرباح الخدمات والإضافات' },
@@ -2905,6 +2987,14 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     <span className="hidden sm:inline">{isSharing ? 'جاري الإنشاء...' : 'مشاركة أونلاين'}</span>
                                 </button>
                                 <button 
+                                    onClick={handleExportExcel} 
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-700 text-white rounded-xl font-bold text-sm hover:bg-emerald-800 transition-all shadow-sm"
+                                    title="تصدير شيت إكسيل محاسبي معتمد"
+                                >
+                                    <Download size={16}/>
+                                    <span className="hidden sm:inline">تصدير Excel</span>
+                                </button>
+                                <button 
                                     onClick={handleActualExportPDF} 
                                     disabled={isExporting}
                                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-sm disabled:opacity-50"
@@ -2924,16 +3014,18 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             <span className="text-xs font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap flex items-center gap-1">
                                 <SettingsIcon size={14} /> تخصيص سريع:
                             </span>
+
+                            {/* أزرار الحسابات العامة */}
                             <button
                                 onClick={() => setReportSections(prev => ({ ...prev, includeMarkupsInProductRevenue: !prev.includeMarkupsInProductRevenue }))}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
                                     reportSections.includeMarkupsInProductRevenue
                                         ? 'bg-amber-500 text-white border-amber-600 shadow-amber-100 dark:shadow-none'
                                         : 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-100 dark:shadow-none'
                                 }`}
                                 title="تغيير طريقة حساب وعرض أرباح المنتجات في التقرير"
                             >
-                                <Coins size={14} />
+                                <Coins size={13} />
                                 <span>
                                     {reportSections.includeMarkupsInProductRevenue
                                         ? 'المنتجات: شامل الزيادات'
@@ -2942,58 +3034,120 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </button>
                             <button
                                 onClick={() => setReportSections(prev => ({ ...prev, showExtraServicesRow: prev.showExtraServicesRow === false ? true : false }))}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
                                     reportSections.showExtraServicesRow !== false
                                         ? 'bg-blue-600 text-white border-blue-700 shadow-blue-100 dark:shadow-none'
                                         : 'bg-slate-500 text-white border-slate-600 shadow-slate-100 dark:shadow-none'
                                 }`}
-                                title="إخفاء أو إظهار بند أرباح الخدمات والإضافات في التقرير (عند الإخفاء يتم استبعاده تماماً ولا يضاف لأي بند آخر)"
+                                title="إخفاء أو إظهار بند أرباح الخدمات والإضافات في التقرير"
                             >
-                                <Coins size={14} />
+                                <Coins size={13} />
                                 <span>
                                     {reportSections.showExtraServicesRow !== false
                                         ? 'بند الإضافات: ظاهر'
-                                        : 'بند الإضافات: مخفي (مستبعد)'}
+                                        : 'بند الإضافات: مخفي'}
                                 </span>
                             </button>
                             <button
                                 onClick={() => setReportSections(prev => ({ ...prev, showFlexShipAmount: prev.showFlexShipAmount === false ? true : false }))}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border shadow-sm ${
                                     reportSections.showFlexShipAmount !== false
                                         ? 'bg-emerald-600 text-white border-emerald-700 shadow-emerald-100 dark:shadow-none'
                                         : 'bg-slate-500 text-white border-slate-600 shadow-slate-100 dark:shadow-none'
                                 }`}
                                 title="إخفاء أو إظهار مبلغ الفليكس شيب"
                             >
-                                <Truck size={14} />
+                                <Truck size={13} />
                                 <span>
                                     {reportSections.showFlexShipAmount !== false
-                                        ? 'مبلغ الفليكس شيب: ظاهر'
-                                        : 'مبلغ الفليكس شيب: مخفي'}
+                                        ? 'الفليكس شيب: ظاهر'
+                                        : 'الفليكس شيب: مخفي'}
                                 </span>
                             </button>
+
                             <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1"></div>
+
+                            {/* القوالب السريعة */}
+                            <button
+                                onClick={() => setReportSections(prev => ({
+                                    ...prev,
+                                    showSummary: true, showKpis: true, showWaterfall: true, showIncomeStatement: true,
+                                    showTrialBalance: true, showOperational: true, showGeoPerformance: true,
+                                    showProductProfitability: true, showPartners: true, showPartnerEqualization: true,
+                                    showCustody: true, showCollectionLog: true, showLossLog: true, showExpensesLog: true,
+                                    showInventoryLog: true, showSignatures: true, showRecommendations: true,
+                                    showInventoryValue: true, showExtraServicesRow: true, showFlexShipAmount: true
+                                }))}
+                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg text-xs font-bold whitespace-nowrap border border-indigo-200 dark:border-indigo-800"
+                            >
+                                تحديد الكل
+                            </button>
+                            <button
+                                onClick={() => setReportSections(prev => ({
+                                    ...prev,
+                                    showSummary: true, showKpis: true, showWaterfall: true, showIncomeStatement: true,
+                                    showTrialBalance: true, showOperational: false, showGeoPerformance: false,
+                                    showProductProfitability: false, showPartners: false, showPartnerEqualization: false,
+                                    showCustody: false, showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                    showInventoryLog: false, showSignatures: true, showRecommendations: true,
+                                    showInventoryValue: false, showExtraServicesRow: true, showFlexShipAmount: true
+                                }))}
+                                className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 dark:bg-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold whitespace-nowrap border border-slate-300 dark:border-slate-600"
+                            >
+                                الأساسيات فقط
+                            </button>
+                            <button
+                                onClick={() => setReportSections(prev => ({
+                                    ...prev,
+                                    showSummary: true, showKpis: true, showWaterfall: true, showIncomeStatement: true,
+                                    showTrialBalance: true, showOperational: true, showGeoPerformance: true,
+                                    showProductProfitability: true, showPartners: true, showPartnerEqualization: true,
+                                    showCustody: true, showCollectionLog: false, showLossLog: false, showExpensesLog: false,
+                                    showInventoryLog: false, showSignatures: true, showRecommendations: true,
+                                    showInventoryValue: true, showExtraServicesRow: true, showFlexShipAmount: true
+                                }))}
+                                className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded-lg text-xs font-bold whitespace-nowrap border border-amber-300 dark:border-amber-700"
+                            >
+                                بدون سجلات
+                            </button>
+
+                            <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1"></div>
+
+                            {/* أزرار جميع الأقسام */}
                             {[
                                 { key: 'showSummary', label: 'الإيرادات والتكاليف' },
+                                { key: 'showKpis', label: 'مؤشرات KPIs' },
+                                { key: 'showWaterfall', label: 'المسار المالي' },
                                 { key: 'showIncomeStatement', label: 'قائمة الدخل' },
+                                { key: 'showTrialBalance', label: 'ميزان المراجعة' },
                                 { key: 'showOperational', label: 'الأداء التشغيلي' },
+                                { key: 'showGeoPerformance', label: 'التحليل الجغرافي' },
                                 { key: 'showProductProfitability', label: 'ربحية المنتجات' },
+                                { key: 'showPartners', label: 'أرباح الشركاء' },
+                                { key: 'showPartnerEqualization', label: 'معادلة البضاعة' },
+                                { key: 'showCustody', label: 'العهد والذمم' },
                                 { key: 'showCollectionLog', label: 'سجل التحصيل' },
-                                { key: 'showLossLog', label: 'سجل الخسائر' },
+                                { key: 'showLossLog', label: 'سجل المرتجعات' },
                                 { key: 'showExpensesLog', label: 'المصروفات' },
-                                { key: 'showInventoryLog', label: 'المخزون' },
-                                { key: 'showPartners', label: 'الشركاء' },
-                                { key: 'showCustody', label: 'العهد' },
-                                { key: 'showRecommendations', label: 'التوصيات' },
+                                { key: 'showInventoryLog', label: 'حركة المخزون' },
+                                { key: 'showSignatures', label: 'الاعتماد والتوقيعات' },
+                                { key: 'showRecommendations', label: 'التوصيات الذكية' },
+                                { key: 'showInventoryValue', label: 'بضاعة المخزن' },
                             ].map((sec) => {
                                 const isSelected = reportSections[sec.key as keyof ComprehensiveReportSections] !== false;
                                 return (
                                     <button
                                         key={sec.key}
-                                        onClick={() => setReportSections(prev => ({
-                                            ...prev,
-                                            [sec.key]: !isSelected
-                                        }))}
+                                        onClick={() => {
+                                            if (sec.key === 'showInventoryValue') {
+                                                toggleInventoryValue();
+                                            } else {
+                                                setReportSections(prev => ({
+                                                    ...prev,
+                                                    [sec.key]: !isSelected
+                                                }));
+                                            }
+                                        }}
                                         className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
                                             isSelected 
                                                 ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 

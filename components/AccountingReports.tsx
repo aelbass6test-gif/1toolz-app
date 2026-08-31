@@ -1048,8 +1048,25 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
     }, [settings.cashHolders, settings.partners, settings.employees, (settings as any).cashHandovers, orders]);
 
     const isBankOrTreasuryAccount = (name: string): boolean => {
-        const n = (name || '').toLowerCase();
-        return n.includes('بنك') || n.includes('خزينة') || n.includes('خزينه') || n.includes('bank') || n.includes('حساب');
+        if (!name) return false;
+        const norm = (name || '').toLowerCase().trim();
+
+        if (treasury?.accounts && Array.isArray(treasury.accounts)) {
+            const found = treasury.accounts.find((a: any) => {
+                const aNorm = (a.name || '').toLowerCase().trim();
+                return (a.id === name || aNorm === norm || (aNorm && norm.includes(aNorm)) || (aNorm && aNorm.includes(norm))) && a.type !== 'custody';
+            });
+            if (found) return true;
+        }
+
+        const bankKeywords = [
+            'بنك', 'bank', 'cib', 'qnb', 'hsbc', 'faisal', 'فيصل', 'الاهلي', 'الأهلي', 'مصر',
+            'القاهرة', 'القاهره', 'الاسكندرية', 'الإسكندرية', 'البركة', 'بركة', 'ابوظبي', 'أبوظبي',
+            'الراجحي', 'راجحي', 'خزنة', 'خزينة', 'خزينه', 'المحفظة', 'محفظة', 'فودافون كاش',
+            'فودافون', 'اورنج', 'أورنج', 'اتصالات', 'وي كاش', 'we cash', 'انستا باي', 'انستاباي',
+            'instapay', 'حساب بنكي', 'الخزينة العامة', 'الخزينة', 'درج', 'كاشير'
+        ];
+        return bankKeywords.some(kw => norm.includes(kw));
     };
 
     const treasuryCustody = (treasury?.accounts || []).filter((a: any) => a.type === 'custody' && a.balance > 0 && !isBankOrTreasuryAccount(a.name)).map((a: any) => ({ 
