@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 type Env = {
   CLOUDFLARE_ZONE_ID: string;
   CLOUDFLARE_API_TOKEN: string;
+  BACKEND_URL?: string;
   ASSETS?: any;
 };
 
@@ -203,6 +204,50 @@ app.post("/api/domains/status", async (c) => {
     });
   } catch (err: any) {
     return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// Intelligent fallback API Proxy: forwards all other /api/* requests to the active Cloud Run server
+app.all("/api/*", async (c) => {
+  const defaultBackend = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+  const backendUrl = (c.env && c.env.BACKEND_URL) || defaultBackend;
+  
+  const url = new URL(c.req.url);
+  const targetUrl = new URL(url.pathname + url.search, backendUrl);
+  
+  console.log(`[WORKER PROXY] Forwarding ${c.req.method} ${url.pathname} to ${targetUrl.toString()}`);
+  
+  const headers = new Headers(c.req.raw.headers);
+  headers.set("host", new URL(backendUrl).hostname);
+  
+  const reqInit: RequestInit = {
+    method: c.req.method,
+    headers: headers,
+    redirect: "manual"
+  };
+  
+  if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+    try {
+      reqInit.body = await c.req.raw.arrayBuffer();
+    } catch (e) {
+      // Body reading might fail if empty or already read, fallback to nothing
+    }
+  }
+  
+  try {
+    const res = await fetch(targetUrl.toString(), reqInit);
+    
+    const resHeaders = new Headers(res.headers);
+    resHeaders.delete("content-encoding");
+    
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: resHeaders
+    });
+  } catch (err: any) {
+    console.error("[WORKER PROXY ERROR]", err);
+    return c.json({ success: false, error: `فشل تمرير الطلب للخادم السحابي: ${err.message}` }, 502);
   }
 });
 
