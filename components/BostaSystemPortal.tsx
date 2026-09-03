@@ -1,14 +1,21 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { User as AppUser } from '../types';
+import { User as AppUser, Order, BostaConfig, BostaPickupRequest } from '../types';
 import { 
   ArrowLeft, Truck, Percent, Coins, Info, Calculator, 
   HelpCircle, Wallet, Banknote, MapPin, Sparkles, Link, 
   Calendar, DollarSign, CheckCircle2, ListFilter, Play,
   ChevronDown, ChevronUp, Globe, Search, RefreshCw, X, ShieldCheck,
-  Package, ShoppingCart, Minus, Check, Plus, User, Settings, Trash2
+  Package, ShoppingCart, Minus, Check, Plus, User, Settings, Trash2,
+  ExternalLink, Eye, EyeOff, AlertCircle, FileText, Send, Clock, Printer,
+  Code, Zap, CheckCheck, BookOpen, Radio, Key, MessageCircle
 } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal';
+import { bostaService, DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
+import { printPdfBlob } from '../utils/printHelper';
+import { BostaPickupModal } from './BostaPickupModal';
+import { BostaTrackingModal } from './BostaTrackingModal';
+import { inAppAlert, inAppToast } from '../utils/inAppAlert';
 
 interface BostaSystemPortalProps {
   onBack: () => void;
@@ -18,6 +25,8 @@ interface BostaSystemPortalProps {
   setWallet?: (updater: any) => void;
   settings?: any;
   setSettings?: (updater: any) => void;
+  orders?: Order[];
+  setOrders?: React.Dispatch<React.SetStateAction<Order[]>>;
 }
 
 interface BostaRegionRates {
@@ -105,8 +114,8 @@ const BOSTA_HUBS = [
   'القناة - بورسعيد والسويس والإسماعيلية'
 ];
 
-export default function BostaSystemPortal({ onBack, treasury, setTreasury, wallet, setWallet, settings, setSettings }: BostaSystemPortalProps) {
-  const [activePortalTab, setActivePortalTab] = useState<'calculator' | 'api-integration' | 'packaging'>('calculator');
+export default function BostaSystemPortal({ onBack, treasury, setTreasury, wallet, setWallet, settings, setSettings, orders = [], setOrders }: BostaSystemPortalProps) {
+  const [activePortalTab, setActivePortalTab] = useState<'locations' | 'calculator' | 'api-integration' | 'packaging' | 'pickups' | 'tracking'>('locations');
   const [activeRegion, setActiveRegion] = useState<string>('القاهرة والجيزة');
   const [showVat, setShowVat] = useState<boolean>(true);
   const [pickupSearch, setPickupSearch] = useState<string>('');
@@ -477,15 +486,514 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
   // Modals
   const [showHowItCalculatedModal, setShowHowItCalculatedModal] = useState<boolean>(false);
 
-  // API settings
+  // Real Bosta API states
   const [apiSettings, setApiSettings] = useState({
-    bostaApiKey: 'bosta_live_key_9f3d9ecbc3e82a9d80d287fe1',
-    businessId: 'bus_9340029',
-    isActive: true,
-    webhookUrl: 'https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app/api/webhooks/bosta'
+    bostaApiKey: settings?.bostaConfig?.apiKey || '',
+    businessId: settings?.bostaConfig?.businessId || '',
+    environment: settings?.bostaConfig?.environment || 'production',
+    isActive: settings?.bostaConfig?.isActive ?? false,
+    pickupFirstLine: settings?.bostaConfig?.pickupAddress?.firstLine || settings?.storeAddress || '',
+    pickupCity: settings?.bostaConfig?.pickupAddress?.city || 'Cairo',
+    pickupContactName: settings?.bostaConfig?.pickupAddress?.contactPersonName || settings?.storeName || '',
+    pickupContactPhone: settings?.bostaConfig?.pickupAddress?.contactPersonPhone || settings?.storePhone || '',
+    defaultPackageType: settings?.bostaConfig?.defaultPackageType || 'Parcel',
+    defaultPackageSize: settings?.bostaConfig?.defaultPackageSize || 'SMALL',
+    defaultBusinessLocationId: settings?.bostaConfig?.defaultBusinessLocationId || '',
+    defaultReturnLocationId: settings?.bostaConfig?.defaultReturnLocationId || '',
+    allowToOpenPackage: settings?.bostaConfig?.allowToOpenPackage ?? true,
+    autoSendOnConfirm: settings?.bostaConfig?.autoSendOnConfirm ?? false,
+    autoSendWhatsAppTracking: settings?.bostaConfig?.autoSendWhatsAppTracking ?? true,
+    whatsappTrackingMessageTemplate: settings?.bostaConfig?.whatsappTrackingMessageTemplate || '',
+    autoSendWhatsAppOnStatusChange: settings?.bostaConfig?.autoSendWhatsAppOnStatusChange ?? true,
+    whatsappStatusMessageTemplate: settings?.bostaConfig?.whatsappStatusMessageTemplate || '',
+    webhookUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/bosta` : '/api/webhooks/bosta'
   });
-  const [isEditingApi, setIsEditingApi] = useState<boolean>(false);
+  const [showApiKey, setShowApiKey] = useState<boolean>(false);
+  const [businessLocations, setBusinessLocations] = useState<any[]>(() => {
+    if (settings?.bostaConfig?.businessLocations && settings.bostaConfig.businessLocations.length > 0) {
+      return settings.bostaConfig.businessLocations;
+    }
+    return DEFAULT_BOSTA_BUSINESS_LOCATIONS;
+  });
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false);
+
+  // Modal State for Locations
+  const [showLocationModal, setShowLocationModal] = useState<boolean>(false);
+  const [editingLocIndex, setEditingLocIndex] = useState<number | null>(null);
+  const [locFormName, setLocFormName] = useState<string>('');
+  const [locFormContactName, setLocFormContactName] = useState<string>('');
+  const [locFormContactPhone, setLocFormContactPhone] = useState<string>('');
+  const [locFormCity, setLocFormCity] = useState<string>('كفر الشيخ - بلطيم');
+  const [locFormAddress, setLocFormAddress] = useState<string>('بلطيم');
+  const [locFormIsDefault, setLocFormIsDefault] = useState<boolean>(false);
+  const [locationSearch, setLocationSearch] = useState<string>('');
+
+  const saveLocationsList = (newList: any[]) => {
+    setBusinessLocations(newList);
+    if (setSettings) {
+      setSettings((prev: any) => ({
+        ...prev,
+        bostaConfig: {
+          ...(prev?.bostaConfig || {}),
+          businessLocations: newList
+        }
+      }));
+    }
+  };
+
+  useEffect(() => {
+    if (apiSettings.bostaApiKey && apiSettings.isActive) {
+      fetchBusinessLocations(apiSettings.bostaApiKey, apiSettings.environment === 'staging');
+    }
+  }, [apiSettings.bostaApiKey, apiSettings.isActive, apiSettings.environment]);
+
+  const fetchBusinessLocations = async (key: string, isStaging: boolean) => {
+    try {
+      setIsLoadingLocations(true);
+      const res = await bostaService.getBusinessLocations(key, isStaging);
+      if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
+        setBusinessLocations(res.data);
+      } else if (!settings?.bostaConfig?.businessLocations || settings.bostaConfig.businessLocations.length === 0) {
+        setBusinessLocations(DEFAULT_BOSTA_BUSINESS_LOCATIONS);
+      }
+    } catch (e) {
+      console.error("Failed to load business locations", e);
+    } finally {
+      setIsLoadingLocations(false);
+    }
+  };
+  const [isEditingApi, setIsEditingApi] = useState<boolean>(!settings?.bostaConfig?.apiKey);
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [verifyStatus, setVerifyStatus] = useState<{ success: boolean; message: string; user?: any } | null>(null);
+  const [showDisconnectModal, setShowDisconnectModal] = useState<boolean>(false);
+  const [bostaCities, setBostaCities] = useState<Array<{ _id: string; name: string; nameAr: string }>>([]);
+
+  // Fetch official live Bosta cities on load
+  useEffect(() => {
+    bostaService.getCities().then(res => {
+      if (res.success && res.list && res.list.length > 0) {
+        setBostaCities(res.list);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Connection Method: API Key vs Direct Account Login (Official Bosta Docs)
+  const [authMethod, setAuthMethod] = useState<'apikey' | 'directLogin'>('apikey');
+  const [loginEmail, setLoginEmail] = useState<string>('');
+  const [loginPassword, setLoginPassword] = useState<string>('');
+  const [showLoginPassword, setShowLoginPassword] = useState<boolean>(false);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+
+  // Clean Reset & Disconnect Handler
+  const handleResetAndDisconnect = async () => {
+    try {
+      await bostaService.disconnect();
+    } catch {
+      // Ignore network errors on disconnect
+    }
+
+    const resetConfig: BostaConfig = {
+      apiKey: '',
+      businessId: '',
+      isActive: false,
+      environment: 'production',
+      connectedUserName: '',
+      connectedUserEmail: '',
+      connectedUserPhone: '',
+      pickupAddress: {
+        firstLine: settings?.storeAddress || '',
+        city: 'Cairo',
+        contactPersonName: settings?.storeName || '',
+        contactPersonPhone: settings?.storePhone || ''
+      },
+      defaultPackageType: 'Parcel',
+      defaultPackageSize: 'SMALL',
+      defaultBusinessLocationId: '',
+      defaultReturnLocationId: '',
+      allowToOpenPackage: true,
+      autoSendOnConfirm: false
+    };
+
+    if (setSettings) {
+      setSettings((prev: any) => ({
+        ...prev,
+        bostaConfig: resetConfig,
+        shippingIntegrations: (prev.shippingIntegrations || []).filter((i: any) => i.provider !== 'bosta')
+      }));
+    }
+
+    setApiSettings({
+      bostaApiKey: '',
+      businessId: '',
+      environment: 'production',
+      isActive: false,
+      pickupFirstLine: settings?.storeAddress || '',
+      pickupCity: 'Cairo',
+      pickupContactName: settings?.storeName || '',
+      pickupContactPhone: settings?.storePhone || '',
+      defaultPackageType: 'Parcel',
+      defaultPackageSize: 'SMALL',
+      defaultBusinessLocationId: '',
+      defaultReturnLocationId: '',
+      allowToOpenPackage: true,
+      autoSendOnConfirm: false,
+      autoSendWhatsAppTracking: true,
+      whatsappTrackingMessageTemplate: '',
+      autoSendWhatsAppOnStatusChange: true,
+      whatsappStatusMessageTemplate: '',
+      webhookUrl: typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/bosta` : '/api/webhooks/bosta'
+    });
+
+    setLoginEmail('');
+    setLoginPassword('');
+    setVerifyStatus(null);
+    setIsEditingApi(true);
+    setShowDisconnectModal(false);
+    inAppToast('تم حذف وإلغاء بيانات الربط القديمة بنجاح! يمكنك الآن ربط الحساب من جديد.', 'success');
+  };
+
+  // Webhook Simulator States
+  const [simTrackingNumber, setSimTrackingNumber] = useState<string>('');
+  const [simStateCode, setSimStateCode] = useState<number>(45);
+  const [simStateValue, setSimStateValue] = useState<string>('Delivered');
+  const [simReason, setSimReason] = useState<string>('تم تسليم الشحنة للعميل وتحصيل المبلغ بنجاح');
+  const [isSimulatingWebhook, setIsSimulatingWebhook] = useState<boolean>(false);
+  const [simLog, setSimLog] = useState<{ time: string; text: string; success: boolean }[]>([]);
+
+  // Webhook Simulation Handler
+  const handleSimulateWebhookEvent = async (overrideStateCode?: number, overrideStateValue?: string, overrideReason?: string) => {
+    const code = overrideStateCode !== undefined ? overrideStateCode : simStateCode;
+    const val = overrideStateValue || simStateValue;
+    const reason = overrideReason || simReason;
+    const tracking = simTrackingNumber.trim() || (orders.find(o => o.waybillNumber || o.bostaTrackingNumber)?.waybillNumber || '12345678');
+
+    setIsSimulatingWebhook(true);
+    try {
+      const res = await bostaService.simulateWebhook({
+        trackingNumber: tracking,
+        stateCode: code,
+        stateValue: val,
+        reason: reason
+      });
+
+      const now = new Date().toLocaleTimeString('ar-EG');
+      if (res.success) {
+        setSimLog(prev => [
+          {
+            time: now,
+            text: `[نجاح] تم استقبال حدث بوسطة: ${val} (كود ${code}) لشحنة #${tracking} -> تحولت الحالة تلقائياً إلى: ${res.mappedStatus}`,
+            success: true
+          },
+          ...prev.slice(0, 9)
+        ]);
+        inAppToast(`تمت محاكاة تحديث بوسطة بنجاح! الحالة: ${res.mappedStatus} (${val})`, 'success');
+      } else {
+        setSimLog(prev => [
+          {
+            time: now,
+            text: `[فشل] خطأ في محاكاة الـ Webhook: ${res.error}`,
+            success: false
+          },
+          ...prev.slice(0, 9)
+        ]);
+        inAppToast(`فشل المحاكاة: ${res.error}`, 'error');
+      }
+    } catch (err: any) {
+      inAppToast(`خطأ: ${err.message}`, 'error');
+    } finally {
+      setIsSimulatingWebhook(false);
+    }
+  };
+
+  // Pickups and Tracking Modals
+  const [showPickupModal, setShowPickupModal] = useState<boolean>(false);
+  const [showTrackingModal, setShowTrackingModal] = useState<boolean>(false);
+  const [activeTrackingNumber, setActiveTrackingNumber] = useState<string>('');
+  const [trackingSearchInput, setTrackingSearchInput] = useState<string>('');
+  const [quickTrackLoading, setQuickTrackLoading] = useState<boolean>(false);
+  const [quickTrackResult, setQuickTrackResult] = useState<any | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  const handleVerifyAndSave = async () => {
+    const rawKey = apiSettings.bostaApiKey.trim().replace(/^["']|["']$/g, '');
+    if (!rawKey) {
+      inAppAlert('يرجى كتابة أو لصق مفتاح الـ API الخاص ببوسطة أولاً', { title: 'مفتاح الربط مطلوب', type: 'warning' });
+      return;
+    }
+
+    setIsVerifying(true);
+    setVerifyStatus(null);
+    try {
+      const res = await bostaService.verifyConnection(rawKey, apiSettings.environment as any);
+      if (res.success) {
+        const userInfo = res.user;
+        const resolvedEnv = res.detectedEnvironment || apiSettings.environment || 'production';
+        const finalKey = res.resolvedApiKey || rawKey;
+        const updatedConfig: BostaConfig = {
+          apiKey: finalKey,
+          businessId: userInfo?.business?.id || apiSettings.businessId,
+          environment: resolvedEnv,
+          isActive: true,
+          connectedUserName: userInfo?.name,
+          connectedUserEmail: userInfo?.email,
+          connectedUserPhone: userInfo?.phone,
+          lastSync: new Date().toISOString(),
+          pickupAddress: {
+            firstLine: apiSettings.pickupFirstLine,
+            city: apiSettings.pickupCity,
+            contactPersonName: apiSettings.pickupContactName,
+            contactPersonPhone: apiSettings.pickupContactPhone
+          },
+          defaultPackageType: apiSettings.defaultPackageType as any,
+          defaultPackageSize: apiSettings.defaultPackageSize as any,
+          defaultBusinessLocationId: apiSettings.defaultBusinessLocationId,
+          defaultReturnLocationId: apiSettings.defaultReturnLocationId,
+          allowToOpenPackage: apiSettings.allowToOpenPackage,
+          autoSendOnConfirm: apiSettings.autoSendOnConfirm,
+          autoSendWhatsAppTracking: apiSettings.autoSendWhatsAppTracking,
+          whatsappTrackingMessageTemplate: apiSettings.whatsappTrackingMessageTemplate,
+          autoSendWhatsAppOnStatusChange: apiSettings.autoSendWhatsAppOnStatusChange,
+          whatsappStatusMessageTemplate: apiSettings.whatsappStatusMessageTemplate,
+          webhookUrl: apiSettings.webhookUrl
+        };
+
+        if (setSettings) {
+          setSettings((prev: any) => ({
+            ...prev,
+            bostaConfig: updatedConfig,
+            shippingIntegrations: [
+              ...(prev.shippingIntegrations || []).filter((i: any) => i.provider !== 'bosta'),
+              {
+                id: 'bosta_main',
+                provider: 'bosta',
+                apiKey: finalKey,
+                isConnected: true
+              }
+            ]
+          }));
+        }
+
+        setApiSettings(prev => ({
+          ...prev,
+          bostaApiKey: finalKey,
+          environment: resolvedEnv,
+          isActive: true,
+          businessId: userInfo?.business?.id || prev.businessId
+        }));
+
+        setVerifyStatus({
+          success: true,
+          message: `تم التحقق بنجاح! حساب بوسطة (${resolvedEnv === 'staging' ? 'بيئة تجريبية Sandbox' : 'حساب فعلي Production'}) نشط باسم: ${userInfo?.name || userInfo?.email || 'المتجر'}`,
+          user: userInfo
+        });
+        setIsEditingApi(false);
+      } else {
+        setVerifyStatus({
+          success: false,
+          message: res.error || 'مفتاح الربط غير صالح أو تم رفض الاتصال من بوسطة (Invalid authorization token or API key)'
+        });
+      }
+    } catch (err: any) {
+      setVerifyStatus({
+        success: false,
+        message: err.message || 'حدث خطأ في الاتصال بالخادم'
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleDirectSaveWithoutVerify = () => {
+    const rawKey = apiSettings.bostaApiKey.trim().replace(/^["']+|["']+$/g, '');
+    if (!rawKey) {
+      inAppAlert('يرجى كتابة أو لصق مفتاح الـ API الخاص ببوسطة أولاً', { title: 'مفتاح الربط مطلوب', type: 'warning' });
+      return;
+    }
+    const bareKey = rawKey.replace(/^bearer\s+/i, '').trim();
+    const resolvedEnv = apiSettings.environment || 'production';
+    const updatedConfig: BostaConfig = {
+      apiKey: bareKey,
+      businessId: apiSettings.businessId,
+      environment: resolvedEnv as any,
+      isActive: true,
+      connectedUserName: 'حساب مفتاح API مخصص',
+      connectedUserEmail: '',
+      connectedUserPhone: '',
+      lastSync: new Date().toISOString(),
+      pickupAddress: {
+        firstLine: apiSettings.pickupFirstLine,
+        city: apiSettings.pickupCity,
+        contactPersonName: apiSettings.pickupContactName,
+        contactPersonPhone: apiSettings.pickupContactPhone
+      },
+      defaultPackageType: apiSettings.defaultPackageType as any,
+      defaultPackageSize: apiSettings.defaultPackageSize as any,
+      allowToOpenPackage: apiSettings.allowToOpenPackage,
+      autoSendOnConfirm: apiSettings.autoSendOnConfirm,
+      autoSendWhatsAppTracking: apiSettings.autoSendWhatsAppTracking,
+      whatsappTrackingMessageTemplate: apiSettings.whatsappTrackingMessageTemplate,
+      autoSendWhatsAppOnStatusChange: apiSettings.autoSendWhatsAppOnStatusChange,
+      whatsappStatusMessageTemplate: apiSettings.whatsappStatusMessageTemplate,
+      webhookUrl: apiSettings.webhookUrl
+    };
+
+    if (setSettings) {
+      setSettings((prev: any) => ({
+        ...prev,
+        bostaConfig: updatedConfig,
+        shippingIntegrations: [
+          ...(prev.shippingIntegrations || []).filter((i: any) => i.provider !== 'bosta'),
+          {
+            id: 'bosta_main',
+            provider: 'bosta',
+            apiKey: bareKey,
+            isConnected: true
+          }
+        ]
+      }));
+    }
+
+    setApiSettings(prev => ({
+      ...prev,
+      bostaApiKey: bareKey,
+      environment: resolvedEnv,
+      isActive: true
+    }));
+
+    setVerifyStatus({
+      success: true,
+      message: `تم حفظ مفتاح الربط وتفعيل حساب بوسطة بنجاح (${resolvedEnv === 'staging' ? 'بيئة تجريبية Staging' : 'حساب فعلي Live'})! المفتاح نشط ومفعل الآن للأوردرات وطباعة البوالص.`,
+    });
+    setIsEditingApi(false);
+    inAppToast('تم حفظ وتفعيل مفتاح بوسطة بنجاح!', 'success');
+  };
+
+  const handleDirectLogin = async () => {
+    if (!loginEmail.trim() || !loginPassword) {
+      inAppAlert('يرجى إدخال البريد الإلكتروني وكلمة المرور لحساب بوسطة', { title: 'بيانات غير مكتملة', type: 'warning' });
+      return;
+    }
+    setIsLoggingIn(true);
+    setVerifyStatus(null);
+    try {
+      const res = await bostaService.loginWithCredentials(loginEmail, loginPassword, apiSettings.environment as any);
+      if (res.success && res.token) {
+        const userInfo = res.user;
+        const resolvedEnv = res.detectedEnvironment || apiSettings.environment || 'production';
+        const acquiredToken = res.token;
+        const updatedConfig: BostaConfig = {
+          apiKey: acquiredToken,
+          businessId: userInfo?.business?.id || apiSettings.businessId,
+          environment: resolvedEnv,
+          isActive: true,
+          connectedUserName: userInfo?.name,
+          connectedUserEmail: userInfo?.email || loginEmail.trim(),
+          connectedUserPhone: userInfo?.phone,
+          lastSync: new Date().toISOString(),
+          pickupAddress: {
+            firstLine: apiSettings.pickupFirstLine,
+            city: apiSettings.pickupCity,
+            contactPersonName: apiSettings.pickupContactName,
+            contactPersonPhone: apiSettings.pickupContactPhone
+          },
+          defaultPackageType: apiSettings.defaultPackageType as any,
+          defaultPackageSize: apiSettings.defaultPackageSize as any,
+          allowToOpenPackage: apiSettings.allowToOpenPackage,
+          autoSendOnConfirm: apiSettings.autoSendOnConfirm,
+          autoSendWhatsAppTracking: apiSettings.autoSendWhatsAppTracking,
+          whatsappTrackingMessageTemplate: apiSettings.whatsappTrackingMessageTemplate,
+          autoSendWhatsAppOnStatusChange: apiSettings.autoSendWhatsAppOnStatusChange,
+          whatsappStatusMessageTemplate: apiSettings.whatsappStatusMessageTemplate,
+          webhookUrl: apiSettings.webhookUrl
+        };
+
+        if (setSettings) {
+          setSettings((prev: any) => ({
+            ...prev,
+            bostaConfig: updatedConfig,
+            shippingIntegrations: [
+              ...(prev.shippingIntegrations || []).filter((i: any) => i.provider !== 'bosta'),
+              {
+                id: 'bosta_main',
+                provider: 'bosta',
+                apiKey: acquiredToken,
+                isConnected: true
+              }
+            ]
+          }));
+        }
+
+        setApiSettings(prev => ({
+          ...prev,
+          bostaApiKey: acquiredToken,
+          environment: resolvedEnv,
+          isActive: true,
+          businessId: userInfo?.business?.id || prev.businessId
+        }));
+
+        setVerifyStatus({
+          success: true,
+          message: `تم تسجيل الدخول والربط بنجاح! تم التحقق من حساب بوسطة باسم: ${userInfo?.name || userInfo?.email || 'المتجر'}`,
+          user: userInfo
+        });
+        setIsEditingApi(false);
+      } else {
+        setVerifyStatus({
+          success: false,
+          message: res.error || 'فشل تسجيل الدخول في حساب بوسطة. يرجى التأكد من صحة البريد الإلكتروني وكلمة المرور.'
+        });
+      }
+    } catch (err: any) {
+      setVerifyStatus({
+        success: false,
+        message: err.message || 'حدث خطأ غير متوقع أثناء تسجيل الدخول'
+      });
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleQuickTrackShipment = async () => {
+    if (!trackingSearchInput.trim()) return;
+    setQuickTrackLoading(true);
+    setQuickTrackResult(null);
+    try {
+      const res = await bostaService.trackShipment(trackingSearchInput.trim(), apiSettings.bostaApiKey);
+      if (res.success && res.tracking) {
+        setQuickTrackResult(res.tracking);
+      } else {
+        alert(res.error || 'تعذر العثور على شحنة بهذا الرقم في بوسطة');
+      }
+    } catch (err: any) {
+      alert(err.message || 'خطأ في تتبع الشحنة');
+    } finally {
+      setQuickTrackLoading(false);
+    }
+  };
+
+  const handlePrintAwbDirect = async (trackingOrId: string) => {
+    try {
+      const res = await bostaService.getAwb(trackingOrId, apiSettings.bostaApiKey);
+      if (res.success && res.data) {
+        const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
+          ? res.data.replace('data:application/pdf;base64,', '')
+          : res.data;
+        const byteCharacters = atob(cleanBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        printPdfBlob(blobUrl, `bosta-awb-${trackingOrId}.pdf`);
+      } else {
+        alert(res.error || 'فشل تحميل بوليصة الشحن من بوسطة');
+      }
+    } catch (err: any) {
+      alert(err.message || 'خطأ في طباعة البوليصة');
+    }
+  };
 
   // Filtered Hubs based on search
   const filteredHubs = useMemo(() => {
@@ -556,29 +1064,233 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           </div>
         </div>
 
-        <div className="flex bg-slate-200/80 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 w-fit">
+        <div className="flex bg-slate-200/80 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 w-fit flex-wrap gap-1">
+          <button 
+            onClick={() => setActivePortalTab('locations')} 
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'locations' ? 'bg-emerald-600 text-white shadow font-black' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800'}`}
+          >
+            <MapPin size={14} /> أماكن الشركة ({businessLocations.length})
+          </button>
           <button 
             onClick={() => setActivePortalTab('calculator')} 
-            className={`px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'calculator' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'calculator' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <Calculator size={14} /> خطة ومحاكاة الأسعار
           </button>
           <button 
             onClick={() => setActivePortalTab('packaging')} 
-            className={`px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'packaging' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'packaging' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <Package size={14} /> متجر التغليف (Shop)
           </button>
           <button 
             onClick={() => setActivePortalTab('api-integration')} 
-            className={`px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'api-integration' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'api-integration' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
           >
             <Sparkles size={14} /> الربط الإلكتروني المباشر (API)
+          </button>
+          <button 
+            onClick={() => setActivePortalTab('pickups')} 
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'pickups' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Calendar size={14} /> أذونات الاستلام (Pickups)
+          </button>
+          <button 
+            onClick={() => setActivePortalTab('tracking')} 
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'tracking' ? 'bg-white dark:bg-slate-700 shadow text-indigo-700 dark:text-white' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Truck size={14} /> تتبع الشحنات المباشر
           </button>
         </div>
       </div>
 
-      {activePortalTab === 'calculator' ? (
+      {activePortalTab === 'locations' ? (
+        <div className="space-y-6">
+          {/* Header & Controls Bar */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <MapPin className="text-emerald-600 dark:text-emerald-400" size={22} /> أماكن الشركة
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                الأماكن التي سنقوم باستلام الاوردات منها وإرجاعها لك.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2.5 w-full md:w-auto flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  if (apiSettings.bostaApiKey) {
+                    fetchBusinessLocations(apiSettings.bostaApiKey, apiSettings.environment === 'staging');
+                    inAppToast("جاري تحديث قائمة الفروع والأماكن من بوسطة...", 'success');
+                  } else {
+                    inAppAlert("مفتاح API غير متوفر، يعرض النظام حالياً أماكن الشركة المسجلة محلياً.", { title: "ملاحظة" });
+                  }
+                }}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+              >
+                <RefreshCw size={14} className={isLoadingLocations ? "animate-spin text-indigo-500" : ""} />
+                مزامنة الفروع
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingLocIndex(null);
+                  setLocFormName('');
+                  setLocFormContactName('');
+                  setLocFormContactPhone('');
+                  setLocFormCity('كفر الشيخ - بلطيم');
+                  setLocFormAddress('بلطيم');
+                  setLocFormIsDefault(false);
+                  setShowLocationModal(true);
+                }}
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black shadow transition flex items-center gap-1.5"
+              >
+                <Plus size={16} /> إضافة مكان جديد
+              </button>
+            </div>
+          </div>
+
+          {/* Search Filter */}
+          <div className="relative">
+            <Search className="absolute right-3.5 top-3 text-slate-400 pointer-events-none" size={16} />
+            <input
+              type="text"
+              placeholder="ابحث عن مكان، جهة اتصال، أو رقم هاتف..."
+              value={locationSearch}
+              onChange={(e) => setLocationSearch(e.target.value)}
+              className="w-full pr-10 pl-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          {/* Table displaying Locations matching Bosta UI */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-extrabold border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="p-4">اسم المكان</th>
+                    <th className="p-4 text-center">البلد</th>
+                    <th className="p-4">العنوان</th>
+                    <th className="p-4">جهة اتصال</th>
+                    <th className="p-4 text-center">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {businessLocations
+                    .filter(loc => {
+                      if (!locationSearch) return true;
+                      const query = locationSearch.toLowerCase();
+                      const name = (loc.locationName || loc.name || '').toLowerCase();
+                      const contact = (loc.contactPersonName || '').toLowerCase();
+                      const phone = (loc.contactPersonPhone || '').toLowerCase();
+                      const addr = (loc.firstLine || loc.city || '').toLowerCase();
+                      return name.includes(query) || contact.includes(query) || phone.includes(query) || addr.includes(query);
+                    })
+                    .map((loc, idx) => {
+                      const isDefault = loc.isDefault || apiSettings.defaultBusinessLocationId === (loc._id || loc.id) || idx === 0;
+                      return (
+                        <tr key={loc._id || loc.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                          <td className="p-4">
+                            <div className="font-extrabold text-slate-900 dark:text-white text-sm">
+                              {loc.locationName || loc.name}
+                            </div>
+                            {isDefault && (
+                              <span className="mt-1 inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded text-[10px] font-black border border-emerald-200 dark:border-emerald-800">
+                                أساسي (الاستلامات والإرجاع)
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">
+                            🇪🇬 مصر
+                          </td>
+
+                          <td className="p-4">
+                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                              {loc.city || 'كفر الشيخ'}
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-normal">
+                              {loc.firstLine || 'بلطيم'}
+                            </div>
+                          </td>
+
+                          <td className="p-4">
+                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                              {loc.contactPersonName || 'غير محدد'}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500" dir="ltr">
+                              {loc.contactPersonPhone || '-'}
+                            </div>
+                          </td>
+
+                          <td className="p-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {!isDefault && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = businessLocations.map((item, i) => ({
+                                      ...item,
+                                      isDefault: i === idx
+                                    }));
+                                    saveLocationsList(updated);
+                                    setApiSettings(prev => ({ ...prev, defaultBusinessLocationId: loc._id || loc.id }));
+                                    inAppToast(`تم تعيين "${loc.locationName || loc.name}" كمكان أساسي`, 'success');
+                                  }}
+                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold transition"
+                                >
+                                  تعيين كأساسي
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingLocIndex(idx);
+                                  setLocFormName(loc.locationName || loc.name || '');
+                                  setLocFormContactName(loc.contactPersonName || '');
+                                  setLocFormContactPhone(loc.contactPersonPhone || '');
+                                  setLocFormCity(loc.city || 'كفر الشيخ - بلطيم');
+                                  setLocFormAddress(loc.firstLine || 'بلطيم');
+                                  setLocFormIsDefault(!!isDefault);
+                                  setShowLocationModal(true);
+                                }}
+                                className="p-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 rounded-lg text-xs transition"
+                                title="تعديل المكان"
+                              >
+                                <Settings size={14} />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (businessLocations.length <= 1) {
+                                    inAppAlert("يجب الإبقاء على مكان استلام واحد على الأقل.", { title: "تنبيه" });
+                                    return;
+                                  }
+                                  const updated = businessLocations.filter((_, i) => i !== idx);
+                                  saveLocationsList(updated);
+                                  inAppToast("تم حذف المكان بنجاح", 'success');
+                                }}
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 rounded-lg text-xs transition"
+                                title="حذف المكان"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : activePortalTab === 'calculator' ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
           {/* Left Column Settings & Calculator */}
@@ -1091,109 +1803,947 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
             </div>
           </div>
         </div>
-      ) : (
+      ) : activePortalTab === 'api-integration' ? (
         /* Real Bosta API Configuration View */
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-sm space-y-6">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b dark:border-slate-800">
             <div>
               <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-                <Sparkles size={20} className="text-indigo-600" /> إعدادات ربط بوسطة الذكية (Bosta API Sandbox)
+                <Sparkles size={20} className="text-indigo-600" /> إعدادات الربط المباشر مع بوسطة (Official Bosta API)
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">مزامنة كشوف استلام العملاء، الدفعات، وبوالص الشحن تلقائياً.</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                توليد بوالص الشحن الرسمية، طباعة ملصقات الباركود AWB، وتتبع مسار الطرود مباشرة من خوادم بوسطة.
+              </p>
             </div>
             
-            <div className={`p-1.5 px-3 rounded-xl border text-[11px] font-black flex items-center gap-2 ${apiSettings.isActive ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-              <span className={`w-2 h-2 rounded-full ${apiSettings.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
-              {apiSettings.isActive ? 'الاتصال مع بوسطة: متصل ونشط' : 'الاتصال مع بوسطة: معطل'}
+            <div className="flex items-center gap-2">
+              <div className={`p-2 px-4 rounded-2xl border text-xs font-black flex items-center gap-2.5 ${settings?.bostaConfig?.isActive ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 border-emerald-200 dark:border-emerald-800/60' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'}`}>
+                <span className={`w-2.5 h-2.5 rounded-full ${settings?.bostaConfig?.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                <span>{settings?.bostaConfig?.isActive ? `متصل بحساب: ${settings.bostaConfig.connectedUserName || 'بوسطة المعتمد'}` : 'الاتصال غير مفعل'}</span>
+              </div>
+
+              {(settings?.bostaConfig?.isActive || apiSettings.bostaApiKey) && (
+                <button
+                  type="button"
+                  onClick={() => setShowDisconnectModal(true)}
+                  className="p-2 px-3 rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-950/40 flex items-center gap-1.5 transition"
+                  title="إلغاء الربط وتصفير المفتاح القديم"
+                >
+                  <Trash2 size={13} />
+                  <span>إلغاء الربط والبدء من جديد</span>
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
+          {verifyStatus && (
+            <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center gap-2.5 ${verifyStatus.success ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 text-emerald-700 dark:text-emerald-300' : 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 text-rose-700 dark:text-rose-300'}`}>
+              {verifyStatus.success ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+              <span>{verifyStatus.message}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Credentials Column */}
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider block">فتاح الـ API لشركة بوسطة (Bosta API Key):</label>
-                <input 
-                  type="password" 
-                  disabled={!isEditingApi}
-                  value={apiSettings.bostaApiKey}
-                  onChange={(e) => setApiSettings({...apiSettings, bostaApiKey: e.target.value})}
-                  className="w-full p-3 font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white disabled:opacity-70 disabled:cursor-not-allowed" 
-                />
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-indigo-600" /> طريقة الربط مع خوادم بوسطة
+                </h3>
+                <a
+                  href="https://docs.bosta.co/api#/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                >
+                  <BookOpen size={12} /> التوثيق الرسمي لبوسطة (API Docs)
+                  <ExternalLink size={10} />
+                </a>
               </div>
 
+              {/* Environment Selector */}
+              <div className="space-y-1.5 p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mb-2">
+                  اختر بيئة العمل (Bosta Environment):
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={!isEditingApi}
+                    onClick={() => setApiSettings(prev => ({ ...prev, environment: 'production' }))}
+                    className={`p-2.5 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${apiSettings.environment === 'production' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                  >
+                    <span className="flex items-center gap-1.5">🏢 حساب حقيقي (Live / Production)</span>
+                    <span className={`text-[10px] ${apiSettings.environment === 'production' ? 'text-indigo-100' : 'text-slate-400'}`}>business.bosta.co</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!isEditingApi}
+                    onClick={() => setApiSettings(prev => ({ ...prev, environment: 'staging' }))}
+                    className={`p-2.5 rounded-xl text-xs font-bold border transition flex flex-col items-center gap-1 ${apiSettings.environment === 'staging' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50'}`}
+                  >
+                    <span className="flex items-center gap-1.5">🧪 بيئة تجريبية (Staging / Sandbox)</span>
+                    <span className={`text-[10px] ${apiSettings.environment === 'staging' ? 'text-indigo-100' : 'text-slate-400'}`}>stg-app.bosta.co</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Method Tabs: API Key vs Direct Login */}
+              <div className="p-1 bg-slate-100 dark:bg-slate-800 rounded-xl grid grid-cols-2 gap-1 border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setAuthMethod('apikey')}
+                  className={`py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${authMethod === 'apikey' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                >
+                  <Key size={14} /> مفتاح الربط (API Key)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMethod('directLogin')}
+                  className={`py-2 text-xs font-bold rounded-lg transition flex items-center justify-center gap-1.5 ${authMethod === 'directLogin' ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                >
+                  <Sparkles size={14} className="text-amber-500" /> تسجيل دخول مباشر (Email)
+                </button>
+              </div>
+
+              {authMethod === 'apikey' ? (
+                /* Method 1: API Key */
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-black text-slate-600 dark:text-slate-400 block">
+                        مفتاح الـ API الخاص بحسابك في بوسطة (Bosta API Key):
+                      </label>
+                      <a
+                        href={apiSettings.environment === 'staging' ? "https://stg-app.bosta.co/settings/api-integration" : "https://business.bosta.co/settings/api-integration"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                      >
+                        <ExternalLink size={11} /> فتح لوحة بوسطة لإنشاء المفتاح
+                      </a>
+                    </div>
+                    <div className="relative">
+                      <input 
+                        type={showApiKey ? "text" : "password"}
+                        disabled={!isEditingApi}
+                        value={apiSettings.bostaApiKey}
+                        onChange={(e) => setApiSettings({...apiSettings, bostaApiKey: e.target.value})}
+                        placeholder="أدخل مفتاح الـ API من لوحة تحكم بوسطة"
+                        className="w-full p-3 pl-12 font-mono text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white disabled:opacity-75" 
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Official Bosta Instructions Box */}
+                  <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 rounded-2xl text-xs space-y-2 text-slate-700 dark:text-slate-300">
+                    <div className="font-bold flex items-center gap-1.5 text-blue-800 dark:text-blue-300">
+                      <BookOpen size={14} /> خطوات استخراج المفتاح من بوسطة (حسب التوثيق الرسمي):
+                    </div>
+                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      <li>ادخل إلى حسابك في بوسطة ثم توجه إلى <b>Settings ➔ API Integration</b>.</li>
+                      <li>اضغط على <b>Request OTP</b> لاستقبال رمز التحقق على هاتفك المحمول المسجل.</li>
+                      <li>أدخل كود الـ OTP ثم اضغط <b>Create API Key</b>.</li>
+                      <li>اختر الصلاحية: <b>Full Access</b> (أو Read/Write).</li>
+                      <li><b className="text-rose-600 dark:text-rose-400">تنبيه هام جداً:</b> انسخ المفتاح فور ظهوره وقبل إغلاق النافذة (لن يظهر مرة أخرى).</li>
+                      <li>الصق المفتاح في الحقل أعلاه واضغط <b>فحص وحفظ الربط</b> بالأسفل.</li>
+                    </ol>
+                  </div>
+                </div>
+              ) : (
+                /* Method 2: Direct Login with Bosta Credentials */
+                <div className="p-4 bg-indigo-50/40 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 space-y-3">
+                  <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    <b>الربط السريع بدون تعقيد:</b> أدخل البريد الإلكتروني وكلمة المرور لحسابك في بوسطة، وسيقوم النظام بتسجيل الدخول بأمان واستخراج رمز التفويض الرسمي (Authorization Token) وتنشيط الربط فوراً.
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      البريد الإلكتروني المسجل في بوسطة:
+                    </label>
+                    <input
+                      type="email"
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full p-2.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      كلمة مرور حساب بوسطة:
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showLoginPassword ? "text" : "password"}
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full p-2.5 pl-10 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(!showLoginPassword)}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        {showLoginPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isLoggingIn || !loginEmail.trim() || !loginPassword}
+                    onClick={handleDirectLogin}
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                  >
+                    {isLoggingIn ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" /> جاري تسجيل الدخول واستخراج مفتاح الربط...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={14} /> تسجيل الدخول والربط تلقائياً
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
+              {/* Troubleshooting Card for Invalid Key Error */}
+              {verifyStatus && !verifyStatus.success && (
+                <div className="p-4 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-xs space-y-3 text-amber-900 dark:text-amber-200">
+                  <div className="font-black flex items-center justify-between text-amber-800 dark:text-amber-300">
+                    <span className="flex items-center gap-1.5"><AlertCircle size={15} /> استجابة الفحص من بوسطة:</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 rounded">تنبيه اتصال</span>
+                  </div>
+                  <p className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-white/70 dark:bg-slate-900/50 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-900/40">
+                    {verifyStatus.message}
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleDirectSaveWithoutVerify}
+                      className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md transition flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 size={14} /> حفظ وتفعيل المفتاح مباشرة (تخطي الفحص)
+                    </button>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                      إذا كنت متأكداً من صحة المفتاح، يمكنك تفعيله فوراً واستخدامه لشحن الطلبات.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider block">رقم تعريف المنشأة التجاري (Business ID):</label>
+                <label className="text-xs font-black text-slate-600 dark:text-slate-400 block">
+                  رقم تعريف المنشأة التجاري (Business ID - اختياري):
+                </label>
                 <input 
                   type="text" 
                   disabled={!isEditingApi}
                   value={apiSettings.businessId}
                   onChange={(e) => setApiSettings({...apiSettings, businessId: e.target.value})}
-                  className="w-full p-3 font-sans bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white disabled:opacity-70 disabled:cursor-not-allowed" 
+                  placeholder="يتم جلبه تلقائياً عند فحص الاتصال"
+                  className="w-full p-3 font-mono text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white disabled:opacity-75" 
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-600 dark:text-slate-400 uppercase tracking-wider block">مستقبل الأحداث (Webhook Callback URL):</label>
-                <div className="relative">
+              <div className="space-y-3 p-4 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/40">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                    <Radio size={14} className="text-indigo-600 animate-pulse" />
+                    رابط استقبال التحديثات التلقائية (Bosta Webhook URL):
+                  </label>
+                  <a
+                    href="https://docs.bosta.co/docs/how-to/get-delivery-status-via-webhook/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                  >
+                    <BookOpen size={12} /> وثائق الـ Webhook الرسمية
+                    <ExternalLink size={10} />
+                  </a>
+                </div>
+                
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                  عند تغيير حالة أي شحنة في بوسطة (تم الاستلام، جاري التوصيل، تم التسليم، مرتجع)، تقوم خوادم بوسطة بإرسال إشعار فوري لهذا الرابط لتحديث حالة الأوردر وحساباتك تلقائياً دون أي تدخل يدوي:
+                </p>
+
+                <div className="flex gap-2">
                   <input 
                     type="text" 
-                    disabled 
+                    readOnly 
                     value={apiSettings.webhookUrl}
-                    className="w-full p-3 pl-20 font-sans bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold dark:text-slate-450 opacity-60 pointer-events-none" 
+                    className="flex-1 p-3 font-mono text-xs bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800/60 rounded-xl text-indigo-950 dark:text-indigo-200 font-bold select-all" 
                   />
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded font-bold text-slate-500 uppercase">Active</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(apiSettings.webhookUrl);
+                      inAppToast('تم نسخ رابط الـ Webhook بنجاح! ضعه في إعدادات Webhooks في بوسطة.', 'success');
+                    }}
+                    className="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition whitespace-nowrap shadow-sm shadow-indigo-600/20 flex items-center gap-1.5"
+                  >
+                    <CheckCheck size={14} /> نسخ الرابط
+                  </button>
+                </div>
+
+                {/* Direct link to Bosta Dashboard */}
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>طريقة التفعيل في بوسطة: <b>Settings ➔ Webhooks ➔ Add Endpoint</b></span>
+                  <a
+                    href="https://business.bosta.co/settings/webhooks"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1"
+                  >
+                    فتح إعدادات بوسطة الآن <ExternalLink size={11} />
+                  </a>
                 </div>
               </div>
-            </div>
 
-            <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800/80 p-5 rounded-2xl flex flex-col justify-between">
-              <div className="space-y-3 text-xs leading-normal">
-                <h4 className="font-black text-slate-800 dark:text-white flex items-center gap-1.5">
-                  <ShieldCheck size={16} className="text-emerald-500" /> إرسال بوالص بوسطة بشكل مؤتمت بالكامل
-                </h4>
-                <p className="text-slate-600 dark:text-slate-350">
-                  عند تفعيل الربط الإلكتروني، يتم إنشاء الشحنة تلقائياً على بوسطة فور تأكيد العميل للأوردر عبر صفحة تأكيد الطلبات، وسيتم طباعة بوليصة الشحن بنقرة زر واحدة.
-                </p>
-                <ul className="list-disc pr-4 space-y-1 text-slate-500 text-[11px]">
-                  <li>توفير 10 دقائق لكل أوردر بدلاً من النقل اليدوي.</li>
-                  <li>تأمين المرتجعات مع نظام تفعيل الفتح التجريبي (المعاينة).</li>
-                  <li>المعالجة الفورية المباشرة لكشوف السداد والمحافظ المالية بأسعار بوسطة الشريكة.</li>
-                </ul>
-              </div>
-
-              <div className="flex gap-3 pt-4">
+              {/* Action Buttons */}
+              <div className="pt-2 flex flex-wrap gap-3">
                 {isEditingApi ? (
-                  <button 
-                    onClick={() => {
-                      setIsEditingApi(false);
-                      alert('تمت تهيئة وحفظ مفاتيح ربط بوسطة بنجاح!');
-                    }}
-                    className="flex-1 py-3 bg-indigo-600 text-white font-black rounded-xl text-xs shadow-lg hover:bg-indigo-700 transition"
-                  >
-                    حفظ التغييرات ومزامنة بوسطة
-                  </button>
+                  <>
+                    <button 
+                      onClick={handleVerifyAndSave}
+                      disabled={isVerifying}
+                      className="flex-1 min-w-[140px] py-3 bg-indigo-600 text-white font-black rounded-xl text-xs shadow-lg hover:bg-indigo-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isVerifying ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" /> جاري فحص مفتاح بوسطة...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={15} /> فحص وتأكيد الاتصال والحفظ
+                        </>
+                      )}
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={handleDirectSaveWithoutVerify}
+                      disabled={!apiSettings.bostaApiKey}
+                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs shadow-md transition flex items-center gap-1.5 justify-center disabled:opacity-50"
+                      title="حفظ المفتاح فوراً وتفعيله بدون انتظار الفحص"
+                    >
+                      <CheckCircle2 size={14} />
+                      <span>حفظ وتفعيل المفتاح مباشرة</span>
+                    </button>
+                  </>
                 ) : (
                   <button 
                     onClick={() => setIsEditingApi(true)}
-                    className="flex-1 py-3 bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 hover:bg-slate-900 font-extrabold rounded-xl text-xs shadow transition text-center"
+                    className="flex-1 min-w-[140px] py-3 bg-slate-800 text-white dark:bg-slate-700 dark:hover:bg-slate-600 hover:bg-slate-900 font-extrabold rounded-xl text-xs shadow transition text-center"
                   >
-                    تعديل بيانات الربط المباشر
+                    تعديل بيانات المفاتيح
                   </button>
                 )}
                 
                 <button 
-                  onClick={handleTriggerSync}
-                  disabled={isSyncing}
+                  onClick={handleVerifyAndSave}
+                  disabled={isVerifying || !apiSettings.bostaApiKey}
                   className="px-4 py-3 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl text-xs transition flex items-center gap-2 justify-center"
                 >
-                  <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                  {isSyncing ? 'مزامنة...' : 'مزامنة يدوية'}
+                  <RefreshCw size={14} className={isVerifying ? 'animate-spin' : ''} />
+                  إعادة الاختبار
                 </button>
+
+                {(settings?.bostaConfig?.isActive || apiSettings.bostaApiKey) && (
+                  <button 
+                    type="button"
+                    onClick={() => setShowDisconnectModal(true)}
+                    className="px-3 py-3 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-950/50 text-rose-600 dark:text-rose-400 font-bold rounded-xl text-xs transition flex items-center gap-1.5 justify-center border border-rose-200 dark:border-rose-900/50"
+                    title="حذف وإلغاء الربط القديم والبدء من جديد"
+                  >
+                    <Trash2 size={14} />
+                    <span>إلغاء الربط</span>
+                  </button>
+                )}
               </div>
             </div>
 
+            {/* Interactive Webhook Simulator & Tester */}
+            <div className="space-y-4 bg-slate-900 text-white p-6 rounded-3xl border border-slate-800 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                    <Zap size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white flex items-center gap-2">
+                      مختبر تجربة ومحاكاة الـ Webhook (Live Bosta Webhook Tester)
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      اختبار فوري لاستقبال تحديثات الحالات التلقائية وتطبيقها على الأوردرات كما توضح وثائق Bosta
+                    </p>
+                  </div>
+                </div>
+
+                <a
+                  href="https://docs.bosta.co/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[11px] font-bold flex items-center gap-1.5 self-start sm:self-auto transition"
+                >
+                  <BookOpen size={12} /> Bosta Docs API
+                  <ExternalLink size={10} />
+                </a>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 block mb-1">رقم البوليصة أو رقم الطلب للاختبار:</label>
+                    <input 
+                      type="text"
+                      value={simTrackingNumber}
+                      onChange={(e) => setSimTrackingNumber(e.target.value)}
+                      placeholder={orders.find(o => o.waybillNumber)?.waybillNumber || "مثال: 45892134"}
+                      className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-mono font-bold text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 block mb-1">اختر حدث الحالة المطلوب محاكاته:</label>
+                    <select
+                      value={simStateCode}
+                      onChange={(e) => {
+                        const code = Number(e.target.value);
+                        setSimStateCode(code);
+                        if (code === 45) {
+                          setSimStateValue("Delivered");
+                          setSimReason("تم تسليم الشحنة للعميل وتحصيل المبلغ");
+                        } else if (code === 40) {
+                          setSimStateValue("Out for delivery");
+                          setSimReason("الشحنة مع المندوب وفي الطريق للعميل");
+                        } else if (code === 46) {
+                          setSimStateValue("Returned to business");
+                          setSimReason("رفض العميل الاستلام - مرتجع للتاجر");
+                        } else if (code === 48) {
+                          setSimStateValue("Customer Action Required");
+                          setSimReason("تم تأجيل الموعد بناءً على رغبة العميل");
+                        } else if (code === 21) {
+                          setSimStateValue("Picked up");
+                          setSimReason("تم استلام الشحنة من مقر المتجر");
+                        }
+                      }}
+                      className="w-full p-2.5 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white outline-none focus:border-indigo-500"
+                    >
+                      <option value={45}>🟢 تم التسليم بنجاح (Delivered - كود 45)</option>
+                      <option value={40}>🚚 جاري التوصيل مع المندوب (Out for delivery - كود 40)</option>
+                      <option value={21}>📦 تم الاستلام من المتجر (Picked up - كود 21)</option>
+                      <option value={46}>🔴 مرتجع للتاجر (Returned to business - كود 46)</option>
+                      <option value={48}>⏳ تأجيل من العميل (Customer Action Required - كود 48)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-400">مرسل من متجر / الفرع (Business Location):</label>
+                    <div className="relative">
+                      <select 
+                        value={apiSettings.defaultBusinessLocationId}
+                        onChange={(e) => setApiSettings({...apiSettings, defaultBusinessLocationId: e.target.value})}
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white appearance-none"
+                      >
+                        <option value="">-- الافتراضي (حسب الحساب) --</option>
+                        {businessLocations.map(loc => (
+                          <option key={loc._id} value={loc._id}>{loc.name || loc.nameAr} - {loc.city?.nameAr || loc.city?.name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={14} />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-400">موقع إرجاع الشحنة (Return Location):</label>
+                    <div className="relative">
+                      <select 
+                        value={apiSettings.defaultReturnLocationId}
+                        onChange={(e) => setApiSettings({...apiSettings, defaultReturnLocationId: e.target.value})}
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white appearance-none"
+                      >
+                        <option value="">-- نفس موقع الإرسال / الافتراضي --</option>
+                        {businessLocations.map(loc => (
+                          <option key={loc._id} value={loc._id}>{loc.name || loc.nameAr} - {loc.city?.nameAr || loc.city?.name}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={14} />
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Quick 1-Click Simulation Buttons */}
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">تجربة سريعة بنقرة واحدة:</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button
+                      type="button"
+                      disabled={isSimulatingWebhook}
+                      onClick={() => handleSimulateWebhookEvent(45, "Delivered", "تم تسليم الشحنة للعميل بنجاح")}
+                      className="p-2 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <CheckCircle2 size={13} /> محاكاة: تم التسليم
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingWebhook}
+                      onClick={() => handleSimulateWebhookEvent(40, "Out for delivery", "الشحنة في سيارة التوزيع")}
+                      className="p-2 bg-blue-950/40 hover:bg-blue-900/60 border border-blue-800/60 text-blue-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Truck size={13} /> محاكاة: جاري التوصيل
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingWebhook}
+                      onClick={() => handleSimulateWebhookEvent(46, "Returned to business", "مرتجع لتعذر الوصول")}
+                      className="p-2 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <AlertCircle size={13} /> محاكاة: مرتجع
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingWebhook}
+                      onClick={() => handleSimulateWebhookEvent(48, "Customer Action Required", "طلب العميل تأجيل الاستلام للغد")}
+                      className="p-2 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-800/60 text-amber-300 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Clock size={13} /> محاكاة: مؤجل
+                    </button>
+                  </div>
+                </div>
+
+                {/* Simulation Logs */}
+                {simLog.length > 0 && (
+                  <div className="mt-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1.5 max-h-36 overflow-y-auto font-mono text-[11px]">
+                    <div className="text-[10px] text-slate-500 font-sans font-bold">سجل أحداث الـ Webhook المستلمة:</div>
+                    {simLog.map((log, idx) => (
+                      <div key={idx} className={`flex items-start gap-2 ${log.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        <span className="text-slate-500 shrink-0">[{log.time}]</span>
+                        <span>{log.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Warehouse & Shipping Defaults */}
+            <div className="space-y-4 bg-slate-50/70 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+              <h3 className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <MapPin size={16} className="text-indigo-600" /> عنوان استلام الشحنات والخيارات الافتراضية
+              </h3>
+
+              <div className="space-y-3 text-xs">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-400">عنوان المتجر / المستودع:</label>
+                  <input 
+                    type="text"
+                    value={apiSettings.pickupFirstLine}
+                    onChange={(e) => setApiSettings({...apiSettings, pickupFirstLine: e.target.value})}
+                    placeholder="مثال: شارع التحرير، الدقي، الجيزة"
+                    className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-400">المحافظة / المدينة في بوسطة:</label>
+                    {bostaCities.length > 0 ? (
+                      <select 
+                        value={apiSettings.pickupCity}
+                        onChange={(e) => setApiSettings({...apiSettings, pickupCity: e.target.value})}
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white"
+                      >
+                        {bostaCities.map(c => (
+                          <option key={c._id || c.name} value={c.name}>
+                            {c.nameAr || c.name} ({c.name})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input 
+                        type="text"
+                        value={apiSettings.pickupCity}
+                        onChange={(e) => setApiSettings({...apiSettings, pickupCity: e.target.value})}
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white"
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-400">حجم الطرد الافتراضي:</label>
+                    <select 
+                      value={apiSettings.defaultPackageSize}
+                      onChange={(e) => setApiSettings({...apiSettings, defaultPackageSize: e.target.value as any})}
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white"
+                    >
+                      <option value="SMALL">صغير (Small - حتى 2 كجم)</option>
+                      <option value="MEDIUM">متوسط (Medium - حتى 5 كجم)</option>
+                      <option value="LARGE">كبير (Large - حتى 15 كجم)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-400">اسم مسؤول التسليم:</label>
+                    <input 
+                      type="text"
+                      value={apiSettings.pickupContactName}
+                      onChange={(e) => setApiSettings({...apiSettings, pickupContactName: e.target.value})}
+                      placeholder="اسم المستودع أو المدير"
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-bold dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 dark:text-slate-400">هاتف مسؤول التسليم:</label>
+                    <input 
+                      type="text"
+                      value={apiSettings.pickupContactPhone}
+                      onChange={(e) => setApiSettings({...apiSettings, pickupContactPhone: e.target.value})}
+                      placeholder="01xxxxxxxxx"
+                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none text-xs font-mono font-bold dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 dark:text-slate-300">
+                    <input 
+                      type="checkbox"
+                      checked={apiSettings.allowToOpenPackage}
+                      onChange={(e) => setApiSettings({...apiSettings, allowToOpenPackage: e.target.checked})}
+                      className="rounded text-indigo-600 w-4 h-4"
+                    />
+                    <span>السماح للعميل بفتح الشحنة ومعاينتها قبل الاستلام (Open Package)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 dark:text-slate-300">
+                    <input 
+                      type="checkbox"
+                      checked={apiSettings.autoSendOnConfirm}
+                      onChange={(e) => setApiSettings({...apiSettings, autoSendOnConfirm: e.target.checked})}
+                      className="rounded text-indigo-600 w-4 h-4"
+                    />
+                    <span>إرسال الشحنة لبوسطة تلقائياً فور تأكيد الأوردر</span>
+                  </label>
+
+                  {/* WhatsApp Tracking & Webhook Sync Automations */}
+                  <div className="pt-2 mt-2 border-t border-slate-200/80 dark:border-slate-700/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 dark:text-slate-300">
+                        <input 
+                          type="checkbox"
+                          checked={apiSettings.autoSendWhatsAppTracking}
+                          onChange={(e) => setApiSettings({...apiSettings, autoSendWhatsAppTracking: e.target.checked})}
+                          className="rounded text-emerald-600 w-4 h-4"
+                        />
+                        <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                          <MessageCircle size={15} /> إرسال رابط التتبع تلقائياً للعميل عبر WhatsApp فور إنشاء الشحنة
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-700 dark:text-slate-300">
+                        <input 
+                          type="checkbox"
+                          checked={apiSettings.autoSendWhatsAppOnStatusChange}
+                          onChange={(e) => setApiSettings({...apiSettings, autoSendWhatsAppOnStatusChange: e.target.checked})}
+                          className="rounded text-indigo-600 w-4 h-4"
+                        />
+                        <span className="flex items-center gap-1.5 text-indigo-700 dark:text-indigo-400">
+                          <CheckCircle2 size={15} /> إرسال إشعار WhatsApp فوري للعميل عند تغير حالة الشحنة بالـ Webhook (مثل: جاري التوصيل / تم التسليم)
+                        </span>
+                      </label>
+                    </div>
+
+                    {apiSettings.autoSendWhatsAppTracking && (
+                      <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl space-y-1">
+                        <label className="font-bold text-[11px] text-emerald-900 dark:text-emerald-300 block">
+                          قالب رسالة التتبع المخصصة (اختياري - اتركها فارغة لاستخدام القالب الافتراضي):
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={apiSettings.whatsappTrackingMessageTemplate}
+                          onChange={(e) => setApiSettings({...apiSettings, whatsappTrackingMessageTemplate: e.target.value})}
+                          placeholder="المتغيرات المتاحة: {customerName}, {orderNumber}, {trackingNumber}, {trackingUrl}, {totalPrice}, {storeName}"
+                          className="w-full p-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-lg text-[11px] outline-none font-mono text-slate-800 dark:text-slate-200"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+        </div>
+      ) : activePortalTab === 'pickups' ? (
+        /* Pickups & Manifest Tab */
+        <div className="space-y-6">
+          {/* Explanation Card */}
+          <div className="bg-gradient-to-l from-indigo-900 via-slate-900 to-slate-950 text-white p-6 rounded-3xl shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-2xl">
+              <div className="flex items-center gap-2 text-indigo-400 font-black text-xs uppercase tracking-wider">
+                <Calendar size={16} /> نظام دورة الشحن وأذونات الاستلام (Smart Pickup Workflow)
+              </div>
+              <h2 className="text-xl font-black">
+                تجهيز الطرود وطباعة البوالص، ثم استدعاء المندوب بإذن استلام
+              </h2>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                كما تفضلتم: يمكنك إنشاء الشحنات وطباعة بوالص الشحن مسبقاً لكل طلب وتجهيز الكراتين في المستودع دون أي تكلفة شحن مسبقة. وعند الانتهاء من تجهيز الدفعة، يتم عمل «إذن استلام» ليحضر مندوب بوسطة ويستلم الشحنات دفعة واحدة.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowPickupModal(true)}
+              className="px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs rounded-2xl shadow-xl shadow-indigo-600/30 flex items-center gap-2 shrink-0 transition"
+            >
+              <Plus size={18} /> طلب مندوب استلام جديد (Schedule Pickup)
+            </button>
+          </div>
+
+          {/* Quick Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
+              <span className="text-xs font-bold text-slate-400 block mb-1">الطرود المجهزة ببوليصة بوسطة:</span>
+              <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                {orders.filter(o => o.waybillNumber || o.bostaDeliveryId || o.shippingCompany === 'بوسطة').length} طلب
+              </span>
+            </div>
+
+            <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
+              <span className="text-xs font-bold text-slate-400 block mb-1">إجمالي أذونات الاستلام المجدولة:</span>
+              <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                {(settings?.bostaPickups || []).length} إذن
+              </span>
+            </div>
+
+            <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl">
+              <span className="text-xs font-bold text-slate-400 block mb-1">حالة اتصال بوسطة API:</span>
+              <span className="text-sm font-black text-slate-700 dark:text-slate-200 flex items-center gap-2 mt-1">
+                <span className={`w-2 h-2 rounded-full ${settings?.bostaConfig?.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+                {settings?.bostaConfig?.isActive ? 'نشط ومفعل' : 'غير متصل'}
+              </span>
+            </div>
+          </div>
+
+          {/* Prepared Orders Ready for Pickup */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-sm">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2">
+                  <Package size={18} className="text-indigo-600" /> الطرود الجاهزة للاستلام والتسليم للمندوب
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  قائمة بالطلبات المجهزة التي تم توليد بوالص شحن بوسطة لها وبانتظار حضور المندوب
+                </p>
+              </div>
+            </div>
+
+            {orders.filter(o => o.waybillNumber || o.bostaDeliveryId || o.shippingCompany === 'بوسطة').length === 0 ? (
+              <div className="py-12 text-center text-slate-400 space-y-2">
+                <Package size={36} className="mx-auto text-slate-300 dark:text-slate-700" />
+                <p className="text-xs font-bold">لا توجد طلبات تم إرسالها لبوسطة بعد.</p>
+                <p className="text-[11px] text-slate-400">
+                  يمكنك الذهاب لقائمة الطلبات والضغط على "إرسال إلى بوسطة وتوليد البوليصة" لأي طلب أو تحديد عدة طلبات وإرسالها دفعة واحدة.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-right">
+                  <thead>
+                    <tr className="border-b dark:border-slate-800 text-slate-400 font-bold">
+                      <th className="pb-3 pr-2">رقم الطلب</th>
+                      <th className="pb-3">العميل والمحافظة</th>
+                      <th className="pb-3">رقم البوليصة (AWB)</th>
+                      <th className="pb-3">مبلغ التحصيل</th>
+                      <th className="pb-3 text-center">الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y dark:divide-slate-800 font-bold">
+                    {orders
+                      .filter(o => o.waybillNumber || o.bostaDeliveryId || o.shippingCompany === 'بوسطة')
+                      .slice(0, 15)
+                      .map((ord) => (
+                        <tr key={ord.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition">
+                          <td className="py-3 pr-2 font-mono text-indigo-600 dark:text-indigo-400">
+                            #{ord.orderNumber || ord.id.slice(0, 6)}
+                          </td>
+                          <td className="py-3">
+                            <span className="block font-black text-slate-800 dark:text-white">{ord.customerName}</span>
+                            <span className="text-[11px] text-slate-400 font-normal">{ord.governorate || ord.customerAddress || '—'}</span>
+                          </td>
+                          <td className="py-3 font-mono">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black">
+                              {ord.waybillNumber || ord.bostaTrackingNumber || 'قيد المعالجة'}
+                            </span>
+                          </td>
+                          <td className="py-3 font-mono font-black text-emerald-600">
+                            {ord.totalPrice || 0} ج.م
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center justify-center gap-2">
+                              {(ord.bostaDeliveryId || ord.waybillNumber) && (
+                                <button
+                                  onClick={() => handlePrintAwbDirect(ord.bostaDeliveryId || ord.waybillNumber!)}
+                                  className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] transition flex items-center gap-1"
+                                >
+                                  <Printer size={12} /> طباعة البوليصة
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  setActiveTrackingNumber(ord.waybillNumber || ord.bostaTrackingNumber || '');
+                                  setShowTrackingModal(true);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold text-[11px] transition flex items-center gap-1"
+                              >
+                                <Truck size={12} /> تتبع
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Past Pickup Requests */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 space-y-4 shadow-sm">
+            <h3 className="font-black text-slate-800 dark:text-white text-base flex items-center gap-2">
+              <Calendar size={18} className="text-indigo-600" /> سجل أذونات الاستلام المحفوظة (Pickup History)
+            </h3>
+
+            {(settings?.bostaPickups || []).length === 0 ? (
+              <div className="py-8 text-center text-slate-400 space-y-1">
+                <Clock size={32} className="mx-auto text-slate-300 dark:text-slate-700" />
+                <p className="text-xs font-bold">لم يتم تسجيل أي إذن استلام حتى الآن.</p>
+                <p className="text-[11px] text-slate-400">عند طلب حضور المندوب سيظهر الإذن هنا مع تفاصيل الموعد.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-right">
+                  <thead>
+                    <tr className="border-b dark:border-slate-800 text-slate-400 font-bold">
+                      <th className="pb-3 pr-2">رقم الإذن</th>
+                      <th className="pb-3">موعد الحضور</th>
+                      <th className="pb-3">الفترة الزمنية</th>
+                      <th className="pb-3">عدد الطرود</th>
+                      <th className="pb-3">عنوان الاستلام</th>
+                      <th className="pb-3">الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y dark:divide-slate-800 font-bold">
+                    {(settings?.bostaPickups || []).map((pk: BostaPickupRequest) => (
+                      <tr key={pk.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition">
+                        <td className="py-3 pr-2 font-mono text-indigo-600 font-black">
+                          {pk.bostaPickupId || pk.id.slice(0, 10)}
+                        </td>
+                        <td className="py-3 font-sans font-black text-slate-800 dark:text-white">
+                          {pk.scheduledDate}
+                        </td>
+                        <td className="py-3 font-sans text-slate-500">
+                          {pk.scheduledSlot}
+                        </td>
+                        <td className="py-3 font-mono font-black text-indigo-600">
+                          {pk.ordersCount} طرد
+                        </td>
+                        <td className="py-3 text-slate-500 text-[11px]">
+                          {pk.pickupAddress}
+                        </td>
+                        <td className="py-3">
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 text-[10px] font-black">
+                            {pk.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Tracking Tab */
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm space-y-6">
+          <div>
+            <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+              <Truck size={20} className="text-indigo-600" /> تتبع شحنات بوسطة المباشر (Bosta Live Tracking)
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              استعلام حي ومباشر عن حالة أي شحنة مسجلة في بوسطة برقم البوليصة
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              value={trackingSearchInput}
+              onChange={(e) => setTrackingSearchInput(e.target.value)}
+              placeholder="أدخل رقم بوليصة الشحن (مثال: 54321098)"
+              className="flex-1 p-3 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-mono font-bold dark:text-white outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <button
+              onClick={handleQuickTrackShipment}
+              disabled={quickTrackLoading || !trackingSearchInput.trim()}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-2xl shadow-lg transition flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {quickTrackLoading ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+              استعلام وتتبع الآن
+            </button>
+          </div>
+
+          {quickTrackResult && (
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-200 dark:border-slate-700 space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-3">
+                <div>
+                  <span className="text-[11px] text-slate-400 font-bold block">الحالة الحالية في خوادم بوسطة:</span>
+                  <span className="text-base font-black text-indigo-600 dark:text-indigo-400">
+                    {quickTrackResult?.state?.value || quickTrackResult?.state || quickTrackResult?.status || 'تم التسليم أو قيد النقل'}
+                  </span>
+                </div>
+                <a
+                  href={`https://bosta.co/tracking-shipment/?track=${encodeURIComponent(trackingSearchInput)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl transition flex items-center gap-1.5"
+                >
+                  <ExternalLink size={13} /> رابط بوسطة الرسمي
+                </a>
+              </div>
+
+              {/* Transit events */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black text-slate-700 dark:text-slate-300">مراحل الشحنة:</h4>
+                <div className="space-y-3 pr-3 border-r-2 border-slate-200 dark:border-slate-700">
+                  {(quickTrackResult?.timeline || quickTrackResult?.TransitEvents || []).map((ev: any, i: number) => (
+                    <div key={i} className="text-xs space-y-0.5">
+                      <p className="font-black text-slate-800 dark:text-white">{ev.state || ev.status || ev.message}</p>
+                      <p className="text-[11px] text-slate-400">{ev.timestamp ? new Date(ev.timestamp).toLocaleString('ar-EG') : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1655,6 +3205,171 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
         onConfirm={confirmDeletePackagingOrder}
         onCancel={() => setOrderToDelete(null)}
       />
+
+      <ConfirmationModal 
+        isOpen={showDisconnectModal}
+        title="حذف وإلغاء الربط القديم مع بوسطة"
+        message="هل أنت متأكد من رغبتك في حذف وإلغاء بيانات الربط القديمة وتصفيرها بالكامل للبدء من جديد؟"
+        onConfirm={handleResetAndDisconnect}
+        onCancel={() => setShowDisconnectModal(false)}
+      />
+
+      {showPickupModal && (
+        <BostaPickupModal
+          isOpen={showPickupModal}
+          onClose={() => setShowPickupModal(false)}
+          settings={settings || {}}
+          setSettings={setSettings}
+          orders={orders}
+        />
+      )}
+
+      {showTrackingModal && (
+        <BostaTrackingModal
+          isOpen={showTrackingModal}
+          onClose={() => setShowTrackingModal(false)}
+          trackingNumber={activeTrackingNumber}
+          apiKey={apiSettings.bostaApiKey}
+        />
+      )}
+
+      {/* Modal to Add/Edit Bosta Location */}
+      {showLocationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <MapPin size={18} className="text-teal-600" />
+                {editingLocIndex !== null ? 'تعديل بيانات مكان الشركة' : 'إضافة مكان جديد لشحن بوسطة'}
+              </h3>
+              <button onClick={() => setShowLocationModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">اسم المكان (المخزن / الفرع) *</label>
+                <input
+                  type="text"
+                  placeholder="مثال: مخزن ابو زهره، حنوره اعلاف..."
+                  value={locFormName}
+                  onChange={(e) => setLocFormName(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">اسم جهة الاتصال *</label>
+                <input
+                  type="text"
+                  placeholder="اسم الشخص المسؤول عن تسليم المندوب..."
+                  value={locFormContactName}
+                  onChange={(e) => setLocFormContactName(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">رقم هاتف التواصل *</label>
+                <input
+                  type="text"
+                  placeholder="+2010..."
+                  value={locFormContactPhone}
+                  onChange={(e) => setLocFormContactPhone(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-teal-500"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">المحافظة / المدينة</label>
+                  <input
+                    type="text"
+                    value={locFormCity}
+                    onChange={(e) => setLocFormCity(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-slate-700 dark:text-slate-300 block mb-1">العنوان التفصيلي</label>
+                  <input
+                    type="text"
+                    value={locFormAddress}
+                    onChange={(e) => setLocFormAddress(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-slate-800 dark:text-white outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="chkLocDefault"
+                  checked={locFormIsDefault}
+                  onChange={(e) => setLocFormIsDefault(e.target.checked)}
+                  className="w-4 h-4 text-teal-600 rounded"
+                />
+                <label htmlFor="chkLocDefault" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                  تعيين هذا المكان كفرع أساسي (الاستلامات والإرجاع)
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowLocationModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!locFormName.trim()) {
+                    inAppAlert("يرجى كتابة اسم المكان.", { title: "تنبيه" });
+                    return;
+                  }
+                  const newLocObj = {
+                    _id: editingLocIndex !== null ? businessLocations[editingLocIndex]?._id || `loc_${Date.now()}` : `loc_${Date.now()}`,
+                    id: editingLocIndex !== null ? businessLocations[editingLocIndex]?.id || `loc_${Date.now()}` : `loc_${Date.now()}`,
+                    locationName: locFormName.trim(),
+                    contactPersonName: locFormContactName.trim(),
+                    contactPersonPhone: locFormContactPhone.trim(),
+                    city: locFormCity.trim(),
+                    firstLine: locFormAddress.trim(),
+                    isDefault: locFormIsDefault
+                  };
+
+                  let newList = [...businessLocations];
+                  if (editingLocIndex !== null) {
+                    newList[editingLocIndex] = newLocObj;
+                  } else {
+                    newList.push(newLocObj);
+                  }
+
+                  if (locFormIsDefault) {
+                    newList = newList.map((item, i) => ({
+                      ...item,
+                      isDefault: editingLocIndex !== null ? i === editingLocIndex : i === newList.length - 1
+                    }));
+                  }
+
+                  saveLocationsList(newList);
+                  setShowLocationModal(false);
+                  inAppToast(editingLocIndex !== null ? "تم تحديث بيانات المكان بنجاح" : "تمت إضافة المكان الجديد بنجاح", 'success');
+                }}
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-black"
+              >
+                حفظ المكان
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import * as htmlToImage from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { printHTMLDirectly } from '../utils/printHelper';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface Props {
   orders: Order[];
@@ -834,14 +835,20 @@ const normalizeName = (name: string): string => {
 export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: { settings: Settings, treasury?: any, orders?: Order[], setSettings?: any }) => {
     if (!settings) return null;
 
-    const handleExecuteActualSettlement = () => {
+    const handleExecuteActualSettlement = async () => {
         if (!simHolder || simAmount <= 0 || !setSettings) return;
         
         const confirmMsg = simType === 'deposit'
             ? `هل أنت متأكد من تنفيذ توريد مبلغ ${simAmount.toLocaleString()} ج.م من عهدة ${simHolder.name} يدوياً للخزينة؟ (سيؤدي ذلك لتحديث رصيد العهدة فقط)`
             : `هل أنت متأكد من تحويل مبلغ ${simAmount.toLocaleString()} ج.م من عهدة ${simHolder.name} لسحوبات شخصية؟ (سيتم خصمه نهائياً من رصيد الشريك الجاري وتصفير عهدته الموازية)`;
 
-        if (!window.confirm(confirmMsg)) return;
+        const ok = await inAppConfirm(confirmMsg, {
+            title: 'تأكيد التسوية المالية للعهدة',
+            type: 'warning',
+            confirmText: 'نعم، تنفيذ التسوية',
+            cancelText: 'إلغاء'
+        });
+        if (!ok) return;
 
         const dateStr = new Date().toISOString();
         

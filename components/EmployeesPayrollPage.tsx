@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AttendanceManager, AddLeaveModal, AddAdvanceModal, AddDocumentModal } from './HRComponents';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface EmployeesPayrollPageProps {
   settings: Settings;
@@ -306,8 +307,14 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
     showToast(status === 'approved' ? 'تمت الموافقة على طلب الإجازة وتسجيل الغياب التلقائي' : 'تم رفض طلب الإجازة');
   };
 
-  const handleDeleteLeave = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف طلب الإجازة هذا؟')) {
+  const handleDeleteLeave = async (id: string) => {
+    const ok = await inAppConfirm('هل أنت متأكد من حذف طلب الإجازة هذا؟', {
+      title: 'حذف طلب إجازة',
+      type: 'danger',
+      confirmText: 'نعم، حذف الطلب',
+      cancelText: 'إلغاء'
+    });
+    if (ok) {
       setSettings(prev => ({
         ...prev,
         staffLeaves: (prev.staffLeaves || []).filter(l => l.id !== id)
@@ -327,11 +334,17 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
     showToast(`تم تسجيل صرف سلفة بقيمة ${advance.amount.toLocaleString()} ج.م للموظف ${advance.staffName}`);
   };
 
-  const handleDeductAdvance = (id: string) => {
+  const handleDeductAdvance = async (id: string) => {
     const adv = settings.staffAdvances?.find(a => a.id === id);
     if (!adv) return;
 
-    if (window.confirm(`هل تريد تسوية هذه السلفة وخصم مبلغ (${adv.amount.toLocaleString()} ج.م) من راتب الموظف للشهر الحالي؟`)) {
+    const ok = await inAppConfirm(`هل تريد تسوية هذه السلفة وخصم مبلغ (${adv.amount.toLocaleString()} ج.م) من راتب الموظف للشهر الحالي؟`, {
+      title: 'تسوية وخصم سلفة الموظف',
+      type: 'warning',
+      confirmText: 'نعم، تسوية وخصم السلفة',
+      cancelText: 'إلغاء'
+    });
+    if (ok) {
       setSettings(prev => {
         // 1. Mark advance as deducted
         const updatedAdvances = (prev.staffAdvances || []).map(a => 
@@ -360,8 +373,14 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
     }
   };
 
-  const handleDeleteAdvance = (id: string) => {
-    if (window.confirm('هل تريد حذف سجل السلفة هذا؟')) {
+  const handleDeleteAdvance = async (id: string) => {
+    const ok = await inAppConfirm('هل تريد حذف سجل السلفة هذا؟', {
+      title: 'حذف سجل سلفة',
+      type: 'danger',
+      confirmText: 'نعم، حذف السجل',
+      cancelText: 'تراجع'
+    });
+    if (ok) {
       setSettings(prev => ({
         ...prev,
         staffAdvances: (prev.staffAdvances || []).filter(a => a.id !== id)
@@ -381,8 +400,14 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
     showToast(`تمت إضافة المستند "${doc.docName}" بنجاح`);
   };
 
-  const handleDeleteDocument = (id: string) => {
-    if (window.confirm('هل تريد حذف هذا المستند؟')) {
+  const handleDeleteDocument = async (id: string) => {
+    const ok = await inAppConfirm('هل تريد حذف هذا المستند؟', {
+      title: 'حذف مستند موظف',
+      type: 'danger',
+      confirmText: 'نعم، حذف المستند',
+      cancelText: 'إلغاء'
+    });
+    if (ok) {
       setSettings(prev => ({
         ...prev,
         staffDocuments: (prev.staffDocuments || []).filter(d => d.id !== id)
@@ -407,8 +432,14 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
     showToast(`تم تحديث بيانات ${staff.name} بنجاح`);
   };
 
-  const handleDeleteStaff = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا الموظف؟')) {
+  const handleDeleteStaff = async (id: string) => {
+    const ok = await inAppConfirm('هل أنت متأكد من حذف هذا الموظف؟', {
+      title: 'حذف موظف',
+      type: 'danger',
+      confirmText: 'نعم، حذف الموظف نهائياً',
+      cancelText: 'تراجع'
+    });
+    if (ok) {
       setSettings(prev => ({
         ...prev,
         staffMembers: (prev.staffMembers || []).filter(s => s.id !== id)
@@ -437,13 +468,20 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
     showToast(`تم تسجيل ${payment.type === 'salary' ? 'صرف راتب' : payment.type === 'incentive' ? 'صرف حافز' : 'خصم'} بقيمة ${payment.amount.toLocaleString()} ج.م للموظف ${staff.name}`);
   };
 
-  const handleDeleteTransaction = (tx: PayrollTransaction) => {
+  const handleDeleteTransaction = async (tx: PayrollTransaction) => {
     const sourceName = tx.treasuryAccountId ? 'الخزينة المختارة' : 'المحفظة العامة';
     const msg = tx.type === 'deduction'
       ? `هل أنت متأكد من حذف سجل الخصم للموظف ${tx.staffName}؟`
       : `هل أنت متأكد من حذف هذه العملية؟\nسيتم استرداد مبلغ (${tx.amount.toLocaleString()} ج.م) وإعادته تلقائياً إلى رصيد [ ${sourceName} ].`;
 
-    if (window.confirm(msg)) {
+    const ok = await inAppConfirm(msg, {
+      title: 'حذف سجل المعاملة المالية',
+      type: 'danger',
+      confirmText: 'نعم، حذف واسترداد',
+      cancelText: 'إلغاء'
+    });
+
+    if (ok) {
       // Revert financial impact
       revertFinancialImpact(tx);
 

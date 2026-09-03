@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, PaymentMethod } from '../types';
 import { CreditCard, Plus, Trash2, Edit3, Smartphone, Banknote, Save, X } from 'lucide-react';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface ToggleButtonProps { active: boolean; onToggle: () => void; variant?: "blue" | "emerald" | "amber"; disabled?: boolean; }
 const ToggleButton: React.FC<ToggleButtonProps> = ({ active, onToggle, variant = "emerald", disabled = false }) => {
@@ -52,8 +53,14 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
       }));
   };
 
-  const deleteMethod = (id: string) => {
-      if (!window.confirm("حذف وسيلة الدفع هذه؟")) return;
+  const deleteMethod = async (id: string) => {
+      const ok = await inAppConfirm("هل أنت متأكد من رغبتك في حذف وسيلة الدفع هذه؟", {
+        title: "حذف وسيلة الدفع",
+        type: "danger",
+        confirmText: "نعم، حذف",
+        cancelText: "إلغاء"
+      });
+      if (!ok) return;
       setSettings(prev => ({
           ...prev,
           paymentMethods: prev.paymentMethods.filter(m => m.id !== id)

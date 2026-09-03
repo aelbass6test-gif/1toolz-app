@@ -6,6 +6,7 @@ import BostaSystemPortal from './BostaSystemPortal';
 import { motion } from 'framer-motion';
 import { generateEgyptShippingOptions, EGYPT_GOVERNORATES } from '../constants';
 import { isBosta } from '../utils/financials';
+import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -237,8 +238,10 @@ const ShippingPage: React.FC<{
   treasury?: any,
   setTreasury?: (updater: any) => void,
   wallet?: any,
-  setWallet?: (updater: any) => void
-}> = ({ settings, setSettings, treasury, setTreasury, wallet, setWallet }) => {
+  setWallet?: (updater: any) => void,
+  orders?: any[],
+  setOrders?: any
+}> = ({ settings, setSettings, treasury, setTreasury, wallet, setWallet, orders, setOrders }) => {
   if (!settings) return null;
   const [localSettings, setLocalSettings] = useState(settings);
   const [isDirty, setIsDirty] = useState(false);
@@ -267,9 +270,15 @@ const ShippingPage: React.FC<{
   const [newCompanyName, setNewCompanyName] = useState('');
   const [companyToDelete, setCompanyToDelete] = useState<string | null>(null);
 
-  const handleBack = () => {
+  const handleBack = async () => {
     if (isDirty) {
-      if (window.confirm('لديك تغييرات غير محفوظة. هل تريد تجاهلها والعودة؟')) {
+      const ok = await inAppConfirm('لديك تغييرات غير محفوظة في إعدادات الشحن. هل تريد تجاهلها والعودة؟', {
+        title: 'تجاهل التغييرات غير المحفوظة',
+        type: 'warning',
+        confirmText: 'نعم، تجاهل والعودة',
+        cancelText: 'البقاء هنا'
+      });
+      if (ok) {
         handleDiscard();
         setView('main');
       }
@@ -353,6 +362,8 @@ const ShippingPage: React.FC<{
                         setWallet={setWallet}
                         settings={settings}
                         setSettings={setSettings}
+                        orders={orders}
+                        setOrders={setOrders}
                     />
                 )}
             </div>
@@ -794,10 +805,16 @@ const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
     };
 
     // New: Helper to reset all cities in a zone to linked status
-    const resetAllToLinked = (e: React.MouseEvent, zoneId: string) => {
+    const resetAllToLinked = async (e: React.MouseEvent, zoneId: string) => {
         e.preventDefault();
         e.stopPropagation();
-        if(!window.confirm("هل أنت متأكد من ربط جميع المدن بسعر المنطقة؟ سيتم إلغاء أي أسعار مخصصة.")) return;
+        const ok = await inAppConfirm("هل أنت متأكد من ربط جميع المدن بسعر المنطقة؟ سيتم إلغاء أي أسعار مخصصة.", {
+            title: "ربط جميع المدن بسعر المنطقة",
+            type: "warning",
+            confirmText: "نعم، ربط الكل",
+            cancelText: "إلغاء"
+        });
+        if (!ok) return;
         setSettings((prev: Settings) => ({
             ...prev,
             shippingOptions: {
@@ -816,10 +833,16 @@ const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
     };
     
     // New: Helper to unlink all
-    const unlinkAll = (e: React.MouseEvent, zoneId: string, zone: ShippingOption) => {
+    const unlinkAll = async (e: React.MouseEvent, zoneId: string, zone: ShippingOption) => {
         e.preventDefault();
         e.stopPropagation();
-        if(!window.confirm("هل أنت متأكد من فك ربط جميع المدن؟ ستحتفظ المدن بالأسعار الحالية كأسعار مخصصة.")) return;
+        const ok = await inAppConfirm("هل أنت متأكد من فك ربط جميع المدن؟ ستحتفظ المدن بالأسعار الحالية كأسعار مخصصة.", {
+            title: "فك ربط المدن",
+            type: "warning",
+            confirmText: "نعم، فك الربط",
+            cancelText: "إلغاء"
+        });
+        if (!ok) return;
         setSettings((prev: Settings) => ({
             ...prev,
             shippingOptions: {
@@ -856,8 +879,14 @@ const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
       }
   };
 
-  const loadEgyptData = () => {
-    if (confirm('سيتم إضافة جميع محافظات ومدن مصر إلى هذه الشركة. هل تريد المتابعة؟')) {
+  const loadEgyptData = async () => {
+    const ok = await inAppConfirm('سيتم إضافة جميع محافظات ومدن مصر إلى هذه الشركة. هل تريد المتابعة؟', {
+        title: 'استيراد محافظات ومدن مصر',
+        type: 'question',
+        confirmText: 'نعم، استيراد المحافظات',
+        cancelText: 'إلغاء'
+    });
+    if (ok) {
         const egyptZones = generateEgyptShippingOptions();
         setSettings((prev: Settings) => ({
             ...prev,
@@ -866,7 +895,7 @@ const ZonesEditor: React.FC<any> = ({ companyName, settings, setSettings }) => {
                 [companyName]: egyptZones
             }
         }));
-        alert('تم استيراد محافظات مصر بنجاح!');
+        await inAppAlert('تم استيراد محافظات مصر بنجاح!', { type: 'success' });
     }
   }
 
@@ -1322,8 +1351,14 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
     setShowAddModal(false);
   };
 
-  const handleDeletePackage = (id: string) => {
-    if (!window.confirm('هل أنت متأكد من حذف باقة التأمين هذه؟')) return;
+  const handleDeletePackage = async (id: string) => {
+    const ok = await inAppConfirm('هل أنت متأكد من حذف باقة التأمين هذه؟', {
+      title: 'حذف باقة تأمين الشحن',
+      type: 'danger',
+      confirmText: 'نعم، حذف الباقة',
+      cancelText: 'إلغاء'
+    });
+    if (!ok) return;
     setSettings((prev) => ({
       ...prev,
       insurancePackages: (prev.insurancePackages || []).filter((p) => p.id !== id),

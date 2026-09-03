@@ -237,10 +237,16 @@ create table if not exists public.shipping_integrations (
   store_id text not null references public.stores_data(id) on delete cascade,
   provider text,
   api_key text,
+  "apiKey" text,
   api_secret text,
+  "apiSecret" text,
   account_number text,
+  "accountNumber" text,
   is_connected boolean default false,
-  created_at timestamp with time zone default timezone('utc'::text, now())
+  "isConnected" boolean default false,
+  details jsonb default '{}'::jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()),
+  updated_at timestamp with time zone default timezone('utc'::text, now())
 );
 
 -- 18. Chat Messages (Linked to Users)

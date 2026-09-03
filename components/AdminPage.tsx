@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import * as db from '../services/databaseService';
 import { clearStoreData } from '../services/databaseService';
+import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 import { 
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as ChartTooltip, 
     Cell, PieChart, Pie, Legend, CartesianGrid 
@@ -599,7 +600,13 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   }, [users, searchTerm]);
 
   const handleDeleteUser = async (user: User) => {
-    if (!window.confirm(`هل أنت متأكد من حذف المستخدم ${user.fullName} وجميع متاجره؟ هذا الإجراء لا يمكن التراجع عنه.`)) return;
+    const ok = await inAppConfirm(`هل أنت متأكد من حذف المستخدم ${user.fullName} وجميع متاجره؟ هذا الإجراء لا يمكن التراجع عنه.`, {
+      title: 'حذف مستخدم وجميع متاجره',
+      type: 'danger',
+      confirmText: 'نعم، حذف المستخدم نهائياً',
+      cancelText: 'إلغاء'
+    });
+    if (!ok) return;
 
     try {
         await db.deleteUserCompletely(user);
@@ -611,20 +618,26 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         // Update global users list in Firebase
         await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
         
-        alert(`تم حذف المستخدم ${user.fullName} وجميع متاجره بنجاح.`);
+        await inAppAlert(`تم حذف المستخدم ${user.fullName} وجميع متاجره بنجاح.`, { type: 'success' });
     } catch (e: any) {
-        alert(`خطأ أثناء حذف المستخدم: ${e.message}`);
+        await inAppAlert(`خطأ أثناء حذف المستخدم: ${e.message}`, { type: 'error' });
     }
   };
   
   const toggleUserBan = async (phone: string) => {
-    if(!window.confirm("هل أنت متأكد من تغيير حالة حظر هذا المستخدم؟")) return;
+    const ok = await inAppConfirm("هل أنت متأكد من تغيير حالة حظر هذا المستخدم؟", {
+      title: 'تغيير حالة حظر المستخدم',
+      type: 'warning',
+      confirmText: 'تأكيد التغيير',
+      cancelText: 'تراجع'
+    });
+    if (!ok) return;
     const updated = users.map(u => u.phone === phone ? { ...u, isBanned: !u.isBanned } : u);
     setUsers(updated);
     try {
         await db.saveGlobalData({ users: updated, loyaltyData: {} });
     } catch (e) {
-        alert("فشل تحديث السيرفر العام لمستخدم.");
+        await inAppAlert("فشل تحديث السيرفر العام لمستخدم.", { type: 'error' });
     }
   };
 

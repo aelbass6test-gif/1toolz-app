@@ -6,6 +6,7 @@ import GlobalLoader from './GlobalLoader';
 import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
 import { calculateInsuranceFee, getStandardShippingFee, calculateCodFee } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
+import { deductOrderStock, restoreOrderStock } from '../utils/inventoryManager';
 
 interface EditOrderPageProps {
     orders: Order[];
@@ -88,7 +89,11 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         console.log("DEBUG: EditOrderPage effect, param id:", id, "available orders:", orders.map(o => o.id));
         const order = orders.find(o => o.id === id);
         if (order) {
-            setEditingOrder(normalizeSyncedOrder({ ...order }));
+            const normalized = normalizeSyncedOrder({ ...order });
+            if (!normalized.merchantBrandName) {
+                normalized.merchantBrandName = activeStore?.name || settings?.storeName || 'وان تولز للعدد';
+            }
+            setEditingOrder(normalized);
         }
     }, [id, orders, navigate, activeStore]);
 
@@ -442,6 +447,26 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                     }
                     return prev;
                 });
+            }
+
+            // Handle inventory adjustment on status change (cancelled/returned)
+            const oldStatus = String(editingOrder?.status || '');
+            const newStatus = String(updatedOrder.status || '');
+            const isOldCancelled = oldStatus.includes('ملغي') || oldStatus.includes('مرتجع') || oldStatus.includes('Canceled') || oldStatus.includes('Returned');
+            const isNewCancelled = newStatus.includes('ملغي') || newStatus.includes('مرتجع') || newStatus.includes('Canceled') || newStatus.includes('Returned');
+
+            if (!isOldCancelled && isNewCancelled) {
+                // Restore stock back to warehouse
+                setSettings(prev => ({
+                    ...prev,
+                    products: restoreOrderStock(updatedOrder, prev.products || [], prev.defaultWarehouseId)
+                }));
+            } else if (isOldCancelled && !isNewCancelled) {
+                // Deduct stock again from warehouse
+                setSettings(prev => ({
+                    ...prev,
+                    products: deductOrderStock(updatedOrder, prev.products || [], prev.defaultWarehouseId)
+                }));
             }
 
             setOrders(prev => prev.map(o => o.id === orderIdVal ? updatedOrder : o));

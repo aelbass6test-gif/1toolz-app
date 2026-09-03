@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { Settings, Treasury, TreasuryAccount, TreasuryTransaction, Order } from '../types';
 import { calculateOrderProfitLoss, getVirtualOrderHandovers } from '../utils/financials';
+import { inAppConfirm } from '../utils/inAppAlert';
 import { generateSafeId } from '../utils/idUtils';
 
 interface TreasuryPageProps {
@@ -401,7 +402,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
     setEditingAccount(null);
   };
 
-  const handleDeleteAccount = (acc: TreasuryAccount) => {
+  const handleDeleteAccount = async (acc: TreasuryAccount) => {
     if (acc.balance !== 0) {
       setAlertConfig({
         isOpen: true,
@@ -423,7 +424,13 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({ settings, treasury, 
       return;
     }
 
-    if (window.confirm(`هل أنت متأكد من رغبتك في حذف الحساب "${acc.name}" نهائياً من سجلات الخزينة؟`)) {
+    const ok = await inAppConfirm(`هل أنت متأكد من رغبتك في حذف الحساب "${acc.name}" نهائياً من سجلات الخزينة؟`, {
+      title: 'حذف حساب مالي من الخزينة',
+      type: 'danger',
+      confirmText: 'نعم، حذف الحساب',
+      cancelText: 'إلغاء'
+    });
+    if (ok) {
       if (setTreasury) {
         setTreasury((prev: Treasury) => ({
           ...prev,

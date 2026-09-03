@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Order, User, ConfirmationLog, AuditLog, OrderStatus, Settings, OrderItem, Product, Store } from '../types';
 import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft, Wallet, Shield, Banknote, Coins } from 'lucide-react';
 import EditableField from './EditableField';
+import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
 import { getAdvancePaymentCustodyName } from '../utils/financials';
 import { whatsappService } from '../utils/whatsappService';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 const QUICK_WA_TEMPLATES = [
     { id: 'no_answer', label: 'لم يتم الرد', text: 'حاولنا الاتصال بك لتأكيد طلبك ولم نتمكن من الوصول إليك. برجاء إبلاغنا بالوقت المناسب للاتصال.' },
@@ -211,6 +213,11 @@ const CustomerHistory = ({ allOrders, customerPhone, currentOrderId }: { allOrde
 
     return (
         <div className="space-y-4">
+            <CustomerDeliveryRateBadge
+                phone={customerPhone}
+                orders={allOrders}
+            />
+
             {history.duplicates.length > 0 && (
                 <motion.div 
                     initial={{ opacity: 0, scale: 0.9 }}
@@ -1607,8 +1614,14 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                     </span>
                                     <div className="flex gap-2">
                                         <button 
-                                            onClick={() => {
-                                                if (window.confirm(`هل أنت متأكد من تأكيد ${selectedOrderIds.length} طلب؟`)) {
+                                            onClick={async () => {
+                                                const ok = await inAppConfirm(`هل أنت متأكد من تأكيد ${selectedOrderIds.length} طلب دفعة واحدة؟`, {
+                                                    title: 'تأكيد جماعي للطلبات',
+                                                    type: 'question',
+                                                    confirmText: 'نعم، تأكيد الكل',
+                                                    cancelText: 'إلغاء'
+                                                });
+                                                if (ok) {
                                                     const now = new Date().toISOString();
                                                     setOrders(current => current.map(o => {
                                                         if (selectedOrderIds.includes(o.id)) {
@@ -1637,8 +1650,14 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                             تأكيد الكل
                                         </button>
                                         <button 
-                                            onClick={() => {
-                                                if (window.confirm(`هل أنت متأكد من حذف ${selectedOrderIds.length} طلب نهائياً؟`)) {
+                                            onClick={async () => {
+                                                const ok = await inAppConfirm(`هل أنت متأكد من حذف ${selectedOrderIds.length} طلب نهائياً من قاعدة البيانات؟`, {
+                                                    title: 'حذف جماعي للطلبات',
+                                                    type: 'danger',
+                                                    confirmText: 'نعم، حذف نهائي',
+                                                    cancelText: 'تراجع'
+                                                });
+                                                if (ok) {
                                                     const ordersToDelete = orders.filter(o => selectedOrderIds.includes(o.id));
                                                     
                                                     // Cascade deletes logic for each order

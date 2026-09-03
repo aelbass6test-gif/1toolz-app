@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Settings, CustomPage } from '../types';
 import { FileText, Plus, Edit3, Trash2, Globe, Save } from 'lucide-react';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface PagesManagerProps {
   settings: Settings;
@@ -36,8 +37,14 @@ const PagesManager: React.FC<PagesManagerProps> = ({ settings, setSettings }) =>
       setEditingPage(null);
   };
 
-  const deletePage = (id: string) => {
-      if(!window.confirm("حذف هذه الصفحة؟")) return;
+  const deletePage = async (id: string) => {
+      const ok = await inAppConfirm("هل أنت متأكد من رغبتك في حذف هذه الصفحة التعريفية؟", {
+        title: "حذف الصفحة",
+        type: "danger",
+        confirmText: "نعم، حذف الصفحة",
+        cancelText: "إلغاء"
+      });
+      if (!ok) return;
       setSettings(prev => ({
           ...prev,
           customPages: prev.customPages.filter(p => p.id !== id)

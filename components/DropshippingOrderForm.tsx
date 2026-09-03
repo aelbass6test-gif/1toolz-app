@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Store, Package, MapPin, Truck, Plus, Trash2, ArrowRightCircle } from 'lucide-react';
 import { OrderItem, Settings, Order } from '../types';
 import egyptCitiesData from '../data/egypt_cities.json';
+import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
 import { getStandardShippingFee, calculateInsuranceFee, calculateCodFee, calculateBostaVat } from '../utils/financials';
 
 const egyptCities = egyptCitiesData as Record<string, string[]>;
@@ -135,10 +136,22 @@ export const DropshippingOrderForm: React.FC<DropshippingOrderFormProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">اسم البراند / المتجر الخارجي *</label>
+              <select
+                value={orderData.merchantBrandName || ""}
+                onChange={(e) => handleFieldChange("merchantBrandName", e.target.value)}
+                className="w-full mb-2 p-3 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-200 dark:border-slate-750 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
+              >
+                <option value="">-- اختر من المتاجر المسجلة --</option>
+                {["وان تولز للعدد", "إبداع اكس باور", "العربي للعدد اليدوية", "اكس باور", "دكتور الصنعة"].map((brand) => (
+                  <option key={brand} value={brand}>
+                    🏬 {brand}
+                  </option>
+                ))}
+              </select>
               <input
                 type="text"
                 required
-                placeholder="مثال: متجر الأناقة لقطع الغيار"
+                placeholder="مثال: وان تولز للعدد، دكتور الصنعة..."
                 value={orderData.merchantBrandName || ""}
                 onChange={(e) => handleFieldChange("merchantBrandName", e.target.value)}
                 className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-200 dark:border-slate-750 rounded-2xl text-sm font-bold text-slate-800 dark:text-slate-100 outline-none hover:border-slate-300 dark:hover:border-slate-600 focus:bg-white dark:focus:bg-slate-900 focus:border-amber-500 dark:focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10 transition-all duration-200"
@@ -191,6 +204,11 @@ export const DropshippingOrderForm: React.FC<DropshippingOrderFormProps> = ({
                 onChange={(e) => handleFieldChange("customerPhone", e.target.value)}
                 className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-200 dark:border-slate-750 rounded-2xl text-sm font-bold font-mono text-slate-800 dark:text-slate-100 outline-none hover:border-slate-300 dark:hover:border-slate-600 focus:bg-white dark:focus:bg-slate-900 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-4 focus:ring-blue-500/10 transition-all duration-200"
               />
+              {orderData.customerPhone && orderData.customerPhone.trim().length >= 6 && (
+                <div className="pt-2">
+                  <CustomerDeliveryRateBadge phone={orderData.customerPhone} settings={settings} />
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">المحافظة</label>

@@ -294,7 +294,12 @@ CREATE TABLE IF NOT EXISTS shipping_integrations (
     account_number TEXT,
     accountNumber TEXT,
     is_connected BOOLEAN DEFAULT false,
-    isConnected BOOLEAN DEFAULT false
+    isConnected BOOLEAN DEFAULT false,
+    details JSONB DEFAULT '{}'::jsonb,
+    updated_at TEXT,
+    updatedAt TEXT,
+    created_at TEXT,
+    createdAt TEXT
 );
 
 -- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
@@ -1003,6 +1008,16 @@ ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
 
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiKey" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_key TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiSecret" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_secret TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "isConnected" BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS is_connected BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS provider TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
@@ -1313,7 +1328,51 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   const [activeTab, setActiveTab] = useState<'database' | 'security' | 'webhooks' | 'logs' | 'platforms'>('database');
 
   const handleFixFlexShipSchema = () => {
-    handleFixDBSchema();
+    const shippingFixSql = `
+-- ==========================================================
+-- كود مخصص لإصلاح وتحديث جميع أعمدة شركات الشحن (بوسطة، flexShip، وغيرها)
+-- يشمل إصلاح أعمدة apiKey, isConnected, apiSecret, accountNumber
+-- ==========================================================
+
+-- 1. جدول تكاملات الشحن (shipping_integrations)
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiKey" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_key TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiSecret" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_secret TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "isConnected" BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS is_connected BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS provider TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "created_at" TEXT;
+
+-- 2. جدول الطلبات (orders) - إضافة جميع أعمدة الشحن و flexShip
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingCompany" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_company" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_fee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipCompanyFee" NUMERIC DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "enableFlexShip" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFeePaidByCustomer" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "vatOnStandardShipping" BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingArea" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipmentType" TEXT DEFAULT 'delivery';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "city" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "governorate" TEXT;
+
+-- تعطيل حماية RLS لضمان المزامنة السريعة
+ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
+`;
+    navigator.clipboard.writeText(shippingFixSql.trim());
+    triggerAlarm("🚀 تم نسخ كود SQL لإصلاح أعمدة شركات الشحن (apiKey, isConnected, flexShip) بنجاح! الصقه في Supabase SQL Editor واضغط Run لحل المشكلة فوراً.", 'success', 'إصلاح أعمدة الشحن وبوسطة');
   };
 
   const handleApplySync = () => {
@@ -1881,6 +1940,16 @@ ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
 
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiKey" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_key TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiSecret" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_secret TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "isConnected" BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS is_connected BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS provider TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
@@ -2864,7 +2933,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                   className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-teal-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
                 >
                   <RefreshCw size={18} />
-                  إصلاح "flexShip" وأعمدة الشحن
+                  🚚 إصلاح أعمدة شركات الشحن وبوسطة (apiKey / isConnected / flexShip)
                 </button>
               </div>
             </div>

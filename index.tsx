@@ -2,6 +2,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
+import './utils/inAppAlert';
 // FIX: The App component should be the default export which is the AppWrapper.
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';

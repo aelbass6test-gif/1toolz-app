@@ -1,4 +1,10 @@
 const fs = require('fs');
 let code = fs.readFileSync('types.ts', 'utf8');
-code = code.replace(/declare global \{\n  const google: \{\n    script: \{\n      run: \{\n        withSuccessHandler\(handler: \(response: any\) => void\): any;\n        withFailureHandler\(handler: \(error: Error\) => void\): any;\n        serverApiCall\(storeId: string, action: string, payload: any \| null\): void;\n      \};\n    \};\n  \};\n\}/g, '');
-fs.writeFileSync('types.ts', code);
+
+if (!code.includes('defaultReturnLocationId')) {
+  code = code.replace(
+    '  defaultBusinessLocationId?: string;',
+    '  defaultBusinessLocationId?: string;\n  defaultReturnLocationId?: string;'
+  );
+  fs.writeFileSync('types.ts', code);
+}

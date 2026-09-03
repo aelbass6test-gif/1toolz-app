@@ -273,11 +273,21 @@ CREATE TABLE IF NOT EXISTS global_options (
 CREATE TABLE IF NOT EXISTS shipping_integrations (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
+    storeId TEXT,
     provider TEXT NOT NULL,
     api_key TEXT,
+    apiKey TEXT,
     api_secret TEXT,
+    apiSecret TEXT,
     account_number TEXT,
-    is_connected BOOLEAN DEFAULT false
+    accountNumber TEXT,
+    is_connected BOOLEAN DEFAULT false,
+    isConnected BOOLEAN DEFAULT false,
+    details JSONB DEFAULT '{}'::jsonb,
+    updated_at TEXT,
+    updatedAt TEXT,
+    created_at TEXT,
+    createdAt TEXT
 );
 
 -- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
@@ -726,7 +736,22 @@ ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiKey" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_key TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiSecret" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_secret TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS account_number TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "isConnected" BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS is_connected BOOLEAN DEFAULT false;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS provider TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
+ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Settings, Review } from '../types';
 import { Star, ThumbsUp, ThumbsDown, Trash2, CheckCircle, Clock, MessageSquare, XCircle } from 'lucide-react';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface ReviewsPageProps {
   settings: Settings;
@@ -18,8 +19,14 @@ const ReviewsPage: React.FC<ReviewsPageProps> = ({ settings, setSettings }) => {
       }));
   };
 
-  const handleDelete = (id: string) => {
-      if(!window.confirm("حذف هذا التقييم نهائياً؟")) return;
+  const handleDelete = async (id: string) => {
+      const ok = await inAppConfirm("هل أنت متأكد من رغبتك في حذف هذا التقييم نهائياً؟", {
+        title: "حذف التقييم",
+        type: "danger",
+        confirmText: "حذف التقييم",
+        cancelText: "إلغاء",
+      });
+      if (!ok) return;
       setSettings(prev => ({
           ...prev,
           reviews: prev.reviews.filter(r => r.id !== id)

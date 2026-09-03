@@ -95,6 +95,7 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import MobileNavigation from './components/MobileNavigation';
 import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
+import { InAppAlertSystem } from './components/InAppAlertSystem';
 
 interface EmployeeRegisterRequestData {
   fullName: string;
@@ -3231,6 +3232,7 @@ export const AppComponent = () => {
             {currentUser && !isStandaloneStorefront && (
                 <SmartUpdatesWidget isAdminView={true} primaryColor="#6366f1" />
             )}
+            <InAppAlertSystem />
         </Suspense>
     );
 };

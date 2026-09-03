@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { parseSafeDate } from "../utils/dateUtils";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
@@ -71,6 +71,7 @@ import {
   ShoppingCart,
   BookOpen,
   Wallet as WalletIcon,
+  Store as StoreIcon,
 } from "lucide-react";
 import { db } from "../services/firebaseClient";
 import { deleteStoreItem } from "../services/databaseService";
@@ -104,6 +105,7 @@ import {
   generateEgyptShippingOptions,
 } from "../constants";
 import { motion, Variants, AnimatePresence } from "framer-motion";
+import { CustomerDeliveryRateBadge } from "./CustomerDeliveryRateBadge";
 import { generateInvoiceHTML } from "../utils/invoiceGenerator";
 import { generateShippingLabelHTML } from "../utils/shippingLabelGenerator";
 import { generateShippingNote } from "../services/geminiService";
@@ -122,11 +124,14 @@ import {
 } from "../utils/financials";
 import { generateOrdersReportHTML } from "../utils/reportGenerator";
 import { triggerWebhooks } from "../utils/webhook";
-import { printHTMLDirectly } from "../utils/printHelper";
+import { printHTMLDirectly, printPdfBlob } from "../utils/printHelper";
 import { exportHTMLToPDF } from "../utils/pdfHelper";
 import { OrderDetailsModal } from "./OrderDetailsModal";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { whatsappService } from "../utils/whatsappService";
+import { bostaService } from "../utils/bostaService";
+import { BostaTrackingModal } from "./BostaTrackingModal";
+import { inAppConfirm, inAppAlert, inAppToast } from "../utils/inAppAlert";
 import {
   AreaChart,
   Area,
@@ -678,6 +683,17 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedOrders, setSelectedOrders] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [displayDensity, setDisplayDensity] = useState<'comfortable' | 'compact'>(() => {
+    return (localStorage.getItem('orders_display_density') as 'comfortable' | 'compact') || 'comfortable';
+  });
+  const [smartActionFilter, setSmartActionFilter] = useState<'all' | 'high_risk' | 'pending_bosta' | 'pending_compensation'>('all');
+  
+  // Real Bosta Shipping Integration States
+  const [bostaTrackingOrder, setBostaTrackingOrder] = useState<Order | null>(null);
+  const [bostaTrackingNumber, setBostaTrackingNumber] = useState<string | null>(null);
+  const [isBostaLoading, setIsBostaLoading] = useState<string | null>(null);
+  const [isBulkSendingBosta, setIsBulkSendingBosta] = useState(false);
+  const [isBulkPrintingBosta, setIsBulkPrintingBosta] = useState(false);
   const [orderToConfirm, setOrderToConfirm] = useState<Omit<
     Order,
     "id"
@@ -803,11 +819,265 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     }
   };
 
+  // Real Bosta API Handlers
+  const handleSendOrderToBosta = async (order: Order) => {
+    setIsBostaLoading(order.id);
+    try {
+      const res = await bostaService.createDelivery(order, settings?.bostaConfig);
+      if (res.success && res.trackingNumber) {
+        const trackingNum = res.trackingNumber;
+        const deliveryId = res.deliveryId || trackingNum;
+
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.id === order.id
+              ? {
+                  ...o,
+                  waybillNumber: trackingNum,
+                  bostaDeliveryId: deliveryId,
+                  bostaTrackingNumber: trackingNum,
+                  shippingCompany: 'بوسطة',
+                }
+              : o,
+          ),
+        );
+
+        addAuditLog(order.id, 'إنشاء بوليصة بوسطة', `رقم البوليصة: ${trackingNum}`);
+
+        // Auto-send tracking link via WhatsApp API if configured
+        if (settings?.bostaConfig?.autoSendWhatsAppTracking && settings?.whatsappConfig?.isActive) {
+          try {
+            const trackingMsg = bostaService.formatTrackingMessage(
+              order,
+              trackingNum,
+              settings.storeName || 'متجرنا',
+              settings.bostaConfig.whatsappTrackingMessageTemplate
+            );
+            let phone = order.customerPhone || '';
+            const cleanPhone = phone.replace(/\D/g, '');
+            if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+              phone = '2' + cleanPhone;
+            } else {
+              phone = cleanPhone;
+            }
+            if (phone) {
+              whatsappService.sendMessage(phone, trackingMsg, settings.whatsappConfig).then((waRes) => {
+                if (waRes.success) {
+                  addAuditLog(order.id, 'إرسال رابط تتبع بوسطة', `تم إرسال رابط التتبع (${trackingNum}) للعميل عبر WhatsApp`);
+                }
+              });
+            }
+          } catch (waErr) {
+            console.error('Error auto-sending Bosta tracking link via WhatsApp:', waErr);
+          }
+        }
+
+        const shouldPrint = await inAppConfirm(
+          `تم إنشاء الشحنة بنجاح في بوسطة! ✅\nرقم البوليصة الرسمية (AWB): ${trackingNum}\n\nهل ترغب في فتح وطباعة بوليصة الشحن (AWB PDF) الآن؟`,
+          {
+            title: 'تم إنشاء شحنة بوسطة بنجاح',
+            type: 'success',
+            confirmText: 'طباعة البوليصة الآن',
+            cancelText: 'لاحقاً',
+          }
+        );
+        if (shouldPrint) {
+          handlePrintBostaAwb(deliveryId || trackingNum);
+        }
+      } else {
+        await inAppAlert(`فشل إنشاء الشحنة في بوسطة: ${res.error || 'خطأ غير معروف'}`, { type: 'error' });
+      }
+    } catch (err: any) {
+      await inAppAlert(`خطأ أثناء الاتصال ببوسطة: ${err.message || 'خطأ غير متوقع'}`, { type: 'error' });
+    } finally {
+      setIsBostaLoading(null);
+    }
+  };
+
+  const handlePrintBostaAwb = async (deliveryIdOrTracking: string) => {
+    try {
+      const res = await bostaService.getAwb(deliveryIdOrTracking, settings?.bostaConfig?.apiKey);
+      if (res.success && res.data) {
+        const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
+          ? res.data.replace('data:application/pdf;base64,', '')
+          : res.data;
+        const byteCharacters = atob(cleanBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        printPdfBlob(blobUrl, `bosta-awb-${deliveryIdOrTracking}.pdf`);
+      } else {
+        alert(res.error || 'فشل تحميل بوليصة الشحن من بوسطة');
+      }
+    } catch (err: any) {
+      alert(err.message || 'خطأ في طباعة البوليصة');
+    }
+  };
+
+  const handleBulkSendOrdersToBosta = async (selectedOrderIds: string[]) => {
+    if (!selectedOrderIds.length) return;
+    const targets = orders.filter((o) => selectedOrderIds.includes(o.id));
+    const ok = await inAppConfirm(
+      `هل أنت متأكد من إرسال ${targets.length} طلب إلى بوسطة وتوليد بوالص الشحن الرسمية الآن؟`,
+      {
+        title: 'إرسال شحنات جماعية لبوسطة',
+        type: 'question',
+        confirmText: 'نعم، إرسال الكل لبوسطة',
+        cancelText: 'إلغاء',
+      }
+    );
+    if (!ok) return;
+
+    setIsBulkSendingBosta(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const order of targets) {
+      try {
+        const res = await bostaService.createDelivery(order, settings?.bostaConfig);
+        if (res.success && res.trackingNumber) {
+          const trackingNum = res.trackingNumber;
+          const deliveryId = res.deliveryId || trackingNum;
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.id === order.id
+                ? {
+                    ...o,
+                    waybillNumber: trackingNum,
+                    bostaDeliveryId: deliveryId,
+                    bostaTrackingNumber: trackingNum,
+                    shippingCompany: 'بوسطة',
+                  }
+                : o,
+            ),
+          );
+          addAuditLog(order.id, 'إنشاء بوليصة بوسطة', `رقم البوليصة: ${trackingNum}`);
+
+          // Auto-send tracking link via WhatsApp API if configured
+          if (settings?.bostaConfig?.autoSendWhatsAppTracking && settings?.whatsappConfig?.isActive) {
+            try {
+              const trackingMsg = bostaService.formatTrackingMessage(
+                order,
+                trackingNum,
+                settings.storeName || 'متجرنا',
+                settings.bostaConfig.whatsappTrackingMessageTemplate
+              );
+              let phone = order.customerPhone || '';
+              const cleanPhone = phone.replace(/\D/g, '');
+              if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
+                phone = '2' + cleanPhone;
+              } else {
+                phone = cleanPhone;
+              }
+              if (phone) {
+                whatsappService.sendMessage(phone, trackingMsg, settings.whatsappConfig).catch(() => {});
+              }
+            } catch (waErr) {
+              console.error('Error auto-sending Bosta bulk tracking WhatsApp:', waErr);
+            }
+          }
+
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsBulkSendingBosta(false);
+    await inAppAlert(
+      `اكتملت معالجة الشحنات في بوسطة!\n\n✅ تم بنجاح: ${successCount} شحنة\n❌ تعذر أو فشل: ${failCount} شحنة`,
+      {
+        title: 'نتيجة الإرسال لبوسطة',
+        type: failCount === 0 ? 'success' : 'warning',
+      }
+    );
+  };
+
+  const handleBulkPrintBostaAwb = async (selectedOrderIds: string[], awbType: 'A4' | 'A6' = 'A4') => {
+    const targets = orders.filter((o) => selectedOrderIds.includes(o.id) && (o.waybillNumber || o.bostaDeliveryId));
+    if (!targets.length) {
+      await inAppAlert('لا توجد طلبات محددة تحتوي على بوليصة شحن لبوسطة. يرجى إرسال الطلبات لبوسطة أولاً لتوليد البوالص.', { type: 'warning' });
+      return;
+    }
+    const trackingNumbers = targets.map(o => o.waybillNumber || o.bostaDeliveryId || '').filter(Boolean);
+    setIsBulkPrintingBosta(true);
+    try {
+      const res = await bostaService.getMassAwb(
+        trackingNumbers,
+        settings?.bostaConfig?.apiKey,
+        settings?.bostaConfig?.environment === 'staging',
+        awbType,
+        'ar'
+      );
+      if (res.success && res.data) {
+        const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
+          ? res.data.replace('data:application/pdf;base64,', '')
+          : res.data;
+        const byteCharacters = atob(cleanBase64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        printPdfBlob(blobUrl, `bosta-mass-awb-${Date.now()}.pdf`);
+      } else {
+        await inAppAlert(res.error || 'تعذر تحميل البوالص المجمعة من بوسطة', { type: 'error' });
+      }
+    } catch (err: any) {
+      await inAppAlert(err.message || 'حدث خطأ أثناء طباعة البوالص', { type: 'error' });
+    } finally {
+      setIsBulkPrintingBosta(false);
+    }
+  };
+
   useEffect(() => {
     if (onRefresh && orders.length > 0) {
       // Logic for refresh if needed
     }
   }, [orders.length, onRefresh]);
+
+  const smartActionCounts = useMemo(() => {
+    let highRisk = 0;
+    let pendingBosta = 0;
+    let pendingComp = 0;
+
+    orders.forEach(o => {
+      if (o.status === 'مؤرشف') return;
+
+      // 1. High risk
+      const phone = o.customerPhone;
+      const matchingOrders = orders.filter((x) => x.customerPhone === phone);
+      const delivered = matchingOrders.filter((x) =>
+        ["تم_الاستلام", "تم_التوصيل", "تم_توصيلها", "تم_التحصيل"].includes(x.status)
+      ).length;
+      const total = matchingOrders.length;
+      const rate = total > 0 ? (delivered / total) * 100 : null;
+      if ((rate !== null && rate < 50) || o.status === 'في_انتظار_المكالمة') {
+        highRisk++;
+      }
+
+      // 2. Pending Bosta
+      if (o.status === 'قيد_التنفيذ' && !o.bostaTrackingNumber) {
+        pendingBosta++;
+      }
+
+      // 3. Pending compensation
+      if (o.compensationStatus === 'pending' || (['مرتجع', 'فشل_التوصيل'].includes(o.status) && o.compensationStatus !== 'compensated')) {
+        pendingComp++;
+      }
+    });
+
+    return { highRisk, pendingBosta, pendingComp };
+  }, [orders]);
 
   const filteredOrders = useMemo(() => {
     let baseFilter;
@@ -888,10 +1158,27 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       tabFiltered = searched.filter((o) => o.status === activeTab);
     }
 
+    if (smartActionFilter === 'high_risk') {
+      tabFiltered = tabFiltered.filter(o => {
+        const phone = o.customerPhone;
+        const matchingOrders = orders.filter((x) => x.customerPhone === phone);
+        const delivered = matchingOrders.filter((x) =>
+          ["تم_الاستلام", "تم_التوصيل", "تم_توصيلها", "تم_التحصيل"].includes(x.status)
+        ).length;
+        const total = matchingOrders.length;
+        const rate = total > 0 ? (delivered / total) * 100 : null;
+        return (rate !== null && rate < 50) || o.status === 'في_انتظار_المكالمة';
+      });
+    } else if (smartActionFilter === 'pending_bosta') {
+      tabFiltered = tabFiltered.filter(o => o.status === 'قيد_التنفيذ' && !o.bostaTrackingNumber);
+    } else if (smartActionFilter === 'pending_compensation') {
+      tabFiltered = tabFiltered.filter(o => o.compensationStatus === 'pending' || (['مرتجع', 'فشل_التوصيل'].includes(o.status) && o.compensationStatus !== 'compensated'));
+    }
+
     return tabFiltered.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
-  }, [orders, searchTerm, activeTab, filterGov, filterCompany, filterEmployee, dateRange]);
+  }, [orders, searchTerm, activeTab, filterGov, filterCompany, filterEmployee, dateRange, smartActionFilter]);
 
   const paginatedOrders = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -3523,22 +3810,47 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           </div>
 
           {mainSection === 'orders' && (
-            <div className="flex items-center justify-end gap-2 px-2">
-              <span className="text-xs font-bold text-slate-400">طريقة العرض:</span>
-              <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                {[
-                  { id: "list", icon: LayoutList, title: "عرض جدول" },
-                  { id: "kanban", icon: LayoutGrid, title: "عرض كانبان" },
-                ].map((mode) => (
-                  <button
-                    key={mode.id}
-                    onClick={() => setViewMode(mode.id as any)}
-                    className={`p-2 rounded-lg transition-all ${viewMode === mode.id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"}`}
-                    title={mode.title}
-                  >
-                    <mode.icon size={18} />
-                  </button>
-                ))}
+            <div className="flex items-center justify-end gap-4 px-2 flex-wrap">
+              {/* كثافة البيانات */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-400">كثافة البيانات:</span>
+                <div className="flex items-center gap-1 p-0.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                  {[
+                    { id: "comfortable", label: "مريح" },
+                    { id: "compact", label: "مكثف" },
+                  ].map((density) => (
+                    <button
+                      key={density.id}
+                      onClick={() => {
+                        setDisplayDensity(density.id as any);
+                        localStorage.setItem('orders_display_density', density.id);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${displayDensity === density.id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"}`}
+                    >
+                      {density.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* طريقة العرض */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-400">طريقة العرض:</span>
+                <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                  {[
+                    { id: "list", icon: LayoutList, title: "عرض جدول" },
+                    { id: "kanban", icon: LayoutGrid, title: "عرض كانبان" },
+                  ].map((mode) => (
+                    <button
+                      key={mode.id}
+                      onClick={() => setViewMode(mode.id as any)}
+                      className={`p-2 rounded-lg transition-all ${viewMode === mode.id ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"}`}
+                      title={mode.title}
+                    >
+                      <mode.icon size={18} />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -3609,6 +3921,102 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       {/* 6 Operational Category Cards (Rendered when mainSection === 'orders') */}
       {mainSection === 'orders' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          {/* Smart Action Center Banner */}
+          {(smartActionCounts.highRisk > 0 || smartActionCounts.pendingBosta > 0 || smartActionCounts.pendingComp > 0) && (
+            <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 rounded-[2rem] p-5 space-y-3.5 shadow-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 tracking-wider">🛠️ مركز التنبيهات والأعمال العاجلة (مهمة اليوم)</h4>
+                </div>
+                {smartActionFilter !== 'all' && (
+                  <button 
+                    onClick={() => setSmartActionFilter('all')}
+                    className="text-[11px] font-black text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  >
+                    إلغاء التصفية الذكية ×
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* 1. High Risk Card */}
+                {smartActionCounts.highRisk > 0 && (
+                  <button
+                    onClick={() => setSmartActionFilter(smartActionFilter === 'high_risk' ? 'all' : 'high_risk')}
+                    className={`flex items-start gap-3 p-3.5 rounded-2xl text-right transition-all border ${
+                      smartActionFilter === 'high_risk'
+                        ? 'bg-rose-500/10 border-rose-500 text-rose-700 dark:text-rose-400 shadow-sm'
+                        : 'bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-900/30'
+                    }`}
+                  >
+                    <div className="p-2 bg-rose-500/10 text-rose-600 rounded-xl mt-0.5 shrink-0">
+                      <AlertTriangle size={16} className="animate-bounce" />
+                    </div>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">مخاطرة عالية (تأكيد هاتف)</span>
+                        <span className="px-2 py-0.5 text-[10px] font-black bg-rose-500 text-white rounded-full tabular-nums">
+                          {smartActionCounts.highRisk}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">عملاء بنسبة استلام ضعيفة تتطلب مكالمة هاتفية فورية</p>
+                    </div>
+                  </button>
+                )}
+
+                {/* 2. Pending Bosta Card */}
+                {smartActionCounts.pendingBosta > 0 && (
+                  <button
+                    onClick={() => setSmartActionFilter(smartActionFilter === 'pending_bosta' ? 'all' : 'pending_bosta')}
+                    className={`flex items-start gap-3 p-3.5 rounded-2xl text-right transition-all border ${
+                      smartActionFilter === 'pending_bosta'
+                        ? 'bg-amber-500/10 border-amber-500 text-amber-700 dark:text-amber-400 shadow-sm'
+                        : 'bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:border-amber-200 dark:hover:border-amber-900/30'
+                    }`}
+                  >
+                    <div className="p-2 bg-amber-500/10 text-amber-600 rounded-xl mt-0.5 shrink-0">
+                      <Truck size={16} />
+                    </div>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">معلق الرفع لبوسطة</span>
+                        <span className="px-2 py-0.5 text-[10px] font-black bg-amber-500 text-white rounded-full tabular-nums">
+                          {smartActionCounts.pendingBosta}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">أوردرات جاهزة للشحن لم يتم رفعها لتوليد بوالص رسمية</p>
+                    </div>
+                  </button>
+                )}
+
+                {/* 3. Pending Compensation Card */}
+                {smartActionCounts.pendingComp > 0 && (
+                  <button
+                    onClick={() => setSmartActionFilter(smartActionFilter === 'pending_compensation' ? 'all' : 'pending_compensation')}
+                    className={`flex items-start gap-3 p-3.5 rounded-2xl text-right transition-all border ${
+                      smartActionFilter === 'pending_compensation'
+                        ? 'bg-indigo-500/10 border-indigo-500 text-indigo-700 dark:text-indigo-400 shadow-sm'
+                        : 'bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-900/30'
+                    }`}
+                  >
+                    <div className="p-2 bg-indigo-500/10 text-indigo-600 rounded-xl mt-0.5 shrink-0">
+                      <Coins size={16} />
+                    </div>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">معلق تسوية التعويضات</span>
+                        <span className="px-2 py-0.5 text-[10px] font-black bg-indigo-500 text-white rounded-full tabular-nums">
+                          {smartActionCounts.pendingComp}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">أوردرات مرتجعة أو ملغاة بانتظار استحقاق التعويض المالي</p>
+                    </div>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             {[
               { id: "الجميع", label: "كل الطلبات النشطة", subtitle: "جميع الأوردرات الحالية", count: quickStats.allActive, color: "indigo", icon: LayoutList },
@@ -4754,6 +5162,24 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               <span className="hidden sm:block">بوالص الشحن</span>
             </button>
             <button
+              onClick={() => handleBulkSendOrdersToBosta(selectedOrders)}
+              disabled={isBulkSendingBosta}
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-emerald-500/25 hover:text-emerald-300 border border-emerald-500/30 transition-all bg-emerald-600/20 text-emerald-400 rounded-xl text-xs font-black disabled:opacity-50"
+              title="إرسال الطلبات المحددة لشركة بوسطة وإنشاء بوالص رسمية"
+            >
+              <Truck size={18} className={isBulkSendingBosta ? "animate-spin" : ""} />{" "}
+              <span className="hidden sm:block">{isBulkSendingBosta ? "جاري الإرسال..." : "إرسال لبوسطة"}</span>
+            </button>
+            <button
+              onClick={() => handleBulkPrintBostaAwb(selectedOrders, 'A4')}
+              disabled={isBulkPrintingBosta}
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-indigo-500/25 hover:text-indigo-300 border border-indigo-500/30 transition-all bg-indigo-600/20 text-indigo-400 rounded-xl text-xs font-black disabled:opacity-50"
+              title="طباعة البوالص المجمعة لبوسطة (Bosta Mass AWB)"
+            >
+              <Printer size={18} className={isBulkPrintingBosta ? "animate-spin" : ""} />{" "}
+              <span className="hidden sm:block">{isBulkPrintingBosta ? "جاري تجهيز البوالص..." : "بوالص بوسطة A4/A6"}</span>
+            </button>
+            <button
               onClick={handleBulkDelete}
               className="p-2 sm:px-4 flex items-center gap-2 hover:bg-red-500/20 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all bg-white/5 rounded-xl text-xs font-bold text-red-400/80"
               title="حذف"
@@ -4811,7 +5237,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                   <OrderRow
                     key={order.id}
                     order={order}
+                    allOrders={orders}
                     isSelected={selectedOrders.includes(order.id)}
+                    activeStore={activeStore}
                     anyFlexShipEnabled={anyFlexShipEnabled}
                     treasury={treasury}
                     onSelect={() => handleSelectRow(order.id)}
@@ -4842,6 +5270,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     settings={settings}
                     storePrefix={storePrefix}
                     customerHistory={customerHistoryMap[order.id]}
+                    onSendToBosta={() => handleSendOrderToBosta(order)}
+                    onPrintBostaAwb={() => handlePrintBostaAwb(order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber || '')}
+                    onTrackBosta={() => {
+                      setBostaTrackingOrder(order);
+                      setBostaTrackingNumber(order.bostaTrackingNumber || order.waybillNumber || null);
+                    }}
+                    isBostaLoading={isBostaLoading === order.id}
+                    displayDensity={displayDensity}
                   />
                 ))}
               </tbody>
@@ -4901,6 +5337,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 settings={settings}
                 storePrefix={storePrefix}
                 customerHistory={customerHistoryMap[order.id]}
+                onSendToBosta={() => handleSendOrderToBosta(order)}
+                onPrintBostaAwb={() => handlePrintBostaAwb(order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber || '')}
+                onTrackBosta={() => {
+                  setBostaTrackingOrder(order);
+                  setBostaTrackingNumber(order.bostaTrackingNumber || order.waybillNumber || null);
+                }}
+                isBostaLoading={isBostaLoading === order.id}
               />
             ))}
           </div>
@@ -5699,6 +6142,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           </div>
         </div>
       )}
+
+      {/* Real Bosta Tracking Modal */}
+      {bostaTrackingNumber && (
+        <BostaTrackingModal
+          isOpen={!!bostaTrackingNumber}
+          onClose={() => {
+            setBostaTrackingNumber(null);
+            setBostaTrackingOrder(null);
+          }}
+          trackingNumber={bostaTrackingNumber}
+          orderNumber={bostaTrackingOrder ? String(bostaTrackingOrder.orderNumber || bostaTrackingOrder.id) : undefined}
+          customerName={bostaTrackingOrder?.customerName}
+          customerPhone={bostaTrackingOrder?.customerPhone}
+          totalPrice={bostaTrackingOrder?.totalPrice}
+          apiKey={settings?.bostaConfig?.apiKey}
+        />
+      )}
     </motion.div>
   );
 };
@@ -5797,6 +6257,10 @@ const OrderCard = ({
   settings,
   storePrefix = "",
   customerHistory,
+  onSendToBosta,
+  onPrintBostaAwb,
+  onTrackBosta,
+  isBostaLoading,
 }: {
   order: Order;
   isSelected: boolean;
@@ -5825,6 +6289,10 @@ const OrderCard = ({
     reason?: string;
     totalOrdersCount: number;
   };
+  onSendToBosta?: () => void;
+  onPrintBostaAwb?: () => void;
+  onTrackBosta?: () => void;
+  isBostaLoading?: boolean;
 }) => {
   const navigate = useNavigate();
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
@@ -6334,6 +6802,40 @@ const OrderCard = ({
             >
               تتبع عبر واتساب API <Truck size={16} />
             </button>
+            <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
+            {!(order.bostaDeliveryId || order.bostaTrackingNumber) ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSendToBosta?.();
+                }}
+                disabled={isBostaLoading}
+                className="w-full text-right px-4 py-3 text-xs font-black text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors disabled:opacity-50"
+              >
+                {isBostaLoading ? "جاري الإرسال لبوسطة..." : "إرسال إلى بوسطة (Bosta)"} <Truck size={16} className={isBostaLoading ? "animate-spin" : ""} />
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPrintBostaAwb?.();
+                  }}
+                  className="w-full text-right px-4 py-3 text-xs font-black text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+                >
+                  بوليصة بوسطة الرسمية (PDF) <Printer size={16} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTrackBosta?.();
+                  }}
+                  className="w-full text-right px-4 py-3 text-xs font-black text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+                >
+                  تتبع الشحنة المباشر في بوسطة <Search size={16} />
+                </button>
+              </>
+            )}
             <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
             <button
               onClick={onDelete}
@@ -7241,6 +7743,7 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
 
 const OrderRow = ({
   order,
+  allOrders = [],
   isSelected,
   onSelect,
   onStatusChange,
@@ -7260,12 +7763,19 @@ const OrderRow = ({
   onToggleFlexShipPaid,
   whatsappLink,
   settings,
+  activeStore,
   anyFlexShipEnabled,
   treasury,
   storePrefix = "",
   customerHistory,
+  onSendToBosta,
+  onPrintBostaAwb,
+  onTrackBosta,
+  isBostaLoading,
+  displayDensity = "comfortable",
 }: {
   order: Order;
+  allOrders?: Order[];
   isSelected: boolean;
   onSelect: () => void;
   onStatusChange: (status: OrderStatus) => void;
@@ -7285,6 +7795,7 @@ const OrderRow = ({
   onToggleFlexShipPaid?: () => void;
   whatsappLink: string;
   settings: Settings;
+  activeStore?: Store;
   anyFlexShipEnabled?: boolean;
   treasury?: any;
   storePrefix?: string;
@@ -7296,6 +7807,11 @@ const OrderRow = ({
     reason?: string;
     totalOrdersCount: number;
   };
+  onSendToBosta?: () => void;
+  onPrintBostaAwb?: () => void;
+  onTrackBosta?: () => void;
+  isBostaLoading?: boolean;
+  displayDensity?: "comfortable" | "compact";
 }) => {
   const navigate = useNavigate();
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
@@ -7450,12 +7966,14 @@ const OrderRow = ({
   const [showProfitPopover, setShowProfitPopover] = useState(false);
   const [showShippingPopover, setShowShippingPopover] = useState(false);
 
+  const cellPadding = displayDensity === "compact" ? "p-3 py-1.5 text-xs" : "p-6";
+
   return (
     <>
       <tr
         className={`group transition-all duration-300 ${isSelected ? "bg-indigo-50/40 dark:bg-indigo-500/[0.04]" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"} border-b border-slate-200/80 dark:border-slate-800/60 last:border-0 relative`}
       >
-        <td className="p-6 text-center w-12">
+        <td className={`${cellPadding} text-center w-12`}>
           <div className="flex items-center justify-center">
             <input
               type="checkbox"
@@ -7465,7 +7983,7 @@ const OrderRow = ({
             />
           </div>
         </td>
-        <td className="p-6 cursor-pointer" onClick={onShowDetails}>
+        <td className={`${cellPadding} cursor-pointer`} onClick={onShowDetails}>
           <div className="flex items-center gap-3.5">
             <div
               className="relative group/status"
@@ -7522,6 +8040,19 @@ const OrderRow = ({
                     <ShipmentTypeBadge type={order.shipmentType} />
                   )}
                 <PosSourceBadge order={order} />
+                <div
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10px] font-black bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/60 shadow-2xs whitespace-nowrap cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/80 transition-colors"
+                  title="العلامة التجارية / اسم المتجر"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShowDetails();
+                  }}
+                >
+                  <StoreIcon size={11} className="text-amber-600 dark:text-amber-400" />
+                  <span>
+                    {order.merchantBrandName?.trim() || settings?.storeName || activeStore?.name || "وان تولز للعدد"}
+                  </span>
+                </div>
                 {(() => {
                   const isFlexShip = !!(order.flexShipFeePaidByCustomer || (order.enableFlexShip && order.flexShipFeePaidByCustomer));
                   const accId = order.compensationTreasuryAccountId;
@@ -7596,27 +8127,77 @@ const OrderRow = ({
                       <span>دين</span>
                     </div>
                   )}
-                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-help transition-colors group-hover/customer:text-indigo-600">
-                    {order.customerName}
+                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 cursor-help transition-colors group-hover/customer:text-indigo-600 flex items-center gap-1.5 flex-wrap">
+                    <span>{order.customerName}</span>
+                    <CustomerDeliveryRateBadge
+                      phone={order.customerPhone}
+                      orders={allOrders}
+                      settings={settings}
+                      compact={true}
+                    />
                   </div>
                 </div>
-                <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-2 mt-1 fade-in opacity-80 group-hover/customer:opacity-100 transition-opacity">
-                  <span className="tabular-nums tracking-wide">
-                    {order.customerPhone}
-                  </span>
-                  <span className="w-1 h-1 bg-slate-200 dark:bg-slate-700 rounded-full"></span>
-                  <span>
-                    {new Date(order.date).toLocaleDateString("ar-EG", {
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </span>
+                <div className="flex items-center justify-end gap-3 mt-1.5 flex-wrap">
+                  {/* Hover Quick Actions */}
+                  <div className="lg:opacity-0 lg:group-hover:opacity-100 flex items-center gap-1.5 transition-all duration-300">
+                    <a
+                      href={`tel:${order.customerPhone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-1.5 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-indigo-500/20 dark:hover:text-indigo-400 rounded-lg text-slate-400 dark:text-slate-400 transition-all flex items-center justify-center w-6 h-6 shrink-0"
+                      title="اتصال سريع بالعميل"
+                    >
+                      <Phone size={11} />
+                    </a>
+                    <a
+                      href={whatsappLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="p-1.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-600 dark:bg-slate-800 dark:hover:bg-emerald-500/20 dark:hover:text-emerald-400 rounded-lg text-slate-400 dark:text-slate-400 transition-all flex items-center justify-center w-6 h-6 shrink-0"
+                      title="مراسلة واتساب فورية"
+                    >
+                      <MessageSquare size={11} />
+                    </a>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPrintInvoice();
+                      }}
+                      className="p-1.5 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-indigo-500/20 dark:hover:text-indigo-400 rounded-lg text-slate-400 dark:text-slate-400 transition-all flex items-center justify-center w-6 h-6 shrink-0"
+                      title="طباعة فاتورة الطلب"
+                    >
+                      <Printer size={11} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit();
+                      }}
+                      className="p-1.5 bg-slate-100 hover:bg-indigo-100 hover:text-indigo-600 dark:bg-slate-800 dark:hover:bg-indigo-500/20 dark:hover:text-indigo-400 rounded-lg text-slate-400 dark:text-slate-400 transition-all flex items-center justify-center w-6 h-6 shrink-0"
+                      title="تعديل سريع للأوردر"
+                    >
+                      <Edit3 size={11} />
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-2 fade-in opacity-80 group-hover/customer:opacity-100 transition-opacity">
+                    <span className="tabular-nums tracking-wide">
+                      {order.customerPhone}
+                    </span>
+                    <span className="w-1 h-1 bg-slate-200 dark:bg-slate-700 rounded-full"></span>
+                    <span>
+                      {new Date(order.date).toLocaleDateString("ar-EG", {
+                        day: "numeric",
+                        month: "short",
+                      })}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </td>
-        <td className="p-6">
+        <td className={`${cellPadding}`}>
           <div className="max-w-[200px] text-right flex flex-col items-end">
             <div
               onClick={() => setIsExpanded(!isExpanded)}
@@ -7639,7 +8220,7 @@ const OrderRow = ({
           </div>
         </td>
         {/* 4. مبلغ التحصيل */}
-        <td className="p-6">
+        <td className={`${cellPadding}`}>
           <div className="text-right space-y-1 relative">
             <div className="flex flex-col items-end gap-1 justify-end group/collection">
               <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
@@ -7721,7 +8302,7 @@ const OrderRow = ({
 
         {/* 5. رسوم فليكس شيب */}
         {anyFlexShipEnabled && (
-          <td className="p-6 text-right">
+          <td className={`${cellPadding} text-right`}>
             {isFlexShipEnabled ? (
               <div className="inline-flex flex-col items-end gap-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
                 <div className="flex items-center gap-1 justify-end">
@@ -7786,7 +8367,7 @@ const OrderRow = ({
         )}
 
         {/* 6. الحالة */}
-        <td className="p-6">
+        <td className={`${cellPadding}`}>
           <div className="relative group/status-select inline-block text-right">
             <div
               className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all duration-300 ${getStatusBadgeStyle(order.status)}`}
@@ -7871,7 +8452,7 @@ const OrderRow = ({
         </td>
 
         {/* 7. المحاولات */}
-        <td className="p-6">
+        <td className={`${cellPadding}`}>
           <div className="flex items-center gap-2 justify-center text-xs font-bold text-slate-600 dark:text-slate-400 font-sans">
             <div className="relative w-4 h-[22px] border border-slate-200/80 dark:border-slate-700/80 rounded-[4px] p-[2px] flex flex-col justify-end gap-[1.5px] bg-slate-50/50 dark:bg-slate-800/20 shadow-xs">
               <div className="absolute -top-[2px] left-1/2 -translate-x-1/2 w-1.5 h-[2px] bg-slate-200 dark:bg-slate-700 rounded-t-[1px]" />
@@ -7892,7 +8473,7 @@ const OrderRow = ({
         </td>
 
         {/* 8. حالة المبلغ المحصل */}
-        <td className="p-6 text-center">
+        <td className={`${cellPadding} text-center`}>
           {(() => {
             const isUncollectedStatus = [
               "مرتجع",
@@ -7925,8 +8506,21 @@ const OrderRow = ({
             );
           })()}
         </td>
-        <td className="p-6">
+        <td className={`${cellPadding}`}>
           <div className="flex items-center gap-2 justify-end">
+            {order.bostaTrackingNumber && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTrackBosta?.();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-xs"
+                title="تتبع مسار شحنة بوسطة الحية"
+              >
+                <Truck size={12} />
+                <span className="font-mono">#{order.bostaTrackingNumber}</span>
+              </button>
+            )}
             <div className="relative" ref={opsRef}>
               <button
                 onClick={(e) => {
@@ -8150,17 +8744,104 @@ const OrderRow = ({
                       </div>
                     )}
 
+                    {/* SECTION: BOSTA SHIPPING INTEGRATION */}
+                    <div className="py-2 space-y-0.5 border-t border-slate-200 dark:border-white/5">
+                      <div className="px-3 py-1.5 flex items-center justify-between">
+                        {order.bostaTrackingNumber && (
+                          <span className="text-[9px] font-mono font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                            #{order.bostaTrackingNumber}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block text-right">
+                          📦 شركة شحن بوسطة
+                        </span>
+                      </div>
+
+                      {!(order.bostaDeliveryId || order.bostaTrackingNumber) ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOps(false);
+                            onSendToBosta?.();
+                          }}
+                          disabled={isBostaLoading}
+                          className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group disabled:opacity-50"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                              {isBostaLoading ? "جاري الإرسال لبوسطة..." : "إرسال إلى بوسطة وتوليد البوليصة"}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 block">
+                              إنشاء الشحنة رسمياً وجلب رقم البوليصة AWB
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                            <Truck size={15} className={isBostaLoading ? "animate-spin" : ""} />
+                          </div>
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowOps(false);
+                              onPrintBostaAwb?.();
+                            }}
+                            className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                          >
+                            <div className="text-right flex-1">
+                              <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-purple-600 dark:group-hover:text-purple-400">
+                                طباعة بوليصة بوسطة (AWB PDF)
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400 block">
+                                فتح وطباعة البوليصة الأصلية من بوسطة
+                              </span>
+                            </div>
+                            <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                              <Printer size={15} />
+                            </div>
+                          </button>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowOps(false);
+                              onTrackBosta?.();
+                            }}
+                            className="w-full text-right p-2.5 hover:bg-indigo-50/80 dark:hover:bg-indigo-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                          >
+                            <div className="text-right flex-1">
+                              <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                                تتبع الشحنة المباشر في بوسطة
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400 block">
+                                استعلام لحظي عن مسار وحالة الطرد
+                              </span>
+                            </div>
+                            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                              <Search size={15} />
+                            </div>
+                          </button>
+                        </>
+                      )}
+                    </div>
+
                     {/* SECTION 3: MANAGEMENT & DELETION */}
                     <div className="pt-2 space-y-0.5">
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
                           setShowOps(false);
-                          if (
-                            confirm(
-                              "هل أنت متأكد من حذف هذا الطلب نهائياً؟ لا يمكن التراجع عن هذا الإجراء وسيتم إزالته من قاعدة البيانات.",
-                            )
-                          ) {
+                          const ok = await inAppConfirm(
+                            "هل أنت متأكد من حذف هذا الطلب نهائياً؟ لا يمكن التراجع عن هذا الإجراء وسيتم إزالته من قاعدة البيانات.",
+                            {
+                              title: "تأكيد حذف الطلب",
+                              type: "danger",
+                              confirmText: "نعم، حذف نهائياً",
+                              cancelText: "تراجع",
+                            }
+                          );
+                          if (ok) {
                             onDelete();
                           }
                         }}

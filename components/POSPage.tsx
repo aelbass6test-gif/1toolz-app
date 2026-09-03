@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { parseSafeDate } from '../utils/dateUtils';
 import { CustomerSelectModal } from './CustomerSelectModal';
+import { inAppConfirm } from '../utils/inAppAlert';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Monitor, 
@@ -270,7 +271,16 @@ const POSPage: React.FC<POSPageProps> = (props) => {
         if (cart.length > 0) handleParkOrder();
       } else if (e.key === 'F8') {
         e.preventDefault();
-        if (cart.length > 0 && confirm('هل تريد إفراغ السلة الحالية؟')) setCart([]);
+        if (cart.length > 0) {
+          inAppConfirm('هل تريد إفراغ السلة الحالية بالكامل؟', {
+            title: 'إفراغ السلة',
+            type: 'danger',
+            confirmText: 'نعم، إفراغ السلة',
+            cancelText: 'تراجع',
+          }).then((ok) => {
+            if (ok) setCart([]);
+          });
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);

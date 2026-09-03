@@ -79,8 +79,10 @@ import {
   PaymentStatus
 } from "../types";
 import { EGYPT_GOVERNORATES } from "../constants";
+import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from "../utils/bostaService";
 import { motion, AnimatePresence } from "framer-motion";
 import { CustomerSelectModal } from "./CustomerSelectModal";
+import { CustomerDeliveryRateBadge } from "./CustomerDeliveryRateBadge";
 import {
   calculateCodFee,
   getLatestProductCost,
@@ -267,6 +269,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [productFilterTab, setProductFilterTab] = useState<"all" | "in_stock" | "variants" | "low_stock">("all");
   const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
 
+  // Shipping Company Category Filter
+  const [shippingCategoryTab, setShippingCategoryTab] = useState<"all" | "api" | "local">("all");
+
   const getShipmentTypeGuide = (type: string) => {
     switch (type) {
       case "delivery":
@@ -329,11 +334,90 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   };
 
   const activeCompanies = useMemo(() => {
-    const carrierKeys = Object.keys(settings.shippingOptions || {});
-    return carrierKeys.filter(
-      (company) => settings.activeCompanies?.[company] !== false
+    const defaultApiCarriers = ["بوسطة", "مايلرز", "أرامكس", "توربو"];
+    const optionsKeys = Object.keys(settings?.shippingOptions || {});
+    const activeKeys = Object.keys(settings?.activeCompanies || {});
+    const feeKeys = Object.keys(settings?.companySpecificFees || {});
+    const nameKeys = settings?.companyNames ? Object.keys(settings.companyNames) : [];
+
+    const allSet = new Set<string>([
+      ...defaultApiCarriers,
+      ...optionsKeys,
+      ...activeKeys,
+      ...feeKeys,
+      ...nameKeys,
+    ]);
+
+    return Array.from(allSet).filter((company) => {
+      if (!company || company.trim() === '') return false;
+      return settings?.activeCompanies?.[company] !== false;
+    });
+  }, [settings?.shippingOptions, settings?.activeCompanies, settings?.companySpecificFees, settings?.companyNames]);
+
+  const isApiCarrier = (comp: string) => {
+    if (!comp) return false;
+    const c = comp.toLowerCase();
+    return (
+      c.includes('bosta') || c.includes('بوسطة') ||
+      c.includes('mylerz') || c.includes('مايلرز') ||
+      c.includes('aramex') || c.includes('أرامكس') ||
+      c.includes('turbo') || c.includes('توربو')
     );
-  }, [settings.shippingOptions, settings.activeCompanies]);
+  };
+
+  const apiCompanies = useMemo(() => {
+    return activeCompanies.filter(isApiCarrier);
+  }, [activeCompanies]);
+
+  const localCompanies = useMemo(() => {
+    return activeCompanies.filter((comp) => !isApiCarrier(comp));
+  }, [activeCompanies]);
+
+  const customerStats = useMemo(() => {
+    const phone = (orderData.customerPhone || "").replace(/\D/g, "");
+    if (!phone || phone.length < 6) return null;
+
+    const customerOrders = (orders || []).filter((o) => {
+      const p = (o.customerPhone || "").replace(/\D/g, "");
+      const p2 = (o.customerPhone2 || "").replace(/\D/g, "");
+      return (p && p.slice(-8) === phone.slice(-8)) || (p2 && p2.slice(-8) === phone.slice(-8));
+    });
+
+    if (customerOrders.length === 0) {
+      return {
+        total: 0,
+        delivered: 0,
+        returned: 0,
+        rate: 100,
+        statusLabel: "عميل جديد (لا توجد أوردرات سابقة)",
+        badgeColor: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
+      };
+    }
+
+    const delivered = customerOrders.filter((o) =>
+      ['تم_التوصيل', 'تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_الارسال', 'تم_الاستبدال', 'Delivered'].includes(o.status)
+    ).length;
+
+    const returned = customerOrders.filter((o) =>
+      ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'ملغي', 'Returned', 'Cancelled'].includes(o.status)
+    ).length;
+
+    const total = customerOrders.length;
+    const rate = total > 0 ? Math.round((delivered / total) * 100) : 100;
+
+    let statusLabel = "نسبة استلام ممتازة 🌟";
+    let badgeColor = "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800";
+
+    if (rate < 50) {
+      statusLabel = "عميل عالي المخاطر ⚠️ (نسبة مرتجعات مرتفعة)";
+      badgeColor = "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800";
+    } else if (rate < 80) {
+      statusLabel = "نسبة استلام متوسطة ⚖️";
+      badgeColor = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
+    }
+
+    return { total, delivered, returned, rate, statusLabel, badgeColor };
+  }, [orders, orderData.customerPhone]);
 
   const shippingOptions = useMemo(() => {
     const company = orderData.shippingCompany;
@@ -373,6 +457,38 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     });
     return Array.isArray(result) ? result as any[] : [];
   }, [settings.shippingOptions, orderData.shippingCompany]);
+
+  const availableBostaLocations = useMemo(() => {
+    if (settings?.bostaConfig?.businessLocations && Array.isArray(settings.bostaConfig.businessLocations) && settings.bostaConfig.businessLocations.length > 0) {
+      return settings.bostaConfig.businessLocations;
+    }
+    return DEFAULT_BOSTA_BUSINESS_LOCATIONS;
+  }, [settings?.bostaConfig?.businessLocations]);
+
+  // List of all store brands available for selection
+  const storeBrandOptions = useMemo(() => {
+    const brandsSet = new Set<string>();
+
+    // Standard store brands from workspace
+    ["وان تولز للعدد", "إبداع اكس باور", "العربي للعدد اليدوية", "اكس باور", "دكتور الصنعة"].forEach(b => brandsSet.add(b));
+
+    if (settings?.storeName) brandsSet.add(settings.storeName);
+
+    if (allStoresData && typeof allStoresData === 'object') {
+      Object.values(allStoresData).forEach((st: any) => {
+        if (st?.name) brandsSet.add(st.name);
+        if (st?.settings?.storeName) brandsSet.add(st.settings.storeName);
+      });
+    }
+
+    availableBostaLocations.forEach((loc: any) => {
+      if (loc.locationName) brandsSet.add(loc.locationName);
+    });
+
+    if (orderData?.merchantBrandName) brandsSet.add(orderData.merchantBrandName);
+
+    return Array.from(brandsSet).filter(Boolean);
+  }, [settings, allStoresData, orderData?.merchantBrandName, availableBostaLocations]);
 
   const handleFieldChange = (field: keyof NewOrderState | string, value: any) => {
     setOrderData((prev: any) => ({ ...prev, [field]: value }));
@@ -679,13 +795,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   }, [orderData.items]);
 
   const isFlexShipSupported = useMemo(() => {
-    if (!orderData.shippingCompany) return false;
+    if (!orderData.shippingCompany) return true;
     const compFees = settings.companySpecificFees?.[orderData.shippingCompany];
     if (compFees && compFees.enableFlexShip !== undefined) {
       return !!compFees.enableFlexShip;
     }
-    return !!settings.enableFlexShip;
-  }, [orderData.shippingCompany, settings.companySpecificFees, settings.enableFlexShip]);
+    return true;
+  }, [orderData.shippingCompany, settings.companySpecificFees]);
 
   // --- Smart Geographical Routing & Inventory Allocator Hook ---
   const [isWarehouseOverridden, setIsWarehouseOverridden] = useState(false);
@@ -1356,6 +1472,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         )}
 
         {/* Customer Form Grid */}
+        {orderData.customerPhone && orderData.customerPhone.trim().length >= 6 && (
+          <div className="mb-4">
+            <CustomerDeliveryRateBadge
+              phone={orderData.customerPhone}
+              orders={orders}
+              settings={settings}
+            />
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
           <div className="space-y-1.5">
             <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
@@ -1456,6 +1582,71 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 />
               );
             })()}
+          </div>
+
+          {/* Merchant Store Brand Name Selector */}
+          <div className="sm:col-span-2 md:col-span-3 bg-gradient-to-r from-slate-50 to-indigo-50/50 dark:from-slate-800/80 dark:to-indigo-950/30 p-4 sm:p-5 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <StoreIcon size={16} className="text-indigo-600 dark:text-indigo-400" />
+                <span>مرسل من متجر / العلامة التجارية (Store Brand)</span>
+              </label>
+              {orderData.merchantBrandName ? (
+                <span className="text-[10px] font-black px-2.5 py-0.5 bg-indigo-600 text-white rounded-full">
+                  {orderData.merchantBrandName}
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                  غير محدد
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">اختر اسم المتجر:</span>
+                <select
+                  value={orderData.merchantBrandName || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    let bostaLocId = orderData.bostaBusinessLocationId;
+                    const matchedLoc = availableBostaLocations.find(
+                      (loc: any) => loc.locationName === val || loc.name === val
+                    );
+                    if (matchedLoc) {
+                      bostaLocId = matchedLoc.id || matchedLoc._id;
+                    }
+                    setOrderData((prev: any) => ({
+                      ...prev,
+                      merchantBrandName: val,
+                      bostaBusinessLocationId: bostaLocId
+                    }));
+                  }}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                >
+                  <option value="">-- اختر علامة تجارية --</option>
+                  {storeBrandOptions.map((brandName) => (
+                    <option key={brandName} value={brandName}>
+                      🏬 {brandName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">أو كتابة اسم مخصص:</span>
+                <input
+                  type="text"
+                  placeholder="اسم العلامة التجارية المطبوعة..."
+                  value={orderData.merchantBrandName || ""}
+                  onChange={(e) => handleFieldChange("merchantBrandName", e.target.value)}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+              ✨ اختيار العلامة التجارية يمنع ظهور الطلب كـ "بدون علامة تجارية" في الفواتير وبوالص شحن بوسطة والتتبع.
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -2043,10 +2234,47 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Truck size={14} className="text-indigo-500" /> شركة الشحن / التوصيل *
-            </label>
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Truck size={14} className="text-indigo-500" /> شركة الشحن / التوصيل *
+              </label>
+              <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setShippingCategoryTab("all")}
+                  className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg transition-all ${
+                    shippingCategoryTab === "all"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  الكل ({activeCompanies.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShippingCategoryTab("api")}
+                  className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg transition-all ${
+                    shippingCategoryTab === "api"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  🚀 المربوطة ({apiCompanies.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShippingCategoryTab("local")}
+                  className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg transition-all ${
+                    shippingCategoryTab === "local"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  }`}
+                >
+                  🏠 المحلية ({localCompanies.length})
+                </button>
+              </div>
+            </div>
             <select
               value={orderData.shippingCompany || ""}
               onChange={(e) => {
@@ -2060,11 +2288,24 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
             >
               <option value="">-- اختر شركة الشحن --</option>
-              {activeCompanies.map((comp) => (
-                <option key={comp} value={comp}>
-                  🚚 {settings.companyNames?.[comp] || comp}
-                </option>
-              ))}
+              {(shippingCategoryTab === "all" || shippingCategoryTab === "api") && apiCompanies.length > 0 && (
+                <optgroup label="🚀 شركات الشحن المربوطة برمجياً (API Integration)">
+                  {apiCompanies.map((comp) => (
+                    <option key={comp} value={comp}>
+                      🌐 {settings.companyNames?.[comp] || comp}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {(shippingCategoryTab === "all" || shippingCategoryTab === "local") && localCompanies.length > 0 && (
+                <optgroup label="🏠 شركات الشحن المحلية والخاصة (Internal / Local)">
+                  {localCompanies.map((comp) => (
+                    <option key={comp} value={comp}>
+                      🚚 {settings.companyNames?.[comp] || comp}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
 
@@ -2112,6 +2353,124 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Pickup & Return Locations + Carrier Rates & Customer Delivery Success Rate Banner */}
+        {orderData.shippingCompany && (
+          <div className="p-5 bg-gradient-to-br from-indigo-50/60 via-slate-50 to-blue-50/40 dark:from-indigo-950/30 dark:via-slate-900 dark:to-blue-950/20 rounded-3xl border border-indigo-200/80 dark:border-indigo-800/60 space-y-4 animate-in fade-in duration-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-100 dark:border-indigo-900/50 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
+                  <Truck size={18} />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                    <span>شركة الشحن: {settings.companyNames?.[orderData.shippingCompany] || orderData.shippingCompany}</span>
+                    {isApiCarrier(orderData.shippingCompany) ? (
+                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                        <Zap size={12} className="animate-pulse" /> ⚡ متصل برمجياً (API Integration)
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+                        🏠 شركة شحن محلي
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    يتم احتساب الرسوم والأسعار تلقائياً بناءً على تعريفة وتعليمات {orderData.shippingCompany}.
+                  </p>
+                </div>
+              </div>
+
+              {/* Customer Delivery Success Rate Badge */}
+              {customerStats && (
+                <div className={`p-2.5 px-3.5 rounded-2xl border ${customerStats.badgeColor} flex items-center gap-2.5 shadow-2xs`}>
+                  <div className="text-right">
+                    <span className="text-[10px] font-black block opacity-80">نسبة استلام العميل:</span>
+                    <span className="text-xs font-black dir-ltr">
+                      🎯 {customerStats.rate}% ({customerStats.delivered}/{customerStats.total} أوردر)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-extrabold px-2 py-1 rounded-xl bg-white/60 dark:bg-slate-900/60 border border-current/20">
+                    {customerStats.statusLabel}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Pickup Location & Return Location Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Pickup Location */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <MapPin size={14} className="text-indigo-600 dark:text-indigo-400" /> عنوان / فرع البك اب (Pickup Location)
+                </label>
+                <select
+                  value={orderData.bostaBusinessLocationId || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    handleFieldChange("bostaBusinessLocationId", val || undefined);
+                    if (val) handleFieldChange("warehouseId", val);
+                  }}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="">-- المستودع / الفرع الافتراضي --</option>
+                  {availableBostaLocations && availableBostaLocations.length > 0 && (
+                    <optgroup label="🏢 عناوين وفروع التاجر المسجلة في بوسطة">
+                      {availableBostaLocations.map((loc: any) => (
+                        <option key={loc.id || loc._id} value={loc.id || loc._id}>
+                          🏢 {loc.locationName || loc.name || 'فرع بوسطة'} ({loc.city || 'كفر الشيخ - بلطيم'})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {getArray(settings?.storeBranches).length > 0 && (
+                    <optgroup label="🏬 فروع المتجر الداخلية">
+                      {getArray(settings.storeBranches).map((branch: any) => (
+                        <option key={branch.id} value={branch.id}>
+                          🏬 {branch.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-[10px] text-slate-500">المكان أو المستودع الذي سيتوجه إليه المندوب لاستلام الشحنة منه (Pickup).</p>
+              </div>
+
+              {/* Return Location */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <RefreshCcw size={14} className="text-rose-500" /> مكان وعنوان الراجع / الإرجاع (Return Location)
+                </label>
+                <select
+                  value={orderData.bostaReturnLocationId || ""}
+                  onChange={(e) => handleFieldChange("bostaReturnLocationId", e.target.value || undefined)}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer"
+                >
+                  <option value="">-- نفس فرع الاستلام (الافتراضي) --</option>
+                  {availableBostaLocations && availableBostaLocations.length > 0 && (
+                    <optgroup label="🏢 عناوين الإرجاع المسجلة في بوسطة">
+                      {availableBostaLocations.map((loc: any) => (
+                        <option key={`ret_${loc.id || loc._id}`} value={loc.id || loc._id}>
+                          ↩️ {loc.locationName || loc.name || 'مقر الراجع'} ({loc.city || 'كفر الشيخ - بلطيم'})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {getArray(settings?.storeBranches).length > 0 && (
+                    <optgroup label="🏬 فروع المتجر للإرجاع">
+                      {getArray(settings.storeBranches).map((branch: any) => (
+                        <option key={`branch_ret_${branch.id}`} value={branch.id}>
+                          ↩️ {branch.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                <p className="text-[10px] text-slate-500">المستودع الذي تعود إليه الشحنة تلقائياً في حالة المرتجع أو عدم الاستلام.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Extra Shipping Services Grid */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2169,19 +2528,27 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                 {(!orderData.insurancePackageId || settings.insurancePackages?.find(p => p.id === orderData.insurancePackageId)?.type === "percent") && (
                   <div className="space-y-1.5 animate-in fade-in duration-200">
-                    <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
-                      قيمة المنتج للتأمين (اختياري)
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
+                        قيمة المنتج المعلنة للتأمين (ج.م)
+                      </label>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                        الافتراضي: {(subtotal - itemDiscounts).toLocaleString('ar-EG')} ج.م
+                      </span>
+                    </div>
                     <div className="relative">
                       <input
                         type="number"
-                        value={orderData.insuranceBaseValue || ""}
+                        value={orderData.insuranceBaseValue !== undefined && orderData.insuranceBaseValue !== 0 ? orderData.insuranceBaseValue : ""}
                         onChange={(e) => handleFieldChange("insuranceBaseValue", parseFloat(e.target.value) || 0)}
-                        placeholder="يستخدم سعر المنتج تلقائياً"
+                        placeholder={`يستخدم سعر المنتجات تلقائياً (${(subtotal - itemDiscounts)} ج.م)`}
                         className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-[11px] font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-left pl-10"
                       />
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">ج.م</span>
                     </div>
+                    <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 flex items-center gap-1.5 mt-1">
+                      🛡️ يتم إرسال هذا المبلغ كقيمة معلنة للبضاعة (Goods Value) إلى شركة الشحن (مثل بوسطة) لضمان صرف التعويض والتأمين التام.
+                    </p>
                   </div>
                 )}
               </div>

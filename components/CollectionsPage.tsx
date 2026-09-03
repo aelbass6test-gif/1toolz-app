@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, Collection } from '../types';
 import { Grid3x3, Plus, Trash2, Edit3, Image as ImageIcon, X } from 'lucide-react';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface CollectionsPageProps {
   settings: Settings;
@@ -44,8 +45,14 @@ const CollectionsPage: React.FC<CollectionsPageProps> = ({ settings, setSettings
       setShowModal(true);
   };
 
-  const handleDelete = (id: string) => {
-      if(!window.confirm("هل أنت متأكد من حذف هذا القسم؟ لن يتم حذف المنتجات، ولكن سيتم فك ربطها.")) return;
+  const handleDelete = async (id: string) => {
+      const ok = await inAppConfirm("هل أنت متأكد من حذف هذا القسم؟ لن يتم حذف المنتجات، ولكن سيتم فك ربطها.", {
+          title: "حذف القسم",
+          type: "danger",
+          confirmText: "نعم، حذف القسم",
+          cancelText: "إلغاء",
+      });
+      if (!ok) return;
       
       setSettings(prev => ({
           ...prev,

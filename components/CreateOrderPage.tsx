@@ -11,6 +11,7 @@ import { db } from '../services/firebaseClient';
 import { collection, addDoc } from 'firebase/firestore';
 import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
+import { deductOrderStock } from '../utils/inventoryManager';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -57,6 +58,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         city: '',
         shippingFee: 0,
         discount: 0,
+        merchantBrandName: activeStore?.name || settings?.storeName || 'وان تولز للعدد',
         paymentStatus: 'بانتظار الدفع',
         status: 'جاري_المراجعة' as OrderStatus,
         preparationStatus: 'بانتظار التجهيز',
@@ -507,55 +509,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         }
 
         // --- 1. Intelligent Stock Allocation & Deduction ---
-        const orderWarehouseId = orderWithId.warehouseId || '';
-        if (orderWarehouseId && Array.isArray(settings.products)) {
+        if (Array.isArray(settings.products) && settings.products.length > 0) {
             setSettings(prev => {
-                const updatedProducts = (prev.products || []).map(p => {
-                    const orderedItems = (orderWithId.items || []).filter(item => item.productId === p.id) || [];
-                    if (orderedItems.length === 0) return p;
-
-                    const newProd = { ...p };
-
-                    if (p.hasVariants && Array.isArray(p.variants)) {
-                        newProd.variants = p.variants.map(v => {
-                            const matchItem = orderedItems.find(item => item.variantId === v.id);
-                            if (!matchItem) return v;
-
-                            const currentStock = { ...(v.warehouseStock || {}) };
-                            const oldQty = Number(currentStock[orderWarehouseId]) || 0;
-                            currentStock[orderWarehouseId] = Math.max(0, oldQty - (matchItem.quantity || 1));
-
-                            const newDist = Object.values(currentStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
-                            return {
-                                ...v,
-                                warehouseStock: currentStock,
-                                stockQuantity: newDist,
-                                stock: newDist
-                            };
-                        });
-
-                        const totalFromVariants = newProd.variants.reduce((t, v) => t + (v.stockQuantity || 0), 0);
-                        newProd.stockQuantity = totalFromVariants;
-                        newProd.stock = totalFromVariants;
-                        newProd.inStock = totalFromVariants > 0;
-                    } else {
-                        const matchItem = orderedItems.find(item => !item.variantId);
-                        if (matchItem) {
-                            const currentStock = { ...(p.warehouseStock || {}) };
-                            const oldQty = Number(currentStock[orderWarehouseId]) || 0;
-                            currentStock[orderWarehouseId] = Math.max(0, oldQty - (matchItem.quantity || 1));
-
-                            const newDist = Object.values(currentStock).reduce((sum, val) => sum + (Number(val) || 0), 0);
-                            newProd.warehouseStock = currentStock;
-                            newProd.stockQuantity = newDist;
-                            newProd.stock = newDist;
-                            newProd.inStock = newDist > 0;
-                        }
-                    }
-
-                    return newProd;
-                });
-
+                const updatedProducts = deductOrderStock(orderWithId, prev.products || [], prev.defaultWarehouseId);
                 return {
                     ...prev,
                     products: updatedProducts

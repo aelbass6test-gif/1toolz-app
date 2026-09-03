@@ -14,6 +14,7 @@ import { clearStoreData, checkSupabaseConnection } from '../services/databaseSer
 import * as dbService from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
+import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 
 interface SettingsPageProps {
   settings: Settings;
@@ -127,9 +128,15 @@ const handleExportMasterBackup = async () => {
   }
 };
 
-const handleImportMasterBackup = (file: File) => {
-  const confirmMsg = "⚠️ تحذير النظام الشامل:\n\nأنت على وشك استيراد نسخة احتياطية شاملة للنظام بأكمله.\n\nتنبيه: سيؤدي هذا الإيجاز إلى حذف ومسح وإعادة كتابة كافة المتاجر، الإعدادات، طلبات العملاء، سجلات اللقطات والعملاء المخزنة حالياً في هذا المتصفح.\n\nهل تود المتابعة ومسح البيانات الحالية واستبدالها بالكامل ببيانات ملف النسخ الاحتياطي؟";
-  if (!window.confirm(confirmMsg)) return;
+const handleImportMasterBackup = async (file: File) => {
+  const confirmMsg = "أنت على وشك استيراد نسخة احتياطية شاملة للنظام بأكمله.\n\nتنبيه: سيؤدي هذا الإجراء إلى مسح وإعادة كتابة كافة المتاجر والإعدادات والطلبات وسجلات العملاء المخزنة حالياً في هذا المتصفح.\n\nهل تود المتابعة ومسح البيانات الحالية واستبدالها ببيانات ملف النسخ الاحتياطي؟";
+  const ok = await inAppConfirm(confirmMsg, {
+    title: "تحذير استيراد نسخة احتياطية شاملة",
+    type: "danger",
+    confirmText: "نعم، استبدال البيانات الحالية",
+    cancelText: "إلغاء التراجع"
+  });
+  if (!ok) return;
 
   const reader = new FileReader();
   reader.onload = async (e) => {
@@ -282,8 +289,14 @@ const DatabaseCard: React.FC<{
        alert('خاصية السحب السحابي غير معرّفة حالياً');
        return;
     }
-    const confirmMessage = "⚠️ تحذير مستودع البيانات:\n\nسيتم سحب كامل الملفات والمعاملات والطلبات المخزنة على السحابة واستبدال قاعدة البيانات الحالية على هذا الجهاز بها كلياً.\n\nتنبيه: أي تعديلات محلية لم يتم رفعها سحابياً ستضيع على الفور.\n\nهل تود الاستمرار واسترجاع النسخة السحابية لمتجرك؟";
-    if (!window.confirm(confirmMessage)) return;
+    const confirmMessage = "سيتم سحب كامل الملفات والمعاملات والطلبات المخزنة على السحابة واستبدال قاعدة البيانات الحالية على هذا الجهاز بها كلياً.\n\nتنبيه: أي تعديلات محلية غير مرفوعة سحابياً ستضيع فوراً.\n\nهل تود الاستمرار واسترجاع النسخة السحابية لمتجرك؟";
+    const ok = await inAppConfirm(confirmMessage, {
+      title: "تحذير استبدال البيانات بالسحابة",
+      type: "warning",
+      confirmText: "نعم، استرجاع النسخة السحابية",
+      cancelText: "إلغاء وتراجع"
+    });
+    if (!ok) return;
 
     setPullStatus('pulling');
     setPullError('');
@@ -402,13 +415,19 @@ const DatabaseCard: React.FC<{
   };
 
   const handleRestoreSnapshot = async (snap: any) => {
-    const confirmMessage = `تنبيه استعادة:\n\nهل أنت متأكد من رغبتك في استعادة المتجر كلياً لنقطة استرداد النظام: "${snap.name}"؟\n\nتاريخ الحفظ: (${snap.timestamp}).`;
-    if (!window.confirm(confirmMessage)) return;
+    const confirmMessage = `هل أنت متأكد من رغبتك في استعادة المتجر كلياً لنقطة استرداد النظام: "${snap.name}"؟\n\nتاريخ الحفظ: (${snap.timestamp}).`;
+    const ok = await inAppConfirm(confirmMessage, {
+      title: "استعادة لقطة النظام",
+      type: "warning",
+      confirmText: "نعم، استعادة اللقطة",
+      cancelText: "إلغاء"
+    });
+    if (!ok) return;
 
     try {
       const savedData = localStorage.getItem(`wuilt_snapshot_data_${snap.id}`);
       if (!savedData) {
-        alert('يتعذر العثور على ملفات النسخة في ذاكرة هذا المتصفح');
+        await inAppAlert('يتعذر العثور على ملفات النسخة في ذاكرة هذا المتصفح', { type: 'error' });
         return;
       }
 
@@ -418,15 +437,21 @@ const DatabaseCard: React.FC<{
       // Rewrite IndexedDB
       await dbService.saveLocal(storeId, parsed);
 
-      alert(`تم استرداد لقطة النظام "${snap.name}" بنجاح! سيتم الآن إعادة تحميل المتجر.`);
+      await inAppAlert(`تم استرداد لقطة النظام "${snap.name}" بنجاح! سيتم الآن إعادة تحميل المتجر.`, { type: 'success' });
       window.location.reload();
     } catch (e: any) {
-      alert('فشلت حركة الاسترداد والتبديل: ' + e.message);
+      await inAppAlert('فشلت حركة الاسترداد والتبديل: ' + e.message, { type: 'error' });
     }
   };
 
-  const handleDeleteSnapshot = (snapId: string) => {
-    if (!window.confirm('هل تود بالتأكيد حذف هذه اللقطة بشكل نهائي من جهازك؟')) return;
+  const handleDeleteSnapshot = async (snapId: string) => {
+    const ok = await inAppConfirm('هل تود بالتأكيد حذف هذه اللقطة بشكل نهائي من جهازك؟', {
+      title: "حذف لقطة النظام",
+      type: "danger",
+      confirmText: "نعم، حذف نهائي",
+      cancelText: "تراجع"
+    });
+    if (!ok) return;
     const storeId = activeStore?.id || 'default';
     const listKey = `wuilt_snapshots_list_${storeId}`;
     try {
@@ -1201,7 +1226,12 @@ CREATE TABLE IF NOT EXISTS shipping_integrations (
     account_number TEXT,
     accountNumber TEXT,
     is_connected BOOLEAN DEFAULT false,
-    isConnected BOOLEAN DEFAULT false
+    isConnected BOOLEAN DEFAULT false,
+    details JSONB DEFAULT '{}'::jsonb,
+    updated_at TEXT,
+    updatedAt TEXT,
+    created_at TEXT,
+    createdAt TEXT
 );
 
 -- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
@@ -2510,7 +2540,13 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                                 <button 
                                     type="button"
                                     onClick={async () => {
-                                        if (!confirm('هل أنت متأكد من رغبتك في إلغاء ربط هذا النطاق؟')) return;
+                                        const ok = await inAppConfirm('هل أنت متأكد من رغبتك في إلغاء ربط هذا النطاق المخصص؟', {
+                                            title: 'إلغاء ربط النطاق',
+                                            type: 'danger',
+                                            confirmText: 'نعم، إلغاء الربط',
+                                            cancelText: 'تراجع'
+                                        });
+                                        if (!ok) return;
                                         setIsVerifying(true);
                                         try {
                                             const res = await fetch('/api/domains/delete', {

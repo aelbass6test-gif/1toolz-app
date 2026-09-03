@@ -522,7 +522,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     customPages: customPages.length > 0 ? customPages : (storeSettings.customPages || local?.settings?.customPages || []),
                     paymentMethods: paymentMethods.length > 0 ? paymentMethods : (storeSettings.paymentMethods || local?.settings?.paymentMethods || []),
                     globalOptions: globalOptions.length > 0 ? globalOptions : (storeSettings.globalOptions || local?.settings?.globalOptions || []),
-                    shippingIntegrations: shippingIntegrations.length > 0 ? shippingIntegrations : (storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || []),
+                    shippingIntegrations: (shippingIntegrations.length > 0 ? shippingIntegrations : (storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [])).map((si: any) => {
+                        const details = si.details && typeof si.details === 'object' ? si.details : (typeof si.details === 'string' && si.details ? JSON.parse(si.details) : {});
+                        return {
+                            ...si,
+                            provider: si.provider || '',
+                            apiKey: si.apiKey || si.api_key || details?.apiKey || '',
+                            apiSecret: si.apiSecret || si.api_secret || details?.apiSecret || '',
+                            accountNumber: si.accountNumber || si.account_number || details?.accountNumber || '',
+                            isConnected: Boolean(si.isConnected ?? si.is_connected ?? details?.isConnected ?? false)
+                        };
+                    }),
                     partners: partners.length > 0 ? partners : (storeSettings.partners || local?.settings?.partners || []),
                     partnerTransactions: partnerTransactions.length > 0 ? partnerTransactions : (storeSettings.partnerTransactions || local?.settings?.partnerTransactions || []),
                     warehouses: warehouses.length > 0 ? warehouses : (storeSettings.warehouses || local?.settings?.warehouses || []),
@@ -1458,6 +1468,25 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
                             performedBy: cleanItem.performedBy || cleanItem.performed_by || ''
                         };
+                    } else if (table === 'shipping_integrations') {
+                        mappedItem = {
+                            ...cleanItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
+                            provider: cleanItem.provider || '',
+                            api_key: cleanItem.apiKey || cleanItem.api_key || '',
+                            apiKey: cleanItem.apiKey || cleanItem.api_key || '',
+                            api_secret: cleanItem.apiSecret || cleanItem.api_secret || '',
+                            apiSecret: cleanItem.apiSecret || cleanItem.api_secret || '',
+                            account_number: cleanItem.accountNumber || cleanItem.account_number || '',
+                            accountNumber: cleanItem.accountNumber || cleanItem.account_number || '',
+                            is_connected: Boolean(cleanItem.isConnected ?? cleanItem.is_connected ?? false),
+                            isConnected: Boolean(cleanItem.isConnected ?? cleanItem.is_connected ?? false),
+                            created_at: cleanItem.createdAt || cleanItem.created_at || new Date().toISOString(),
+                            updated_at: cleanItem.updatedAt || cleanItem.updated_at || new Date().toISOString(),
+                            details: cleanItem.details || {}
+                        };
                     }
                     
                     return mappedItem;
@@ -1533,7 +1562,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                                     const copy = { ...item };
                                     if (copy.details && typeof copy.details === 'object') {
                                         copy.details = { ...copy.details, [missingCol]: item[missingCol] };
-                                    } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates'].includes(table)) {
+                                    } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates', 'shipping_integrations'].includes(table)) {
                                         copy.details = { [missingCol]: item[missingCol] };
                                     }
                                     delete copy[missingCol];

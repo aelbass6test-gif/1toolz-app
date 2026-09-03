@@ -56,6 +56,79 @@ export interface ShippingCarrierIntegration {
   isConnected: boolean;
 }
 
+export interface BostaBusinessPickupLocation {
+  _id?: string;
+  id?: string;
+  locationName: string;
+  districtId?: string;
+  districtName?: string;
+  city?: string;
+  firstLine: string;
+  buildingNumber?: string;
+  floor?: string;
+  apartment?: string;
+  secondLine?: string;
+  isDefault?: boolean;
+}
+
+export interface BostaPickupAddress {
+  firstLine: string;
+  city: string;
+  zone?: string;
+  district?: string;
+  districtId?: string;
+  zoneId?: string;
+  buildingNumber?: string;
+  floor?: string;
+  apartment?: string;
+  secondLine?: string;
+  locationName?: string;
+  businessLocationId?: string;
+  contactPersonName?: string;
+  contactPersonPhone?: string;
+}
+
+export interface BostaConfig {
+  apiKey: string;
+  businessId?: string;
+  isActive: boolean;
+  environment?: 'production' | 'staging';
+  pickupAddress?: BostaPickupAddress;
+  businessLocations?: BostaBusinessPickupLocation[];
+  defaultBusinessLocationId?: string;
+  defaultReturnLocationId?: string;
+  defaultPackageType?: 'Parcel' | 'Document' | 'Bulky' | 'Normal' | 'Light Bulky' | 'Heavy Bulky';
+  defaultPackageSize?: 'SMALL' | 'MEDIUM' | 'LARGE' | 'Light Bulky' | 'Heavy Bulky';
+  defaultAwbType?: 'A4' | 'A6';
+  defaultAwbLang?: 'ar' | 'en';
+  allowToOpenPackage?: boolean;
+  autoSendOnConfirm?: boolean;
+  autoSendWhatsAppTracking?: boolean;
+  whatsappTrackingMessageTemplate?: string;
+  autoSendWhatsAppOnStatusChange?: boolean;
+  whatsappStatusMessageTemplate?: string;
+  webhookUrl?: string;
+  lastSync?: string;
+  connectedUserName?: string;
+  connectedUserEmail?: string;
+  connectedUserPhone?: string;
+}
+
+export interface BostaPickupRequest {
+  id: string;
+  bostaPickupId?: string;
+  scheduledDate: string;
+  scheduledSlot?: string;
+  status: string;
+  ordersCount: number;
+  orderIds?: string[];
+  pickupAddress: string;
+  contactPhone: string;
+  contactName?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface Warehouse {
   id: string;
   name: string;
@@ -675,6 +748,7 @@ export interface StaffDocument {
 export interface Settings {
   id?: string;
   storeName?: string;
+  defaultWarehouseId?: string;
   data?: any; // For flexible local storage
   storeBranches?: any[];
   companyNames?: string[];
@@ -754,6 +828,8 @@ export interface Settings {
   connectedPlatforms: string[]; // <-- Added connected platforms (e.g., 'wuilt', 'shopify')
   whatsappTemplates?: WhatsAppTemplate[];
   whatsappConfig?: WhatsAppConfig;
+  bostaConfig?: BostaConfig;
+  bostaPickups?: BostaPickupRequest[];
   callScripts?: CallScript[];
   employeeDashboardSettings?: EmployeeDashboardSettings;
   isPosEnabled?: boolean;
@@ -1233,6 +1309,10 @@ export interface Order {
   referenceNumber?: string;
   waybillNumber?: string;
   trackingUrl?: string;
+  bostaDeliveryId?: string;
+  bostaTrackingNumber?: string;
+  bostaBusinessLocationId?: string;
+  bostaReturnLocationId?: string;
   platformOrderId?: string;
   date: string;
   shippingCompany: string;

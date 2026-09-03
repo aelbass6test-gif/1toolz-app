@@ -1,12 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Order, Settings, WhatsAppConfig, WhatsAppTemplate } from '../types';
 import { 
   MessageSquare, Send, Search, Settings as SettingsIcon, 
   Save, Trash2, Plus, Bell, CheckCircle2, AlertTriangle, 
-  RefreshCw, Smartphone, Code, FileText, Phone, X
+  RefreshCw, Smartphone, Code, FileText, Phone, X, QrCode as QrIcon,
+  Wifi, WifiOff, ExternalLink, ShieldCheck, BatteryCharging, Zap
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { whatsappService } from '../utils/whatsappService';
 import { DEFAULT_WHATSAPP_TEMPLATES } from '../constants';
+import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 
 interface WhatsAppPageProps {
   orders: Order[];
@@ -24,6 +27,25 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
   const [isScanningQR, setIsScanningQR] = useState(false);
   const [deviceName, setDeviceName] = useState('جهاز #186031');
 
+  // Live status & QR states
+  const [liveStatus, setLiveStatus] = useState<{
+    connected: boolean;
+    status: string;
+    phone?: string;
+    name?: string;
+    battery?: number;
+    error?: string;
+  }>({
+    connected: false,
+    status: 'unconfigured',
+    phone: ''
+  });
+  const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [isLoadingQR, setIsLoadingQR] = useState(false);
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const [qrCountdown, setQrCountdown] = useState<number>(45);
+  const [qrError, setQrError] = useState<string | null>(null);
+
   // WhatsApp Config state (local for form editing)
   const [config, setConfig] = useState<WhatsAppConfig>(settings.whatsappConfig || {
     apiUrl: 'https://api.ultramsg.com/instance186031/',
@@ -31,10 +53,182 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     token: 'hilzrk5qc9lv7jfa',
     isActive: true,
     autoSendOnStatusChange: true,
-    providerType: 'local_gateway',
-    isConnected: true,
-    sessionPhone: '201012345678'
+    providerType: 'ultramsg',
+    isConnected: false,
+    sessionPhone: ''
   });
+
+  // Check live status
+  const checkLiveStatus = async (silent = false) => {
+    if (!silent) setIsCheckingStatus(true);
+    try {
+      const res = await fetch('/api/whatsapp/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config })
+      });
+      const data = await res.json();
+      if (data.connected) {
+        setLiveStatus({
+          connected: true,
+          status: 'authenticated',
+          phone: data.phone,
+          name: data.name,
+          battery: data.battery
+        });
+        setConfig(prev => ({
+          ...prev,
+          isConnected: true,
+          sessionPhone: data.phone || prev.sessionPhone
+        }));
+        setQrImageUrl(null);
+        setQrError(null);
+      } else {
+        setLiveStatus({
+          connected: false,
+          status: data.status || 'disconnected',
+          error: data.error || data.message
+        });
+        setConfig(prev => ({ ...prev, isConnected: false }));
+      }
+      return data;
+    } catch (err: any) {
+      if (!silent) {
+        setLiveStatus({ connected: false, status: 'error', error: err.message });
+      }
+      return null;
+    } finally {
+      if (!silent) setIsCheckingStatus(false);
+    }
+  };
+
+  // Generate / Fetch real live QR
+  const handleGenerateQR = async () => {
+    if (!config.instanceId || !config.token) {
+      await inAppAlert('يرجى إدخال Instance ID و Token الخاص بـ UltraMsg أولاً في الحقول أعلاه لتوليد الباركود.', {
+        title: 'بيانات الربط ناقصة',
+        type: 'warning'
+      });
+      return;
+    }
+
+    setIsLoadingQR(true);
+    setQrError(null);
+    try {
+      const res = await fetch('/api/whatsapp/qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config })
+      });
+      const data = await res.json();
+
+      if (data.connected) {
+        setLiveStatus({
+          connected: true,
+          status: 'authenticated',
+          phone: data.phone || config.sessionPhone
+        });
+        setConfig(prev => ({ ...prev, isConnected: true }));
+        setQrImageUrl(null);
+        await inAppAlert('الجهاز متصل ومفوض بالفعل في واتساب وجاهز للإرسال الفوري! ✅', {
+          title: 'متصل بنجاح',
+          type: 'success'
+        });
+        return;
+      }
+
+      if (data.qr) {
+        let finalUrl = '';
+        if (typeof data.qr === 'string' && (data.qr.startsWith('data:image') || data.qr.startsWith('http'))) {
+          finalUrl = data.qr;
+        } else if (typeof data.qr === 'string' && data.qr.length > 0) {
+          finalUrl = await QRCode.toDataURL(data.qr, {
+            width: 320,
+            margin: 2,
+            color: {
+              dark: '#0f172a',
+              light: '#ffffff'
+            }
+          });
+        }
+        setQrImageUrl(finalUrl);
+        setQrCountdown(45);
+      } else if (data.error) {
+        setQrError(data.error);
+        await inAppAlert(data.error, { title: 'فشل جلب الباركود', type: 'danger' });
+      }
+    } catch (err: any) {
+      setQrError(err.message);
+      await inAppAlert(`خطأ أثناء توليد الباركود: ${err.message}`, { type: 'danger' });
+    } finally {
+      setIsLoadingQR(false);
+    }
+  };
+
+  // Handle Logout
+  const handleLogoutDevice = async () => {
+    const ok = await inAppConfirm('هل أنت متأكد من رغبتك في تسجيل الخروج وقطع اتصال واتساب بهذا الجهاز؟', {
+      title: 'قطع اتصال واتساب',
+      type: 'danger',
+      confirmText: 'نعم، قطع الاتصال',
+      cancelText: 'إلغاء'
+    });
+    if (!ok) return;
+
+    try {
+      await fetch('/api/whatsapp/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config })
+      });
+      setConfig(prev => ({ ...prev, isConnected: false, sessionPhone: '' }));
+      setLiveStatus({ connected: false, status: 'disconnected' });
+      setQrImageUrl(null);
+      await inAppAlert('تم قطع الاتصال وتسجيل الخروج بنجاح.', { type: 'success' });
+    } catch (err: any) {
+      await inAppAlert(`فشل قطع الاتصال: ${err.message}`, { type: 'danger' });
+    }
+  };
+
+  // Auto-check live status on tab switch
+  useEffect(() => {
+    if (activeTab === 'devices') {
+      checkLiveStatus(true);
+    }
+  }, [activeTab, config.instanceId, config.token]);
+
+  // Polling for QR scan completion
+  useEffect(() => {
+    let interval: any;
+    let timerInterval: any;
+
+    if (activeTab === 'devices' && qrImageUrl && !liveStatus.connected) {
+      timerInterval = setInterval(() => {
+        setQrCountdown(prev => {
+          if (prev <= 1) {
+            handleGenerateQR();
+            return 45;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      interval = setInterval(async () => {
+        const res = await checkLiveStatus(true);
+        if (res && res.connected) {
+          import('../utils/audioSynth').then(({ audioSynth }) => {
+            audioSynth.announce("تم ربط واتساب بنجاح وتفويض الجهاز للإرسال التلقائي", "success");
+          });
+          setQrImageUrl(null);
+        }
+      }, 4000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (timerInterval) clearInterval(timerInterval);
+    };
+  }, [activeTab, qrImageUrl, liveStatus.connected]);
 
   // Sync from props if changed (handles initial load delay)
   React.useEffect(() => {
@@ -603,152 +797,286 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'devices' && (
-          <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
+          <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8" dir="rtl">
             {/* Top Device Bar */}
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400">حالة الاتصال</label>
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 rounded-xl ${liveStatus.connected ? 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                    {liveStatus.connected ? <Wifi size={20} /> : <WifiOff size={20} />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-black text-slate-800 dark:text-white">إعدادات الربط المباشر مع بوابة WhatsApp</h4>
+                      {liveStatus.connected ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          متصل ومفوض بنجاح
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
+                          بانتظار مسح الباركود
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 font-bold mt-0.5">قم بإدخال بيانات Instance الخاصة بك من UltraMsg ثم امسح رمز الـ QR</p>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
                   <button 
-                    onClick={() => {
-                      setIsScanningQR(true);
-                      setTimeout(() => setIsScanningQR(false), 2000);
-                    }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-all flex items-center gap-1.5"
+                    onClick={() => checkLiveStatus(false)}
+                    disabled={isCheckingStatus}
+                    className="px-4 py-2 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
                   >
-                    <RefreshCw size={14} className={isScanningQR ? "animate-spin" : ""} />
-                    Scan QR code
+                    <RefreshCw size={14} className={isCheckingStatus ? "animate-spin text-indigo-500" : ""} />
+                    فحص الاتصال الفعلي
+                  </button>
+                  <button 
+                    onClick={handleSaveSettings}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Save size={14} />
+                    حفظ البيانات
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400">API URL</label>
-                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
-                  <input 
-                    type="text" 
-                    value={config.apiUrl} 
-                    onChange={e => setConfig({ ...config, apiUrl: e.target.value })}
-                    className="bg-transparent text-xs font-mono outline-none w-full"
-                  />
-                  <button onClick={() => navigator.clipboard.writeText(config.apiUrl)} className="text-slate-400 hover:text-emerald-600"><Code size={14}/></button>
+              {/* Form Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span>Instance ID (معرف الجهاز)</span>
+                    <span className="text-[10px] text-slate-400">مثال: instance186031</span>
+                  </label>
+                  <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <input 
+                      type="text" 
+                      placeholder="instanceXXXXX"
+                      value={config.instanceId} 
+                      onChange={e => setConfig({ ...config, instanceId: e.target.value })}
+                      className="bg-transparent text-xs font-mono font-bold text-slate-800 dark:text-white outline-none w-full"
+                    />
+                    <button onClick={() => { navigator.clipboard.writeText(config.instanceId); inAppAlert('تم نسخ الـ Instance ID'); }} className="text-slate-400 hover:text-emerald-600"><Code size={14}/></button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400">Instance ID</label>
-                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
-                  <input 
-                    type="text" 
-                    value={config.instanceId} 
-                    onChange={e => setConfig({ ...config, instanceId: e.target.value })}
-                    className="bg-transparent text-xs font-mono outline-none w-full"
-                  />
-                  <button onClick={() => navigator.clipboard.writeText(config.instanceId)} className="text-slate-400 hover:text-emerald-600"><Code size={14}/></button>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span>Token (رمز التوثيق السري)</span>
+                    <span className="text-[10px] text-slate-400">من لوحة UltraMsg</span>
+                  </label>
+                  <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <input 
+                      type="password" 
+                      placeholder="token string..."
+                      value={config.token} 
+                      onChange={e => setConfig({ ...config, token: e.target.value })}
+                      className="bg-transparent text-xs font-mono font-bold text-slate-800 dark:text-white outline-none w-full"
+                    />
+                    <button onClick={() => { navigator.clipboard.writeText(config.token); inAppAlert('تم نسخ الـ Token'); }} className="text-slate-400 hover:text-emerald-600"><Code size={14}/></button>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-400">Token</label>
-                <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-2 rounded-xl border border-slate-200 dark:border-slate-700">
-                  <input 
-                    type="password" 
-                    value={config.token} 
-                    onChange={e => setConfig({ ...config, token: e.target.value })}
-                    className="bg-transparent text-xs font-mono outline-none w-full"
-                  />
-                  <button onClick={() => navigator.clipboard.writeText(config.token)} className="text-slate-400 hover:text-emerald-600"><Code size={14}/></button>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                    <span>API Endpoint URL</span>
+                    <span className="text-[10px] text-slate-400">مسار الإرسال</span>
+                  </label>
+                  <div className="flex items-center gap-2 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <input 
+                      type="text" 
+                      value={config.apiUrl} 
+                      onChange={e => setConfig({ ...config, apiUrl: e.target.value })}
+                      className="bg-transparent text-xs font-mono font-bold text-slate-800 dark:text-white outline-none w-full"
+                    />
+                    <button onClick={() => { navigator.clipboard.writeText(config.apiUrl); inAppAlert('تم نسخ مسار الـ API'); }} className="text-slate-400 hover:text-emerald-600"><Code size={14}/></button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* QR Code & Phone Simulation View */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Phone Preview / Chats list */}
-              <div className="bg-slate-900 text-white rounded-3xl p-5 shadow-xl border border-slate-800 flex flex-col gap-4">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <span className="text-sm font-bold text-emerald-400 flex items-center gap-2">
-                    <Smartphone size={16} />
-                    WhatsApp Connected (#186031)
-                  </span>
-                  <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">متصل</span>
+            {/* Main Interactive Box: Connected State VS QR Pairing State */}
+            {liveStatus.connected ? (
+              /* Already Connected Banner */
+              <div className="bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent border-2 border-emerald-500/30 rounded-3xl p-6 md:p-8 space-y-6">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                  <div className="flex items-center gap-4 text-right">
+                    <div className="w-16 h-16 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 shrink-0">
+                      <ShieldCheck size={36} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xl font-black text-slate-900 dark:text-white">جهاز واتساب متصل ومفوض بالكامل! 🟢</h3>
+                        <span className="bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 text-xs px-3 py-0.5 rounded-full font-black">
+                          جاهز للإرسال الآلي
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-600 dark:text-slate-400 mt-1">
+                        الرقم المرتبط: <span className="font-mono text-emerald-600 dark:text-emerald-400 text-sm font-black">+{liveStatus.phone || config.sessionPhone || '2010xxxxxxxx'}</span>
+                        {liveStatus.name && ` (${liveStatus.name})`}
+                      </p>
+                      <p className="text-[11px] text-slate-400 font-bold mt-0.5">
+                        يتم الآن إرسال جميع رسائل تأكيد الطلبات، التتبع، والإشعارات للعملاء تلقائياً وبشكل فوري عبر هذا الرقم.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0 flex-wrap">
+                    <button 
+                      onClick={() => checkLiveStatus(false)}
+                      className="px-5 py-3 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-white border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black shadow-sm flex items-center gap-2 cursor-pointer transition-all"
+                    >
+                      <RefreshCw size={16} />
+                      إعادة فحص
+                    </button>
+                    <button 
+                      onClick={handleLogoutDevice}
+                      className="px-5 py-3 bg-rose-50 dark:bg-rose-950/40 text-rose-600 hover:bg-rose-100 rounded-xl text-xs font-black border border-rose-200 dark:border-rose-900 shadow-sm flex items-center gap-2 cursor-pointer transition-all"
+                    >
+                      <Trash2 size={16} />
+                      تسجيل خروج / فك الربط
+                    </button>
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  <div className="p-3 bg-slate-800/80 rounded-xl flex items-center justify-between">
-                    <div>
-                      <h5 className="font-bold text-sm">Steve Smith</h5>
-                      <p className="text-xs text-slate-400">👍 تأكيد الطلب</p>
-                    </div>
-                    <span className="text-[10px] text-slate-500">أمس</span>
+
+                {/* Instant Test Box */}
+                <div className="p-5 bg-white dark:bg-slate-900 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 shadow-sm space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Zap size={18} className="text-amber-500" />
+                    <h5 className="text-xs font-black text-slate-800 dark:text-white">تجربة فورية: أرسل رسالة تجريبية لهاتفك الآن للتأكد من وصولها</h5>
                   </div>
-                  <div className="p-3 bg-slate-800/80 rounded-xl flex items-center justify-between">
-                    <div>
-                      <h5 className="font-bold text-sm">محمد أحمد</h5>
-                      <p className="text-xs text-slate-400">Hola 👋</p>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                      <Phone size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input 
+                        type="text" 
+                        placeholder="أدخل رقم هاتفك (مثال: 01012345678 أو 2010...)"
+                        value={testPhone}
+                        onChange={e => setTestPhone(e.target.value)}
+                        className="w-full pr-10 pl-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-emerald-500"
+                      />
                     </div>
-                    <span className="text-[10px] text-slate-500">أمس</span>
-                  </div>
-                  <div className="p-3 bg-slate-800/80 rounded-xl flex items-center justify-between">
-                    <div>
-                      <h5 className="font-bold text-sm">عميل تجريبي #1001</h5>
-                      <p className="text-xs text-slate-400">تم استلام الطلب بنجاح</p>
-                    </div>
-                    <span className="text-[10px] text-slate-500">الآن</span>
+                    <button 
+                      onClick={handleSendTest}
+                      disabled={isSendingTest || !testPhone}
+                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+                    >
+                      {isSendingTest ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                      <span>إرسال رسالة تجريبية الآن</span>
+                    </button>
                   </div>
                 </div>
               </div>
-
-              {/* QR Code Pairing Box */}
-              <div className="lg:col-span-2 bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-center gap-8 justify-between">
-                <div className="flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-inner">
-                  {/* Simulated QR Code Matrix SVG */}
-                  <div className="w-56 h-56 bg-white p-3 rounded-xl shadow border border-slate-200 flex items-center justify-center">
-                    <svg viewBox="0 0 25 25" className="w-full h-full text-slate-900 fill-current">
-                      <path d="M0 0h7v7H0zM2 2h3v3H2zM18 0h7v7h-7zM20 2h3v3h-3zM0 18h7v7H0zM2 20h3v3H2zM9 2h2v3H9zM13 2h2v2h-2zM9 7h2v2H9zM13 6h4v2h-4zM6 9h3v2H6zM14 9h2v2h-2zM18 9h4v2h-4zM2 13h2v3H2zM7 13h3v2H7zM12 12h2v3h-2zM16 13h3v2h-3zM21 12h2v4h-2zM9 16h2v3H9zM13 16h3v2h-3zM17 18h4v2h-4zM2 22h4v2H2zM9 21h3v2H9zM14 21h2v3h-2zM19 22h4v2h-4z"/>
-                    </svg>
+            ) : (
+              /* QR Code Pairing Workspace */
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                {/* QR Code Container */}
+                <div className="lg:col-span-5 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center text-center space-y-4">
+                  <div className="flex items-center justify-between w-full border-b border-slate-100 dark:border-slate-800 pb-3">
+                    <span className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-2">
+                      <QrIcon size={18} className="text-emerald-600" />
+                      رمز الـ QR لمصادقة WhatsApp
+                    </span>
+                    {qrImageUrl && (
+                      <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-full animate-pulse">
+                        صالح لمدة {qrCountdown} ثانية
+                      </span>
+                    )}
                   </div>
-                  <span className="text-xs text-slate-500 mt-3 font-medium">الباركود صالح لمدة 45 ثانية فقط</span>
+
+                  {/* QR Image Box */}
+                  <div className="w-64 h-64 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center p-4 relative overflow-hidden shadow-inner">
+                    {isLoadingQR ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <RefreshCw size={36} className="text-emerald-600 animate-spin" />
+                        <span className="text-xs font-black text-slate-600 dark:text-slate-300">جاري توليد باركود المصادقة...</span>
+                      </div>
+                    ) : qrImageUrl ? (
+                      <div className="flex flex-col items-center gap-2 animate-in fade-in zoom-in-95 duration-200">
+                        <img 
+                          src={qrImageUrl} 
+                          alt="WhatsApp QR Code" 
+                          className="w-56 h-56 object-contain rounded-xl shadow-sm bg-white p-2"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-3 text-slate-400 p-4">
+                        <QrIcon size={48} className="text-slate-300 dark:text-slate-600 stroke-[1.5]" />
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400">انقر على الزر أدناه لتوليد باركود الربط الفوري</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QR Action Buttons */}
+                  <div className="w-full space-y-2">
+                    <button 
+                      onClick={handleGenerateQR}
+                      disabled={isLoadingQR}
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/20 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isLoadingQR ? (
+                        <RefreshCw size={16} className="animate-spin" />
+                      ) : (
+                        <QrIcon size={16} />
+                      )}
+                      <span>{qrImageUrl ? "تحديث وتوليد باركود جديد 🔄" : "توليد ومسح رمز الباركود الآن 📱"}</span>
+                    </button>
+
+                    {qrImageUrl && (
+                      <div className="text-[10px] text-slate-400 font-bold flex items-center justify-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                        بانتظار مسح الرمز من هاتفك (السيستم يلتقط التفعيل تلقائياً)...
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="space-y-6 text-right flex-1">
+                {/* Instructions & Help */}
+                <div className="lg:col-span-7 bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
                   <div>
-                    <h3 className="text-2xl font-black text-slate-800 dark:text-white">لإرسال الرسائل واستلامها ، يجب عليك تفويض الجهاز</h3>
-                    <p className="text-slate-500 text-sm mt-2">قم بربط رقم واتساب الخاص بك بنقرة واحدة عبر مسح الرمز بجوالك.</p>
+                    <h3 className="text-xl font-black text-slate-800 dark:text-white">خطوات ربط رقم واتساب بالسيستم:</h3>
+                    <p className="text-xs font-bold text-slate-400 mt-1">يستغرق الربط أقل من 30 ثانية لمرة واحدة فقط ويظل رقمك متصلاً دائماً.</p>
                   </div>
 
-                  <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                    <div className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</span>
-                      <span>افتح تطبيق WhatsApp على هاتفك</span>
+                  <div className="space-y-4 text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <div className="flex items-start gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-xs shrink-0 mt-0.5">1</span>
+                      <div className="space-y-0.5">
+                        <span className="font-black text-slate-900 dark:text-white block">افتح تطبيق WhatsApp على هاتفك</span>
+                        <p className="text-[11px] text-slate-400 font-bold">يمكنك استخدام تطبيق واتساب العادي أو واتساب للأعمال (WhatsApp Business).</p>
+                      </div>
                     </div>
-                    <div className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</span>
-                      <span>اضغط القائمة (⋮) أو الإعدادات ⚙️ واختر الأجهزة المرتبطة (Linked Devices)</span>
+
+                    <div className="flex items-start gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-xs shrink-0 mt-0.5">2</span>
+                      <div className="space-y-0.5">
+                        <span className="font-black text-slate-900 dark:text-white block">افتح قائمة الإعدادات واذهب إلى "الأجهزة المرتبطة" (Linked Devices)</span>
+                        <p className="text-[11px] text-slate-400 font-bold">اضغط على النقاط الثلاث (⋮) في أندرويد أو الإعدادات ⚙️ في آيفون ثم اختر "ربط جهاز" (Link a Device).</p>
+                      </div>
                     </div>
-                    <div className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">3</span>
-                      <span>وجه هاتفك إلى هذه الشاشة لالتقاط الباركود وسيكون جاهزاً فوراً للإرسال التلقائي.</span>
+
+                    <div className="flex items-start gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                      <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-black text-xs shrink-0 mt-0.5">3</span>
+                      <div className="space-y-0.5">
+                        <span className="font-black text-slate-900 dark:text-white block">وجّه كاميرا الهاتف نحو الباركود أعلاه</span>
+                        <p className="text-[11px] text-slate-400 font-bold">بمجرد المسح، سيتم تفويض التطبيق فوراً والتحويل التلقائي لحالة "متصل وجاهز للإرسال".</p>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="pt-2 flex gap-3">
-                    <button 
-                      onClick={handleSaveSettings}
-                      className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition-all"
-                    >
-                      حفظ وتفعيل الجهاز
-                    </button>
-                    <button 
-                      onClick={() => setConfig({ ...config, isConnected: false })}
-                      className="px-6 py-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 hover:bg-rose-100 rounded-xl font-bold transition-all border border-rose-200 dark:border-rose-900"
-                    >
-                      تسجيل خروج / قطع الاتصال
-                    </button>
+                  {/* Free direct mode note */}
+                  <div className="p-4 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                    <span className="text-xs font-black text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                      <span>💡 نصيحة: هل تفضل الإرسال المباشر بدون اشتراكات خارجية؟</span>
+                    </span>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                      يمكنك الذهاب إلى تبويب <strong>"إعدادات الـ API"</strong> واختيار <strong>"الربط المباشر المجاني"</strong>، حيث يفتح لك واتساب ويب أو التطبيق على هاتفك بنقرة واحدة بدون أي وسيط وبدون أي تكلفة إضافية.
+                    </p>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
