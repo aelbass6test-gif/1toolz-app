@@ -3463,20 +3463,12 @@ async function startServer() {
   app.post("/api/webhooks/bosta", handleBostaWebhook);
   app.post("/api/webhook/bosta", handleBostaWebhook);
 
-  // Friendly GET handlers for browser verification
+  // Friendly GET handlers to redirect manual browser visits to the main dashboard
   app.get("/api/webhooks/bosta", async (c) => {
-    return c.json({
-      success: true,
-      status: "active",
-      message: "Bosta Webhook endpoint is active and ready to receive POST payloads from Bosta."
-    });
+    return c.redirect("/");
   });
   app.get("/api/webhook/bosta", async (c) => {
-    return c.json({
-      success: true,
-      status: "active",
-      message: "Bosta Webhook endpoint is active and ready to receive POST payloads from Bosta."
-    });
+    return c.redirect("/");
   });
 
   // Fetch recent webhook logs
