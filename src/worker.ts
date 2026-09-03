@@ -198,7 +198,7 @@ app.post("/api/domains/status", async (c) => {
       success: true,
       status: hostnameInfo.status,
       ssl_status: hostnameInfo.ssl?.status,
-      verification_errors: hostnameInfo.verification_errors,
+      verification_errors: hostnameInfo.ssl?.validation_errors,
       ssl_validation_errors: hostnameInfo.ssl?.validation_errors,
       details: hostnameInfo
     });
@@ -206,6 +206,18 @@ app.post("/api/domains/status", async (c) => {
     return c.json({ success: false, error: err.message }, 500);
   }
 });
+
+// Intercept GET requests to Bosta webhooks directly in Cloudflare Worker to return friendly JSON status
+app.get("/api/webhooks/bosta", (c) => c.json({
+  success: true,
+  status: "active",
+  message: "Bosta Webhook endpoint is active and ready to receive POST payloads from Bosta."
+}));
+app.get("/api/webhook/bosta", (c) => c.json({
+  success: true,
+  status: "active",
+  message: "Bosta Webhook endpoint is active and ready to receive POST payloads from Bosta."
+}));
 
 // Intelligent fallback API Proxy: forwards all other /api/* requests to the active Cloud Run server
 app.all("/api/*", async (c) => {
