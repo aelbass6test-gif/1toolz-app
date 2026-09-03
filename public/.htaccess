@@ -9,6 +9,11 @@
   RewriteRule ^api/domains/status$ api/domains/status/index.php [L,QSA]
   RewriteRule ^api/domains/status/$ api/domains/status/index.php [L,QSA]
   
+  # Forward any other /api/... requests to the universal PHP API proxy
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^api/(.*)$ api/bosta/index.php?route=$1 [L,QSA]
+  
   # Standard SPA Routing: Redirect all other non-file/non-folder requests to index.html
   # This makes React Router routes (like /orders or /settings) work perfectly on page reload!
   RewriteCond %{REQUEST_FILENAME} !-f
