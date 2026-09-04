@@ -66,13 +66,64 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     const cfg = customConfig || config;
     if (!silent) setIsCheckingStatus(true);
     try {
-      const res = await fetch('/api/whatsapp/status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: cfg })
-      });
-      const data = await res.json();
-      if (data.connected) {
+      let data: any = null;
+
+      // 1. First try server endpoint
+      try {
+        const res = await fetch('/api/whatsapp/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: cfg })
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await res.json();
+        }
+      } catch (proxyErr) {
+        console.warn('Proxy status check failed, trying direct check:', proxyErr);
+      }
+
+      // 2. Direct Meta Graph Fallback (especially if running on static hosting like app.abdomedi.com)
+      if (!data && cfg.providerType === 'meta_cloud') {
+        const phoneId = (cfg.phoneNumberId || cfg.instanceId || '').trim();
+        const token = (cfg.accessToken || cfg.token || '').trim();
+        if (phoneId && token) {
+          try {
+            const metaRes = await fetch(
+              `https://graph.facebook.com/v21.0/${phoneId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,status&access_token=${token}`
+            );
+            const metaJson = await metaRes.json();
+            if (metaRes.ok && (metaJson.id || metaJson.display_phone_number)) {
+              data = {
+                success: true,
+                connected: true,
+                status: 'authenticated',
+                phone: metaJson.display_phone_number || metaJson.id,
+                name: metaJson.verified_name || 'Abdo Media - واتساب',
+                qualityRating: metaJson.quality_rating,
+                codeVerificationStatus: metaJson.code_verification_status
+              };
+            } else {
+              const errDetail = metaJson.error?.message || 'فشل التحقق من بيانات ميتا';
+              data = {
+                success: false,
+                connected: false,
+                status: 'error',
+                error: `${errDetail} (كود: ${metaJson.error?.code || 'N/A'})`
+              };
+            }
+          } catch (directErr: any) {
+            data = {
+              success: false,
+              connected: false,
+              status: 'error',
+              error: `تعذر الاتصال بـ Meta Graph: ${directErr.message}`
+            };
+          }
+        }
+      }
+
+      if (data && data.connected) {
         setLiveStatus({
           connected: true,
           status: 'authenticated',
@@ -92,13 +143,20 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         }));
         setQrImageUrl(null);
         setQrError(null);
-      } else {
+      } else if (data) {
         setLiveStatus({
           connected: false,
           status: data.status || 'disconnected',
           error: data.error || data.message
         });
         setConfig(prev => ({ ...prev, isConnected: false }));
+      } else {
+        // Ultimate fallback
+        setLiveStatus({
+          connected: false,
+          status: 'error',
+          error: 'تعذر الوصول إلى خادم الفحص (تم استلام رد غير صالح من السيرفر)'
+        });
       }
       return data;
     } catch (err: any) {

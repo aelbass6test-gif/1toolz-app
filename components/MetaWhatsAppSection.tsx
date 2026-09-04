@@ -457,13 +457,37 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
 
     setIsLoadingPhoneNumbers(true);
     try {
-      const res = await fetch('/api/whatsapp/meta-phone-numbers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wabaId: activeWaba, accessToken: activeToken })
-      });
-      const data = await res.json();
-      if (data.success && data.data) {
+      let data: any = null;
+
+      // 1. Try direct Meta Graph API (handles static SPA hosting)
+      try {
+        const directRes = await fetch(
+          `https://graph.facebook.com/v21.0/${activeWaba}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,code_verification_status,status,name_status&access_token=${activeToken}`
+        );
+        const directJson = await directRes.json();
+        if (directRes.ok && directJson.data) {
+          data = { success: true, data: directJson.data };
+        } else if (directJson.error) {
+          data = { success: false, error: directJson.error.message };
+        }
+      } catch (directErr) {
+        console.warn('Direct Meta phone fetch failed, trying proxy:', directErr);
+      }
+
+      // 2. Fallback to server proxy
+      if (!data) {
+        const res = await fetch('/api/whatsapp/meta-phone-numbers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wabaId: activeWaba, accessToken: activeToken })
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          data = await res.json();
+        }
+      }
+
+      if (data && data.success && data.data) {
         setFetchedPhoneNumbers(data.data);
         if (data.data.length === 0) {
           await inAppAlert('لم يتم العثور على أرقام هواتف مرتبطة بحساب الأعمال هذا في ميتا.', { type: 'info' });
@@ -471,7 +495,7 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
           await inAppAlert(`تم العثور على ${data.data.length} رقم هاتف معتمد في حساب ميتا! يمكنك اختيار الرقم المطلوب بنقرة واحدة. 🎉`, { type: 'success' });
         }
       } else {
-        await inAppAlert(`فشل جلب أرقام الهواتف: ${data.error || 'تأكد من صلاحيات whatsapp_business_management'}`, { type: 'danger' });
+        await inAppAlert(`فشل جلب أرقام الهواتف: ${data?.error || 'تأكد من صلاحيات whatsapp_business_management'}`, { type: 'danger' });
       }
     } catch (err: any) {
       await inAppAlert(`حدث خطأ أثناء جلب الأرقام: ${err.message}`, { type: 'danger' });
@@ -492,13 +516,37 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
 
     setIsLoadingTemplates(true);
     try {
-      const res = await fetch('/api/whatsapp/meta-templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wabaId: activeWaba, accessToken: activeToken })
-      });
-      const data = await res.json();
-      if (data.success && data.templates) {
+      let data: any = null;
+
+      // 1. Try direct Meta Graph API first
+      try {
+        const directRes = await fetch(
+          `https://graph.facebook.com/v21.0/${activeWaba}/message_templates?fields=id,name,status,category,language,components&limit=100&access_token=${activeToken}`
+        );
+        const directJson = await directRes.json();
+        if (directRes.ok && directJson.data) {
+          data = { success: true, templates: directJson.data };
+        } else if (directJson.error) {
+          data = { success: false, error: directJson.error.message };
+        }
+      } catch (directErr) {
+        console.warn('Direct Meta templates fetch failed, trying proxy:', directErr);
+      }
+
+      // 2. Fallback to server proxy
+      if (!data) {
+        const res = await fetch('/api/whatsapp/meta-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wabaId: activeWaba, accessToken: activeToken })
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          data = await res.json();
+        }
+      }
+
+      if (data && data.success && data.templates) {
         setFetchedTemplates(data.templates);
         if (data.templates.length === 0) {
           await inAppAlert('لا توجد قوالب رسائل منشأة حالياً في حساب WhatsApp Business هذا.', { type: 'info' });
@@ -506,7 +554,7 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
           await inAppAlert(`تم جلب ${data.templates.length} قالب من خوادم ميتا بنجاح! 📑`, { type: 'success' });
         }
       } else {
-        await inAppAlert(`تعذر استرداد القوالب: ${data.error || 'تأكد من صلاحيات حساب الأعمال'}`, { type: 'danger' });
+        await inAppAlert(`تعذر استرداد القوالب: ${data?.error || 'تأكد من صلاحيات حساب الأعمال'}`, { type: 'danger' });
       }
     } catch (err: any) {
       await inAppAlert(`حدث خطأ: ${err.message}`, { type: 'danger' });

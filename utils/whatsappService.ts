@@ -69,23 +69,110 @@ export const whatsappService = {
         return { success: true };
       }
 
-      const response = await fetch('/api/whatsapp/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          to: cleanPhone,
-          body: message,
-          buttons: buttons,
-          footer: footer,
-          config: config
-        }),
-      });
+      let data: any = null;
+      let usedDirectMeta = false;
 
-      const data = await response.json();
+      try {
+        const response = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: cleanPhone,
+            body: message,
+            buttons: buttons,
+            footer: footer,
+            config: config
+          }),
+        });
 
-      if (!response.ok || data.sent === false || data.success === false || data.error) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          data = await response.json();
+        }
+      } catch (proxyErr) {
+        console.warn('Proxy send failed, checking direct fallback:', proxyErr);
+      }
+
+      // Direct Meta Cloud Fallback if proxy failed or returned HTML
+      if (!data && config.providerType === 'meta_cloud') {
+        const phoneId = (config.phoneNumberId || config.instanceId || '').trim();
+        const token = (config.accessToken || config.token || '').trim();
+        if (phoneId && token) {
+          usedDirectMeta = true;
+          let metaPayload: any;
+
+          if (config.metaTemplateName && config.metaTemplateName.trim()) {
+            metaPayload = {
+              messaging_product: 'whatsapp',
+              recipient_type: 'individual',
+              to: cleanPhone,
+              type: 'template',
+              template: {
+                name: config.metaTemplateName.trim(),
+                language: {
+                  code: config.metaTemplateLanguage?.trim() || 'ar'
+                }
+              }
+            };
+          } else if (buttons && Array.isArray(buttons) && buttons.length > 0 && buttons.length <= 3) {
+            metaPayload = {
+              messaging_product: 'whatsapp',
+              recipient_type: 'individual',
+              to: cleanPhone,
+              type: 'interactive',
+              interactive: {
+                type: 'button',
+                body: { text: message },
+                footer: footer ? { text: footer } : undefined,
+                action: {
+                  buttons: buttons.map((b: any, idx: number) => {
+                    const title = (typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`)).trim().substring(0, 20);
+                    const id = (typeof b === 'object' && b.id ? b.id : `btn_${idx + 1}`).substring(0, 256);
+                    return { type: 'reply', reply: { id, title } };
+                  })
+                }
+              }
+            };
+          } else {
+            let fullText = message;
+            if (footer) fullText += `\n\n📌 ${footer}`;
+            if (buttons && buttons.length > 0) {
+              fullText += `\n\n🔘 الخيارات:\n` + buttons.map((b, i) => `${i + 1}. ${typeof b === 'string' ? b : b.text}`).join('\n');
+            }
+            metaPayload = {
+              messaging_product: 'whatsapp',
+              recipient_type: 'individual',
+              to: cleanPhone,
+              type: 'text',
+              text: { body: fullText }
+            };
+          }
+
+          const metaRes = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(metaPayload)
+          });
+          data = await metaRes.json();
+          if (metaRes.ok && data.messages) {
+            return { success: true };
+          } else {
+            const errStr = data.error?.message || 'فشل الإرسال عبر Meta Cloud API';
+            throw new Error(errStr);
+          }
+        }
+      }
+
+      if (!data) {
+        throw new Error('تعذر الوصول إلى خادم الإرسال (رد غير صالح)');
+      }
+
+      if (data.sent === false || data.success === false || data.error) {
         let errStr = 'فشل الإرسال عبر API الواتساب';
         const errObj = data.error || data.message;
         if (errObj) {
