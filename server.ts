@@ -6,7 +6,7 @@ import { createServer } from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, limit } from "firebase/firestore";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
@@ -732,7 +732,7 @@ async function startServer() {
   // WhatsApp Proxy API
   app.post("/api/whatsapp/send", async (c) => {
     try {
-      const { to, body, footer, buttons, config } = await c.req.json();
+      const { to, body, footer, buttons, config, templateParameters, templateComponents } = await c.req.json();
       
       if (!config || !config.isActive) {
         return c.json({ success: false, error: "WhatsApp integration is not active." }, 400);
@@ -754,21 +754,75 @@ async function startServer() {
           return c.json({ success: false, error: "Meta Cloud API requires Phone Number ID and Access Token." }, 400);
         }
 
-        const metaUrl = `https://graph.facebook.com/v17.0/${phoneNumberId}/messages`;
+        const metaUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
         
-        let fullBodyText = body;
+        let fullBodyText = body || '';
         if (footer) fullBodyText += `\n\n📌 ${footer}`;
-        if (buttons && buttons.length > 0) {
-          fullBodyText += `\n\n🔘 الخيارات:\n` + buttons.map((b: any, idx: number) => `${idx+1}️⃣ ${typeof b === 'string' ? b : b.text}`).join('\n');
-        }
+        
+        let metaPayload: any;
 
-        const metaRes = await fetch(metaUrl, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${accessToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
+        // 1. If Meta Template Name is explicitly specified (Mandatory outside 24h customer window)
+        if (config.metaTemplateName && config.metaTemplateName.trim()) {
+          const components: any[] = [];
+          
+          if (templateComponents && Array.isArray(templateComponents) && templateComponents.length > 0) {
+            components.push(...templateComponents);
+          } else if (templateParameters && Array.isArray(templateParameters) && templateParameters.length > 0) {
+            components.push({
+              type: "body",
+              parameters: templateParameters.map((p: any) => ({
+                type: "text",
+                text: String(p || '')
+              }))
+            });
+          }
+
+          metaPayload = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: cleanTo,
+            type: "template",
+            template: {
+              name: config.metaTemplateName.trim(),
+              language: {
+                code: config.metaTemplateLanguage?.trim() || "ar"
+              },
+              ...(components.length > 0 ? { components } : {})
+            }
+          };
+        } 
+        // 2. If buttons are provided and <= 3, use native Meta Interactive Quick Reply Buttons
+        else if (buttons && Array.isArray(buttons) && buttons.length > 0 && buttons.length <= 3) {
+          metaPayload = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: cleanTo,
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: {
+                text: body
+              },
+              footer: footer ? { text: footer } : undefined,
+              action: {
+                buttons: buttons.map((b: any, idx: number) => {
+                  const title = (typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`)).trim().substring(0, 20);
+                  const id = (typeof b === 'object' && b.id ? b.id : `btn_${idx + 1}`).substring(0, 256);
+                  return {
+                    type: "reply",
+                    reply: { id, title }
+                  };
+                })
+              }
+            }
+          };
+        } 
+        // 3. Standard Text Message (with fallback formatted buttons if > 3)
+        else {
+          if (buttons && buttons.length > 0) {
+            fullBodyText += `\n\n🔘 الخيارات:\n` + buttons.map((b: any, idx: number) => `${idx + 1}️⃣ ${typeof b === 'string' ? b : b.text}`).join('\n');
+          }
+          metaPayload = {
             messaging_product: "whatsapp",
             recipient_type: "individual",
             to: cleanTo,
@@ -777,15 +831,46 @@ async function startServer() {
               preview_url: true,
               body: fullBodyText
             }
-          })
+          };
+        }
+
+        const metaRes = await fetch(metaUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(metaPayload)
         });
 
         const metaData: any = await metaRes.json();
         const isSuccess = metaRes.ok && (metaData.messages && metaData.messages.length > 0);
 
+        // Intelligent Meta Error translations
+        let customError: string | undefined = undefined;
+        if (metaData.error) {
+          const code = metaData.error.code;
+          const subcode = metaData.error.error_subcode;
+          const rawMsg = metaData.error.message || '';
+
+          if (code === 131047 || rawMsg.includes('24 hours') || subcode === 2494010) {
+            customError = "تنبيه ميتا (كود #131047): لا يمكن إرسال رسائل نصية أو أزرار حرة للعميل خارج نافذة الـ 24 ساعة لخدمة العملاء. وفقاً لسياسة Meta، يجب تفعيل واستخدام قالب معتمد (Approved Template) لبدء إرسال إشعارات الطلب.";
+          } else if (code === 131030) {
+            customError = "تنبيه ميتا (كود #131030): رقم المستلم غير مضاف لقائمة أرقام الاختبار في لوحة مطوري فيسبوك (Meta Developer Dashboard). أضف الرقم أو قم بترقية التطبيق للوضع المباشر (Live Mode).";
+          } else if (code === 132000) {
+            customError = "تنبيه ميتا (كود #132000): عدد المتغيرات الممررة لا يطابق عدد المتغيرات في القالب المعتمد (Template parameters mismatch).";
+          } else if (code === 132001) {
+            customError = "تنبيه ميتا (كود #132001): اسم القالب غير موجود أو لم يتم اعتماده بعد في حساب واتساب للأعمال (Template does not exist).";
+          } else if (code === 190) {
+            customError = "رمز الوصول (Access Token) غير صالح أو انتهت صلاحيته. يرجى إنشاء رمز دائم (Permanent System User Token) من إعدادات Business Manager.";
+          } else {
+            customError = `${metaData.error.message}${metaData.error.error_user_msg ? ' - ' + metaData.error.error_user_msg : ''}`;
+          }
+        }
+
         return c.json({
           success: isSuccess,
-          error: metaData.error ? (typeof metaData.error === 'string' ? metaData.error : metaData.error.message) : undefined,
+          error: customError,
           ...metaData
         }, metaRes.status as any);
       }
@@ -870,16 +955,26 @@ async function startServer() {
           return c.json({ success: false, connected: false, status: 'unconfigured', message: 'يرجى إدخال Phone Number ID و Access Token' });
         }
         try {
-          const res = await fetch(`https://graph.facebook.com/v17.0/${phoneNumberId}?access_token=${accessToken}`);
+          const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,status&access_token=${accessToken}`);
           const data: any = await res.json();
           if (res.ok && data.id) {
+            let wabaData: any = null;
+            if (config.wabaId) {
+              try {
+                const wRes = await fetch(`https://graph.facebook.com/v21.0/${config.wabaId}?fields=id,name,currency,timezone_id,account_review_status&access_token=${accessToken}`);
+                wabaData = await wRes.json();
+              } catch (_) {}
+            }
+
             return c.json({
               success: true,
               connected: true,
               status: 'authenticated',
               phone: data.display_phone_number || data.id,
-              name: data.verified_name || 'Meta WhatsApp Cloud',
-              qualityRating: data.quality_rating
+              name: data.verified_name || wabaData?.name || 'Meta WhatsApp Cloud',
+              qualityRating: data.quality_rating,
+              codeVerificationStatus: data.code_verification_status,
+              wabaData
             });
           } else {
             return c.json({
@@ -938,6 +1033,62 @@ async function startServer() {
     } catch (err: any) {
       console.error("WhatsApp Status check error:", err);
       return c.json({ success: false, connected: false, error: err.message }, 500);
+    }
+  });
+
+  // Meta WABA Phone Numbers API (GET /{WABA-ID}/phone_numbers)
+  app.post("/api/whatsapp/meta-phone-numbers", async (c) => {
+    try {
+      const { wabaId, accessToken } = await c.req.json();
+      if (!wabaId || !accessToken) {
+        return c.json({ success: false, error: "يجب توفير معرّف حساب الأعمال (WABA ID) ورمز الوصول (Access Token)." }, 400);
+      }
+
+      const res = await fetch(`https://graph.facebook.com/v21.0/${wabaId.trim()}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,code_verification_status,status,name_status&access_token=${accessToken.trim()}`);
+      const data: any = await res.json();
+
+      if (!res.ok || data.error) {
+        return c.json({
+          success: false,
+          error: data.error?.message || "تعذر جلب أرقام الهواتف من Meta API",
+          details: data.error
+        }, res.status as any);
+      }
+
+      return c.json({
+        success: true,
+        data: data.data || []
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Meta Message Templates API (GET /{WABA-ID}/message_templates)
+  app.post("/api/whatsapp/meta-templates", async (c) => {
+    try {
+      const { wabaId, accessToken } = await c.req.json();
+      if (!wabaId || !accessToken) {
+        return c.json({ success: false, error: "يجب توفير معرّف حساب الأعمال (WABA ID) ورمز الوصول (Access Token)." }, 400);
+      }
+
+      const res = await fetch(`https://graph.facebook.com/v21.0/${wabaId.trim()}/message_templates?fields=id,name,status,category,language,components&limit=100&access_token=${accessToken.trim()}`);
+      const data: any = await res.json();
+
+      if (!res.ok || data.error) {
+        return c.json({
+          success: false,
+          error: data.error?.message || "تعذر استرداد القوالب من Meta API",
+          details: data.error
+        }, res.status as any);
+      }
+
+      return c.json({
+        success: true,
+        templates: data.data || []
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
     }
   });
 
@@ -1148,11 +1299,82 @@ async function startServer() {
     }
   });
 
+  // Meta Embedded Signup - Exchange OAuth Code for Access Token
+  app.post("/api/whatsapp/meta-exchange-token", async (c) => {
+    try {
+      const { code, appId, appSecret, redirectUri } = await c.req.json();
+      if (!code || !appId || !appSecret) {
+        return c.json({ success: false, error: "Missing code, appId, or appSecret." }, 400);
+      }
+
+      const tokenUrl = `https://graph.facebook.com/v21.0/oauth/access_token?client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(appSecret)}&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(redirectUri || '')}`;
+      const tokenRes = await fetch(tokenUrl);
+      const tokenData: any = await tokenRes.json();
+
+      if (!tokenRes.ok || !tokenData.access_token) {
+        return c.json({
+          success: false,
+          error: tokenData.error?.message || "فشل استبدال كود التفويض برمز الوصول من ميتا."
+        }, 400);
+      }
+
+      const accessToken = tokenData.access_token;
+
+      // Debug token to get granular scopes and target WABA
+      let debugInfo: any = {};
+      try {
+        const dRes = await fetch(`https://graph.facebook.com/v21.0/debug_token?input_token=${accessToken}&access_token=${accessToken}`);
+        debugInfo = await dRes.json();
+      } catch (_) {}
+
+      return c.json({
+        success: true,
+        accessToken,
+        tokenData,
+        debugInfo
+      });
+    } catch (err: any) {
+      console.error("[META-EXCHANGE-ERROR]", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Meta Webhook Challenge verification (GET)
+  const handleMetaWhatsAppWebhookGet = async (c: any) => {
+    const mode = c.req.query("hub.mode");
+    const token = c.req.query("hub.verify_token");
+    const challenge = c.req.query("hub.challenge");
+
+    console.log(`[WHATSAPP-WEBHOOK-GET] mode=${mode}, token=${token}, challenge=${challenge}`);
+
+    if (mode === "subscribe" && challenge) {
+      console.log("✅ [WHATSAPP-WEBHOOK-GET] Meta subscription challenge verified successfully!");
+      return c.text(challenge);
+    }
+
+    return c.json({
+      success: true,
+      service: "Meta WhatsApp Cloud API Webhook",
+      status: "active",
+      message: "Ready to receive WhatsApp interactive replies and status payloads from Meta."
+    });
+  };
+
+  app.get("/api/webhook/whatsapp", handleMetaWhatsAppWebhookGet);
+  app.get("/api/webhooks/whatsapp", handleMetaWhatsAppWebhookGet);
+
   // Public webhook for UltraMsg & Meta callback integration
-  app.post("/api/webhook/whatsapp", async (c) => {
+  const handleWhatsAppWebhookPost = async (c: any) => {
     try {
       const body = await c.req.json();
       console.log("[WHATSAPP-PUBLIC-WEBHOOK] Received payload:", JSON.stringify(body));
+
+      // Handle Meta status updates (sent, delivered, read)
+      if (body.entry?.[0]?.changes?.[0]?.value?.statuses) {
+        const statuses = body.entry[0].changes[0].value.statuses;
+        console.log(`[WHATSAPP-WEBHOOK-STATUS] Received ${statuses.length} message delivery status updates from Meta.`);
+        return c.json({ success: true, processed: "statuses" });
+      }
 
       let phone = "";
       let buttonText = "";
@@ -1182,46 +1404,79 @@ async function startServer() {
       }
 
       const cleanPhone = phone.replace(/\D/g, "");
-      const egyptianPhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
+      const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
+
+      const phoneCandidates = Array.from(new Set([
+        phone,
+        cleanPhone,
+        basePhone,
+        "0" + basePhone,
+        "20" + basePhone,
+        "+20" + basePhone,
+        "0020" + basePhone
+      ])).filter(Boolean);
 
       const ordersRef = collection(db, "orders");
-      const q = query(ordersRef, where("customerPhone", "==", egyptianPhone));
+      const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
       const qSnap = await getDocs(q);
 
-      if (qSnap.empty) {
-        console.log(`[WHATSAPP-PUBLIC-WEBHOOK] No orders found for parsed phone: ${egyptianPhone}`);
+      let matchedOrder: any = null;
+
+      if (!qSnap.empty) {
+        const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+        orderDocs.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
+        matchedOrder = orderDocs[0];
+      } else {
+        // Fallback: search recent orders and match normalized phones
+        const fallbackQ = query(ordersRef, limit(100));
+        const allSnap = await getDocs(fallbackQ);
+        for (const d of allSnap.docs) {
+          const data = d.data() as any;
+          const oPhone = (data.customerPhone || '').replace(/\D/g, '');
+          if (oPhone && (oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone))) {
+            matchedOrder = { id: d.id, ...data };
+            break;
+          }
+        }
+      }
+
+      if (!matchedOrder) {
+        console.log(`[WHATSAPP-PUBLIC-WEBHOOK] No orders found for parsed phone: ${phone} (candidates: ${phoneCandidates.join(', ')})`);
         return c.json({ success: false, reason: "No associated order found." });
       }
 
-      const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      orderDocs.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      
-      const latestOrder = orderDocs[0];
-      let updatedStatus = latestOrder.status;
-      let notes = latestOrder.notes || "";
+      let updatedStatus = matchedOrder.status;
+      let notes = matchedOrder.notes || "";
 
-      if (buttonText.includes("تأكيد") || buttonText.includes("Confirm")) {
+      if (buttonText.includes("تأكيد") || buttonText.includes("Confirm") || buttonText.includes("👍")) {
         updatedStatus = "قيد_التنفيذ";
-        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
-      } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel")) {
+        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
+      } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel") || buttonText.includes("❌")) {
         updatedStatus = "ملغي";
-        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
+        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
+      } else if (buttonText.includes("تعديل") || buttonText.includes("Edit") || buttonText.includes("✍️")) {
+        updatedStatus = "مؤجل";
+        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
       } else {
         return c.json({ success: false, reason: "Text did not match confirmation keywords." });
       }
 
-      await setDoc(doc(db, "orders", latestOrder.id), {
+      await setDoc(doc(db, "orders", matchedOrder.id), {
         status: updatedStatus,
         notes,
         updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      return c.json({ success: true, updatedStatus, orderId: latestOrder.id });
+      console.log(`✅ [WHATSAPP-WEBHOOK] Successfully updated Order #${matchedOrder.id} to status: "${updatedStatus}" for customer phone: ${matchedOrder.customerPhone}`);
+      return c.json({ success: true, updatedStatus, orderId: matchedOrder.id });
     } catch (err: any) {
       console.error("[WHATSAPP-PUBLIC-WEBHOOK] Error:", err);
       return c.json({ success: false, error: err.message }, 500);
     }
-  });
+  };
+
+  app.post("/api/webhook/whatsapp", handleWhatsAppWebhookPost);
+  app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookPost);
 
   // Temporary Introspection
   app.get("/api/introspect", async (c) => {

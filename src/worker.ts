@@ -219,6 +219,23 @@ app.get("/api/webhook/bosta", (c) => c.json({
   message: "Bosta Webhook endpoint is active and ready to receive POST payloads from Bosta."
 }));
 
+// Intercept Meta WhatsApp webhook challenge verification directly in Cloudflare Worker
+const handleWorkerMetaWebhookGet = (c: any) => {
+  const mode = c.req.query("hub.mode");
+  const challenge = c.req.query("hub.challenge");
+  if (mode === "subscribe" && challenge) {
+    return c.text(challenge);
+  }
+  return c.json({
+    success: true,
+    service: "Meta WhatsApp Cloud API Webhook",
+    status: "active",
+    message: "Ready to receive WhatsApp interactive replies and status payloads from Meta."
+  });
+};
+app.get("/api/webhook/whatsapp", handleWorkerMetaWebhookGet);
+app.get("/api/webhooks/whatsapp", handleWorkerMetaWebhookGet);
+
 // Intelligent fallback API Proxy: forwards all other /api/* requests to the active Cloud Run server
 app.all("/api/*", async (c) => {
   const defaultBackend = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";

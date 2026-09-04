@@ -648,6 +648,16 @@ export interface WhatsAppConfig {
   providerType?: 'ultramsg' | 'direct_web' | 'local_gateway' | 'meta_cloud';
   phoneNumberId?: string;
   accessToken?: string;
+  wabaId?: string;
+  metaAppId?: string;
+  metaAppSecret?: string;
+  metaConfigId?: string;
+  metaVerifyToken?: string;
+  metaTemplateName?: string;
+  metaTemplateLanguage?: string;
+  verifiedName?: string;
+  qualityRating?: string;
+  metaPhone?: string;
   isConnected?: boolean;
   sessionPhone?: string;
   confirmationTemplateId?: string;

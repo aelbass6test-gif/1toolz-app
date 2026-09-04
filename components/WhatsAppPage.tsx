@@ -10,6 +10,7 @@ import QRCode from 'qrcode';
 import { whatsappService } from '../utils/whatsappService';
 import { DEFAULT_WHATSAPP_TEMPLATES } from '../constants';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
+import { MetaWhatsAppSection } from './MetaWhatsAppSection';
 
 interface WhatsAppPageProps {
   orders: Order[];
@@ -19,7 +20,7 @@ interface WhatsAppPageProps {
 }
 
 const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettings, onSave }) => {
-  const [activeTab, setActiveTab] = useState<'chats' | 'templates' | 'devices' | 'settings' | 'interactive'>('interactive');
+  const [activeTab, setActiveTab] = useState<'meta' | 'interactive' | 'chats' | 'templates' | 'devices' | 'settings'>('meta');
   const [searchTerm, setSearchTerm] = useState('');
   const [testPhone, setTestPhone] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
@@ -35,6 +36,8 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     name?: string;
     battery?: number;
     error?: string;
+    qualityRating?: string;
+    wabaData?: any;
   }>({
     connected: false,
     status: 'unconfigured',
@@ -59,13 +62,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
   });
 
   // Check live status
-  const checkLiveStatus = async (silent = false) => {
+  const checkLiveStatus = async (silent = false, customConfig?: WhatsAppConfig) => {
+    const cfg = customConfig || config;
     if (!silent) setIsCheckingStatus(true);
     try {
       const res = await fetch('/api/whatsapp/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config })
+        body: JSON.stringify({ config: cfg })
       });
       const data = await res.json();
       if (data.connected) {
@@ -74,12 +78,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
           status: 'authenticated',
           phone: data.phone,
           name: data.name,
-          battery: data.battery
+          battery: data.battery,
+          qualityRating: data.qualityRating,
+          wabaData: data.wabaData
         });
         setConfig(prev => ({
           ...prev,
           isConnected: true,
-          sessionPhone: data.phone || prev.sessionPhone
+          sessionPhone: data.phone || prev.sessionPhone,
+          verifiedName: data.name || prev.verifiedName,
+          qualityRating: data.qualityRating || prev.qualityRating,
+          metaPhone: data.phone || prev.metaPhone
         }));
         setQrImageUrl(null);
         setQrError(null);
@@ -403,6 +412,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
       {/* Tabs Control */}
       <div className="flex bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 w-fit flex-wrap gap-1">
         <button 
+          onClick={() => setActiveTab('meta')}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black transition-all text-xs ${activeTab === 'meta' ? 'bg-[#1877F2] text-white shadow-md shadow-blue-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+        >
+          <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+          </svg>
+          واجهة Meta Cloud API الرسمية 🛡️
+        </button>
+        <button 
           onClick={() => setActiveTab('interactive')}
           className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'interactive' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
         >
@@ -448,6 +466,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
       {/* Tab Content */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] shadow-sm overflow-hidden min-h-[500px]">
+        {activeTab === 'meta' && (
+          <MetaWhatsAppSection
+            config={config}
+            setConfig={setConfig}
+            liveStatus={liveStatus}
+            checkLiveStatus={checkLiveStatus}
+            onSave={onSave}
+            orders={orders}
+          />
+        )}
+
         {activeTab === 'interactive' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x lg:divide-x-reverse divide-slate-100 dark:divide-slate-800 min-h-[600px]" dir="rtl">
             {/* Right: Flow Configurator */}
