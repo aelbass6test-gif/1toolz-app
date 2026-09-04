@@ -949,19 +949,19 @@ async function startServer() {
       }
 
       if (config.providerType === 'meta_cloud') {
-        const phoneNumberId = config.phoneNumberId || config.instanceId;
-        const accessToken = config.accessToken || config.token;
+        const phoneNumberId = (config.phoneNumberId || config.instanceId || '').trim();
+        const accessToken = (config.accessToken || config.token || '').trim();
         if (!phoneNumberId || !accessToken) {
           return c.json({ success: false, connected: false, status: 'unconfigured', message: 'يرجى إدخال Phone Number ID و Access Token' });
         }
         try {
           const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,status&access_token=${accessToken}`);
           const data: any = await res.json();
-          if (res.ok && data.id) {
+          if (res.ok && (data.id || data.display_phone_number)) {
             let wabaData: any = null;
             if (config.wabaId) {
               try {
-                const wRes = await fetch(`https://graph.facebook.com/v21.0/${config.wabaId}?fields=id,name,currency,timezone_id,account_review_status&access_token=${accessToken}`);
+                const wRes = await fetch(`https://graph.facebook.com/v21.0/${config.wabaId.trim()}?fields=id,name,currency,timezone_id,account_review_status&access_token=${accessToken}`);
                 wabaData = await wRes.json();
               } catch (_) {}
             }
@@ -971,17 +971,26 @@ async function startServer() {
               connected: true,
               status: 'authenticated',
               phone: data.display_phone_number || data.id,
-              name: data.verified_name || wabaData?.name || 'Meta WhatsApp Cloud',
+              name: data.verified_name || wabaData?.name || 'Abdo Media - واتساب',
               qualityRating: data.quality_rating,
               codeVerificationStatus: data.code_verification_status,
               wabaData
             });
           } else {
+            // Check debug_token or provide full meta error explanation
+            let detail = data.error?.message || 'تعذر التحقق من إعدادات Meta API';
+            const errCode = data.error?.code;
+            const errSubcode = data.error?.error_subcode;
+            if (errCode === 100 || errCode === 190) {
+              detail += ` (رمز الخطأ: ${errCode}${errSubcode ? ` / ${errSubcode}` : ''} - قد يكون الرمز منتهي أو ينقصه إذن whatsapp_business_messaging)`;
+            }
+            console.error('Meta Graph Verification Failed:', data);
             return c.json({
               success: false,
               connected: false,
               status: 'error',
-              error: data.error?.message || 'تعذر التحقق من إعدادات Meta API'
+              error: detail,
+              metaError: data.error
             });
           }
         } catch (e: any) {

@@ -410,8 +410,9 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
           type: 'success'
         });
       } else {
-        await inAppAlert(`فشل التحقق من بيانات ميتا: ${statusRes?.error || 'تأكد من صحة الـ Phone ID والـ Token'}.`, {
-          title: 'فشل التحقق',
+        const fullErr = statusRes?.error || statusRes?.message || 'تأكد من صحة الـ Phone ID والـ Token';
+        await inAppAlert(`فشل التحقق من بيانات ميتا:\n\n${fullErr}`, {
+          title: 'فشل التحقق من ميتا',
           type: 'danger'
         });
       }
