@@ -786,15 +786,39 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const handleSendWhatsAppAPI = async (order: Order, templateId: string, silent = false) => {
-    if (!settings.whatsappConfig?.isActive) {
-      if (!silent) alert('نظام الواتساب API غير مفعل. يرجى تفعيله من الإعدادات.');
+    const isWaConfigured = settings.whatsappConfig?.isActive || settings.whatsappConfig?.accessToken || settings.whatsappConfig?.token || settings.whatsappConfig?.isConnected || settings.whatsappConfig?.phoneNumberId;
+    if (!isWaConfigured) {
+      if (!silent) alert('نظام الواتساب API غير مفعل. يرجى تفعيله من صفحة الواتساب.');
       return;
     }
 
-    const template = (settings.whatsappTemplates || []).find(t => t.id === templateId);
+    let template = (settings.whatsappTemplates || []).find(t => t.id === templateId || t.label?.includes(templateId === 'confirm' ? 'تأكيد' : 'شحن'));
     if (!template) {
-      if (!silent) alert('القالب غير موجود. يرجى التأكد من ضبط القوالب في صفحة الواتساب.');
-      return;
+      if (templateId === 'confirm') {
+        template = {
+          id: 'confirm',
+          label: 'تأكيد الطلب',
+          text: `مرحباً بك عزيزي {customerName} 🌸\nنشكرك على طلبك من متجرنا {storeName}.\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n💰 إجمالي المبلغ: {total} {currency}\n📍 عنوان التوصيل: {address}, {city}\n\nيرجى تأكيد طلبك للبدء في شحنه إليك فوراً:`,
+          buttons: ['تأكيد الطلب 👍', 'تعديل العنوان ✍️', 'إلغاء الطلب ❌'],
+          footer: 'خدمة عملاء {storeName}'
+        };
+      } else if (templateId === 'shipping') {
+        template = {
+          id: 'shipping',
+          label: 'تتبع الشحنة',
+          text: `عزيزي {customerName} 🚚\nتم تسليم طلبك رقم #{orderNumber} إلى شركة الشحن ({shippingCompany}).\nرقم التتبع: {trackingNumber}\nقيمة الطلب: {total} {currency}`,
+          buttons: ['تتبع الشحنة 📦', 'مساعدة 💬'],
+          footer: '{storeName}'
+        };
+      } else {
+        template = {
+          id: templateId,
+          label: 'إشعار بالطلب',
+          text: `مرحباً {customerName}، تحديث بخصوص طلبك رقم #{orderNumber} من {storeName}. الإجمالي: {total} {currency}.`,
+          buttons: ['متابعة الطلب 👍'],
+          footer: '{storeName}'
+        };
+      }
     }
 
     let phone = order.customerPhone || '';
@@ -808,10 +832,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     }
 
     const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
-    const result = await whatsappService.sendMessage(phone, message, settings.whatsappConfig, template.buttons, template.footer);
+    const activeConfig = {
+      ...settings.whatsappConfig,
+      isActive: true
+    };
+    const result = await whatsappService.sendMessage(phone, message, activeConfig, template.buttons, template.footer);
     
     if (result.success) {
-      if (!silent) alert('تم إرسال الرسالة بنجاح عبر API الواتساب ✅');
+      if (!silent) alert(`تم إرسال رسالة تأكيد الطلب بنجاح إلى ${order.customerPhone} عبر WhatsApp API ✅`);
       addAuditLog(order.id, 'إرسال واتساب API', `تم إرسال قالب: ${template.label}`);
     } else {
       if (!silent) alert(`فشل إرسال الرسالة: ${result.error} ❌`);
@@ -8139,7 +8167,17 @@ const OrderRow = ({
                 </div>
                 <div className="flex items-center justify-end gap-3 mt-1.5 flex-wrap">
                   {/* Hover Quick Actions */}
-                  <div className="lg:opacity-0 lg:group-hover:opacity-100 flex items-center gap-1.5 transition-all duration-300">
+                  <div className="flex items-center gap-1.5 transition-all duration-300">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSendWhatsAppAPI('confirm');
+                      }}
+                      className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all flex items-center justify-center w-6 h-6 shrink-0 shadow-xs hover:scale-110 active:scale-95"
+                      title="إرسال رسالة تأكيد الطلب آلياً (WhatsApp API)"
+                    >
+                      <CheckCircle2 size={12} />
+                    </button>
                     <a
                       href={`tel:${order.customerPhone}`}
                       onClick={(e) => e.stopPropagation()}
@@ -8154,7 +8192,7 @@ const OrderRow = ({
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
                       className="p-1.5 bg-slate-100 hover:bg-emerald-100 hover:text-emerald-600 dark:bg-slate-800 dark:hover:bg-emerald-500/20 dark:hover:text-emerald-400 rounded-lg text-slate-400 dark:text-slate-400 transition-all flex items-center justify-center w-6 h-6 shrink-0"
-                      title="مراسلة واتساب فورية"
+                      title="مراسلة واتساب يدوية"
                     >
                       <MessageSquare size={11} />
                     </a>
@@ -8694,7 +8732,7 @@ const OrderRow = ({
                     </div>
 
                     {/* SECTION 3: WHATSAPP API ACTIONS */}
-                    {settings.whatsappConfig?.isActive && (
+                    {Boolean(settings.whatsappConfig?.isActive || settings.whatsappConfig?.accessToken || settings.whatsappConfig?.token || settings.whatsappConfig?.isConnected || settings.whatsappConfig?.phoneNumberId) && (
                       <div className="py-2 space-y-0.5 border-t border-slate-200 dark:border-white/5">
                         <div className="px-3 py-1.5">
                           <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest block text-right">

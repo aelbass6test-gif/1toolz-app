@@ -61,6 +61,22 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     sessionPhone: ''
   });
 
+  // Synchronize config changes immediately to store settings
+  const handleConfigChange = (newConfig: React.SetStateAction<WhatsAppConfig>) => {
+    setConfig(prev => {
+      const updated = typeof newConfig === 'function' ? (newConfig as (p: WhatsAppConfig) => WhatsAppConfig)(prev) : newConfig;
+      setSettings(s => ({
+        ...s,
+        whatsappConfig: {
+          ...s.whatsappConfig,
+          ...updated,
+          isActive: true
+        }
+      }));
+      return updated;
+    });
+  };
+
   // Check live status
   const checkLiveStatus = async (silent = false, customConfig?: WhatsAppConfig) => {
     const cfg = customConfig || config;
@@ -527,7 +543,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         {activeTab === 'meta' && (
           <MetaWhatsAppSection
             config={config}
-            setConfig={setConfig}
+            setConfig={handleConfigChange}
             liveStatus={liveStatus}
             checkLiveStatus={checkLiveStatus}
             onSave={onSave}

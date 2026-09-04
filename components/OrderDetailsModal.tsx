@@ -493,7 +493,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <span>واتساب (يدوي)</span>
                     </a>
                     
-                    {settings.whatsappConfig?.isActive && (
+                    {Boolean(settings.whatsappConfig?.isActive || settings.whatsappConfig?.accessToken || settings.whatsappConfig?.token || settings.whatsappConfig?.isConnected || settings.whatsappConfig?.phoneNumberId) && (
                       <>
                         <button 
                           onClick={() => onSendWhatsAppAPI?.('confirm')}
