@@ -43,7 +43,11 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
   const [phoneNumberId, setPhoneNumberId] = useState(config.phoneNumberId || '');
   const [accessToken, setAccessToken] = useState(config.accessToken || '');
   const [wabaId, setWabaId] = useState(config.wabaId || '');
-  const [metaAppId, setMetaAppId] = useState(config.metaAppId || '2067634567465747');
+  const [metaAppId, setMetaAppId] = useState(
+    config.metaAppId && config.metaAppId !== '2067634567465747' 
+      ? config.metaAppId 
+      : '933545646518077'
+  );
   const [metaConfigId, setMetaConfigId] = useState(config.metaConfigId || '');
   const [metaAppSecret, setMetaAppSecret] = useState(config.metaAppSecret || '');
   const [metaVerifyToken, setMetaVerifyToken] = useState(config.metaVerifyToken || 'abdomedi_whatsapp_meta_token');
@@ -103,7 +107,8 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
 
   // Preload Facebook SDK on mount so it is instantly available when clicking
   useEffect(() => {
-    const appId = (config.metaAppId || metaAppId || '2067634567465747').trim();
+    const rawId = (config.metaAppId || metaAppId || '933545646518077').trim();
+    const appId = rawId === '2067634567465747' ? '933545646518077' : rawId;
     loadFacebookSdk(appId).catch(() => {
       // Benign if ad-blocker blocks it; direct popup fallback is supported
     });
@@ -312,7 +317,8 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
 
   // Launch Meta Embedded Signup Popup
   const handleLaunchEmbeddedSignup = () => {
-    const appId = metaAppId?.trim() || '2067634567465747';
+    const rawId = metaAppId?.trim() || '933545646518077';
+    const appId = rawId === '2067634567465747' ? '933545646518077' : rawId;
     setIsConnecting(true);
 
     const fbOptions: any = {
@@ -1520,7 +1526,7 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
                   </label>
                   <input
                     type="text"
-                    placeholder="2067634567465747"
+                    placeholder="933545646518077"
                     value={metaAppId}
                     onChange={(e) => setMetaAppId(e.target.value)}
                     className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500"
