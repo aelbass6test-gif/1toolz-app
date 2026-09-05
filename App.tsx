@@ -2892,6 +2892,7 @@ export const AppComponent = () => {
                 });
             }
         },
+        onSave: forceSync,
     };
 
     const getNextOrderNumber = (orders: Order[]) => {

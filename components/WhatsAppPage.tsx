@@ -61,6 +61,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     sessionPhone: ''
   });
 
+  const onSaveRef = useRef(onSave);
+  useEffect(() => {
+    onSaveRef.current = onSave;
+  }, [onSave]);
+
   // Synchronize config changes immediately to store settings
   const handleConfigChange = (newConfig: React.SetStateAction<WhatsAppConfig>) => {
     setConfig(prev => {
@@ -73,6 +78,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
           isActive: true
         }
       }));
+      setTimeout(() => {
+        if (onSaveRef.current) onSaveRef.current();
+      }, 800);
       return updated;
     });
   };
@@ -419,7 +427,9 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     };
     setSettings(updatedSettings);
     
-    if (onSave) await onSave();
+    setTimeout(() => {
+        if (onSaveRef.current) onSaveRef.current();
+    }, 800);
     setStatusMsg({ type: 'success', text: 'تم حفظ الإعدادات بنجاح' });
     setTimeout(() => setStatusMsg(null), 3000);
   };
