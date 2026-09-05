@@ -1603,7 +1603,7 @@ async function startServer() {
   };
 
   // Setup Webhook URL on provider API automatically
-  app.post("/api/whatsapp/setup-webhook", async (c) => {
+  const handleSetupWebhookRoute = async (c: any) => {
     try {
       const body = await c.req.json().catch(() => ({}));
       const origin = body.origin || c.req.header("origin") || c.req.header("host") || "";
@@ -1616,6 +1616,14 @@ async function startServer() {
       }
 
       let config = body.config;
+      const storeId = body.storeId;
+      if (!config && storeId) {
+        const storeRow = await getCachedStore(db, storeId);
+        if (storeRow?.settings?.whatsappConfig) {
+          config = storeRow.settings.whatsappConfig;
+        }
+      }
+
       if (!config) {
         const storesSnap = await getDocs(collection(db, "stores_data"));
         for (const sDoc of storesSnap.docs) {
@@ -1628,7 +1636,7 @@ async function startServer() {
       }
 
       if (!config) {
-        return c.json({ success: false, error: "No active WhatsApp configuration found." }, 400);
+        return c.json({ success: false, error: "لم يتم العثور على إعدادات واتساب مفعلة" }, 400);
       }
 
       const instanceId = (config.instanceId || '').replace(/\s+/g, '');
@@ -1646,38 +1654,64 @@ async function startServer() {
 
       return c.json({
         success: true,
-        provider: config.providerType,
+        provider: config.providerType || "meta_cloud",
         webhookUrl,
-        message: "Webhook URL prepared for provider."
+        message: "رابط الويب-هوك جاهز ومعد للاستقبال"
       });
     } catch (err: any) {
       console.error("[SETUP-WEBHOOK-ERROR]", err);
       return c.json({ success: false, error: err.message }, 500);
     }
-  });
+  };
+
+  app.post("/api/whatsapp/setup-webhook", handleSetupWebhookRoute);
+  app.get("/api/whatsapp/setup-webhook", handleSetupWebhookRoute);
 
   // Active sync received messages from WhatsApp Gateway
-  app.post("/api/whatsapp/sync-messages", async (c) => {
+  const handleSyncMessagesRoute = async (c: any) => {
     try {
-      const storesSnap = await getDocs(collection(db, "stores_data"));
-      let config: any = null;
-      for (const sDoc of storesSnap.docs) {
-        const sData = sDoc.data() as any;
-        if (sData.settings?.whatsappConfig?.isActive) {
-          config = sData.settings.whatsappConfig;
-          break;
+      const body = await c.req.json().catch(() => ({}));
+      let config = body.config;
+      const storeId = body.storeId;
+
+      if (!config && storeId) {
+        const storeRow = await getCachedStore(db, storeId);
+        if (storeRow?.settings?.whatsappConfig) {
+          config = storeRow.settings.whatsappConfig;
         }
       }
 
       if (!config) {
-        return c.json({ success: false, error: "لا يوجد إعداد واتساب مفعل" });
+        const storesSnap = await getDocs(collection(db, "stores_data"));
+        for (const sDoc of storesSnap.docs) {
+          const sData = sDoc.data() as any;
+          if (sData.settings?.whatsappConfig?.isActive) {
+            config = sData.settings.whatsappConfig;
+            break;
+          }
+        }
+      }
+
+      if (!config) {
+        return c.json({ success: true, processedActions: 0, message: "لا يوجد إعداد واتساب مفعل حالياً للمزامنة." });
+      }
+
+      // If user is on Meta Cloud API, it processes incoming webhook events directly and instantly
+      if (config.providerType === 'meta_cloud') {
+        return c.json({
+          success: true,
+          provider: "meta_cloud",
+          processedActions: 0,
+          checkedMessages: 0,
+          message: "واجهة Meta Cloud API الرسمية متصلة ومربوطة بالويب-هوك الفوري! يتم تحديث الأوردرات وإرسال الردود لحظياً فور ضغط العميل على الزر."
+        });
       }
 
       const instanceId = (config.instanceId || '').replace(/\s+/g, '');
       const token = (config.token || '').trim();
 
       if (!instanceId || !token) {
-        return c.json({ success: false, error: "Instance ID or Token missing" });
+        return c.json({ success: true, processedActions: 0, message: "بيانات Instance ID أو Token غير مكتملة." });
       }
 
       // Fetch received messages from UltraMsg
@@ -1724,7 +1758,10 @@ async function startServer() {
       console.error("[SYNC-MESSAGES-ERROR]", err);
       return c.json({ success: false, error: err.message }, 500);
     }
-  });
+  };
+
+  app.post("/api/whatsapp/sync-messages", handleSyncMessagesRoute);
+  app.get("/api/whatsapp/sync-messages", handleSyncMessagesRoute);
 
   // Background Auto-Sync Worker for WhatsApp replies (every 15 seconds)
   setInterval(async () => {

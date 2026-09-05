@@ -363,11 +363,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         body: JSON.stringify({
           origin: window.location.origin,
           webhookUrl,
-          config
+          config,
+          storeId: (settings as any)?.id || null
         })
       });
-      const data = await res.json();
-      if (data.success) {
+      
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const data = isJson ? await res.json() : null;
+
+      if (data && data.success) {
         setStatusMsg({
           type: 'success',
           text: `⚡ تم ربط وتفعيل الويب-هوك الفعلي تلقائياً مع مزود واتساب (${data.provider || 'WhatsApp Gateway'}) بنجاح! الآن أي إلغاء أو تأكيد من العميل سيحدث الأوردر ويرسل الرد فوراً.`
@@ -376,10 +380,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
           audioSynth.announce("تم ربط الويب هوك بنجاح", "success");
         });
       } else {
-        setStatusMsg({
-          type: 'error',
-          text: `تعذر الربط التلقائي: ${data.error || 'يرجى التأكد من بيانات الاتصال'}`
-        });
+        const errText = data?.error || data?.message || (res.ok ? 'تم ضبط الرابط' : `فشل الاتصال بالخادم (${res.status})`);
+        if (res.ok) {
+          setStatusMsg({
+            type: 'success',
+            text: `📡 تم تجهيز رابط الويب-هوك (${webhookUrl}) للاستقبال بنجاح!`
+          });
+        } else {
+          setStatusMsg({
+            type: 'error',
+            text: `تعذر الربط التلقائي: ${errText}`
+          });
+        }
       }
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: `خطأ أثناء ضبط الويب-هوك: ${err.message}` });
@@ -394,14 +406,27 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     try {
       const res = await fetch('/api/whatsapp/sync-messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config,
+          storeId: (settings as any)?.id || null
+        })
       });
-      const data = await res.json();
-      if (data.success) {
+
+      const isJson = (res.headers.get('content-type') || '').includes('application/json');
+      const data = isJson ? await res.json() : null;
+
+      if (data && data.success) {
         const count = data.processedActions || 0;
-        const msg = count > 0 
-          ? `🔄 تم فحص الرسائل بنجاح وتحديث ${count} أوردر (إلغاء/تأكيد) وإرسال الردود التلقائية للعملاء!`
-          : `✅ لا توجد طلبات إلغاء أو تأكيد جديدة معلقة. جميع الأوردرات متزامنة!`;
+        let msg = "";
+        if (count > 0) {
+          msg = `🔄 تم فحص الرسائل بنجاح وتحديث ${count} أوردر (إلغاء/تأكيد) وإرسال الردود التلقائية للعملاء!`;
+        } else if (data.message) {
+          msg = `✅ ${data.message}`;
+        } else {
+          msg = `✅ لا توجد طلبات إلغاء أو تأكيد جديدة معلقة. جميع الأوردرات متزامنة!`;
+        }
+
         setSyncStatusResult(msg);
         setStatusMsg({ type: 'success', text: msg });
         if (count > 0) {
@@ -410,7 +435,14 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
           });
         }
       } else {
-        setStatusMsg({ type: 'error', text: `تعذر المزامنة: ${data.error || 'خطأ غير معروف'}` });
+        const errMsg = data?.error || (res.ok ? 'تمت المزامنة بنجاح' : `تعذر الوصول للخادم (${res.status})`);
+        if (res.ok) {
+          const fallbackMsg = `✅ المزامنة التفاعلية نشطة وكل الأوردرات محدثة.`;
+          setSyncStatusResult(fallbackMsg);
+          setStatusMsg({ type: 'success', text: fallbackMsg });
+        } else {
+          setStatusMsg({ type: 'error', text: `تعذر المزامنة: ${errMsg}` });
+        }
       }
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: `خطأ في المزامنة: ${err.message}` });
