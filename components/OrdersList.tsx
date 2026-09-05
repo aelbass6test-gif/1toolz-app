@@ -692,6 +692,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [bostaTrackingOrder, setBostaTrackingOrder] = useState<Order | null>(null);
   const [bostaTrackingNumber, setBostaTrackingNumber] = useState<string | null>(null);
   const [isBostaLoading, setIsBostaLoading] = useState<string | null>(null);
+  const [sentWhatsAppOrders, setSentWhatsAppOrders] = useState<Set<string>>(new Set());
   const [isBulkSendingBosta, setIsBulkSendingBosta] = useState(false);
   const [isBulkPrintingBosta, setIsBulkPrintingBosta] = useState(false);
   const [orderToConfirm, setOrderToConfirm] = useState<Omit<
@@ -841,6 +842,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     if (result.success) {
       if (!silent) alert(`تم إرسال رسالة تأكيد الطلب بنجاح إلى ${order.customerPhone} عبر WhatsApp API ✅`);
       addAuditLog(order.id, 'إرسال واتساب API', `تم إرسال قالب: ${template.label}`);
+      setSentWhatsAppOrders((prev) => {
+        const next = new Set(prev);
+        next.add(order.id);
+        return next;
+      });
     } else {
       if (!silent) alert(`فشل إرسال الرسالة: ${result.error} ❌`);
       else console.error(`WhatsApp API Auto-send failed for order ${order.orderNumber}:`, result.error);
@@ -5270,6 +5276,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     activeStore={activeStore}
                     anyFlexShipEnabled={anyFlexShipEnabled}
                     treasury={treasury}
+                    isWhatsAppSent={sentWhatsAppOrders.has(order.id)}
                     onSelect={() => handleSelectRow(order.id)}
                     onStatusChange={(status) =>
                       updateOrderStatus(order.id, status)
@@ -5343,6 +5350,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 key={order.id}
                 order={order}
                 isSelected={selectedOrders.includes(order.id)}
+                isWhatsAppSent={sentWhatsAppOrders.has(order.id)}
                 onSelect={() => handleSelectRow(order.id)}
                 onStatusChange={(status) => updateOrderStatus(order.id, status)}
                 onPaymentChange={(status) =>
@@ -6289,6 +6297,7 @@ const OrderCard = ({
   onPrintBostaAwb,
   onTrackBosta,
   isBostaLoading,
+  isWhatsAppSent,
 }: {
   order: Order;
   isSelected: boolean;
@@ -6321,8 +6330,14 @@ const OrderCard = ({
   onPrintBostaAwb?: () => void;
   onTrackBosta?: () => void;
   isBostaLoading?: boolean;
+  isWhatsAppSent?: boolean;
 }) => {
   const navigate = useNavigate();
+
+  const isConfirmed = order.status === 'قيد_التنفيذ' || order.status === 'تم_الارسال' || order.status === 'قيد_الشحن' || order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل' || order.status === 'تم_التحصيل' || order.status === 'مدفوعة';
+  const isCancelled = order.status === 'ملغي' || order.status === 'مرتجع' || order.status === 'مرتجع_جزئي' || order.status === 'فشل_التوصيل' || order.status === 'مرتجع_بعد_الاستلام' || order.status === 'تمت_الاعادة_لشركة_الشحن';
+  const isWaiting = isWhatsAppSent || (order.notes && order.notes.includes('[واتساب] تم إرسال رسالة تأكيد'));
+
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
     label: order.status,
     color: "bg-slate-500",
@@ -6752,13 +6767,31 @@ const OrderCard = ({
 
       {/* Card Actions Overlay */}
       <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 duration-300">
-        <button
-          onClick={() => onSendWhatsAppAPI('confirm')}
-          className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-2xl text-xs font-black hover:bg-emerald-700 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg shadow-emerald-600/20"
-          title="تأكيد الطلب آلياً"
-        >
-          تأكيد <MessageSquare size={14} />
-        </button>
+        {!isConfirmed && !isCancelled && (
+          <button
+            onClick={() => {
+              if (!isWaiting) onSendWhatsAppAPI('confirm');
+            }}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-white rounded-2xl text-xs font-black transition-all shadow-lg ${
+              isWaiting
+                ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none dark:bg-slate-700"
+                : "bg-emerald-600 hover:bg-emerald-700 hover:scale-[1.02] active:scale-[0.98] shadow-emerald-600/20"
+            }`}
+            title={isWaiting ? "بانتظار رد العميل ⏳" : "تأكيد الطلب آلياً"}
+          >
+            {isWaiting ? "بانتظار الرد" : "تأكيد"} {isWaiting ? <Clock size={14} /> : <MessageSquare size={14} />}
+          </button>
+        )}
+        {isConfirmed && (
+          <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-2xl text-xs font-black" title="تم التأكيد ✅">
+            تم التأكيد <CheckCircle2 size={14} />
+          </div>
+        )}
+        {isCancelled && (
+          <div className="flex-1 flex items-center justify-center gap-2 py-3 bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 rounded-2xl text-xs font-black" title="طلب ملغي ❌">
+            ملغي <XCircle size={14} />
+          </div>
+        )}
         <button
           onClick={onEdit}
           className="flex-1 flex items-center justify-center gap-2 py-3 bg-slate-900 dark:bg-black text-white rounded-2xl text-xs font-black hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -7801,6 +7834,7 @@ const OrderRow = ({
   onTrackBosta,
   isBostaLoading,
   displayDensity = "comfortable",
+  isWhatsAppSent,
 }: {
   order: Order;
   allOrders?: Order[];
@@ -7840,8 +7874,14 @@ const OrderRow = ({
   onTrackBosta?: () => void;
   isBostaLoading?: boolean;
   displayDensity?: "comfortable" | "compact";
+  isWhatsAppSent?: boolean;
 }) => {
   const navigate = useNavigate();
+
+  const isConfirmed = order.status === 'قيد_التنفيذ' || order.status === 'تم_الارسال' || order.status === 'قيد_الشحن' || order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل' || order.status === 'تم_التحصيل' || order.status === 'مدفوعة';
+  const isCancelled = order.status === 'ملغي' || order.status === 'مرتجع' || order.status === 'مرتجع_جزئي' || order.status === 'فشل_التوصيل' || order.status === 'مرتجع_بعد_الاستلام' || order.status === 'تمت_الاعادة_لشركة_الشحن';
+  const isWaiting = isWhatsAppSent || (order.notes && order.notes.includes('[واتساب] تم إرسال رسالة تأكيد'));
+
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
     label: order.status,
     color: "bg-slate-500",
@@ -8168,16 +8208,32 @@ const OrderRow = ({
                 <div className="flex items-center justify-end gap-3 mt-1.5 flex-wrap">
                   {/* Hover Quick Actions */}
                   <div className="flex items-center gap-1.5 transition-all duration-300">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSendWhatsAppAPI('confirm');
-                      }}
-                      className="p-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-all flex items-center justify-center w-6 h-6 shrink-0 shadow-xs hover:scale-110 active:scale-95"
-                      title="إرسال رسالة تأكيد الطلب آلياً (WhatsApp API)"
-                    >
-                      <CheckCircle2 size={12} />
-                    </button>
+                    {!isConfirmed && !isCancelled && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isWaiting) onSendWhatsAppAPI('confirm');
+                        }}
+                        className={`p-1.5 rounded-lg transition-all flex items-center justify-center w-6 h-6 shrink-0 shadow-xs hover:scale-110 active:scale-95 ${
+                          isWaiting
+                            ? "bg-slate-200 text-slate-500 cursor-not-allowed dark:bg-slate-700 dark:text-slate-400"
+                            : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                        }`}
+                        title={isWaiting ? "بانتظار رد العميل ⏳" : "إرسال رسالة تأكيد الطلب آلياً (WhatsApp API)"}
+                      >
+                        {isWaiting ? <Clock size={12} /> : <CheckCircle2 size={12} />}
+                      </button>
+                    )}
+                    {isConfirmed && (
+                      <div className="p-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 rounded-lg flex items-center justify-center w-6 h-6 shrink-0" title="تم التأكيد ✅">
+                        <CheckCircle2 size={12} />
+                      </div>
+                    )}
+                    {isCancelled && (
+                      <div className="p-1.5 bg-rose-50 dark:bg-rose-500/10 text-rose-600 rounded-lg flex items-center justify-center w-6 h-6 shrink-0" title="طلب ملغي ❌">
+                        <XCircle size={12} />
+                      </div>
+                    )}
                     <a
                       href={`tel:${order.customerPhone}`}
                       onClick={(e) => e.stopPropagation()}

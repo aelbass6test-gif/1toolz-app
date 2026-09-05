@@ -24,6 +24,9 @@ export const whatsappService = {
       .replace(/{address}/g, order.customerAddress || '')
       .replace(/{products}/g, productsList)
       .replace(/{notes}/g, order.notes || '')
+      .replace(/{total}/g, totalPriceValue.toString())
+      .replace(/{currency}/g, 'ج.م')
+      .replace(/{city}/g, order.customerCity || order.governorate || '')
       
       // Legacy format placeholders (for backward compatibility)
       .replace(/\[اسم العميل\]/g, order.customerName || '')

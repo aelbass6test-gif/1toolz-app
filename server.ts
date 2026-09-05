@@ -1456,25 +1456,75 @@ async function startServer() {
 
       let updatedStatus = matchedOrder.status;
       let notes = matchedOrder.notes || "";
+      let customerAddress = matchedOrder.customerAddress;
+      let replyMessage = "";
 
       if (buttonText.includes("تأكيد") || buttonText.includes("Confirm") || buttonText.includes("👍")) {
         updatedStatus = "قيد_التنفيذ";
         notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
-      } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel") || buttonText.includes("❌")) {
+        replyMessage = "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة. 📦✨";
+      } else if (buttonText.includes("إلغاء") || buttonText.includes("الغاء") || buttonText.includes("Cancel") || buttonText.includes("❌")) {
         updatedStatus = "ملغي";
         notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
+        replyMessage = "تم إلغاء الطلب بنجاح. نتمنى أن نراك مجدداً. 🌸";
       } else if (buttonText.includes("تعديل") || buttonText.includes("Edit") || buttonText.includes("✍️")) {
         updatedStatus = "مؤجل";
-        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
+        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}). بانتظار عنوانه الجديد.`;
+        replyMessage = "عزيزي العميل، يرجى كتابة عنوانك الجديد بالتفصيل في رسالة واحدة ليتم تحديثه في طلبك فوراً. ✍️";
+      } else if (matchedOrder.status === "مؤجل" || (matchedOrder.notes && matchedOrder.notes.includes("تعديل العنوان"))) {
+        updatedStatus = "قيد_التنفيذ";
+        const oldAddress = customerAddress || "بدون عنوان";
+        customerAddress = buttonText;
+        notes += `\n[واتساب] تم تحديث العنوان تلقائياً من (${oldAddress}) إلى (${buttonText}) وتأكيد الطلب (${new Date().toLocaleTimeString('ar-EG')}).`;
+        replyMessage = "تم تحديث عنوانك بنجاح وتأكيد الطلب! ✅ سيتم الشحن قريباً.";
       } else {
         return c.json({ success: false, reason: "Text did not match confirmation keywords." });
       }
 
       await setDoc(doc(db, "orders", matchedOrder.id), {
         status: updatedStatus,
+        customerAddress,
         notes,
         updatedAt: new Date().toISOString()
       }, { merge: true });
+
+      if (replyMessage) {
+        try {
+          const storeId = matchedOrder.store_id || matchedOrder.storeId;
+          let token = "";
+          let phoneId = "";
+          
+          if (storeId) {
+              const storeRow = await getCachedStore(db, storeId);
+              if (storeRow?.settings?.whatsappConfig) {
+                  token = storeRow.settings.whatsappConfig.accessToken;
+                  phoneId = storeRow.settings.whatsappConfig.phoneNumberId;
+              }
+          }
+          
+          if (!phoneId) {
+             phoneId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+          }
+
+          if (token && phoneId) {
+              await fetch(`https://graph.facebook.com/v17.0/${phoneId}/messages`, {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${token}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  messaging_product: "whatsapp",
+                  to: phone,
+                  type: "text",
+                  text: { body: replyMessage }
+                })
+              });
+          }
+        } catch(e) {
+          console.error("Failed to send auto-reply", e);
+        }
+      }
 
       console.log(`✅ [WHATSAPP-WEBHOOK] Successfully updated Order #${matchedOrder.id} to status: "${updatedStatus}" for customer phone: ${matchedOrder.customerPhone}`);
       return c.json({ success: true, updatedStatus, orderId: matchedOrder.id });
