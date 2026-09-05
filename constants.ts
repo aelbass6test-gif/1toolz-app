@@ -153,9 +153,9 @@ export const DEFAULT_WHATSAPP_TEMPLATES = [
     { 
       id: 'confirm', 
       label: 'تأكيد الطلب (أزرار)', 
-      text: 'أهلاً {customerName} 👋 استلمنا طلبك رقم {orderNumber} بنجاح.\nيرجى التأكيد في آخر الرسالة 📦\n\nتفاصيل الشحنة 📦\n\n💰 مبلغ التحصيل: {totalPrice} ج.م\n📄 وصف الشحنة: {products}\n🏠 العنوان: {address}\n\nتقدر دلوقتي تتبع شحنتك بسهولة.',
-      footer: 'نظام إدارة الأوردرات الذكي',
-      buttons: ['تأكيد الأوردر', 'تأجيل التسليم', 'إلغاء الأوردر']
+      text: 'مرحباً بك عزيزي {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}.\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nيرجى تأكيد طلبك للبدء في شحنه إليك فوراً 🚚',
+      footer: 'خدمة عملاء {storeName}',
+      buttons: ['تأكيد الطلب 👍', 'تعديل العنوان ✍️', 'إلغاء الطلب ❌']
     },
     { 
       id: 'location', 

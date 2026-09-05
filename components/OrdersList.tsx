@@ -799,7 +799,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         template = {
           id: 'confirm',
           label: 'تأكيد الطلب',
-          text: `مرحباً بك عزيزي {customerName} 🌸\nنشكرك على طلبك من متجرنا {storeName}.\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n💰 إجمالي المبلغ: {total} {currency}\n📍 عنوان التوصيل: {address}, {city}\n\nيرجى تأكيد طلبك للبدء في شحنه إليك فوراً:`,
+          text: `مرحباً بك عزيزي {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}.\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {total} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\nيرجى تأكيد طلبك للبدء في شحنه إليك فوراً:`,
           buttons: ['تأكيد الطلب 👍', 'تعديل العنوان ✍️', 'إلغاء الطلب ❌'],
           footer: 'خدمة عملاء {storeName}'
         };
@@ -809,15 +809,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           label: 'تتبع الشحنة',
           text: `عزيزي {customerName} 🚚\nتم تسليم طلبك رقم #{orderNumber} إلى شركة الشحن ({shippingCompany}).\nرقم التتبع: {trackingNumber}\nقيمة الطلب: {total} {currency}`,
           buttons: ['تتبع الشحنة 📦', 'مساعدة 💬'],
-          footer: '{storeName}'
+          footer: 'خدمة عملاء {storeName}'
         };
       } else {
         template = {
           id: templateId,
           label: 'إشعار بالطلب',
-          text: `مرحباً {customerName}، تحديث بخصوص طلبك رقم #{orderNumber} من {storeName}. الإجمالي: {total} {currency}.`,
+          text: `مرحباً {customerName}، تحديث بخصوص طلبك رقم #{orderNumber} من متجر {storeName}. الإجمالي: {total} {currency}.`,
           buttons: ['متابعة الطلب 👍'],
-          footer: '{storeName}'
+          footer: 'خدمة عملاء {storeName}'
         };
       }
     }
@@ -832,12 +832,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       phone = cleanPhone;
     }
 
-    const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
+    const storeDisplayName = activeStore?.name || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'متجرنا';
+    const formattedFooter = template.footer ? template.footer.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName) : undefined;
+    const formattedButtons = template.buttons?.map(btn => btn.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName));
+    const message = whatsappService.formatMessage(template.text, order, settings, formattedButtons, formattedFooter, storeDisplayName);
     const activeConfig = {
       ...settings.whatsappConfig,
       isActive: true
     };
-    const result = await whatsappService.sendMessage(phone, message, activeConfig, template.buttons, template.footer);
+    const result = await whatsappService.sendMessage(phone, message, activeConfig, formattedButtons, formattedFooter, storeDisplayName);
     
     if (result.success) {
       if (!silent) alert(`تم إرسال رسالة تأكيد الطلب بنجاح إلى ${order.customerPhone} عبر WhatsApp API ✅`);
@@ -3637,17 +3640,18 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   const getWhatsAppLink = (order: Order) => {
     const templates = settings.whatsappTemplates || [];
-    let template = templates.find(t => t.id === 'confirm') || templates[0];
+    let template = templates.find(t => t.id === 'confirm' || t.label?.includes('تأكيد')) || templates[0];
     if (!template) {
       template = {
         id: 'confirm',
         label: 'تأكيد الطلب',
-        text: 'أهلاً {customerName} 👋 استلمنا طلبك رقم {orderNumber} من {storeName}.\nتفاصيل الطلب:\n{products}\nالمبلغ الإجمالي: {totalPrice} ج.م',
-        footer: 'نظام إدارة الأوردرات الذكي',
-        buttons: ['تأكيد الأوردر', 'إلغاء الأوردر']
+        text: 'أهلاً بك عزيزي {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}.\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 المبلغ الإجمالي: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\nيرجى تأكيد طلبك للبدء في شحنه إليك فوراً:',
+        footer: 'خدمة عملاء {storeName}',
+        buttons: ['تأكيد الطلب 👍', 'تعديل العنوان ✍️', 'إلغاء الطلب ❌']
       };
     }
-    const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
+    const storeDisplayName = activeStore?.name || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'متجرنا';
+    const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer, storeDisplayName);
     let phone = (order.customerPhone || "").replace(/\D/g, "");
     if (phone.startsWith("0") && phone.length === 11) {
       phone = "2" + phone;
@@ -6336,7 +6340,7 @@ const OrderCard = ({
 
   const isConfirmed = order.status === 'قيد_التنفيذ' || order.status === 'تم_الارسال' || order.status === 'قيد_الشحن' || order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل' || order.status === 'تم_التحصيل' || order.status === 'مدفوعة';
   const isCancelled = order.status === 'ملغي' || order.status === 'مرتجع' || order.status === 'مرتجع_جزئي' || order.status === 'فشل_التوصيل' || order.status === 'مرتجع_بعد_الاستلام' || order.status === 'تمت_الاعادة_لشركة_الشحن';
-  const isWaiting = isWhatsAppSent || (order.notes && order.notes.includes('[واتساب] تم إرسال رسالة تأكيد'));
+  const isWaiting = (isWhatsAppSent || (order.notes && order.notes.includes('[واتساب] تم إرسال رسالة تأكيد'))) && !isConfirmed && !isCancelled;
 
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
     label: order.status,
@@ -7880,7 +7884,7 @@ const OrderRow = ({
 
   const isConfirmed = order.status === 'قيد_التنفيذ' || order.status === 'تم_الارسال' || order.status === 'قيد_الشحن' || order.status === 'تم_توصيلها' || order.status === 'تم_التوصيل' || order.status === 'تم_التحصيل' || order.status === 'مدفوعة';
   const isCancelled = order.status === 'ملغي' || order.status === 'مرتجع' || order.status === 'مرتجع_جزئي' || order.status === 'فشل_التوصيل' || order.status === 'مرتجع_بعد_الاستلام' || order.status === 'تمت_الاعادة_لشركة_الشحن';
-  const isWaiting = isWhatsAppSent || (order.notes && order.notes.includes('[واتساب] تم إرسال رسالة تأكيد'));
+  const isWaiting = (isWhatsAppSent || (order.notes && order.notes.includes('[واتساب] تم إرسال رسالة تأكيد'))) && !isConfirmed && !isCancelled;
 
   const statusInfo = ORDER_STATUS_METADATA[order.status] || {
     label: order.status,
@@ -9519,8 +9523,9 @@ const AutoWhatsappModal: React.FC<{
       text: "أهلاً " + (order.customerName || "") + " 👋 تم تحديث حالة طلبك رقم " + order.orderNumber + " إلى: " + newStatus,
     };
 
+    const storeDisplayName = (order as any)?.storeName || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'متجرنا';
     const message = whatsappService?.formatMessage
-      ? whatsappService.formatMessage(template.text, order, settings, (template as any).buttons, (template as any).footer)
+      ? whatsappService.formatMessage(template.text, order, settings, (template as any).buttons, (template as any).footer, storeDisplayName)
       : "أهلاً " + (order.customerName || "") + " 👋 تم تحديث حالة طلبك رقم " + order.orderNumber + " إلى: " + newStatus;
 
     return "https://wa.me/" + phone + "?text=" + encodeURIComponent(message);

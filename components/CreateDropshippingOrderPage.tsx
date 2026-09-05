@@ -565,14 +565,14 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
 
         // --- 2. Interactive WhatsApp Automation Message ---
         if (settings.whatsappConfig?.isActive) {
-            const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
-            const textToUse = template?.text || "مرحباً {customerName}، لقد تلقينا طلبك رقم #{orderNumber} بنجاح! 🎉\nإجمالي المبلغ المتوقع تحصيله: {totalPrice} ج.م.\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فورا.";
+            const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
+            const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فوراً 🚚";
             const buttonsToUse = template?.buttons && template.buttons.length > 0 
                 ? template.buttons 
                 : ['تأكيد الطلب ✅', 'تعديل العنوان 📍', 'إلغاء الطلب ❌'];
-            const footerToUse = template?.footer || "مدير الأوردرات الذكي";
+            const footerToUse = template?.footer || "خدمة عملاء {storeName}";
 
-            const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse);
+            const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
             whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse)
                 .catch(err => console.error("Failed to send automatic WhatsApp message:", err));
         }

@@ -61,11 +61,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     sessionPhone: ''
   });
 
-  const onSaveRef = useRef(onSave);
-  useEffect(() => {
-    onSaveRef.current = onSave;
-  }, [onSave]);
-
   // Synchronize config changes immediately to store settings
   const handleConfigChange = (newConfig: React.SetStateAction<WhatsAppConfig>) => {
     setConfig(prev => {
@@ -78,9 +73,6 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
           isActive: true
         }
       }));
-      setTimeout(() => {
-        if (onSaveRef.current) onSaveRef.current();
-      }, 800);
       return updated;
     });
   };
@@ -427,9 +419,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     };
     setSettings(updatedSettings);
     
-    setTimeout(() => {
-        if (onSaveRef.current) onSaveRef.current();
-    }, 800);
+    if (onSave) await onSave();
     setStatusMsg({ type: 'success', text: 'تم حفظ الإعدادات بنجاح' });
     setTimeout(() => setStatusMsg(null), 3000);
   };
@@ -702,6 +692,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                         📍 العنوان: <span className="text-slate-500 font-bold">{selectedSimOrder.customerAddress} ({selectedSimOrder.governorate})</span>
                       </p>
 
+                      <div className="p-2 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-900/50 text-[9px] font-bold text-amber-800 dark:text-amber-300 leading-tight">
+                        ⚠️ في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({selectedSimOrder.flexShipFee !== undefined && selectedSimOrder.flexShipFee !== null && !isNaN(Number(selectedSimOrder.flexShipFee)) && Number(selectedSimOrder.flexShipFee) > 0 ? Number(selectedSimOrder.flexShipFee) : (settings.flexShipFee || 150)} ج.م).
+                      </div>
+
                       <p className="text-[9px] text-slate-400 font-bold border-t border-slate-50 dark:border-slate-800 pt-1.5 mt-2">
                         يرجى تأكيد رغبتك بالضغط على أحد الأزرار التفاعلية أدناه:
                       </p>
@@ -797,14 +791,46 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
         {activeTab === 'templates' && (
           <div className="p-8 space-y-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold text-slate-800 dark:text-white">قوالب الرسائل الجاهزة</h3>
-                <p className="text-sm text-slate-500 mt-1">المتغيرات المتاحة: {'{customerName}'}, {'{orderNumber}'}, {'{totalPrice}'}, {'{storeName}'}, {'{trackingUrl}'}</p>
+                <p className="text-sm text-slate-500 mt-1">اضغط على أي متغير لنسخه أو إضافته للقالب الخاص بك تلقائياً:</p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {[
+                    { tag: '{customerName}', label: 'اسم العميل' },
+                    { tag: '{orderNumber}', label: 'رقم الطلب' },
+                    { tag: '{totalPrice}', label: 'إجمالي المبلغ' },
+                    { tag: '{currency}', label: 'العملة' },
+                    { tag: '{flexShipFee}', label: 'مبلغ الفليكس شيب (عدم الاستلام) 🛡️' },
+                    { tag: '{products}', label: 'المنتجات المطلوبة' },
+                    { tag: '{address}', label: 'عنوان التوصيل' },
+                    { tag: '{city}', label: 'المدينة/المحافظة' },
+                    { tag: '{storeName}', label: 'اسم المتجر' },
+                    { tag: '{trackingUrl}', label: 'رابط التتبع' },
+                    { tag: '{shippingCompany}', label: 'شركة الشحن' },
+                  ].map((v) => (
+                    <button
+                      key={v.tag}
+                      type="button"
+                      onClick={() => {
+                        try {
+                          navigator.clipboard?.writeText(v.tag);
+                          setStatusMsg({ type: 'success', text: `تم نسخ المتغير ${v.tag} بنجاح! يمكنك لصقه في القالب.` });
+                          setTimeout(() => setStatusMsg(null), 3000);
+                        } catch (_) {}
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-600 rounded-lg text-xs font-mono font-bold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+                      title="اضغط للنسخ"
+                    >
+                      <span className="text-emerald-600 font-black">{v.tag}</span>
+                      <span className="text-[10px] text-slate-400 font-sans">({v.label})</span>
+                    </button>
+                  ))}
+                </div>
               </div>
               <button 
                 onClick={addTemplate}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-lg font-bold hover:bg-emerald-100 transition-all"
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-lg font-bold hover:bg-emerald-100 transition-all shrink-0 self-start md:self-center"
               >
                 <Plus size={18} />
                 إضافة قالب

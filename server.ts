@@ -756,8 +756,16 @@ async function startServer() {
 
         const metaUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`;
         
-        let fullBodyText = body || '';
-        if (footer) fullBodyText += `\n\n📌 ${footer}`;
+        const storeDisplayName = config.storeName || '';
+        const cleanFooter = footer 
+          ? footer.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName) 
+          : undefined;
+        const cleanBody = body 
+          ? body.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName) 
+          : '';
+
+        let fullBodyText = cleanBody;
+        if (cleanFooter) fullBodyText += `\n\n📌 ${cleanFooter}`;
         
         let metaPayload: any;
 
@@ -801,12 +809,13 @@ async function startServer() {
             interactive: {
               type: "button",
               body: {
-                text: body
+                text: cleanBody
               },
-              footer: footer ? { text: footer } : undefined,
+              footer: cleanFooter ? { text: cleanFooter } : undefined,
               action: {
                 buttons: buttons.map((b: any, idx: number) => {
-                  const title = (typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`)).trim().substring(0, 20);
+                  const rawTitle = typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`);
+                  const title = rawTitle.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName).trim().substring(0, 20);
                   const id = (typeof b === 'object' && b.id ? b.id : `btn_${idx + 1}`).substring(0, 256);
                   return {
                     type: "reply",
@@ -820,7 +829,11 @@ async function startServer() {
         // 3. Standard Text Message (with fallback formatted buttons if > 3)
         else {
           if (buttons && buttons.length > 0) {
-            fullBodyText += `\n\n🔘 الخيارات:\n` + buttons.map((b: any, idx: number) => `${idx + 1}️⃣ ${typeof b === 'string' ? b : b.text}`).join('\n');
+            fullBodyText += `\n\n🔘 الخيارات:\n` + buttons.map((b: any, idx: number) => {
+              const rawTitle = typeof b === 'string' ? b : b.text;
+              const title = rawTitle ? String(rawTitle).replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName) : '';
+              return `${idx + 1}️⃣ ${title}`;
+            }).join('\n');
           }
           metaPayload = {
             messaging_product: "whatsapp",
@@ -1219,89 +1232,100 @@ async function startServer() {
       const { phone, buttonText, orderId, updatedAddress, updatedGovernorate } = await c.req.json();
       console.log(`[SIMULATION-WEBHOOK] Received callback for Order #${orderId}, Phone: ${phone}, Action: ${buttonText}`);
 
-      if (!orderId) {
-        return c.json({ success: false, error: "Order ID is required." }, 400);
+      if (!orderId && !phone) {
+        return c.json({ success: false, error: "Order ID or Phone is required." }, 400);
       }
 
-      const orderDocRef = doc(db, "orders", orderId);
-      const orderSnap = await getDoc(orderDocRef);
+      let updatedStatus = "قيد_التنفيذ";
+      let actionLog = "تأكيد الطلب";
+      const normalizedBtn = (buttonText || "").toLowerCase().trim();
 
-      if (!orderSnap.exists()) {
-        const ordersRef = collection(db, "orders");
-        const q = query(ordersRef, where("id", "==", orderId));
-        const qSnap = await getDocs(q);
-        if (qSnap.empty) {
-          return c.json({ success: false, error: "Order not found." }, 404);
-        }
-        const orderDoc = qSnap.docs[0];
-        const orderData = orderDoc.data();
-        let updatedStatus = orderData.status;
-        let notes = orderData.notes || "";
-        let address = orderData.customerAddress;
-        let gov = orderData.governorate;
-
-        if (buttonText.includes("تأكيد") || buttonText.includes("Confirm")) {
-          updatedStatus = "قيد_التنفيذ";
-          notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
-        } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel")) {
-          updatedStatus = "ملغي";
-          notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
-        } else if (buttonText.includes("تعديل") || buttonText.includes("Edit")) {
-          updatedStatus = "مؤجل";
-          if (updatedAddress) {
-            address = updatedAddress;
-            notes += `\n[واتساب] قام العميل بتحديث العنوان إلى: ${updatedAddress}`;
-          }
-          if (updatedGovernorate) {
-            gov = updatedGovernorate;
-          }
-        }
-
-        await setDoc(doc(db, "orders", orderDoc.id), {
-          ...orderData,
-          status: updatedStatus,
-          customerAddress: address,
-          governorate: gov,
-          notes,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-
-        return c.json({ success: true, updatedStatus, updatedAddress: address, updatedGovernorate: gov });
-      }
-
-      const orderData = orderSnap.data();
-      let updatedStatus = orderData.status;
-      let notes = orderData.notes || "";
-      let address = orderData.customerAddress;
-      let gov = orderData.governorate;
-
-      if (buttonText.includes("تأكيد") || buttonText.includes("Confirm")) {
-        updatedStatus = "قيد_التنفيذ";
-        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
-      } else if (buttonText.includes("إلغاء") || buttonText.includes("Cancel")) {
+      if (normalizedBtn.includes("إلغاء") || normalizedBtn.includes("الغاء") || normalizedBtn.includes("cancel") || normalizedBtn.includes("❌") || normalizedBtn === "2" || normalizedBtn === "3") {
         updatedStatus = "ملغي";
-        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية.`;
-      } else if (buttonText.includes("تعديل") || buttonText.includes("Edit")) {
+        actionLog = "إلغاء الطلب";
+      } else if (normalizedBtn.includes("تعديل") || normalizedBtn.includes("edit") || normalizedBtn.includes("✍️")) {
         updatedStatus = "مؤجل";
-        if (updatedAddress) {
-          address = updatedAddress;
-          notes += `\n[واتساب] قام العميل بتحديث العنوان إلى: ${updatedAddress}`;
-        }
-        if (updatedGovernorate) {
-          gov = updatedGovernorate;
-        }
+        actionLog = "طلب تعديل العنوان";
+      } else if (normalizedBtn.includes("تأكيد") || normalizedBtn.includes("تاكيد") || normalizedBtn.includes("confirm") || normalizedBtn.includes("👍") || normalizedBtn.includes("✅") || normalizedBtn === "1" || normalizedBtn === "1️⃣") {
+        updatedStatus = "قيد_التنفيذ";
+        actionLog = "تأكيد الطلب";
       }
 
-      await setDoc(orderDocRef, {
-        ...orderData,
-        status: updatedStatus,
-        customerAddress: address,
-        governorate: gov,
-        notes,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      let updatedInStore = false;
+      const cleanPhone = (phone || "").replace(/\D/g, "");
+      const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
 
-      return c.json({ success: true, updatedStatus, updatedAddress: address, updatedGovernorate: gov });
+      // Search and update across stores_data documents
+      try {
+        const storesSnap = await getDocs(collection(db, "stores_data"));
+        for (const storeDoc of storesSnap.docs) {
+          const storeData = storeDoc.data();
+          const orders = storeData.orders || [];
+          let storeModified = false;
+
+          const updatedOrders = orders.map((o: any) => {
+            const oPhone = (o.customerPhone || "").replace(/\D/g, "");
+            const isMatch = (orderId && (o.id === orderId || o.orderNumber === orderId)) ||
+                            (basePhone && (oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone)));
+
+            if (isMatch) {
+              storeModified = true;
+              updatedInStore = true;
+              return {
+                ...o,
+                status: updatedStatus,
+                customerAddress: updatedAddress || o.customerAddress,
+                governorate: updatedGovernorate || o.governorate,
+                notes: (o.notes ? o.notes + "\n" : "") + `[واتساب] ${actionLog} تلقائياً عبر الأزرار (${new Date().toLocaleTimeString('ar-EG')})`,
+                auditLogs: [
+                  ...(o.auditLogs || []),
+                  {
+                    id: Math.random().toString(36).substr(2, 9),
+                    timestamp: new Date().toISOString(),
+                    action: "رد واتساب",
+                    details: `الرد: "${buttonText}" -> الحالة: ${updatedStatus}`,
+                    userEmail: "WhatsApp Bot"
+                  }
+                ],
+                updatedAt: new Date().toISOString()
+              };
+            }
+            return o;
+          });
+
+          if (storeModified) {
+            await setDoc(doc(db, "stores_data", storeDoc.id), {
+              ...storeData,
+              orders: updatedOrders,
+              lastUpdated: new Date().toISOString()
+            }, { merge: true });
+            storeCache.delete(storeDoc.id);
+          }
+        }
+      } catch (err) {
+        console.error("Error updating stores_data in simulate-callback:", err);
+      }
+
+      // Also update standalone orders collection if present
+      if (orderId) {
+        try {
+          const orderDocRef = doc(db, "orders", orderId);
+          const orderSnap = await getDoc(orderDocRef);
+          if (orderSnap.exists()) {
+            const orderData = orderSnap.data();
+            await setDoc(orderDocRef, {
+              ...orderData,
+              status: updatedStatus,
+              customerAddress: updatedAddress || orderData.customerAddress,
+              governorate: updatedGovernorate || orderData.governorate,
+              notes: (orderData.notes ? orderData.notes + "\n" : "") + `[واتساب] ${actionLog} (${new Date().toLocaleTimeString('ar-EG')})`,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          }
+        } catch (_) {}
+      }
+
+      return c.json({ success: true, updatedStatus, updatedAddress, updatedGovernorate, updatedInStore });
     } catch (err: any) {
       console.error("[SIMULATION-WEBHOOK] Error:", err);
       return c.json({ success: false, error: err.message }, 500);
@@ -1388,24 +1412,33 @@ async function startServer() {
       let phone = "";
       let buttonText = "";
 
-      if (body.data && body.event_type === "message_received") {
+      if (body.data && (body.event_type === "message_received" || body.event === "message")) {
         const msg = body.data;
-        phone = msg.from;
-        if (msg.type === "button_reply") {
-          buttonText = msg.body || msg.payload || "";
+        phone = msg.from || msg.phone || "";
+        if (msg.type === "button_reply" || msg.type === "button") {
+          buttonText = msg.body || msg.payload || msg.selectedButtonId || msg.text || "";
         } else {
-          buttonText = msg.body || "";
+          buttonText = msg.body || msg.text || "";
         }
       } else if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
         const msg = body.entry[0].changes[0].value.messages[0];
         phone = msg.from;
         if (msg.type === "button") {
-          buttonText = msg.button?.text || "";
-        } else if (msg.type === "interactive" && msg.interactive?.button_reply) {
-          buttonText = msg.interactive.button_reply.title || msg.interactive.button_reply.id || "";
+          buttonText = msg.button?.text || msg.button?.payload || "";
+        } else if (msg.type === "interactive") {
+          if (msg.interactive?.button_reply) {
+            buttonText = msg.interactive.button_reply.title || msg.interactive.button_reply.id || "";
+          } else if (msg.interactive?.list_reply) {
+            buttonText = msg.interactive.list_reply.title || msg.interactive.list_reply.id || "";
+          }
         } else {
           buttonText = msg.text?.body || "";
         }
+      } else if (body.messages?.[0]) {
+        // Generic direct webhook format
+        const msg = body.messages[0];
+        phone = msg.from || msg.sender || "";
+        buttonText = msg.text?.body || msg.body || "";
       }
 
       if (!phone || !buttonText) {
@@ -1425,28 +1458,76 @@ async function startServer() {
         "0020" + basePhone
       ])).filter(Boolean);
 
-      const ordersRef = collection(db, "orders");
-      const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
-      const qSnap = await getDocs(q);
-
       let matchedOrder: any = null;
+      let matchedStoreDocId: string | null = null;
+      let matchedStoreData: any = null;
 
-      if (!qSnap.empty) {
-        const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-        orderDocs.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
-        matchedOrder = orderDocs[0];
-      } else {
-        // Fallback: search recent orders and match normalized phones
-        const fallbackQ = query(ordersRef, limit(100));
-        const allSnap = await getDocs(fallbackQ);
-        for (const d of allSnap.docs) {
-          const data = d.data() as any;
-          const oPhone = (data.customerPhone || '').replace(/\D/g, '');
-          if (oPhone && (oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone))) {
-            matchedOrder = { id: d.id, ...data };
-            break;
+      let extractedOrderNumber: string | null = null;
+      try {
+        const rawBodyStr = JSON.stringify(body);
+        const orderNumMatch = rawBodyStr.match(/#(\d+)/) || rawBodyStr.match(/رقم\s*#?\s*(\d+)/i) || buttonText.match(/#(\d+)/);
+        if (orderNumMatch && orderNumMatch[1]) {
+          extractedOrderNumber = orderNumMatch[1];
+        }
+      } catch (_) {}
+
+      // 1. Search across stores_data documents with smart scoring
+      const candidates: Array<{ order: any; storeDocId: string; storeData: any; score: number }> = [];
+      try {
+        const storesSnap = await getDocs(collection(db, "stores_data"));
+        for (const storeDoc of storesSnap.docs) {
+          const storeData = storeDoc.data();
+          const orders = storeData.orders || [];
+          for (const ord of orders) {
+            const oPhone = (ord.customerPhone || "").replace(/\D/g, "");
+            const isPhoneMatch = phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
+            const isNumMatch = extractedOrderNumber && (String(ord.orderNumber) === extractedOrderNumber || String(ord.id).includes(extractedOrderNumber));
+            
+            if (isPhoneMatch || isNumMatch) {
+              let score = 0;
+              if (isNumMatch) score += 1000;
+              if (isPhoneMatch) score += 100;
+              
+              const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'draft', 'pending'].includes(ord.status);
+              if (isPending) score += 50;
+              if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
+              if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
+
+              const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
+              score += (orderDate / 1e13); // recency
+
+              candidates.push({
+                order: ord,
+                storeDocId: storeDoc.id,
+                storeData: storeData,
+                score
+              });
+            }
           }
         }
+      } catch (err) {
+        console.error("Error searching stores_data in webhook:", err);
+      }
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => b.score - a.score);
+        matchedOrder = candidates[0].order;
+        matchedStoreDocId = candidates[0].storeDocId;
+        matchedStoreData = candidates[0].storeData;
+      }
+
+      // 2. Fallback to standalone orders collection
+      if (!matchedOrder) {
+        try {
+          const ordersRef = collection(db, "orders");
+          const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) {
+            const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+            orderDocs.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
+            matchedOrder = orderDocs[0];
+          }
+        } catch (_) {}
       }
 
       if (!matchedOrder) {
@@ -1458,47 +1539,95 @@ async function startServer() {
       let notes = matchedOrder.notes || "";
       let customerAddress = matchedOrder.customerAddress;
       let replyMessage = "";
+      const text = buttonText.toLowerCase().trim();
 
-      if (buttonText.includes("تأكيد") || buttonText.includes("Confirm") || buttonText.includes("👍")) {
+      if (text.includes("تأكيد") || text.includes("تاكيد") || text.includes("confirm") || text.includes("👍") || text.includes("✅") || text === "1" || text === "1️⃣" || text === "موافق" || text === "تمام") {
         updatedStatus = "قيد_التنفيذ";
-        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
-        replyMessage = "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة. 📦✨";
-      } else if (buttonText.includes("إلغاء") || buttonText.includes("الغاء") || buttonText.includes("Cancel") || buttonText.includes("❌")) {
+        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
+        replyMessage = "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة والتسليم فوراً. 📦✨";
+      } else if (text.includes("إلغاء") || text.includes("الغاء") || text.includes("cancel") || text.includes("❌") || text === "2" || text === "3" || text.includes("مش عاوز") || text.includes("مش عايز") || text.includes("كنسل") || text.includes("رفض")) {
         updatedStatus = "ملغي";
-        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}).`;
-        replyMessage = "تم إلغاء الطلب بنجاح. نتمنى أن نراك مجدداً. 🌸";
-      } else if (buttonText.includes("تعديل") || buttonText.includes("Edit") || buttonText.includes("✍️")) {
+        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
+        replyMessage = "تم إلغاء الطلب بنجاح بناءً على طلبك. نتمنى أن نراك مجدداً في متجرنا. 🌸";
+      } else if (text.includes("تعديل") || text.includes("edit") || text.includes("✍️") || text.includes("تغيير العنوان")) {
         updatedStatus = "مؤجل";
-        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الأزرار التفاعلية لميتا (${new Date().toLocaleTimeString('ar-EG')}). بانتظار عنوانه الجديد.`;
+        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}). بانتظار عنوانه الجديد.`;
         replyMessage = "عزيزي العميل، يرجى كتابة عنوانك الجديد بالتفصيل في رسالة واحدة ليتم تحديثه في طلبك فوراً. ✍️";
       } else if (matchedOrder.status === "مؤجل" || (matchedOrder.notes && matchedOrder.notes.includes("تعديل العنوان"))) {
         updatedStatus = "قيد_التنفيذ";
         const oldAddress = customerAddress || "بدون عنوان";
         customerAddress = buttonText;
         notes += `\n[واتساب] تم تحديث العنوان تلقائياً من (${oldAddress}) إلى (${buttonText}) وتأكيد الطلب (${new Date().toLocaleTimeString('ar-EG')}).`;
-        replyMessage = "تم تحديث عنوانك بنجاح وتأكيد الطلب! ✅ سيتم الشحن قريباً.";
+        replyMessage = "تم تحديث عنوانك بنجاح وتأكيد الطلب! ✅ سيتم الشحن والتوصيل قريباً.";
       } else {
         return c.json({ success: false, reason: "Text did not match confirmation keywords." });
       }
 
-      await setDoc(doc(db, "orders", matchedOrder.id), {
-        status: updatedStatus,
-        customerAddress,
-        notes,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      // 1. Update in stores_data
+      if (matchedStoreDocId && matchedStoreData) {
+        const orderList = matchedStoreData.orders || [];
+        const updatedOrders = orderList.map((o: any) => {
+          if (o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber) {
+            return {
+              ...o,
+              status: updatedStatus,
+              customerAddress: customerAddress || o.customerAddress,
+              notes: notes,
+              auditLogs: [
+                ...(o.auditLogs || []),
+                {
+                  id: Math.random().toString(36).substr(2, 9),
+                  timestamp: new Date().toISOString(),
+                  action: "رد تلقائي عبر واتساب",
+                  details: `رد العميل: "${buttonText}" -> تحولت الحالة إلى: ${updatedStatus}`,
+                  userEmail: "WhatsApp Webhook Bot"
+                }
+              ],
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return o;
+        });
+
+        await setDoc(doc(db, "stores_data", matchedStoreDocId), {
+          ...matchedStoreData,
+          orders: updatedOrders,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
+
+        storeCache.delete(matchedStoreDocId);
+      }
+
+      // 2. Also update all possible document keys in standalone orders collection
+      try {
+        const orderDocIds = Array.from(new Set([
+          matchedOrder.id,
+          matchedStoreDocId ? `${matchedStoreDocId}_${matchedOrder.id}` : null,
+          matchedOrder.storeId ? `${matchedOrder.storeId}_${matchedOrder.id}` : null,
+          matchedOrder.store_id ? `${matchedOrder.store_id}_${matchedOrder.id}` : null
+        ])).filter(Boolean) as string[];
+
+        for (const oDocId of orderDocIds) {
+          await setDoc(doc(db, "orders", oDocId), {
+            status: updatedStatus,
+            customerAddress,
+            notes,
+            updatedAt: new Date().toISOString()
+          }, { merge: true }).catch(() => {});
+        }
+      } catch (_) {}
 
       if (replyMessage) {
         try {
-          const storeId = matchedOrder.store_id || matchedOrder.storeId;
+          const storeId = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId;
           let token = "";
           let phoneId = "";
           
           if (storeId) {
               const storeRow = await getCachedStore(db, storeId);
               if (storeRow?.settings?.whatsappConfig) {
-                  token = storeRow.settings.whatsappConfig.accessToken;
-                  phoneId = storeRow.settings.whatsappConfig.phoneNumberId;
+                  token = storeRow.settings.whatsappConfig.accessToken || storeRow.settings.whatsappConfig.token;
+                  phoneId = storeRow.settings.whatsappConfig.phoneNumberId || storeRow.settings.whatsappConfig.instanceId;
               }
           }
           
@@ -1507,7 +1636,7 @@ async function startServer() {
           }
 
           if (token && phoneId) {
-              await fetch(`https://graph.facebook.com/v17.0/${phoneId}/messages`, {
+              await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
                 method: "POST",
                 headers: {
                   "Authorization": `Bearer ${token}`,
@@ -1526,7 +1655,7 @@ async function startServer() {
         }
       }
 
-      console.log(`✅ [WHATSAPP-WEBHOOK] Successfully updated Order #${matchedOrder.id} to status: "${updatedStatus}" for customer phone: ${matchedOrder.customerPhone}`);
+      console.log(`✅ [WHATSAPP-WEBHOOK] Successfully updated Order #${matchedOrder.orderNumber || matchedOrder.id} to status: "${updatedStatus}" for customer phone: ${matchedOrder.customerPhone}`);
       return c.json({ success: true, updatedStatus, orderId: matchedOrder.id });
     } catch (err: any) {
       console.error("[WHATSAPP-PUBLIC-WEBHOOK] Error:", err);

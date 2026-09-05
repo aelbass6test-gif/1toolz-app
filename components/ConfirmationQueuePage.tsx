@@ -823,13 +823,14 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
             template = whatsappTemplates[0] || {
                 id: 'confirm',
                 label: 'تأكيد الطلب',
-                text: 'أهلاً {customerName} 👋 استلمنا طلبك رقم {orderNumber} من {storeName}.\nتفاصيل الطلب:\n{products}\nالمبلغ الإجمالي: {totalPrice} ج.م',
-                footer: 'نظام إدارة الأوردرات الذكي',
-                buttons: ['تأكيد الأوردر', 'إلغاء الأوردر']
+                text: 'أهلاً بك عزيزي {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}.\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 المبلغ الإجمالي: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nيرجى تأكيد طلبك للبدء في شحنه إليك فوراً:',
+                footer: 'خدمة عملاء {storeName}',
+                buttons: ['تأكيد الطلب 👍', 'تعديل العنوان ✍️', 'إلغاء الطلب ❌']
             };
         }
 
-        const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer);
+        const storeDisplayName = (settings as any)?.storeName || (settings as any)?.general?.storeName || 'متجرنا';
+        const message = whatsappService.formatMessage(template.text, order, settings, template.buttons, template.footer, storeDisplayName);
         return `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
     };
 
