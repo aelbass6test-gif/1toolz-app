@@ -335,6 +335,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
   // --- Interactive Webhook Simulator State & Handler ---
   const [selectedSimOrderId, setSelectedSimOrderId] = useState<string>(orders[0]?.id || '');
   const [isSimulatingBtn, setIsSimulatingBtn] = useState<string | null>(null);
+  const [simulatedChatHistory, setSimulatedChatHistory] = useState<Array<{ sender: 'bot' | 'user'; text: string; time: string }>>([]);
   
   const selectedSimOrder = useMemo(() => {
     return orders.find(o => o.id === selectedSimOrderId) || orders[0];
@@ -347,12 +348,87 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     { id: 'btn_cancel', text: 'إلغاء الطلب ❌', action: 'cancelled', label: 'إلغاء وتفادي الشحن' }
   ]);
 
+  // State for webhook setup & active sync
+  const [isSettingUpWebhook, setIsSettingUpWebhook] = useState(false);
+  const [isSyncingMessages, setIsSyncingMessages] = useState(false);
+  const [syncStatusResult, setSyncStatusResult] = useState<string | null>(null);
+
+  const handleAutoSetupWebhook = async () => {
+    setIsSettingUpWebhook(true);
+    try {
+      const webhookUrl = `${window.location.origin}/api/webhook/whatsapp`;
+      const res = await fetch('/api/whatsapp/setup-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: window.location.origin,
+          webhookUrl,
+          config
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMsg({
+          type: 'success',
+          text: `⚡ تم ربط وتفعيل الويب-هوك الفعلي تلقائياً مع مزود واتساب (${data.provider || 'WhatsApp Gateway'}) بنجاح! الآن أي إلغاء أو تأكيد من العميل سيحدث الأوردر ويرسل الرد فوراً.`
+        });
+        import('../utils/audioSynth').then(({ audioSynth }) => {
+          audioSynth.announce("تم ربط الويب هوك بنجاح", "success");
+        });
+      } else {
+        setStatusMsg({
+          type: 'error',
+          text: `تعذر الربط التلقائي: ${data.error || 'يرجى التأكد من بيانات الاتصال'}`
+        });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: `خطأ أثناء ضبط الويب-هوك: ${err.message}` });
+    } finally {
+      setIsSettingUpWebhook(false);
+    }
+  };
+
+  const handleSyncMessagesNow = async () => {
+    setIsSyncingMessages(true);
+    setSyncStatusResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/sync-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        const count = data.processedActions || 0;
+        const msg = count > 0 
+          ? `🔄 تم فحص الرسائل بنجاح وتحديث ${count} أوردر (إلغاء/تأكيد) وإرسال الردود التلقائية للعملاء!`
+          : `✅ لا توجد طلبات إلغاء أو تأكيد جديدة معلقة. جميع الأوردرات متزامنة!`;
+        setSyncStatusResult(msg);
+        setStatusMsg({ type: 'success', text: msg });
+        if (count > 0) {
+          import('../utils/audioSynth').then(({ audioSynth }) => {
+            audioSynth.announce(`تمت مزامنة ردود الواتساب وتحديث ${count} أوردر بنجاح`, "success");
+          });
+        }
+      } else {
+        setStatusMsg({ type: 'error', text: `تعذر المزامنة: ${data.error || 'خطأ غير معروف'}` });
+      }
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: `خطأ في المزامنة: ${err.message}` });
+    } finally {
+      setIsSyncingMessages(false);
+    }
+  };
+
   const handleSimulateWebhook = async (btnId: string, actionType: string) => {
     if (!selectedSimOrder) {
       alert("يرجى اختيار أوردر للمحاكاة أولاً");
       return;
     }
     
+    const clickedBtn = interactiveButtons.find(b => b.id === btnId);
+    const clickedText = clickedBtn?.text || '';
+    const nowTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+
     setIsSimulatingBtn(btnId);
     try {
       const response = await fetch('/api/whatsapp/simulate-callback', {
@@ -360,14 +436,24 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: selectedSimOrder.id,
+          phone: selectedSimOrder.customerPhone,
           buttonId: btnId,
-          buttonText: interactiveButtons.find(b => b.id === btnId)?.text || '',
+          buttonText: clickedText,
           action: actionType
         })
       });
       
       const result = await response.json();
       if (result.success) {
+        const replyText = result.replyMessage || (actionType === 'cancelled' ? "تم إلغاء الشحنة بنجاح و بنتمنالك يوم سعيد 😊" : "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة والتسليم فوراً. 📦✨");
+
+        // Add to simulated chat bubbles
+        setSimulatedChatHistory(prev => [
+          ...prev,
+          { sender: 'user', text: clickedText, time: nowTime },
+          { sender: 'bot', text: replyText, time: nowTime }
+        ]);
+
         // Play success audio synth
         import('../utils/audioSynth').then(({ audioSynth }) => {
           audioSynth.announce("تم استقبال رد العميل على الواتساب وتحديث الأوردر تلقائياً", "success");
@@ -375,7 +461,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         
         setStatusMsg({
           type: 'success',
-          text: `⚡ محاكاة ناجحة! نقر العميل على زر "${interactiveButtons.find(b => b.id === btnId)?.text}". تم تحديث حالة الأوردر #${selectedSimOrder.id} إلى [${actionType}] تلقائياً وبدون تدخل بشري.`
+          text: `⚡ محاكاة ناجحة! نقر العميل على زر "${clickedText}". تم إلغاء/تحديث الأوردر #${selectedSimOrder.id} إلى [${actionType}] تلقائياً، وإرسال الرد الفوري للعميل: "${replyText}".`
         });
         
         // Force state refresh
@@ -629,14 +715,62 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                 </div>
               </div>
 
-              {/* Status Log & Webhook Info */}
-              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100/30 dark:border-indigo-900/40 rounded-2xl space-y-2">
-                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 block">📡 رابط استقبال الويب-هوك الفعلي (WhatsApp Webhook URL):</span>
-                <code className="text-[10px] font-mono text-slate-600 dark:text-slate-400 block bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 text-left" dir="ltr">
-                  POST http://[YOUR-DOMAIN]/api/webhook/whatsapp
-                </code>
-                <p className="text-[10px] text-indigo-500/80 font-bold leading-relaxed">
-                  💡 عند استخدام مزودي الخدمة الرسميين (مثل Meta API أو UltraMsg)، قم بوضع هذا الرابط في لوحة تحكم حسابك وسيتم تفعيل الأتمتة التفاعلية الفورية لجميع عملائك تلقائياً!
+              {/* Status Log & Webhook Info with 1-Click Auto Setup */}
+              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/50 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                    <span>📡 رابط استقبال الويب-هوك الفعلي (WhatsApp Webhook URL):</span>
+                  </span>
+                  <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">
+                    جاهز للاستقبال 🟢
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-[10px] font-mono text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-left select-all overflow-x-auto" dir="ltr">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : '/api/webhook/whatsapp'}
+                  </code>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isSettingUpWebhook}
+                    onClick={handleAutoSetupWebhook}
+                    className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {isSettingUpWebhook ? (
+                      <RefreshCw size={13} className="animate-spin" />
+                    ) : (
+                      <Zap size={13} />
+                    )}
+                    <span>ربط وتفعيل الويب-هوك تلقائياً بنقرة واحدة ⚡</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isSyncingMessages}
+                    onClick={handleSyncMessagesNow}
+                    className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="فحص الرسائل الواردة من العملاء وتحديث الأوردرات فوراً"
+                  >
+                    {isSyncingMessages ? (
+                      <RefreshCw size={13} className="animate-spin" />
+                    ) : (
+                      <RefreshCw size={13} />
+                    )}
+                    <span>مزامنة الردود الواردة الآن 🔄</span>
+                  </button>
+                </div>
+
+                {syncStatusResult && (
+                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
+                    {syncStatusResult}
+                  </div>
+                )}
+
+                <p className="text-[10px] text-indigo-500/90 dark:text-indigo-400/90 font-bold leading-relaxed">
+                  💡 عند نقر العميل على "إلغاء الطلب ❌" أو "تأكيد الطلب 👍" في رسالة الواتساب، يتم تغيير حالة الأوردر تلقائياً باللوحة وإرسال الرد الفوري للعميل ("تم إلغاء الشحنة بنجاح و بنتمنالك يوم سعيد 😊").
                 </p>
               </div>
             </div>
@@ -670,59 +804,95 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                 </div>
 
                 {/* Mobile Screen Body (WhatsApp Chat Background) */}
-                <div className="flex-1 p-3 overflow-y-auto space-y-3 bg-[#efeae2] dark:bg-slate-950 relative flex flex-col justify-end pb-4">
+                <div className="flex-1 p-3 overflow-y-auto space-y-2.5 bg-[#efeae2] dark:bg-slate-950 relative flex flex-col justify-end pb-3 text-right">
                   {/* Message Bubble */}
                   {selectedSimOrder ? (
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl rounded-tr-none p-3 shadow-sm text-right space-y-2 max-w-[240px] self-end animate-in fade-in duration-200">
-                      {/* Header Title */}
-                      <div className="border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-1.5">
-                        <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">
-                          <span>📦 تأكيد أوردر الشراء</span>
-                        </span>
-                      </div>
-
-                      {/* Message Body */}
-                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
-                        مرحباً <span className="text-indigo-600 dark:text-indigo-400 font-black">{selectedSimOrder.customerName}</span>، تم استلام طلبك رقم <span className="font-black text-emerald-600">#{selectedSimOrder.id}</span> بنجاح!
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
-                        💰 الإجمالي: <span className="font-black text-slate-900 dark:text-white">{selectedSimOrder.totalPrice || selectedSimOrder.productPrice || 0} ج.م</span>
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
-                        📍 العنوان: <span className="text-slate-500 font-bold">{selectedSimOrder.customerAddress} ({selectedSimOrder.governorate})</span>
-                      </p>
-
-                      <div className="p-2 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-900/50 text-[9px] font-bold text-amber-800 dark:text-amber-300 leading-tight">
-                        ⚠️ في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({selectedSimOrder.flexShipFee !== undefined && selectedSimOrder.flexShipFee !== null && !isNaN(Number(selectedSimOrder.flexShipFee)) && Number(selectedSimOrder.flexShipFee) > 0 ? Number(selectedSimOrder.flexShipFee) : (settings.flexShipFee || 150)} ج.م).
-                      </div>
-
-                      <p className="text-[9px] text-slate-400 font-bold border-t border-slate-50 dark:border-slate-800 pt-1.5 mt-2">
-                        يرجى تأكيد رغبتك بالضغط على أحد الأزرار التفاعلية أدناه:
-                      </p>
-
-                      {/* Footer Text */}
-                      <span className="text-[8px] text-slate-400 block font-bold mt-1">نظام فليكس شيب الذكي لمتابعة الشحن</span>
-
-                      {/* Interactive Buttons Stack */}
-                      <div className="space-y-1 pt-2 border-t border-slate-200 dark:border-slate-800 mt-2">
-                        {interactiveButtons.map(btn => {
-                          const isSimulating = isSimulatingBtn === btn.id;
-                          return (
+                    <>
+                      <div className="bg-white dark:bg-slate-900 rounded-2xl rounded-tr-none p-3 shadow-sm text-right space-y-2 max-w-[240px] self-end animate-in fade-in duration-200">
+                        {/* Header Title */}
+                        <div className="border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-1.5 flex items-center justify-between">
+                          <span className="text-[10px] font-black text-emerald-600 flex items-center gap-1">
+                            <span>📦 تأكيد أوردر الشراء</span>
+                          </span>
+                          {simulatedChatHistory.length > 0 && (
                             <button
-                              key={btn.id}
-                              disabled={isSimulatingBtn !== null}
-                              onClick={() => handleSimulateWebhook(btn.id, btn.action)}
-                              className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl text-[9px] font-black text-indigo-600 dark:text-indigo-400 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-sm"
+                              type="button"
+                              onClick={() => setSimulatedChatHistory([])}
+                              className="text-[8px] font-bold text-slate-400 hover:text-rose-500 transition-colors"
+                              title="إعادة تعيين المحادثة"
                             >
-                              {isSimulating ? (
-                                <RefreshCw size={10} className="animate-spin text-indigo-500" />
-                              ) : null}
-                              <span>{btn.text}</span>
+                              إعادة ضبط 🔄
                             </button>
-                          );
-                        })}
+                          )}
+                        </div>
+
+                        {/* Message Body */}
+                        <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                          مرحباً <span className="text-indigo-600 dark:text-indigo-400 font-black">{selectedSimOrder.customerName}</span>، تم استلام طلبك رقم <span className="font-black text-emerald-600">#{selectedSimOrder.id}</span> بنجاح!
+                        </p>
+                        <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                          💰 الإجمالي: <span className="font-black text-slate-900 dark:text-white">{selectedSimOrder.totalPrice || selectedSimOrder.productPrice || 0} ج.م</span>
+                        </p>
+                        <p className="text-[10px] font-bold text-slate-800 dark:text-slate-200 leading-relaxed">
+                          📍 العنوان: <span className="text-slate-500 font-bold">{selectedSimOrder.customerAddress} ({selectedSimOrder.governorate})</span>
+                        </p>
+
+                        <div className="p-2 bg-amber-50 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-900/50 text-[9px] font-bold text-amber-800 dark:text-amber-300 leading-tight">
+                          ⚠️ في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({selectedSimOrder.flexShipFee !== undefined && selectedSimOrder.flexShipFee !== null && !isNaN(Number(selectedSimOrder.flexShipFee)) && Number(selectedSimOrder.flexShipFee) > 0 ? Number(selectedSimOrder.flexShipFee) : (settings.flexShipFee || 150)} ج.م).
+                        </div>
+
+                        <p className="text-[9px] text-slate-400 font-bold border-t border-slate-50 dark:border-slate-800 pt-1.5 mt-2">
+                          يرجى تأكيد رغبتك بالضغط على أحد الأزرار التفاعلية أدناه:
+                        </p>
+
+                        {/* Footer Text */}
+                        <span className="text-[8px] text-slate-400 block font-bold mt-1">نظام فليكس شيب الذكي لمتابعة الشحن</span>
+
+                        {/* Interactive Buttons Stack */}
+                        <div className="space-y-1 pt-2 border-t border-slate-200 dark:border-slate-800 mt-2">
+                          {interactiveButtons.map(btn => {
+                            const isSimulating = isSimulatingBtn === btn.id;
+                            return (
+                              <button
+                                key={btn.id}
+                                disabled={isSimulatingBtn !== null}
+                                onClick={() => handleSimulateWebhook(btn.id, btn.action)}
+                                className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700 rounded-xl text-[9px] font-black text-indigo-600 dark:text-indigo-400 transition-all flex items-center justify-center gap-1.5 cursor-pointer hover:shadow-sm"
+                              >
+                                {isSimulating ? (
+                                  <RefreshCw size={10} className="animate-spin text-indigo-500" />
+                                ) : null}
+                                <span>{btn.text}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+
+                      {/* Render simulated conversation sequence */}
+                      {simulatedChatHistory.map((item, index) => {
+                        if (item.sender === 'user') {
+                          return (
+                            <div key={index} className="bg-[#d9fdd3] dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800 text-slate-800 dark:text-emerald-100 rounded-2xl rounded-tl-none p-2.5 shadow-sm text-right text-[10px] font-bold max-w-[200px] self-start animate-in slide-in-from-bottom-2 duration-200">
+                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                                <span className="text-[8px] text-emerald-700 dark:text-emerald-400 font-extrabold">العميل</span>
+                                <span className="text-[7px] text-slate-400 font-mono">{item.time}</span>
+                              </div>
+                              <p>{item.text}</p>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={index} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl rounded-tr-none p-2.5 shadow-sm text-right text-[10px] font-bold max-w-[220px] self-end animate-in slide-in-from-bottom-2 duration-300">
+                            <div className="flex items-center justify-between gap-2 mb-0.5">
+                              <span className="text-[8px] text-indigo-600 dark:text-indigo-400 font-extrabold">رد المتجر الآلي 🤖</span>
+                              <span className="text-[7px] text-slate-400 font-mono">{item.time}</span>
+                            </div>
+                            <p className="leading-relaxed text-slate-900 dark:text-white font-bold">{item.text}</p>
+                          </div>
+                        );
+                      })}
+                    </>
                   ) : (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 text-center text-[10px] text-slate-400 font-bold shadow-sm">
                       يرجى اختيار أو إنشاء أوردر بالسيستم أولاً لتعبئة بيانات المحاكي التفاعلي!

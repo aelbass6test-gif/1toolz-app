@@ -1227,147 +1227,567 @@ async function startServer() {
       return c.json({ success: false, error: err.message }, 500);
     }
   });
+  // Helper to configure UltraMsg webhook automatically
+  const setupUltraMsgWebhook = async (instanceId: string, token: string, webhookUrl: string) => {
+    try {
+      const cleanInst = instanceId.replace(/\s+/g, '');
+      const cleanTok = token.trim();
+      const url = `https://api.ultramsg.com/${cleanInst}/instance/settings`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: cleanTok,
+          webhook_url: webhookUrl,
+          webhook_message_received: "true",
+          webhook_message_create: "true",
+          webhook_message_ack: "true",
+          webhook_message_download_media: "false"
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      console.log(`[WHATSAPP-SETUP-WEBHOOK] Auto-configured UltraMsg webhook to ${webhookUrl}:`, data);
+      return data;
+    } catch (err) {
+      console.error("[WHATSAPP-SETUP-WEBHOOK] Failed to configure UltraMsg webhook:", err);
+      return { error: String(err) };
+    }
+  };
+
+  // Cache to prevent duplicate processing of the same message in polling
+  const processedMessageIds = new Set<string>();
+
+  // Unified WhatsApp Customer Message & Action Processor
+  const processCustomerWhatsAppAction = async ({
+    phone,
+    text,
+    source,
+    orderId,
+    messageId,
+    updatedAddress,
+    updatedGovernorate
+  }: {
+    phone?: string;
+    text: string;
+    source: string;
+    orderId?: string;
+    messageId?: string;
+    updatedAddress?: string;
+    updatedGovernorate?: string;
+  }) => {
+    if (messageId) {
+      if (processedMessageIds.has(messageId)) {
+        return { success: false, reason: "Message already processed previously." };
+      }
+      processedMessageIds.add(messageId);
+      if (processedMessageIds.size > 2000) {
+        const firstKey = processedMessageIds.values().next().value;
+        if (firstKey) processedMessageIds.delete(firstKey);
+      }
+    }
+
+    const cleanPhone = (phone || "").replace(/\D/g, "");
+    const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
+
+    const phoneCandidates = Array.from(new Set([
+      phone,
+      cleanPhone,
+      basePhone,
+      "0" + basePhone,
+      "20" + basePhone,
+      "+20" + basePhone,
+      "0020" + basePhone
+    ])).filter(Boolean) as string[];
+
+    let extractedOrderNumber: string | null = orderId || null;
+    try {
+      const orderNumMatch = text.match(/#(\d+)/) || text.match(/رقم\s*#?\s*(\d+)/i);
+      if (orderNumMatch && orderNumMatch[1]) {
+        extractedOrderNumber = orderNumMatch[1];
+      }
+    } catch (_) {}
+
+    let matchedOrder: any = null;
+    let matchedStoreDocId: string | null = null;
+    let matchedStoreData: any = null;
+
+    // Search across stores_data documents
+    const candidates: Array<{ order: any; storeDocId: string; storeData: any; score: number }> = [];
+    try {
+      const storesSnap = await getDocs(collection(db, "stores_data"));
+      for (const storeDoc of storesSnap.docs) {
+        const storeData = storeDoc.data();
+        const orders = storeData.orders || [];
+        for (const ord of orders) {
+          const oPhone = (ord.customerPhone || "").replace(/\D/g, "");
+          const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
+          const isNumMatch = extractedOrderNumber && (String(ord.orderNumber) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
+
+          if (isPhoneMatch || isNumMatch) {
+            let score = 0;
+            if (isNumMatch) score += 1000;
+            if (isPhoneMatch) score += 100;
+
+            const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'draft', 'pending'].includes(ord.status);
+            if (isPending) score += 50;
+            if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
+            if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
+
+            const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
+            score += (orderDate / 1e13);
+
+            candidates.push({
+              order: ord,
+              storeDocId: storeDoc.id,
+              storeData: storeData,
+              score
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error searching stores_data in processCustomerWhatsAppAction:", err);
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.score - a.score);
+      matchedOrder = candidates[0].order;
+      matchedStoreDocId = candidates[0].storeDocId;
+      matchedStoreData = candidates[0].storeData;
+    }
+
+    // Fallback to standalone orders collection
+    if (!matchedOrder && (orderId || basePhone)) {
+      try {
+        if (orderId) {
+          const ordSnap = await getDoc(doc(db, "orders", orderId));
+          if (ordSnap.exists()) {
+            matchedOrder = { id: ordSnap.id, ...ordSnap.data() as any };
+          }
+        }
+        if (!matchedOrder && basePhone) {
+          const ordersRef = collection(db, "orders");
+          const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) {
+            const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+            orderDocs.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
+            matchedOrder = orderDocs[0];
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!matchedOrder) {
+      console.log(`[WHATSAPP-PROCESSOR] No matching order found for phone: ${phone}, text: "${text}", source: ${source}`);
+      return { success: false, reason: "No matching order found." };
+    }
+
+    const normalizedText = (text || "").toLowerCase().trim();
+    let updatedStatus = matchedOrder.status;
+    let notes = matchedOrder.notes || "";
+    let customerAddress = updatedAddress || matchedOrder.customerAddress;
+    let replyMessage = "";
+    let actionName = "";
+
+    const isCancel = normalizedText.includes("إلغاء") || 
+                     normalizedText.includes("الغاء") || 
+                     normalizedText.includes("cancel") || 
+                     normalizedText.includes("❌") || 
+                     normalizedText === "2" || 
+                     normalizedText === "3" || 
+                     normalizedText === "3️⃣" || 
+                     normalizedText.includes("مش عاوز") || 
+                     normalizedText.includes("مش عايز") || 
+                     normalizedText.includes("مش هقدر") || 
+                     normalizedText.includes("كنسل") || 
+                     normalizedText.includes("رفض") || 
+                     normalizedText.includes("الغي") || 
+                     normalizedText.includes("إلغى") || 
+                     normalizedText.includes("لا اريد");
+
+    const isConfirm = normalizedText.includes("تأكيد") || 
+                      normalizedText.includes("تاكيد") || 
+                      normalizedText.includes("confirm") || 
+                      normalizedText.includes("👍") || 
+                      normalizedText.includes("✅") || 
+                      normalizedText === "1" || 
+                      normalizedText === "1️⃣" || 
+                      normalizedText.includes("موافق") || 
+                      normalizedText.includes("تمام") || 
+                      normalizedText.includes("جاهز") || 
+                      normalizedText.includes("اشحن") || 
+                      normalizedText.includes("ابعت");
+
+    const isEdit = normalizedText.includes("تعديل") || 
+                   normalizedText.includes("edit") || 
+                   normalizedText.includes("✍️") || 
+                   normalizedText.includes("تغيير العنوان") || 
+                   normalizedText.includes("العنوان غلط");
+
+    if (isCancel) {
+      updatedStatus = "ملغي";
+      actionName = "إلغاء الطلب";
+      notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
+      replyMessage = "تم إلغاء الشحنة بنجاح و بنتمنالك يوم سعيد 😊";
+    } else if (isConfirm) {
+      updatedStatus = "قيد_التنفيذ";
+      actionName = "تأكيد الطلب";
+      notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
+      replyMessage = "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة والتسليم فوراً. 📦✨";
+    } else if (isEdit) {
+      updatedStatus = "مؤجل";
+      actionName = "طلب تعديل البيانات/العنوان";
+      notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}). بانتظار عنوانه الجديد.`;
+      replyMessage = "عزيزي العميل، يرجى كتابة عنوانك الجديد بالتفصيل في رسالة واحدة ليتم تحديثه في طلبك فوراً. ✍️";
+    } else if (matchedOrder.status === "مؤجل" || (matchedOrder.notes && matchedOrder.notes.includes("تعديل العنوان"))) {
+      updatedStatus = "قيد_التنفيذ";
+      actionName = "تحديث العنوان وتأكيد الطلب";
+      const oldAddress = customerAddress || "بدون عنوان";
+      customerAddress = text;
+      notes += `\n[واتساب] تم تحديث العنوان تلقائياً من (${oldAddress}) إلى (${text}) وتأكيد الطلب (${new Date().toLocaleTimeString('ar-EG')}).`;
+      replyMessage = "تم تحديث عنوانك بنجاح وتأكيد الطلب! ✅ سيتم الشحن والتوصيل قريباً.";
+    } else {
+      return { success: false, reason: "Text did not match confirmation/cancellation keywords." };
+    }
+
+    // 1. Update in stores_data
+    if (matchedStoreDocId && matchedStoreData) {
+      const orderList = matchedStoreData.orders || [];
+      const updatedOrders = orderList.map((o: any) => {
+        if (o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber) {
+          return {
+            ...o,
+            status: updatedStatus,
+            customerAddress: customerAddress || o.customerAddress,
+            governorate: updatedGovernorate || o.governorate,
+            notes: notes,
+            auditLogs: [
+              ...(o.auditLogs || []),
+              {
+                id: Math.random().toString(36).substr(2, 9),
+                timestamp: new Date().toISOString(),
+                action: "رد تلقائي عبر واتساب",
+                details: `رد العميل (${source}): "${text}" -> تحولت الحالة إلى: ${updatedStatus}`,
+                userEmail: "WhatsApp Bot"
+              }
+            ],
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return o;
+      });
+
+      await setDoc(doc(db, "stores_data", matchedStoreDocId), {
+        ...matchedStoreData,
+        orders: updatedOrders,
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+
+      storeCache.delete(matchedStoreDocId);
+    }
+
+    // 2. Also update standalone orders collection
+    try {
+      const orderDocIds = Array.from(new Set([
+        matchedOrder.id,
+        matchedStoreDocId ? `${matchedStoreDocId}_${matchedOrder.id}` : null,
+        matchedOrder.storeId ? `${matchedOrder.storeId}_${matchedOrder.id}` : null,
+        matchedOrder.store_id ? `${matchedOrder.store_id}_${matchedOrder.id}` : null
+      ])).filter(Boolean) as string[];
+
+      for (const oDocId of orderDocIds) {
+        await setDoc(doc(db, "orders", oDocId), {
+          status: updatedStatus,
+          customerAddress,
+          governorate: updatedGovernorate || matchedOrder.governorate,
+          notes,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => {});
+      }
+    } catch (_) {}
+
+    // 3. Dispatch auto-reply message back to WhatsApp
+    let replyDispatched = false;
+    if (replyMessage) {
+      try {
+        const storeId = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId;
+        let config: any = null;
+
+        if (storeId) {
+          const storeRow = await getCachedStore(db, storeId);
+          if (storeRow?.settings?.whatsappConfig) {
+            config = storeRow.settings.whatsappConfig;
+          }
+        }
+
+        if (!config) {
+          const storesSnap = await getDocs(collection(db, "stores_data"));
+          for (const sDoc of storesSnap.docs) {
+            const sData = sDoc.data() as any;
+            if (sData.settings?.whatsappConfig?.isActive) {
+              config = sData.settings.whatsappConfig;
+              break;
+            }
+          }
+        }
+
+        let cleanTo = (phone || matchedOrder.customerPhone || '').toString().replace(/\D/g, '');
+        if (cleanTo.startsWith('0') && cleanTo.length === 11) {
+          cleanTo = '2' + cleanTo;
+        }
+
+        const metaPhoneId = config?.phoneNumberId || config?.instanceId;
+        const metaToken = config?.accessToken || config?.token;
+
+        // Case 1: Meta Cloud API
+        if (config?.providerType === 'meta_cloud' && metaPhoneId && metaToken) {
+          const metaRes = await fetch(`https://graph.facebook.com/v21.0/${metaPhoneId}/messages`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${metaToken}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              recipient_type: "individual",
+              to: cleanTo,
+              type: "text",
+              text: { preview_url: true, body: replyMessage }
+            })
+          });
+          replyDispatched = metaRes.ok;
+          console.log(`[WHATSAPP-REPLY] Sent auto-reply via Meta API to ${cleanTo} (${metaRes.status}): "${replyMessage}"`);
+        }
+        // Case 2: UltraMsg / Custom Gateway
+        else if (config && (config.apiUrl || config.token)) {
+          let finalApiUrl = (config.apiUrl || '').trim();
+          while (finalApiUrl.startsWith('/')) finalApiUrl = finalApiUrl.substring(1);
+          if (finalApiUrl && !finalApiUrl.startsWith('http')) finalApiUrl = 'https://' + finalApiUrl;
+          if (finalApiUrl && finalApiUrl.includes('api.ultramsg.com') && !finalApiUrl.includes('/messages/chat')) {
+            finalApiUrl = finalApiUrl.split('/messages/')[0] + '/messages/chat';
+          }
+
+          if (finalApiUrl && config.token) {
+            const ultraRes = await fetch(finalApiUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                token: config.token,
+                to: cleanTo,
+                body: replyMessage,
+                priority: 10
+              })
+            });
+            replyDispatched = ultraRes.ok;
+            console.log(`[WHATSAPP-REPLY] Sent auto-reply via UltraMsg to ${cleanTo} (${ultraRes.status}): "${replyMessage}"`);
+          }
+        }
+      } catch (e) {
+        console.error("[WHATSAPP-REPLY] Failed to dispatch auto-reply:", e);
+      }
+    }
+
+    console.log(`✅ [WHATSAPP-ACTION-COMPLETE] Order #${matchedOrder.orderNumber || matchedOrder.id} (${matchedOrder.customerName} - ${matchedOrder.customerPhone}) updated to: "${updatedStatus}" (Reply sent: ${replyDispatched})`);
+
+    return {
+      success: true,
+      updatedStatus,
+      orderId: matchedOrder.id,
+      orderNumber: matchedOrder.orderNumber,
+      customerName: matchedOrder.customerName,
+      customerPhone: matchedOrder.customerPhone,
+      replyMessage,
+      replyDispatched
+    };
+  };
+
+  // Setup Webhook URL on provider API automatically
+  app.post("/api/whatsapp/setup-webhook", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const origin = body.origin || c.req.header("origin") || c.req.header("host") || "";
+      let webhookUrl = body.webhookUrl || "";
+
+      if (!webhookUrl && origin) {
+        let cleanOrigin = origin.trim();
+        if (!cleanOrigin.startsWith("http")) cleanOrigin = "https://" + cleanOrigin;
+        webhookUrl = `${cleanOrigin}/api/webhook/whatsapp`;
+      }
+
+      let config = body.config;
+      if (!config) {
+        const storesSnap = await getDocs(collection(db, "stores_data"));
+        for (const sDoc of storesSnap.docs) {
+          const sData = sDoc.data() as any;
+          if (sData.settings?.whatsappConfig?.isActive) {
+            config = sData.settings.whatsappConfig;
+            break;
+          }
+        }
+      }
+
+      if (!config) {
+        return c.json({ success: false, error: "No active WhatsApp configuration found." }, 400);
+      }
+
+      const instanceId = (config.instanceId || '').replace(/\s+/g, '');
+      const token = (config.token || '').trim();
+
+      if (config.providerType === 'ultramsg' || (instanceId && token)) {
+        const ultraRes = await setupUltraMsgWebhook(instanceId, token, webhookUrl);
+        return c.json({
+          success: true,
+          provider: "ultramsg",
+          webhookUrl,
+          ultraMsgResponse: ultraRes
+        });
+      }
+
+      return c.json({
+        success: true,
+        provider: config.providerType,
+        webhookUrl,
+        message: "Webhook URL prepared for provider."
+      });
+    } catch (err: any) {
+      console.error("[SETUP-WEBHOOK-ERROR]", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Active sync received messages from WhatsApp Gateway
+  app.post("/api/whatsapp/sync-messages", async (c) => {
+    try {
+      const storesSnap = await getDocs(collection(db, "stores_data"));
+      let config: any = null;
+      for (const sDoc of storesSnap.docs) {
+        const sData = sDoc.data() as any;
+        if (sData.settings?.whatsappConfig?.isActive) {
+          config = sData.settings.whatsappConfig;
+          break;
+        }
+      }
+
+      if (!config) {
+        return c.json({ success: false, error: "لا يوجد إعداد واتساب مفعل" });
+      }
+
+      const instanceId = (config.instanceId || '').replace(/\s+/g, '');
+      const token = (config.token || '').trim();
+
+      if (!instanceId || !token) {
+        return c.json({ success: false, error: "Instance ID or Token missing" });
+      }
+
+      // Fetch received messages from UltraMsg
+      const url = `https://api.ultramsg.com/${instanceId}/messages?token=${token}&page=1&limit=50&status=received`;
+      const res = await fetch(url);
+      const data: any = await res.json().catch(() => null);
+
+      let messages: any[] = [];
+      if (Array.isArray(data)) {
+        messages = data;
+      } else if (data && Array.isArray(data.messages)) {
+        messages = data.messages;
+      }
+
+      const results = [];
+      for (const msg of messages) {
+        const fromMe = msg.fromMe === true || msg.fromMe === "true" || msg.fromMe === 1;
+        if (!fromMe) {
+          const phone = msg.from || msg.phone || "";
+          const text = msg.body || msg.text || "";
+          const msgId = msg.id || `${phone}_${msg.time || msg.date || text}`;
+
+          if (phone && text) {
+            const outcome = await processCustomerWhatsAppAction({
+              phone,
+              text,
+              source: "sync",
+              messageId: msgId
+            });
+            if (outcome.success) {
+              results.push(outcome);
+            }
+          }
+        }
+      }
+
+      return c.json({
+        success: true,
+        checkedMessages: messages.length,
+        processedActions: results.length,
+        actions: results
+      });
+    } catch (err: any) {
+      console.error("[SYNC-MESSAGES-ERROR]", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Background Auto-Sync Worker for WhatsApp replies (every 15 seconds)
+  setInterval(async () => {
+    try {
+      const storesSnap = await getDocs(collection(db, "stores_data"));
+      let config: any = null;
+      for (const sDoc of storesSnap.docs) {
+        const sData = sDoc.data() as any;
+        if (sData.settings?.whatsappConfig?.isActive) {
+          config = sData.settings.whatsappConfig;
+          break;
+        }
+      }
+
+      if (config && (config.providerType === 'ultramsg' || config.instanceId)) {
+        const instanceId = (config.instanceId || '').replace(/\s+/g, '');
+        const token = (config.token || '').trim();
+        if (instanceId && token) {
+          const url = `https://api.ultramsg.com/${instanceId}/messages?token=${token}&page=1&limit=30&status=received`;
+          const res = await fetch(url).catch(() => null);
+          if (res && res.ok) {
+            const data: any = await res.json().catch(() => null);
+            const messages = Array.isArray(data) ? data : (data?.messages || []);
+            for (const msg of messages) {
+              const fromMe = msg.fromMe === true || msg.fromMe === "true" || msg.fromMe === 1;
+              if (!fromMe) {
+                const phone = msg.from || msg.phone || "";
+                const text = msg.body || msg.text || "";
+                const msgId = msg.id || `${phone}_${msg.time || text}`;
+                if (phone && text) {
+                  await processCustomerWhatsAppAction({
+                    phone,
+                    text,
+                    source: "bg-worker",
+                    messageId: msgId
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }, 15000);
+
+  // Interactive Webhook Simulator Endpoint
   app.post("/api/whatsapp/simulate-callback", async (c) => {
     try {
       const { phone, buttonText, orderId, updatedAddress, updatedGovernorate } = await c.req.json();
       console.log(`[SIMULATION-WEBHOOK] Received callback for Order #${orderId}, Phone: ${phone}, Action: ${buttonText}`);
 
-      if (!orderId && !phone) {
-        return c.json({ success: false, error: "Order ID or Phone is required." }, 400);
-      }
+      const result = await processCustomerWhatsAppAction({
+        phone,
+        text: buttonText,
+        source: "simulator",
+        orderId,
+        updatedAddress,
+        updatedGovernorate
+      });
 
-      let updatedStatus = "قيد_التنفيذ";
-      let actionLog = "تأكيد الطلب";
-      const normalizedBtn = (buttonText || "").toLowerCase().trim();
-
-      if (normalizedBtn.includes("إلغاء") || normalizedBtn.includes("الغاء") || normalizedBtn.includes("cancel") || normalizedBtn.includes("❌") || normalizedBtn === "2" || normalizedBtn === "3") {
-        updatedStatus = "ملغي";
-        actionLog = "إلغاء الطلب";
-      } else if (normalizedBtn.includes("تعديل") || normalizedBtn.includes("edit") || normalizedBtn.includes("✍️")) {
-        updatedStatus = "مؤجل";
-        actionLog = "طلب تعديل العنوان";
-      } else if (normalizedBtn.includes("تأكيد") || normalizedBtn.includes("تاكيد") || normalizedBtn.includes("confirm") || normalizedBtn.includes("👍") || normalizedBtn.includes("✅") || normalizedBtn === "1" || normalizedBtn === "1️⃣") {
-        updatedStatus = "قيد_التنفيذ";
-        actionLog = "تأكيد الطلب";
-      }
-
-      let updatedInStore = false;
-      const cleanPhone = (phone || "").replace(/\D/g, "");
-      const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
-
-      // Search and update across stores_data documents
-      try {
-        const storesSnap = await getDocs(collection(db, "stores_data"));
-        for (const storeDoc of storesSnap.docs) {
-          const storeData = storeDoc.data();
-          const orders = storeData.orders || [];
-          let storeModified = false;
-
-          const updatedOrders = orders.map((o: any) => {
-            const oPhone = (o.customerPhone || "").replace(/\D/g, "");
-            const isMatch = (orderId && (o.id === orderId || o.orderNumber === orderId)) ||
-                            (basePhone && (oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone)));
-
-            if (isMatch) {
-              storeModified = true;
-              updatedInStore = true;
-              return {
-                ...o,
-                status: updatedStatus,
-                customerAddress: updatedAddress || o.customerAddress,
-                governorate: updatedGovernorate || o.governorate,
-                notes: (o.notes ? o.notes + "\n" : "") + `[واتساب] ${actionLog} تلقائياً عبر الأزرار (${new Date().toLocaleTimeString('ar-EG')})`,
-                auditLogs: [
-                  ...(o.auditLogs || []),
-                  {
-                    id: Math.random().toString(36).substr(2, 9),
-                    timestamp: new Date().toISOString(),
-                    action: "رد واتساب",
-                    details: `الرد: "${buttonText}" -> الحالة: ${updatedStatus}`,
-                    userEmail: "WhatsApp Bot"
-                  }
-                ],
-                updatedAt: new Date().toISOString()
-              };
-            }
-            return o;
-          });
-
-          if (storeModified) {
-            await setDoc(doc(db, "stores_data", storeDoc.id), {
-              ...storeData,
-              orders: updatedOrders,
-              lastUpdated: new Date().toISOString()
-            }, { merge: true });
-            storeCache.delete(storeDoc.id);
-          }
-        }
-      } catch (err) {
-        console.error("Error updating stores_data in simulate-callback:", err);
-      }
-
-      // Also update standalone orders collection if present
-      if (orderId) {
-        try {
-          const orderDocRef = doc(db, "orders", orderId);
-          const orderSnap = await getDoc(orderDocRef);
-          if (orderSnap.exists()) {
-            const orderData = orderSnap.data();
-            await setDoc(orderDocRef, {
-              ...orderData,
-              status: updatedStatus,
-              customerAddress: updatedAddress || orderData.customerAddress,
-              governorate: updatedGovernorate || orderData.governorate,
-              notes: (orderData.notes ? orderData.notes + "\n" : "") + `[واتساب] ${actionLog} (${new Date().toLocaleTimeString('ar-EG')})`,
-              updatedAt: new Date().toISOString()
-            }, { merge: true });
-          }
-        } catch (_) {}
-      }
-
-      return c.json({ success: true, updatedStatus, updatedAddress, updatedGovernorate, updatedInStore });
+      return c.json(result);
     } catch (err: any) {
       console.error("[SIMULATION-WEBHOOK] Error:", err);
-      return c.json({ success: false, error: err.message }, 500);
-    }
-  });
-
-  // Meta Embedded Signup - Exchange OAuth Code for Access Token
-  app.post("/api/whatsapp/meta-exchange-token", async (c) => {
-    try {
-      const { code, appId, appSecret, redirectUri } = await c.req.json();
-      if (!code || !appId || !appSecret) {
-        return c.json({ success: false, error: "Missing code, appId, or appSecret." }, 400);
-      }
-
-      const tokenUrl = `https://graph.facebook.com/v21.0/oauth/access_token?client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(appSecret)}&code=${encodeURIComponent(code)}&redirect_uri=${encodeURIComponent(redirectUri || '')}`;
-      const tokenRes = await fetch(tokenUrl);
-      const tokenData: any = await tokenRes.json();
-
-      if (!tokenRes.ok || !tokenData.access_token) {
-        return c.json({
-          success: false,
-          error: tokenData.error?.message || "فشل استبدال كود التفويض برمز الوصول من ميتا."
-        }, 400);
-      }
-
-      const accessToken = tokenData.access_token;
-
-      // Debug token to get granular scopes and target WABA
-      let debugInfo: any = {};
-      try {
-        const dRes = await fetch(`https://graph.facebook.com/v21.0/debug_token?input_token=${accessToken}&access_token=${accessToken}`);
-        debugInfo = await dRes.json();
-      } catch (_) {}
-
-      return c.json({
-        success: true,
-        accessToken,
-        tokenData,
-        debugInfo
-      });
-    } catch (err: any) {
-      console.error("[META-EXCHANGE-ERROR]", err);
       return c.json({ success: false, error: err.message }, 500);
     }
   });
@@ -1411,17 +1831,20 @@ async function startServer() {
 
       let phone = "";
       let buttonText = "";
+      let messageId = "";
 
       if (body.data && (body.event_type === "message_received" || body.event === "message")) {
         const msg = body.data;
+        messageId = msg.id || "";
         phone = msg.from || msg.phone || "";
-        if (msg.type === "button_reply" || msg.type === "button") {
+        if (msg.type === "button_reply" || msg.type === "button" || msg.type === "buttons_response" || msg.type === "template_button_reply") {
           buttonText = msg.body || msg.payload || msg.selectedButtonId || msg.text || "";
         } else {
           buttonText = msg.body || msg.text || "";
         }
       } else if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
         const msg = body.entry[0].changes[0].value.messages[0];
+        messageId = msg.id || "";
         phone = msg.from;
         if (msg.type === "button") {
           buttonText = msg.button?.text || msg.button?.payload || "";
@@ -1435,8 +1858,8 @@ async function startServer() {
           buttonText = msg.text?.body || "";
         }
       } else if (body.messages?.[0]) {
-        // Generic direct webhook format
         const msg = body.messages[0];
+        messageId = msg.id || "";
         phone = msg.from || msg.sender || "";
         buttonText = msg.text?.body || msg.body || "";
       }
@@ -1445,218 +1868,14 @@ async function startServer() {
         return c.json({ success: false, reason: "No interactive action or phone parsed." });
       }
 
-      const cleanPhone = phone.replace(/\D/g, "");
-      const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
-
-      const phoneCandidates = Array.from(new Set([
+      const result = await processCustomerWhatsAppAction({
         phone,
-        cleanPhone,
-        basePhone,
-        "0" + basePhone,
-        "20" + basePhone,
-        "+20" + basePhone,
-        "0020" + basePhone
-      ])).filter(Boolean);
+        text: buttonText,
+        source: "webhook",
+        messageId
+      });
 
-      let matchedOrder: any = null;
-      let matchedStoreDocId: string | null = null;
-      let matchedStoreData: any = null;
-
-      let extractedOrderNumber: string | null = null;
-      try {
-        const rawBodyStr = JSON.stringify(body);
-        const orderNumMatch = rawBodyStr.match(/#(\d+)/) || rawBodyStr.match(/رقم\s*#?\s*(\d+)/i) || buttonText.match(/#(\d+)/);
-        if (orderNumMatch && orderNumMatch[1]) {
-          extractedOrderNumber = orderNumMatch[1];
-        }
-      } catch (_) {}
-
-      // 1. Search across stores_data documents with smart scoring
-      const candidates: Array<{ order: any; storeDocId: string; storeData: any; score: number }> = [];
-      try {
-        const storesSnap = await getDocs(collection(db, "stores_data"));
-        for (const storeDoc of storesSnap.docs) {
-          const storeData = storeDoc.data();
-          const orders = storeData.orders || [];
-          for (const ord of orders) {
-            const oPhone = (ord.customerPhone || "").replace(/\D/g, "");
-            const isPhoneMatch = phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
-            const isNumMatch = extractedOrderNumber && (String(ord.orderNumber) === extractedOrderNumber || String(ord.id).includes(extractedOrderNumber));
-            
-            if (isPhoneMatch || isNumMatch) {
-              let score = 0;
-              if (isNumMatch) score += 1000;
-              if (isPhoneMatch) score += 100;
-              
-              const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'draft', 'pending'].includes(ord.status);
-              if (isPending) score += 50;
-              if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
-              if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
-
-              const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
-              score += (orderDate / 1e13); // recency
-
-              candidates.push({
-                order: ord,
-                storeDocId: storeDoc.id,
-                storeData: storeData,
-                score
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Error searching stores_data in webhook:", err);
-      }
-
-      if (candidates.length > 0) {
-        candidates.sort((a, b) => b.score - a.score);
-        matchedOrder = candidates[0].order;
-        matchedStoreDocId = candidates[0].storeDocId;
-        matchedStoreData = candidates[0].storeData;
-      }
-
-      // 2. Fallback to standalone orders collection
-      if (!matchedOrder) {
-        try {
-          const ordersRef = collection(db, "orders");
-          const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
-          const qSnap = await getDocs(q);
-          if (!qSnap.empty) {
-            const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-            orderDocs.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
-            matchedOrder = orderDocs[0];
-          }
-        } catch (_) {}
-      }
-
-      if (!matchedOrder) {
-        console.log(`[WHATSAPP-PUBLIC-WEBHOOK] No orders found for parsed phone: ${phone} (candidates: ${phoneCandidates.join(', ')})`);
-        return c.json({ success: false, reason: "No associated order found." });
-      }
-
-      let updatedStatus = matchedOrder.status;
-      let notes = matchedOrder.notes || "";
-      let customerAddress = matchedOrder.customerAddress;
-      let replyMessage = "";
-      const text = buttonText.toLowerCase().trim();
-
-      if (text.includes("تأكيد") || text.includes("تاكيد") || text.includes("confirm") || text.includes("👍") || text.includes("✅") || text === "1" || text === "1️⃣" || text === "موافق" || text === "تمام") {
-        updatedStatus = "قيد_التنفيذ";
-        notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
-        replyMessage = "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة والتسليم فوراً. 📦✨";
-      } else if (text.includes("إلغاء") || text.includes("الغاء") || text.includes("cancel") || text.includes("❌") || text === "2" || text === "3" || text.includes("مش عاوز") || text.includes("مش عايز") || text.includes("كنسل") || text.includes("رفض")) {
-        updatedStatus = "ملغي";
-        notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
-        replyMessage = "تم إلغاء الطلب بنجاح بناءً على طلبك. نتمنى أن نراك مجدداً في متجرنا. 🌸";
-      } else if (text.includes("تعديل") || text.includes("edit") || text.includes("✍️") || text.includes("تغيير العنوان")) {
-        updatedStatus = "مؤجل";
-        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}). بانتظار عنوانه الجديد.`;
-        replyMessage = "عزيزي العميل، يرجى كتابة عنوانك الجديد بالتفصيل في رسالة واحدة ليتم تحديثه في طلبك فوراً. ✍️";
-      } else if (matchedOrder.status === "مؤجل" || (matchedOrder.notes && matchedOrder.notes.includes("تعديل العنوان"))) {
-        updatedStatus = "قيد_التنفيذ";
-        const oldAddress = customerAddress || "بدون عنوان";
-        customerAddress = buttonText;
-        notes += `\n[واتساب] تم تحديث العنوان تلقائياً من (${oldAddress}) إلى (${buttonText}) وتأكيد الطلب (${new Date().toLocaleTimeString('ar-EG')}).`;
-        replyMessage = "تم تحديث عنوانك بنجاح وتأكيد الطلب! ✅ سيتم الشحن والتوصيل قريباً.";
-      } else {
-        return c.json({ success: false, reason: "Text did not match confirmation keywords." });
-      }
-
-      // 1. Update in stores_data
-      if (matchedStoreDocId && matchedStoreData) {
-        const orderList = matchedStoreData.orders || [];
-        const updatedOrders = orderList.map((o: any) => {
-          if (o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber) {
-            return {
-              ...o,
-              status: updatedStatus,
-              customerAddress: customerAddress || o.customerAddress,
-              notes: notes,
-              auditLogs: [
-                ...(o.auditLogs || []),
-                {
-                  id: Math.random().toString(36).substr(2, 9),
-                  timestamp: new Date().toISOString(),
-                  action: "رد تلقائي عبر واتساب",
-                  details: `رد العميل: "${buttonText}" -> تحولت الحالة إلى: ${updatedStatus}`,
-                  userEmail: "WhatsApp Webhook Bot"
-                }
-              ],
-              updatedAt: new Date().toISOString()
-            };
-          }
-          return o;
-        });
-
-        await setDoc(doc(db, "stores_data", matchedStoreDocId), {
-          ...matchedStoreData,
-          orders: updatedOrders,
-          lastUpdated: new Date().toISOString()
-        }, { merge: true });
-
-        storeCache.delete(matchedStoreDocId);
-      }
-
-      // 2. Also update all possible document keys in standalone orders collection
-      try {
-        const orderDocIds = Array.from(new Set([
-          matchedOrder.id,
-          matchedStoreDocId ? `${matchedStoreDocId}_${matchedOrder.id}` : null,
-          matchedOrder.storeId ? `${matchedOrder.storeId}_${matchedOrder.id}` : null,
-          matchedOrder.store_id ? `${matchedOrder.store_id}_${matchedOrder.id}` : null
-        ])).filter(Boolean) as string[];
-
-        for (const oDocId of orderDocIds) {
-          await setDoc(doc(db, "orders", oDocId), {
-            status: updatedStatus,
-            customerAddress,
-            notes,
-            updatedAt: new Date().toISOString()
-          }, { merge: true }).catch(() => {});
-        }
-      } catch (_) {}
-
-      if (replyMessage) {
-        try {
-          const storeId = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId;
-          let token = "";
-          let phoneId = "";
-          
-          if (storeId) {
-              const storeRow = await getCachedStore(db, storeId);
-              if (storeRow?.settings?.whatsappConfig) {
-                  token = storeRow.settings.whatsappConfig.accessToken || storeRow.settings.whatsappConfig.token;
-                  phoneId = storeRow.settings.whatsappConfig.phoneNumberId || storeRow.settings.whatsappConfig.instanceId;
-              }
-          }
-          
-          if (!phoneId) {
-             phoneId = body.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-          }
-
-          if (token && phoneId) {
-              await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${token}`,
-                  "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                  messaging_product: "whatsapp",
-                  to: phone,
-                  type: "text",
-                  text: { body: replyMessage }
-                })
-              });
-          }
-        } catch(e) {
-          console.error("Failed to send auto-reply", e);
-        }
-      }
-
-      console.log(`✅ [WHATSAPP-WEBHOOK] Successfully updated Order #${matchedOrder.orderNumber || matchedOrder.id} to status: "${updatedStatus}" for customer phone: ${matchedOrder.customerPhone}`);
-      return c.json({ success: true, updatedStatus, orderId: matchedOrder.id });
+      return c.json(result);
     } catch (err: any) {
       console.error("[WHATSAPP-PUBLIC-WEBHOOK] Error:", err);
       return c.json({ success: false, error: err.message }, 500);
