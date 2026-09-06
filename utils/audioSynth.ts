@@ -111,6 +111,25 @@ class AudioSynthEngine {
   }
 
   /**
+   * Convenience helpers for quick sound effects
+   */
+  public playSuccess() {
+    this.playTone('success');
+  }
+
+  public playCash() {
+    this.playTone('chime');
+  }
+
+  public playAlarm() {
+    this.playTone('error');
+  }
+
+  public playClick() {
+    this.playTone('click');
+  }
+
+  /**
    * Speak Arabic narration phrases using the system Text-to-Speech synthesizer
    */
   public speak(text: string) {

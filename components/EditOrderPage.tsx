@@ -7,6 +7,7 @@ import { syncMaintenanceStatus } from '../src/utils/maintenanceSync';
 import { calculateInsuranceFee, getStandardShippingFee, calculateCodFee } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 import { deductOrderStock, restoreOrderStock } from '../utils/inventoryManager';
+import { triggerWebhooks } from '../utils/webhook';
 
 interface EditOrderPageProps {
     orders: Order[];
@@ -494,6 +495,10 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
             
             // تشغيل صوت واحتفالات نجاح تعديل الطلب
             triggerCelebration('edit_order', settings);
+            
+            // إرسال الـ Webhooks لحظياً (تحديث الطلب أو إلغاء الطلب)
+            const isCancelled = String(updatedOrder.status || '').includes('ملغي') || String(updatedOrder.status || '').includes('Canceled');
+            void triggerWebhooks(updatedOrder, settings, activeStore?.id, isCancelled ? 'order.cancelled' : 'order.updated');
             
             if (updatedOrder.orderType === 'maintenance') {
                 try {

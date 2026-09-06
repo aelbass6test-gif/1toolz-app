@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command, X, FileText, MessageSquare, ClipboardList, Send, Trash2 } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command, X, FileText, MessageSquare, ClipboardList, Send, Trash2, Code } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
@@ -974,12 +974,12 @@ const Header: React.FC<HeaderProps> = ({
                             <Link to={currentUser?.isAdmin ? "/admin/account-settings" : "/account-settings"} onClick={() => setIsUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm transition-colors">
                                 <UserIcon size={16} /> <span>ملفي الشخصي</span>
                             </Link>
-                            <a href="https://docs.wuilt.com" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm transition-colors">
+                            <Link to="/docs" onClick={() => setIsUserMenuOpen(false)} className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-bold text-sm transition-colors">
                                 <div className="flex items-center gap-3">
-                                    <Settings size={16} /> <span>مركز المساعدة</span>
+                                    <Code size={16} /> <span>توثيق الـ API والربط</span>
                                 </div>
-                                <ExternalLink size={14} />
-                            </a>
+                                <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 px-1.5 py-0.5 rounded font-mono">v1.0</span>
+                            </Link>
                             <div className="w-full h-px bg-slate-100 dark:bg-slate-700 my-2"></div>
                             <div className="px-4 py-2">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">المظهر</p>

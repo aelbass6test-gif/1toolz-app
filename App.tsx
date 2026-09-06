@@ -75,11 +75,13 @@ const EditOrderPage = lazyWithRetry(() => import('./components/EditOrderPage'));
 const ChatBot = lazyWithRetry(() => import('./components/ChatBot'));
 const CongratsModal = lazyWithRetry(() => import('./components/CongratsModal'));
 const OrderTrackingPage = lazyWithRetry(() => import('./components/OrderTrackingPage'));
+const CustomerOrderActionPage = lazyWithRetry(() => import('./components/CustomerOrderActionPage'));
 const OtpVerificationPage = lazyWithRetry(() => import('./components/OtpVerificationPage'));
 const FirebaseActionPage = lazyWithRetry(() => import('./components/FirebaseActionPage'));
 const IosInstallPrompt = lazyWithRetry(() => import('./components/IosInstallPrompt'));
 const ComingSoonPage = lazyWithRetry(() => import('./components/ComingSoonPage'));
 const AppsPage = lazyWithRetry(() => import('./components/AppsPage'));
+const ApiDocsPage = lazyWithRetry(() => import('./components/ApiDocsPage'));
 const UniversalInstallPrompt = lazyWithRetry(() => import('./components/UniversalInstallPrompt'));
 const CreateDropshippingOrderPage = lazyWithRetry(() => import('./components/CreateDropshippingOrderPage'));
 const WarehouseSubmitPage = lazyWithRetry(() => import('./components/WarehouseSubmitPage'));
@@ -3014,6 +3016,10 @@ export const AppComponent = () => {
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />
                 <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} />} />
+                <Route path="/order-action" element={<CustomerOrderActionPage />} />
+                <Route path="/order-action/" element={<CustomerOrderActionPage />} />
+                <Route path="/confirm-order/:id" element={<CustomerOrderActionPage />} />
+                <Route path="/cancel-order/:id" element={<CustomerOrderActionPage />} />
                 <Route path="/shared-report/:id" element={<SharedReportView />} />
                 <Route path="/shared-audit/:auditId" element={<WarehouseSubmitPage />} />
                 
@@ -3195,7 +3201,13 @@ export const AppComponent = () => {
                             setAllStoresData={setAllStoresData}
                         />
                     } />
+                    <Route path="docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
+                    <Route path="api-docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                 </Route>
+
+                {/* Standalone Public Docs Route */}
+                <Route path="/docs" element={<ApiDocsPage activeStore={activeStore} settings={allStoresData[activeStoreId || '']?.settings || INITIAL_SETTINGS} currentUser={currentUser} />} />
+                <Route path="/api-docs" element={<ApiDocsPage activeStore={activeStore} settings={allStoresData[activeStoreId || '']?.settings || INITIAL_SETTINGS} currentUser={currentUser} />} />
 
                 <Route path="/store/:storeId/partner-portal" element={
                     <PartnerPortal 

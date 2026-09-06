@@ -596,6 +596,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         // تشغيل صوت واحتفالات نجاح تسجيل الطلب
         triggerCelebration('create_order', settings);
         
+        // إرسال الـ Webhooks لحظياً للأنظمة المربوطة (مثل Akked أو Zapier)
+        void triggerWebhooks(orderWithId, settings, activeStore?.id);
+        
         setOrderToConfirm(null);
         setShowSummaryModal(orderWithId);
     };

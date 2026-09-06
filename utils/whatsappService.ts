@@ -1,6 +1,23 @@
 import { Order, Settings, WhatsAppConfig } from '../types';
 
 /**
+ * دالة مساعدة لتوحيد وتنظيف أرقام الهواتف المتوافقة مع WhatsApp
+ */
+export const normalizeWhatsAppPhone = (rawPhone: string): string => {
+  let clean = (rawPhone || '').toString().replace(/\D/g, '');
+  // إزالة أصفار البداية الدولية مثل 0020
+  clean = clean.replace(/^00+/, '');
+  // إذا كان الرقم مصري يبدأ بـ 01 وطوله 11 رقم (مثل 01012345678) -> تحويله لـ 201012345678
+  if (clean.startsWith('0') && clean.length === 11) {
+    clean = '2' + clean;
+  } else if (clean.startsWith('1') && clean.length === 10) {
+    // رقم مصري مكتوب بدون الصفر الأول (مثل 1012345678)
+    clean = '20' + clean;
+  }
+  return clean;
+};
+
+/**
  * خدمة الواتساب لإرسال الرسائل التلقائية
  */
 export const whatsappService = {
@@ -54,9 +71,25 @@ export const whatsappService = {
       productsList = '▫️ منتجات الطلب';
     }
 
+    const appOrigin = typeof window !== 'undefined' && window.location.origin && !window.location.hostname.includes('localhost')
+      ? window.location.origin
+      : 'https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app';
+
+    const orderIdParam = ord.id || ord.orderNumber || '';
+    const phoneClean = (ord.customerPhone || '').replace(/\D/g, '');
+    const confirmLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&action=confirm&phone=${encodeURIComponent(phoneClean)}`;
+    const cancelLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&action=cancel&phone=${encodeURIComponent(phoneClean)}`;
+    const editAddressLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&action=edit_address&phone=${encodeURIComponent(phoneClean)}`;
+    const trackLink = `${appOrigin}/track-order?orderNumber=${encodeURIComponent(ord.orderNumber || '')}&phone=${encodeURIComponent(phoneClean.slice(-4))}`;
+
     const replacePlaceholders = (text: string): string => {
       if (!text) return '';
       return text
+        // Smart 1-click action links
+        .replace(/{confirmLink}/g, confirmLink)
+        .replace(/{cancelLink}/g, cancelLink)
+        .replace(/{editAddressLink}/g, editAddressLink)
+        .replace(/{trackLink}/g, trackLink)
         // New format placeholders
         .replace(/{customerName}/g, ord.customerName || 'عزيزي العميل')
         .replace(/{orderNumber}/g, ord.orderNumber || '')
@@ -73,7 +106,7 @@ export const whatsappService = {
         .replace(/{rejectionFee}/g, flexShipAmount.toString())
         .replace(/{nonDeliveryFee}/g, flexShipAmount.toString())
         .replace(/{shippingFee}/g, (ord.shippingFee !== undefined && ord.shippingFee !== null ? ord.shippingFee : flexShipAmount).toString())
-        .replace(/{trackingUrl}/g, ord.trackingUrl || 'سيتم إرساله قريباً')
+        .replace(/{trackingUrl}/g, ord.trackingUrl || trackLink)
         .replace(/{trackingNumber}/g, ord.trackingNumber || ord.waybillNumber || ord.bostaTrackingNumber || 'قيد الإصدار')
         .replace(/{shippingCompany}/g, ord.shippingCompany || 'شركة الشحن')
         .replace(/{status}/g, ord.status?.replace(/_/g, ' ') || '')
@@ -99,7 +132,7 @@ export const whatsappService = {
         .replace(/\[العنوان\]/g, ord.customerAddress || '')
         .replace(/\[المحافظة\]/g, ord.governorate || '')
         .replace(/\[المدينة\]/g, ord.customerCity || '')
-        .replace(/\[رقم التتبع\]/g, ord.trackingUrl || '')
+        .replace(/\[رقم التتبع\]/g, ord.trackingUrl || trackLink)
         .replace(/\[شركة الشحن\]/g, ord.shippingCompany || '');
     };
     
@@ -116,6 +149,13 @@ export const whatsappService = {
     if (template.includes('تأكيد') || template.includes('استلمنا طلبك') || template.includes('طلب جديد')) {
       if (!template.includes('عدم الاستلام') && !template.includes('رفض الاستلام') && !template.includes('{flexShipFee}') && !template.includes('[مبلغ الفليكس شيب]')) {
         message += `\n\n⚠️ *تنبيه:* في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن (${flexShipAmount} ${currency}).`;
+      }
+    }
+
+    // Append 1-click action links if this is a confirmation template and not already present
+    if (template.includes('تأكيد') || template.includes('استلمنا طلبك') || template.includes('طلب جديد')) {
+      if (!template.includes('{confirmLink}') && !message.includes('/order-action')) {
+        message += `\n\n⚡ *تأكيد أو إلغاء الطلب بضغطة واحدة:*\n🟢 تأكيد الطلب والشحن فوراً:\n${confirmLink}\n\n🔴 إلغاء الطلب:\n${cancelLink}`;
       }
     }
 
@@ -144,9 +184,9 @@ export const whatsappService = {
     }
 
     try {
-      let cleanPhone = phone.replace(/\D/g, '');
-      if (cleanPhone.startsWith('01') && cleanPhone.length === 11) {
-        cleanPhone = '2' + cleanPhone;
+      const cleanPhone = normalizeWhatsAppPhone(phone);
+      if (!cleanPhone || cleanPhone.length < 8) {
+        return { success: false, error: 'رقم هاتف المستلم غير صحيح أو ناقص' };
       }
 
       const activeStoreName = storeName || (config as any)?.storeName || 'متجرنا';
@@ -165,7 +205,6 @@ export const whatsappService = {
       }
 
       let data: any = null;
-      let usedDirectMeta = false;
 
       try {
         const response = await fetch('/api/whatsapp/send', {
@@ -198,8 +237,13 @@ export const whatsappService = {
         const phoneId = (config.phoneNumberId || config.instanceId || '').trim();
         const token = (config.accessToken || config.token || '').trim();
         if (phoneId && token) {
-          usedDirectMeta = true;
           let metaPayload: any;
+
+          let fullText = message;
+          if (cleanFooter) fullText += `\n\n📌 ${cleanFooter}`;
+          if (cleanButtons && cleanButtons.length > 0) {
+            fullText += `\n\n🔘 الخيارات:\n` + cleanButtons.map((b: any, i: number) => `${i + 1}. ${typeof b === 'string' ? b : (b.text || b.title || '')}`).join('\n');
+          }
 
           if (config.metaTemplateName && config.metaTemplateName.trim()) {
             metaPayload = {
@@ -214,7 +258,8 @@ export const whatsappService = {
                 }
               }
             };
-          } else if (cleanButtons && Array.isArray(cleanButtons) && cleanButtons.length > 0 && cleanButtons.length <= 3) {
+          } else if (cleanButtons && Array.isArray(cleanButtons) && cleanButtons.length > 0 && cleanButtons.length <= 3 && (message || '').length <= 1024) {
+            const safeFooter = cleanFooter ? [...cleanFooter.trim()].slice(0, 60).join('') : undefined;
             metaPayload = {
               messaging_product: 'whatsapp',
               recipient_type: 'individual',
@@ -222,11 +267,12 @@ export const whatsappService = {
               type: 'interactive',
               interactive: {
                 type: 'button',
-                body: { text: message },
-                footer: cleanFooter ? { text: cleanFooter } : undefined,
+                body: { text: message.trim() || 'إشعار من المتجر' },
+                footer: safeFooter ? { text: safeFooter } : undefined,
                 action: {
                   buttons: cleanButtons.map((b: any, idx: number) => {
-                    const title = (typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`)).trim().substring(0, 20);
+                    const rawTitle = typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`);
+                    const title = [...(rawTitle || `زر ${idx + 1}`).trim()].slice(0, 20).join('');
                     const id = (typeof b === 'object' && b.id ? b.id : `btn_${idx + 1}`).substring(0, 256);
                     return { type: 'reply', reply: { id, title } };
                   })
@@ -234,11 +280,6 @@ export const whatsappService = {
               }
             };
           } else {
-            let fullText = message;
-            if (cleanFooter) fullText += `\n\n📌 ${cleanFooter}`;
-            if (cleanButtons && cleanButtons.length > 0) {
-              fullText += `\n\n🔘 الخيارات:\n` + cleanButtons.map((b: any, i: number) => `${i + 1}. ${typeof b === 'string' ? b : (b.text || b.title || '')}`).join('\n');
-            }
             metaPayload = {
               messaging_product: 'whatsapp',
               recipient_type: 'individual',
@@ -257,7 +298,34 @@ export const whatsappService = {
             body: JSON.stringify(metaPayload)
           });
           data = await metaRes.json();
-          if (metaRes.ok && data.messages) {
+
+          // If interactive/template failed on direct call, retry once with text payload
+          if ((!metaRes.ok || !data.messages) && metaPayload.type !== 'text') {
+            try {
+              const fallbackRes = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  messaging_product: 'whatsapp',
+                  recipient_type: 'individual',
+                  to: cleanPhone,
+                  type: 'text',
+                  text: { body: fullText }
+                })
+              });
+              const fallbackData = await fallbackRes.json();
+              if (fallbackRes.ok && fallbackData.messages) {
+                data = fallbackData;
+              }
+            } catch (err) {
+              // Ignore fallback error and report original error
+            }
+          }
+
+          if (data.messages && data.messages.length > 0) {
             return { success: true };
           } else {
             const errStr = data.error?.message || 'فشل الإرسال عبر Meta Cloud API';
@@ -288,3 +356,4 @@ export const whatsappService = {
     }
   }
 };
+

@@ -5,10 +5,12 @@ import {
   CheckCircle2, ChevronLeft, Cable, HardDriveDownload, Search, Shapes, X, 
   RefreshCw, ListChecks, CheckCircle, Package, ImageIcon, Save, XCircle, 
   Sparkles, FileSpreadsheet, Eye, Printer, Sliders, Check, Download, 
-  Upload, Copy, Info, AlertTriangle, Play, HelpCircle, FileText
+  Upload, Copy, Info, AlertTriangle, Play, HelpCircle, FileText, Key, Webhook
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import confetti from 'canvas-confetti';
+import ApiKeysManager from './ApiKeysManager';
+import WebhooksManager from './WebhooksManager';
 
 interface AppsPageProps {
   storeId: string;
@@ -84,7 +86,7 @@ const AVAILABLE_APPS = [
 ];
 
 export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdateOrders, onRefresh, hostUrl }: AppsPageProps) {
-  const [activeTab, setActiveTab] = useState<'platforms' | 'libraries'>('platforms');
+  const [activeTab, setActiveTab] = useState<'platforms' | 'libraries' | 'apikeys' | 'webhooks'>('platforms');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedApp, setSelectedApp] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -722,24 +724,38 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
   return (
     <div className="space-y-6">
       {/* Tab Switcher */}
-      <div className="flex border-b border-slate-200 dark:border-slate-700">
+      <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto hide-scrollbar">
          <button 
            onClick={() => setActiveTab('platforms')}
-           className={`py-3 px-6 font-bold text-sm border-b-2 flex items-center gap-2 transition-all ${activeTab === 'platforms' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+           className={`py-3 px-6 font-bold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'platforms' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
          >
            <Cable className="w-4 h-4" />
            منصات التجارة والربط (Platforms)
          </button>
          <button 
            onClick={() => setActiveTab('libraries')}
-           className={`py-3 px-6 font-bold text-sm border-b-2 flex items-center gap-2 transition-all ${activeTab === 'libraries' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+           className={`py-3 px-6 font-bold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'libraries' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
          >
            <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
            الحزم البرمجية والحلول فائقة التطور (Premium Tech Engines)
          </button>
+         <button 
+           onClick={() => setActiveTab('apikeys')}
+           className={`py-3 px-6 font-bold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'apikeys' ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400 dark:border-emerald-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+         >
+           <Key className="w-4 h-4 text-emerald-500" />
+           مفاتيح الربط API (API Keys)
+         </button>
+         <button 
+           onClick={() => setActiveTab('webhooks')}
+           className={`py-3 px-6 font-bold text-sm border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'webhooks' ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+         >
+           <Webhook className="w-4 h-4 text-indigo-500" />
+           إشعارات الـ Webhooks
+         </button>
       </div>
 
-      {activeTab === 'platforms' ? (
+      {activeTab === 'platforms' && (
         <>
           <div className="flex items-center justify-between">
             <div>
@@ -853,7 +869,9 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
              })}
           </div>
         </>
-      ) : (
+      )}
+
+      {activeTab === 'libraries' && (
         /* --- HIGH PERFORMANCE TECH LIBRARIES PANEL --- */
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-3 duration-300" dir="rtl">
            
@@ -1434,6 +1452,32 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
          </div>
        )}
 
+      {activeTab === 'apikeys' && (
+        <div className="animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <ApiKeysManager
+            settings={storeData?.settings || ({} as any)}
+            setSettings={onUpdateSettings}
+            activeStoreId={storeId}
+            hostUrl={hostUrl}
+          />
+        </div>
+      )}
+
+      {activeTab === 'webhooks' && (
+        <div className="animate-in fade-in slide-in-from-bottom-3 duration-300">
+          <WebhooksManager
+            settings={storeData?.settings || ({} as any)}
+            setSettings={onUpdateSettings}
+            activeStoreId={storeId}
+            hostUrl={hostUrl}
+            storeData={storeData}
+            orders={storeData?.orders || []}
+            customers={storeData?.customers || []}
+            products={storeData?.settings?.products || []}
+          />
+        </div>
+      )}
+
       {isModalOpen && selectedApp && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" dir="rtl">
               <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh] border border-slate-200 dark:border-slate-700 animate-in zoom-in-95 duration-200">
@@ -1691,10 +1735,3 @@ const ToggleButton: React.FC<ToggleButtonProps> = ({ active, onToggle, variant =
   const disabledClasses = disabled ? 'cursor-not-allowed opacity-50' : '';
   return ( <button type="button" onClick={(e) => { if (!disabled) { e.stopPropagation(); onToggle(); } }} className={`w-10 h-5 rounded-full relative transition-all duration-300 shadow-inner ${colors[variant]} ${disabledClasses}`} disabled={disabled}> <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-md transform ${active ? 'translate-x-[-22px]' : 'translate-x-[-2px]'}`} /> </button> );
 };
-const Key = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m21.2 8.4-4.4 4.4a5.5 5.5 0 0 1-7.7-7.7l4.4-4.4a5.5 5.5 0 0 1 7.7 7.7Z"/><path d="m18 11 4 4"/><path d="m14 7 8 8"/><path d="m21 15 3 3"/><path d="m22 22-2-2"/></svg>
-);
-
-const Webhook = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><path d="M7 10v4"/><path d="M11 10v4"/></svg>
-);

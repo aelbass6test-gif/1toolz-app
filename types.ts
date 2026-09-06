@@ -685,6 +685,36 @@ export interface WebhookIntegration {
   isActive: boolean;
 }
 
+export type WebhookEventType = 
+  | 'cart.abandoned'
+  | 'cart.product_added'
+  | 'checkout.started'
+  | 'customer.created'
+  | 'customer.updated'
+  | 'order.cancelled'
+  | 'order.completed'
+  | 'order.updated'
+  | 'product.created'
+  | 'product.deleted'
+  | 'product.updated'
+  | 'shipment.updated';
+
+export interface WebhookSubscription {
+  id: string;
+  name?: string;
+  event: WebhookEventType;
+  format: 'JSON' | 'XML' | 'FORM';
+  url: string;
+  apiVersion: 'v1.0' | 'v2.0';
+  secretKey?: string;
+  isActive: boolean;
+  createdAt: string;
+  lastTriggeredAt?: string;
+  lastStatusCode?: number;
+  lastStatusText?: string;
+  failedAttempts?: number;
+}
+
 export interface StaffMember {
   id: string;
   name: string;
@@ -755,6 +785,26 @@ export interface StaffDocument {
   notes?: string;
 }
 
+export interface AkkedIntegrationConfig {
+  isActive: boolean;
+  apiKey: string;
+  defaultTemplateKey?: 'order_confirmation' | 'confirmed_reply' | 'cancelled_reply' | 'paid_order' | 'abandoned_cart';
+  language?: 'ar' | 'en';
+  autoSendOnNewOrder?: boolean;
+  autoSendOnStatusChange?: boolean;
+  autoSendOnCartAbandoned?: boolean;
+  connectedSenderPhone?: string;
+  connectedSenderStatus?: string;
+  lastChecked?: string;
+  lastDispatchResult?: {
+    success: boolean;
+    orderNumber?: string;
+    timestamp: string;
+    message: string;
+    statusCode?: number;
+  };
+}
+
 export interface Settings {
   id?: string;
   storeName?: string;
@@ -763,7 +813,9 @@ export interface Settings {
   storeBranches?: any[];
   companyNames?: string[];
   enableGlobalFinancials: boolean; 
+  akkedIntegration?: AkkedIntegrationConfig;
   webhookIntegrations?: WebhookIntegration[];
+  storeWebhooks?: WebhookSubscription[];
   supabaseUrl?: string;
   supabaseAnonKey?: string;
   insuranceFeePercent: number;
@@ -891,6 +943,42 @@ export interface Settings {
   activePeriodStartDate?: string;
   activePeriodName?: string;
   openingInventoryValue?: number;
+  storeApiKeys?: StoreApiKey[];
+}
+
+export type ApiKeyScope = 
+  | 'orders:read'
+  | 'orders:write'
+  | 'orders:confirm'
+  | 'orders:status'
+  | 'orders:delete'
+  | 'shipping:read'
+  | 'shipping:write'
+  | 'products:read'
+  | 'products:write'
+  | 'products:delete'
+  | 'inventory:read'
+  | 'inventory:write'
+  | 'customers:read'
+  | 'customers:write'
+  | 'messages:send'
+  | 'messages:read'
+  | 'abandoned_carts:read'
+  | 'abandoned_carts:recover'
+  | 'reports:read'
+  | 'webhooks:manage';
+
+export interface StoreApiKey {
+  id: string;
+  name: string;
+  key: string;
+  maskedKey: string;
+  permissions: ApiKeyScope[];
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+  isActive: boolean;
+  notes?: string;
 }
 
 export interface FinancialPeriod {

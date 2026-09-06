@@ -76,15 +76,12 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Derive active webhook URL - always prefer custom public domain over internal google cloud run sandbox
-  const isInternalSandbox = typeof window !== 'undefined' && (
-    window.location.hostname.includes('run.app') || 
-    window.location.hostname.includes('localhost') || 
-    window.location.hostname.includes('127.0.0.1')
-  );
-  const webhookUrl = isInternalSandbox 
-    ? 'https://app.abdomedi.com/api/webhook/whatsapp' 
-    : (typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : 'https://app.abdomedi.com/api/webhook/whatsapp');
+  // Derive active webhook URLs
+  const publicSharedUrl = 'https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app/api/webhook/whatsapp';
+  const customDomainUrl = 'https://app.abdomedi.com/api/webhook/whatsapp';
+  const [selectedWebhookOption, setSelectedWebhookOption] = useState<'public' | 'custom'>('public');
+
+  const webhookUrl = selectedWebhookOption === 'public' ? publicSharedUrl : customDomainUrl;
 
   const copyToClipboard = (text: string, fieldId: string) => {
     navigator.clipboard.writeText(text);
@@ -1003,10 +1000,27 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
           <div className="space-y-4">
             {/* Webhook URL Box */}
             <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                <span>رابط الـ Callback URL لميتا:</span>
-                <span className="text-[10px] text-blue-600 font-mono">POST &amp; GET (hub.challenge)</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                  <span>رابط الـ Callback URL لميتا:</span>
+                </label>
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[10px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedWebhookOption('public')}
+                    className={`px-2 py-0.5 rounded-md transition-all ${selectedWebhookOption === 'public' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                  >
+                    رابط المعاينة العام (موصى به)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedWebhookOption('custom')}
+                    className={`px-2 py-0.5 rounded-md transition-all ${selectedWebhookOption === 'custom' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'}`}
+                  >
+                    الدومين الخاص
+                  </button>
+                </div>
+              </div>
               <div className="flex items-center gap-2 p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
                 <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 flex-1 truncate text-left" dir="ltr">
                   {webhookUrl}

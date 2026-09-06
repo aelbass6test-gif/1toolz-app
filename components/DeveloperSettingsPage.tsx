@@ -4,6 +4,8 @@ import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
 import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, getLocal, saveLocal, saveStoreData } from '../services/databaseService';
+import ApiKeysManager from './ApiKeysManager';
+import WebhooksManager from './WebhooksManager';
 
 const SupabaseIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3ECF8E]">
@@ -1327,7 +1329,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
     wallet: any[];
     storeId: string;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<'database' | 'security' | 'webhooks' | 'logs' | 'platforms'>('database');
+  const [activeTab, setActiveTab] = useState<'database' | 'security' | 'webhooks' | 'apikeys' | 'logs' | 'platforms'>('database');
 
   const handleFixFlexShipSchema = () => {
     const shippingFixSql = `
@@ -2353,6 +2355,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
           { id: 'database', label: 'قاعدة البيانات', icon: <Database size={16} /> },
           { id: 'security', label: 'الأمان والمزامنة', icon: <ShieldAlert size={16} /> },
           { id: 'webhooks', label: 'Webhooks', icon: <Webhook size={16} /> },
+          { id: 'apikeys', label: 'مفاتيح الربط (API Keys)', icon: <Key size={16} /> },
           { id: 'logs', label: 'سجل النشاط', icon: <History size={16} /> },
           { id: 'platforms', label: 'المنصات', icon: <ShoppingCart size={16} /> }
         ].map(tab => (
@@ -3182,85 +3185,32 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 overflow-hidden">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-600 dark:text-orange-400">
-               <Webhook size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-800 dark:text-white">إعدادات الـ Webhook</h2>
-              <p className="text-sm text-slate-500">إرسال واستقبال الطلبات من وإلى المتاجر الأخرى.</p>
-            </div>
-          </div>
-          <button 
-            onClick={addIntegration}
-            className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition flex items-center gap-2"
-           >
-             <Plus size={16} /> اضافة رابط جديد
-          </button>
-        </div>
-        
-        <div className="p-6 space-y-6">
-          {integrations.length === 0 ? (
-            <div className="text-center py-10">
-               <Webhook className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600 mb-3" />
-               <h3 className="text-sm font-medium text-slate-900 dark:text-white">لا توجد روابط Webhooks مضافة</h3>
-               <p className="mt-1 text-sm text-slate-500">قم بإضافة رابط جديد للربط مع متجر آخر.</p>
-            </div>
-          ) : (
-             integrations.map((integration, index) => (
-                <div key={integration.id} className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 relative bg-slate-50/50 dark:bg-slate-800/20">
-                   <div className="absolute top-4 left-4 flex gap-2">
-                     <span className="flex items-center gap-2">
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={integration.isActive} onChange={(e) => updateIntegration(integration.id, 'isActive', e.target.checked)} className="sr-only peer" />
-                          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-primary"></div>
-                        </label>
-                     </span>
-                     <button onClick={() => removeIntegration(integration.id)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 p-1.5 rounded-lg transition-colors">
-                        <Trash size={16} />
-                     </button>
-                   </div>
-                   
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                      <div className="space-y-1.5">
-                         <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Server size={14} /> رابط المتجر الآخر (إختياري للاستدلال)</label>
-                         <input 
-                           type="text" 
-                           placeholder="https://other-store.com"
-                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-right"
-                           value={integration.storeUrl}
-                           onChange={(e) => updateIntegration(integration.id, 'storeUrl', e.target.value)}
-                         />
-                      </div>
-                      <div className="space-y-1.5">
-                         <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Webhook size={14} /> رابط الـ Webhook (لاستقبال الطلب)</label>
-                         <input 
-                           type="text" 
-                           placeholder="https://.../api/webhook/orders"
-                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-right"
-                           value={integration.webhookUrl}
-                           onChange={(e) => updateIntegration(integration.id, 'webhookUrl', e.target.value)}
-                         />
-                      </div>
-                      <div className="space-y-1.5 md:col-span-2">
-                         <label className="text-xs font-bold text-slate-500 flex items-center gap-1"><Shield size={14} /> رمز الأمان (Secret Key)</label>
-                         <div className="relative">
-                           <input 
-                             type="text" 
-                             readOnly
-                             className="w-full bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2 text-sm text-slate-600 dark:text-slate-450 font-mono outline-none text-right"
-                             value={integration.secretKey}
-                           />
-                         </div>
-                      </div>
-                   </div>
-                </div>
-             ))
-          )}
-        </div>
-      </div>
+            <WebhooksManager
+              settings={settings}
+              setSettings={setSettings}
+              activeStoreId={activeStoreId || undefined}
+              hostUrl={hostUrl}
+              storeData={activeStoreId && allStoresData ? allStoresData[activeStoreId] : undefined}
+              orders={activeStoreId && allStoresData ? allStoresData[activeStoreId]?.orders : undefined}
+              customers={activeStoreId && allStoresData ? allStoresData[activeStoreId]?.customers : undefined}
+              products={activeStoreId && allStoresData ? allStoresData[activeStoreId]?.settings?.products : undefined}
+            />
+          </motion.div>
+        )}
+
+        {activeTab === 'apikeys' && (
+          <motion.div
+            key="apikeys"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <ApiKeysManager 
+              settings={settings} 
+              setSettings={setSettings} 
+              activeStoreId={activeStoreId} 
+              hostUrl={hostUrl} 
+            />
           </motion.div>
         )}
 

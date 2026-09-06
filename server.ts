@@ -529,6 +529,1873 @@ async function startServer() {
     }
   });
 
+  // =========================================================================
+  // --- STORE API KEYS AUTHENTICATION & RESTFUL ENDPOINTS (/api/v1) ---
+  // =========================================================================
+
+  const authenticateStoreApiKey = async (c: any, requiredScope?: string | string[]) => {
+    const authHeader = c.req.header("Authorization") || c.req.header("authorization") || "";
+    const xApiKey = c.req.header("X-API-KEY") || c.req.header("x-api-key") || "";
+    const queryApiKey = c.req.query("api_key") || "";
+    const headerStoreId = c.req.header("X-Store-Id") || c.req.header("x-store-id") || c.req.query("store_id") || "";
+
+    let rawKey = "";
+    if (authHeader.startsWith("Bearer ") || authHeader.startsWith("bearer ")) {
+      rawKey = authHeader.replace(/^bearer\s+/i, "").trim();
+    } else if (authHeader) {
+      rawKey = authHeader.trim();
+    } else if (xApiKey) {
+      rawKey = xApiKey.trim();
+    } else if (queryApiKey) {
+      rawKey = queryApiKey.trim();
+    }
+
+    if (!rawKey) {
+      return { 
+        ok: false, 
+        status: 401, 
+        error: "مفتاح الربط مفقود. يرجى تمرير المفتاح عبر الترويسة Authorization: Bearer <API_KEY> أو X-API-KEY" 
+      };
+    }
+
+    let matchingStoreId: string | null = null;
+    let matchingStoreData: any = null;
+    let matchingKeyObj: any = null;
+
+    // 1. If explicit store ID provided, check it first
+    if (headerStoreId) {
+      try {
+        const snap = await getDoc(doc(db, "stores_data", headerStoreId));
+        if (snap.exists()) {
+          const sData = snap.data();
+          const keys = sData.settings?.storeApiKeys || [];
+          const found = keys.find((k: any) => k.key === rawKey);
+          if (found) {
+            matchingStoreId = headerStoreId;
+            matchingStoreData = sData;
+            matchingKeyObj = found;
+          }
+        }
+      } catch (e) {
+        console.error("[API-AUTH] Error checking explicit store:", e);
+      }
+    }
+
+    // 2. If not found yet, scan all stores_data
+    if (!matchingKeyObj) {
+      try {
+        const allStoresSnap = await getDocs(collection(db, "stores_data"));
+        for (const d of allStoresSnap.docs) {
+          const sData = d.data();
+          const keys = sData.settings?.storeApiKeys || [];
+          const found = keys.find((k: any) => k.key === rawKey);
+          if (found) {
+            matchingStoreId = d.id;
+            matchingStoreData = sData;
+            matchingKeyObj = found;
+            break;
+          }
+        }
+      } catch (e) {
+        console.error("[API-AUTH] Error scanning stores:", e);
+      }
+    }
+
+    if (!matchingKeyObj || !matchingStoreData) {
+      return { 
+        ok: false, 
+        status: 401, 
+        error: "مفتاح الربط (API Key) غير صالح أو غير موجود." 
+      };
+    }
+
+    if (matchingKeyObj.isActive === false) {
+      return { 
+        ok: false, 
+        status: 403, 
+        error: "تم تعطيل هذا المفتاح مؤقتاً من قبل مدير المتجر." 
+      };
+    }
+
+    if (matchingKeyObj.expiresAt) {
+      const exp = new Date(matchingKeyObj.expiresAt);
+      if (exp < new Date()) {
+        return { 
+          ok: false, 
+          status: 403, 
+          error: "انتهت صلاحية هذا المفتاح. يرجى تجديده أو إصدار مفتاح جديد." 
+        };
+      }
+    }
+
+    // Check scope if required (supports single string or array of alternate scopes)
+    if (requiredScope) {
+      const perms: string[] = matchingKeyObj.permissions || [];
+      const hasWildcard = perms.includes("*") || perms.includes("admin:*");
+      const requiredList = Array.isArray(requiredScope) ? requiredScope : [requiredScope];
+      
+      const hasPermission = hasWildcard || requiredList.some(req => perms.includes(req));
+
+      if (!hasPermission) {
+        return {
+          ok: false,
+          status: 403,
+          error: `غير مصرح: هذا المفتاح لا يمتلك الصلاحية المطلوبة [${requiredList.join(" أو ")}]. الصلاحيات الممنوحة له: ${perms.join(", ") || "لا توجد صلاحيات"}`
+        };
+      }
+    }
+
+    // Asynchronously bump lastUsedAt
+    try {
+      const updatedKeys = (matchingStoreData.settings?.storeApiKeys || []).map((k: any) => {
+        if (k.id === matchingKeyObj.id) {
+          return { ...k, lastUsedAt: new Date().toISOString() };
+        }
+        return k;
+      });
+      const storeRef = doc(db, "stores_data", matchingStoreId!);
+      setDoc(storeRef, { settings: { storeApiKeys: updatedKeys } }, { merge: true }).catch(() => {});
+    } catch (e) {}
+
+    return {
+      ok: true,
+      storeId: matchingStoreId,
+      storeData: matchingStoreData,
+      keyObj: matchingKeyObj
+    };
+  };
+
+  // Endpoint: Validate API Key & Scopes
+  app.get("/api/v1/validate-key", async (c) => {
+    const auth = await authenticateStoreApiKey(c);
+    if (!auth.ok) {
+      return c.json({ valid: false, error: auth.error }, auth.status as any);
+    }
+    return c.json({
+      valid: true,
+      storeId: auth.storeId,
+      storeName: auth.storeData?.name || auth.storeData?.settings?.name || "متجري",
+      keyName: auth.keyObj.name,
+      permissions: auth.keyObj.permissions || [],
+      createdAt: auth.keyObj.createdAt,
+      expiresAt: auth.keyObj.expiresAt || null,
+      isActive: auth.keyObj.isActive
+    });
+  });
+
+  // Endpoint: Get Store Public Info
+  app.get("/api/v1/store/info", async (c) => {
+    const auth = await authenticateStoreApiKey(c);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+    const s = auth.storeData?.settings || {};
+    return c.json({
+      storeId: auth.storeId,
+      storeName: auth.storeData?.name || s.name || "متجري",
+      currency: s.currency || "EGP",
+      email: s.contactEmail || "",
+      phone: s.contactPhone || "",
+      totalOrders: (auth.storeData?.orders || []).length,
+      totalProducts: (s.products || []).length,
+    });
+  });
+
+  // Endpoint: GET Orders (requires 'orders:read')
+  app.get("/api/v1/orders", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "orders:read");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const orders = auth.storeData?.orders || [];
+    const status = c.req.query("status");
+    const search = c.req.query("search");
+    const limitParam = parseInt(c.req.query("limit") || "100", 10);
+
+    let filtered = [...orders];
+
+    if (status) {
+      filtered = filtered.filter((o: any) => o.status === status);
+    }
+
+    if (search) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter((o: any) => 
+        (o.orderNumber && String(o.orderNumber).toLowerCase().includes(q)) ||
+        (o.customerName && String(o.customerName).toLowerCase().includes(q)) ||
+        (o.customerPhone && String(o.customerPhone).includes(q))
+      );
+    }
+
+    // Sort newest first
+    filtered.sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+    return c.json({
+      total: filtered.length,
+      limit: limitParam,
+      orders: filtered.slice(0, limitParam)
+    });
+  });
+
+  // Endpoint: POST Order (requires 'orders:write')
+  app.post("/api/v1/orders", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "orders:write");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const body = await c.req.json();
+      if (!body.customerName || !body.customerPhone) {
+        return c.json({ error: "حقول اسم العميل ورقم الهاتف مطلوبة لإنشاء الطلب" }, 400);
+      }
+
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      const currentOrders = auth.storeData?.orders || [];
+
+      const newOrderNumber = body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`;
+      const newOrder = {
+        id: body.id || `api_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        orderNumber: newOrderNumber,
+        customerName: body.customerName,
+        customerPhone: body.customerPhone,
+        customerAddress: body.customerAddress || body.address || "",
+        governorate: body.governorate || body.city || "",
+        city: body.city || "",
+        status: body.status || "جاري_المراجعة",
+        totalPrice: Number(body.totalPrice || body.total || 0),
+        shippingFee: Number(body.shippingFee || 0),
+        date: body.date || new Date().toISOString(),
+        items: body.items || [],
+        notes: body.notes || `أنشئ بواسطة API (${auth.keyObj.name})`,
+        channel: "api",
+        createdViaApiKey: auth.keyObj.name
+      };
+
+      const updatedOrders = [newOrder, ...currentOrders];
+      await setDoc(storeRef, { orders: cleanUndefined(updatedOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم إنشاء الطلب بنجاح عبر API",
+        order: newOrder
+      }, 201);
+    } catch (err: any) {
+      console.error("[API] Error creating order:", err);
+      return c.json({ error: err.message || "حدث خطأ أثناء حفظ الطلب" }, 500);
+    }
+  });
+
+  // Endpoint: GET Products (requires 'products:read')
+  app.get("/api/v1/products", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "products:read");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const products = auth.storeData?.settings?.products || [];
+    return c.json({
+      total: products.length,
+      products
+    });
+  });
+
+  // Endpoint: POST Product (requires 'products:write')
+  app.post("/api/v1/products", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "products:write");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const body = await c.req.json();
+      if (!body.name || body.price === undefined) {
+        return c.json({ error: "اسم المنتج وسعر البيع مطلوبان" }, 400);
+      }
+
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      const currentProducts = auth.storeData?.settings?.products || [];
+
+      const newProduct = {
+        id: body.id || `prd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: body.name,
+        price: Number(body.price),
+        costPrice: Number(body.costPrice || body.cost || 0),
+        sku: body.sku || `SKU-${Date.now().toString().slice(-4)}`,
+        stockQuantity: Number(body.stockQuantity || body.quantity || 0),
+        category: body.category || "عام",
+        description: body.description || "",
+        imageUrl: body.imageUrl || "",
+        createdAt: new Date().toISOString()
+      };
+
+      const updatedProducts = [newProduct, ...currentProducts];
+      await setDoc(storeRef, { 
+        settings: { products: cleanUndefined(updatedProducts) } 
+      }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم إضافة المنتج بنجاح عبر API",
+        product: newProduct
+      }, 201);
+    } catch (err: any) {
+      return c.json({ error: err.message || "حدث خطأ أثناء حفظ المنتج" }, 500);
+    }
+  });
+
+  // Endpoint: GET Customers (requires 'customers:read')
+  app.get("/api/v1/customers", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "customers:read");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const customers = auth.storeData?.customers || [];
+    return c.json({
+      total: customers.length,
+      customers
+    });
+  });
+
+  // Endpoint: POST Customer (requires 'customers:write')
+  app.post("/api/v1/customers", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "customers:write");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const body = await c.req.json();
+      if (!body.name || !body.phone) {
+        return c.json({ error: "اسم العميل ورقم الهاتف مطلوبان" }, 400);
+      }
+
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      const currentCustomers = auth.storeData?.customers || [];
+
+      const newCustomer = {
+        id: body.id || `cst_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: body.name,
+        phone: body.phone,
+        email: body.email || "",
+        governorate: body.governorate || body.city || "",
+        address: body.address || "",
+        totalSpent: Number(body.totalSpent || 0),
+        ordersCount: Number(body.ordersCount || 0),
+        createdAt: new Date().toISOString()
+      };
+
+      const updated = [newCustomer, ...currentCustomers];
+      await setDoc(storeRef, { customers: cleanUndefined(updated) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم إضافة العميل بنجاح عبر API",
+        customer: newCustomer
+      }, 201);
+    } catch (err: any) {
+      return c.json({ error: err.message || "حدث خطأ أثناء حفظ العميل" }, 500);
+    }
+  });
+
+  // Endpoint: GET Single Order (requires 'orders:read')
+  app.get("/api/v1/orders/:id", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "orders:read");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const id = c.req.param("id");
+    const orders = auth.storeData?.orders || [];
+    const order = orders.find((o: any) => o.id === id || String(o.orderNumber) === id);
+
+    if (!order) {
+      return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+    }
+
+    return c.json({ order });
+  });
+
+  // Endpoint: PATCH / PUT Order (requires 'orders:write' or 'orders:status')
+  const handleUpdateOrder = async (c: any) => {
+    const auth = await authenticateStoreApiKey(c, ["orders:write", "orders:status"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      const body = await c.req.json();
+      const currentOrders = auth.storeData?.orders || [];
+      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+
+      if (orderIndex === -1) {
+        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+      }
+
+      const updatedOrder = {
+        ...currentOrders[orderIndex],
+        ...body,
+        updatedAt: new Date().toISOString(),
+        updatedViaApiKey: auth.keyObj.name
+      };
+
+      currentOrders[orderIndex] = updatedOrder;
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم تحديث بيانات الطلب بنجاح عبر API",
+        order: updatedOrder
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل تحديث الطلب" }, 500);
+    }
+  };
+
+  app.patch("/api/v1/orders/:id", handleUpdateOrder);
+  app.put("/api/v1/orders/:id", handleUpdateOrder);
+
+  // Endpoint: Confirm Order (requires 'orders:confirm' or 'orders:write')
+  const handleConfirmOrder = async (c: any) => {
+    const auth = await authenticateStoreApiKey(c, ["orders:confirm", "orders:write"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      const currentOrders = auth.storeData?.orders || [];
+      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+
+      if (orderIndex === -1) {
+        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+      }
+
+      const updatedOrder = {
+        ...currentOrders[orderIndex],
+        status: "مؤكد",
+        confirmedAt: new Date().toISOString(),
+        confirmedViaApiKey: auth.keyObj.name,
+        notes: `${currentOrders[orderIndex].notes || ""} (تم التأكيد عبر API: ${auth.keyObj.name})`.trim()
+      };
+
+      currentOrders[orderIndex] = updatedOrder;
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم تأكيد الطلب بنجاح وتحديث حالته إلى 'مؤكد'",
+        order: updatedOrder
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل تأكيد الطلب" }, 500);
+    }
+  };
+
+  app.post("/api/v1/orders/:id/confirm", handleConfirmOrder);
+  app.post("/api/orders/:id/confirm", handleConfirmOrder);
+
+  // Endpoint: Cancel Order (requires 'orders:confirm' or 'orders:write' or 'orders:status')
+  const handleCancelOrder = async (c: any) => {
+    const auth = await authenticateStoreApiKey(c, ["orders:confirm", "orders:write", "orders:status"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      let body: any = {};
+      try {
+        body = await c.req.json();
+      } catch (e) {
+        body = {};
+      }
+
+      const currentOrders = auth.storeData?.orders || [];
+      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+
+      if (orderIndex === -1) {
+        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+      }
+
+      const reason = body.reason || body.cancelReason || body.note || "تم الإلغاء عبر منصة التأكيد";
+      const updatedOrder = {
+        ...currentOrders[orderIndex],
+        status: "ملغي",
+        canceledAt: new Date().toISOString(),
+        canceledViaApiKey: auth.keyObj.name,
+        cancelReason: reason,
+        notes: `${currentOrders[orderIndex].notes || ""} (تم إلغاء الطلب: ${reason})`.trim()
+      };
+
+      currentOrders[orderIndex] = updatedOrder;
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم إلغاء الطلب بنجاح وتحديث حالته إلى 'ملغي'",
+        order: updatedOrder
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل إلغاء الطلب" }, 500);
+    }
+  };
+
+  app.post("/api/v1/orders/:id/cancel", handleCancelOrder);
+  app.post("/api/orders/:id/cancel", handleCancelOrder);
+
+  // Endpoint: Update Order Address (requires 'orders:write' or 'orders:status')
+  const handleUpdateOrderAddress = async (c: any) => {
+    const auth = await authenticateStoreApiKey(c, ["orders:write", "orders:status"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      const body = await c.req.json();
+      const currentOrders = auth.storeData?.orders || [];
+      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+
+      if (orderIndex === -1) {
+        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+      }
+
+      const newAddress = body.address || body.customerAddress || body.shippingAddress || body.newAddress;
+      const newGovernorate = body.governorate || body.city || body.province;
+      const newPhone = body.phone || body.customerPhone;
+
+      const updatedOrder = {
+        ...currentOrders[orderIndex],
+        customerAddress: newAddress || currentOrders[orderIndex].customerAddress,
+        address: newAddress || currentOrders[orderIndex].address,
+        governorate: newGovernorate || currentOrders[orderIndex].governorate,
+        customerPhone: newPhone || currentOrders[orderIndex].customerPhone,
+        addressUpdatedViaApiKey: auth.keyObj.name,
+        notes: `${currentOrders[orderIndex].notes || ""} (تم تعديل العنوان عبر API: ${newAddress || ''})`.trim(),
+        updatedAt: new Date().toISOString()
+      };
+
+      currentOrders[orderIndex] = updatedOrder;
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم تعديل عنوان وتفاصيل التوصيل للطلب بنجاح",
+        order: updatedOrder
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل تعديل عنوان الطلب" }, 500);
+    }
+  };
+
+  app.put("/api/v1/orders/:id/address", handleUpdateOrderAddress);
+  app.patch("/api/v1/orders/:id/address", handleUpdateOrderAddress);
+  app.post("/api/v1/orders/:id/address", handleUpdateOrderAddress);
+  app.put("/api/orders/:id/address", handleUpdateOrderAddress);
+  app.patch("/api/orders/:id/address", handleUpdateOrderAddress);
+  app.post("/api/orders/:id/address", handleUpdateOrderAddress);
+
+  // Endpoint: Update Order Status (requires 'orders:status' or 'orders:write')
+  const handleUpdateOrderStatus = async (c: any) => {
+    const auth = await authenticateStoreApiKey(c, ["orders:status", "orders:write", "orders:confirm"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      const body = await c.req.json();
+      const currentOrders = auth.storeData?.orders || [];
+      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+
+      if (orderIndex === -1) {
+        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+      }
+
+      const newStatus = body.status || body.orderStatus;
+      if (!newStatus) {
+        return c.json({ error: "حقل الحالة (status) مطلوب" }, 400);
+      }
+
+      const updatedOrder = {
+        ...currentOrders[orderIndex],
+        status: newStatus,
+        notes: body.note || body.notes ? `${currentOrders[orderIndex].notes || ""} (${body.note || body.notes})`.trim() : currentOrders[orderIndex].notes,
+        updatedAt: new Date().toISOString(),
+        updatedViaApiKey: auth.keyObj.name
+      };
+
+      currentOrders[orderIndex] = updatedOrder;
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: `تم تحديث حالة الطلب إلى '${newStatus}' بنجاح`,
+        order: updatedOrder
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل تحديث حالة الطلب" }, 500);
+    }
+  };
+
+  app.put("/api/v1/orders/:id/status", handleUpdateOrderStatus);
+  app.patch("/api/v1/orders/:id/status", handleUpdateOrderStatus);
+  app.post("/api/v1/orders/:id/status", handleUpdateOrderStatus);
+  app.put("/api/orders/:id/status", handleUpdateOrderStatus);
+  app.patch("/api/orders/:id/status", handleUpdateOrderStatus);
+  app.post("/api/orders/:id/status", handleUpdateOrderStatus);
+
+  // Aliases for Wuilt compatibility
+  app.get("/api/orders", async (c) => {
+    return c.redirect("/api/v1/orders");
+  });
+  app.get("/api/orders/:id", async (c) => {
+    return c.redirect(`/api/v1/orders/${c.req.param("id")}`);
+  });
+
+  // Endpoint: DELETE Order (requires 'orders:delete')
+  app.delete("/api/v1/orders/:id", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "orders:delete");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      const currentOrders = auth.storeData?.orders || [];
+      const filtered = currentOrders.filter((o: any) => o.id !== id && String(o.orderNumber) !== id);
+
+      if (filtered.length === currentOrders.length) {
+        return c.json({ error: `الطلب غير موجود لحذفه: [${id}]` }, 404);
+      }
+
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(filtered) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: `تم حذف الطلب [${id}] بنجاح من النظام عبر API`
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل حذف الطلب" }, 500);
+    }
+  });
+
+  // Endpoint: GET Shipping Orders (requires 'shipping:read' or 'orders:read')
+  app.get("/api/v1/shipping/orders", async (c) => {
+    const auth = await authenticateStoreApiKey(c, ["shipping:read", "orders:read"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const orders = auth.storeData?.orders || [];
+    const shippingOrders = orders.map((o: any) => ({
+      orderId: o.id,
+      orderNumber: o.orderNumber,
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
+      address: o.customerAddress || o.address || "",
+      governorate: o.governorate || o.city || "",
+      status: o.status,
+      totalPrice: o.totalPrice,
+      trackingNumber: o.trackingNumber || o.awb || "",
+      shippingCompany: o.shippingCompany || "",
+      shippingFee: o.shippingFee || 0,
+      date: o.date
+    }));
+
+    return c.json({
+      total: shippingOrders.length,
+      orders: shippingOrders
+    });
+  });
+
+  // Endpoint: PATCH Shipping Order (requires 'shipping:write' or 'orders:write')
+  app.patch("/api/v1/shipping/orders/:id", async (c) => {
+    const auth = await authenticateStoreApiKey(c, ["shipping:write", "orders:write"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const id = c.req.param("id");
+      const body = await c.req.json();
+      const currentOrders = auth.storeData?.orders || [];
+      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+
+      if (orderIndex === -1) {
+        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
+      }
+
+      const updatedOrder = {
+        ...currentOrders[orderIndex],
+        trackingNumber: body.trackingNumber || body.awb || currentOrders[orderIndex].trackingNumber,
+        shippingCompany: body.shippingCompany || currentOrders[orderIndex].shippingCompany,
+        status: body.status || currentOrders[orderIndex].status,
+        shippingFee: body.shippingFee !== undefined ? Number(body.shippingFee) : currentOrders[orderIndex].shippingFee,
+        updatedViaApiKey: auth.keyObj.name
+      };
+
+      currentOrders[orderIndex] = updatedOrder;
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم تحديث بوليصة وبيانات الشحن بنجاح",
+        order: updatedOrder
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل تحديث بيانات الشحن" }, 500);
+    }
+  });
+
+  // Endpoint: GET Inventory (requires 'inventory:read' or 'products:read')
+  app.get("/api/v1/inventory", async (c) => {
+    const auth = await authenticateStoreApiKey(c, ["inventory:read", "products:read"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const products = auth.storeData?.settings?.products || [];
+    const stockList = products.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      sku: p.sku || "",
+      stockQuantity: Number(p.stockQuantity || p.quantity || 0),
+      price: Number(p.price || 0),
+      costPrice: Number(p.costPrice || 0),
+      category: p.category || "عام"
+    }));
+
+    return c.json({
+      total: stockList.length,
+      inventory: stockList
+    });
+  });
+
+  // Endpoint: POST Inventory Adjust (requires 'inventory:write')
+  app.post("/api/v1/inventory/adjust", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "inventory:write");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const body = await c.req.json();
+      const { productId, adjustment, newQuantity, reason } = body;
+
+      if (!productId) {
+        return c.json({ error: "معرّف المنتج (productId) مطلوب" }, 400);
+      }
+
+      const products = auth.storeData?.settings?.products || [];
+      const prodIndex = products.findIndex((p: any) => p.id === productId || p.sku === productId);
+
+      if (prodIndex === -1) {
+        return c.json({ error: `المنتج غير موجود: [${productId}]` }, 404);
+      }
+
+      let currentQty = Number(products[prodIndex].stockQuantity || products[prodIndex].quantity || 0);
+      let calculatedQty = currentQty;
+
+      if (newQuantity !== undefined) {
+        calculatedQty = Number(newQuantity);
+      } else if (adjustment !== undefined) {
+        calculatedQty = currentQty + Number(adjustment);
+      }
+
+      products[prodIndex] = {
+        ...products[prodIndex],
+        stockQuantity: Math.max(0, calculatedQty),
+        lastAdjustedAt: new Date().toISOString(),
+        lastAdjustedReason: reason || `تعديل عبر API (${auth.keyObj.name})`
+      };
+
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { settings: { products: cleanUndefined(products) } }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: "تم تعديل كمية المخزون بنجاح",
+        productId,
+        previousQuantity: currentQty,
+        newQuantity: products[prodIndex].stockQuantity
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل تعديل المخزون" }, 500);
+    }
+  });
+
+  // Endpoint: GET Abandoned Carts / Checkouts (supports 'abandoned_carts:read', 'orders:read', or general store access)
+  const handleGetAbandonedCarts = async (c: any) => {
+    const auth = await authenticateStoreApiKey(c, ["abandoned_carts:read", "orders:read"]);
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const carts = auth.storeData?.abandonedCarts || [];
+    return c.json({
+      total: carts.length,
+      carts
+    });
+  };
+
+  app.get("/api/v1/abandoned-carts", handleGetAbandonedCarts);
+  app.get("/api/v1/abandoned-checkouts", handleGetAbandonedCarts);
+
+  // Endpoint: POST Messages Send / Notification (requires 'messages:send')
+  app.post("/api/v1/messages/send", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "messages:send");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const body = await c.req.json();
+      const { to, message, template, orderNumber } = body;
+
+      if (!to || (!message && !template)) {
+        return c.json({ error: "رقم الهاتف (to) والرسالة أو القالب مطلوبان" }, 400);
+      }
+
+      // Log dispatch message
+      const logEntry = {
+        id: `msg_${Date.now()}`,
+        to,
+        message: message || `قالب: ${template}`,
+        orderNumber: orderNumber || null,
+        sentAt: new Date().toISOString(),
+        sentViaApiKey: auth.keyObj.name,
+        status: "sent"
+      };
+
+      const currentLogs = auth.storeData?.messageLogs || [];
+      const updatedLogs = [logEntry, ...currentLogs.slice(0, 100)];
+
+      const storeRef = doc(db, "stores_data", auth.storeId!);
+      await setDoc(storeRef, { messageLogs: cleanUndefined(updatedLogs) }, { merge: true });
+
+      return c.json({
+        success: true,
+        message: `تم توجيه الرسالة بنجاح إلى الرقم [${to}]`,
+        messageId: logEntry.id
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل إرسال الرسالة" }, 500);
+    }
+  });
+
+  // Endpoint: GET Reports & Financial Summary (requires 'reports:read')
+  app.get("/api/v1/reports/summary", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "reports:read");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    const orders = auth.storeData?.orders || [];
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter((o: any) => o.status === "تم_التوصيل" || o.status === "مكتمل");
+    const cancelledOrders = orders.filter((o: any) => o.status === "ملغي" || o.status === "مرتجع");
+
+    const totalRevenue = completedOrders.reduce((sum: number, o: any) => sum + Number(o.totalPrice || 0), 0);
+    const totalShipping = completedOrders.reduce((sum: number, o: any) => sum + Number(o.shippingFee || 0), 0);
+
+    return c.json({
+      currency: auth.storeData?.settings?.currency || "EGP",
+      summary: {
+        totalOrders,
+        completedOrdersCount: completedOrders.length,
+        cancelledOrdersCount: cancelledOrders.length,
+        totalRevenue,
+        totalShipping,
+        averageOrderValue: completedOrders.length > 0 ? Math.round(totalRevenue / completedOrders.length) : 0
+      }
+    });
+  });
+
+  // =========================================================================
+  // --- WEBHOOK TESTING & DISPATCHING ENGINE ---
+  // =========================================================================
+
+  const getSampleWebhookPayload = (event: string, apiVersion: string = "v1.0", customData?: any) => {
+    const timestamp = new Date().toISOString();
+    const eventId = `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const eventPayloads: Record<string, any> = {
+      "cart.abandoned": {
+        cart_id: "cart_8921",
+        customer: {
+          name: "أحمد علي",
+          phone: "01012345678",
+          email: "ahmed.ali@example.com"
+        },
+        items: [
+          { product_id: "prd_101", name: "ساعة ذكية مقاومة للماء Pro", price: 850, quantity: 1, variant: "أسود" },
+          { product_id: "prd_102", name: "حزام سيليكون إضافي", price: 120, quantity: 1, variant: "رمادي" }
+        ],
+        subtotal: 970,
+        currency: "EGP",
+        abandoned_at: timestamp,
+        recovery_url: "https://your-store.com/checkout/recover?token=rec_98a7sd6fa"
+      },
+      "cart.product_added": {
+        cart_id: "cart_8921",
+        added_product: {
+          product_id: "prd_101",
+          name: "ساعة ذكية مقاومة للماء Pro",
+          price: 850,
+          quantity: 1
+        },
+        current_cart_total: 850,
+        currency: "EGP",
+        updated_at: timestamp
+      },
+      "checkout.started": {
+        checkout_id: "chk_4401",
+        customer: {
+          name: "سارة محمد",
+          phone: "01123456789",
+          city: "الإسكندرية",
+          address: "سموحة، ش فوزي معاذ"
+        },
+        items_count: 2,
+        estimated_total: 1250,
+        currency: "EGP",
+        started_at: timestamp
+      },
+      "customer.created": {
+        customer_id: "cust_105",
+        name: "محمود حسن السيد",
+        phone: "01234567890",
+        email: "mahmoud.hassan@example.com",
+        governorate: "القاهرة",
+        city: "مدينة نصر",
+        total_orders: 1,
+        total_spent: 650,
+        created_at: timestamp
+      },
+      "customer.updated": {
+        customer_id: "cust_105",
+        name: "محمود حسن السيد",
+        phone: "01234567890",
+        updated_fields: ["phone", "address"],
+        updated_at: timestamp
+      },
+      "order.cancelled": {
+        order_id: "ord_9841",
+        order_number: "ORD-9841",
+        customer: {
+          name: "يوسف خالد",
+          phone: "01099887766"
+        },
+        cancellation_reason: "طلب العميل تعديل المنتجات وإعادة الطلب",
+        total_price: 650,
+        cancelled_at: timestamp
+      },
+      "order.completed": {
+        order_id: "ord_9841",
+        order_number: "ORD-9841",
+        customer: {
+          name: "يوسف خالد",
+          phone: "01099887766",
+          address: "المعادي، القاهرة"
+        },
+        status: "تم_التوصيل",
+        total_price: 650,
+        shipping_fee: 50,
+        payment_method: "الدفع_عند_الاستلام",
+        delivered_at: timestamp
+      },
+      "order.updated": {
+        order_id: "ord_9841",
+        order_number: "ORD-9841",
+        old_status: "جاري_المراجعة",
+        new_status: "تم_التأكيد",
+        total_price: 650,
+        customer_phone: "01099887766",
+        updated_at: timestamp
+      },
+      "product.created": {
+        product_id: "prd_303",
+        name: "سماعات رأس لاسلكية إلغاء الضوضاء",
+        sku: "HEADSET-PRO-01",
+        price: 1450,
+        cost_price: 950,
+        stock_quantity: 40,
+        category: "إلكترونيات",
+        created_at: timestamp
+      },
+      "product.deleted": {
+        product_id: "prd_303",
+        name: "سماعات رأس لاسلكية إلغاء الضوضاء",
+        sku: "HEADSET-PRO-01",
+        deleted_at: timestamp
+      },
+      "product.updated": {
+        product_id: "prd_303",
+        name: "سماعات رأس لاسلكية إلغاء الضوضاء",
+        old_price: 1450,
+        new_price: 1390,
+        stock_quantity: 35,
+        updated_at: timestamp
+      },
+      "shipment.updated": {
+        tracking_number: "BST-883910",
+        carrier: "Bosta",
+        order_number: "ORD-9841",
+        shipment_status: "out_for_delivery",
+        status_ar: "خرج للتوصيل مع المندوب",
+        last_update_location: "مدينة نصر - مخزن التوزيع",
+        updated_at: timestamp
+      }
+    };
+
+    const data = customData || eventPayloads[event] || { event, timestamp, sample: true };
+
+    // Build rich, multi-compatible structure (supports standard envelope and top-level fields for Akked / Zapier)
+    const topLevelFields: Record<string, any> = {};
+    if (data && typeof data === 'object') {
+      if (data.order_id || data.id) topLevelFields.order_id = data.order_id || data.id;
+      if (data.order_number || data.orderNumber) topLevelFields.order_number = data.order_number || data.orderNumber;
+      if (data.customer_name || data.customerName || data.customer?.name) {
+        topLevelFields.customer_name = data.customer_name || data.customerName || data.customer?.name;
+      }
+      if (data.customer_phone || data.customerPhone || data.customer?.phone || data.phone) {
+        topLevelFields.customer_phone = data.customer_phone || data.customerPhone || data.customer?.phone || data.phone;
+        topLevelFields.phone = topLevelFields.customer_phone;
+      }
+      if (data.customer_address || data.customerAddress || data.customer?.address || data.address) {
+        topLevelFields.customer_address = data.customer_address || data.customerAddress || data.customer?.address || data.address;
+        topLevelFields.address = topLevelFields.customer_address;
+      }
+      if (data.governorate || data.shippingArea) topLevelFields.governorate = data.governorate || data.shippingArea;
+      if (data.city) topLevelFields.city = data.city;
+      if (data.total_price !== undefined || data.totalPrice !== undefined) {
+        topLevelFields.total_price = data.total_price ?? data.totalPrice;
+        topLevelFields.total = topLevelFields.total_price;
+      }
+      if (data.items) topLevelFields.items = data.items;
+      if (data.status) topLevelFields.status = data.status;
+      if (data.notes) topLevelFields.notes = data.notes;
+    }
+
+    return {
+      event,
+      event_id: eventId,
+      api_version: apiVersion,
+      created_at: timestamp,
+      ...topLevelFields,
+      data
+    };
+  };
+
+  // Helper: Normalize phone to E.164 format (+201012345678)
+  const formatE164Phone = (rawPhone: string): string => {
+    if (!rawPhone) return "+201000000000";
+    let cleaned = rawPhone.toString().trim().replace(/[^\d+]/g, "");
+    if (cleaned.startsWith("+")) return cleaned;
+    if (cleaned.startsWith("00")) return "+" + cleaned.substring(2);
+    // Egyptian numbers: 010..., 011..., 012..., 015...
+    if (cleaned.startsWith("01") && cleaned.length === 11) {
+      return "+20" + cleaned.substring(1);
+    }
+    // Egyptian numbers without leading 0: 10..., 11..., 12..., 15... (10 digits)
+    if ((cleaned.startsWith("10") || cleaned.startsWith("11") || cleaned.startsWith("12") || cleaned.startsWith("15")) && cleaned.length === 10) {
+      return "+20" + cleaned;
+    }
+    if (cleaned.startsWith("20") && cleaned.length === 12) {
+      return "+" + cleaned;
+    }
+    // Saudi numbers: 05... (10 digits)
+    if (cleaned.startsWith("05") && cleaned.length === 10) {
+      return "+966" + cleaned.substring(1);
+    }
+    if (cleaned.startsWith("966") && cleaned.length === 12) {
+      return "+" + cleaned;
+    }
+    if (cleaned.startsWith("0") && cleaned.length === 11) {
+      return "+20" + cleaned.substring(1);
+    }
+    return cleaned.startsWith("+") ? cleaned : "+" + cleaned;
+  };
+
+  // Helper: Build exact Akked API payload strictly adhering to https://akked.app/docs/api contracts
+  const buildAkkedPayload = (event: string, rawData: any, options?: { storeName?: string; language?: string; templateKey?: string }) => {
+    const language = options?.language || "ar";
+    const storeName = options?.storeName || "متجرنا الإلكتروني";
+    
+    const data = rawData?.data || rawData || {};
+    const customerName = data.customer_name || data.customerName || data.customer?.name || "العميل العزيز";
+    const rawPhone = data.customer_phone || data.customerPhone || data.customer?.phone || data.phone || "01012345678";
+    const to = formatE164Phone(rawPhone);
+    
+    const orderNumber = String(data.order_number || data.orderNumber || data.id || Math.floor(1000 + Math.random() * 9000));
+    const totalPrice = data.total_price !== undefined ? data.total_price : (data.totalPrice !== undefined ? data.totalPrice : (data.total || 450));
+    const currency = "EGP";
+    const total = `${totalPrice} ${currency}`;
+
+    // Format items string (max 2000 chars)
+    let itemsStr = "منتجات المتجر";
+    if (Array.isArray(data.items) && data.items.length > 0) {
+      itemsStr = data.items.map((it: any) => {
+        const q = it.quantity || 1;
+        const n = it.name || it.product_name || it.productName || "منتج";
+        const p = it.price ? ` (${it.price} ${currency})` : "";
+        return `${q} x ${n}${p}`;
+      }).join("، ");
+    } else if (typeof data.items === "string" && data.items.trim()) {
+      itemsStr = data.items;
+    } else if (data.product_name || data.productName || data.name) {
+      itemsStr = `1 x ${data.product_name || data.productName || data.name}`;
+    }
+    if (itemsStr.length > 1900) itemsStr = itemsStr.substring(0, 1900) + "...";
+
+    // Format address (max 512 chars)
+    let address = "";
+    const addrParts = [
+      data.governorate,
+      data.city,
+      data.shipping_area || data.shippingArea,
+      data.customer_address || data.customerAddress || data.address
+    ].filter(Boolean);
+    address = addrParts.length > 0 ? addrParts.join("، ") : "القاهرة، جمهورية مصر العربية";
+    if (address.length > 500) address = address.substring(0, 500);
+
+    // Format order date (max 64 chars)
+    let orderDate = "";
+    try {
+      const d = data.created_at || data.createdAt || data.date ? new Date(data.created_at || data.createdAt || data.date) : new Date();
+      orderDate = d.toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" });
+    } catch (e) {
+      orderDate = new Date().toISOString().split("T")[0];
+    }
+
+    // Determine template_key
+    let templateKey = options?.templateKey;
+    if (!templateKey) {
+      if (event === "cart.abandoned") {
+        templateKey = "abandoned_cart";
+      } else if (event === "order.cancelled" || data.status === "ملغي") {
+        templateKey = "cancelled_reply";
+      } else if (event === "order.confirmed" || data.status === "تم_التأكيد" || data.status === "تم_توصيلها") {
+        templateKey = "confirmed_reply";
+      } else {
+        templateKey = "order_confirmation";
+      }
+    }
+
+    // Parameters strictly matching Akked contracts (no extra fields allowed)
+    let parameters: Record<string, string> = {};
+    if (templateKey === "order_confirmation" || templateKey === "paid_order") {
+      parameters = {
+        customer_name: String(customerName).substring(0, 120),
+        order_number: String(orderNumber).substring(0, 80),
+        store_name: String(storeName).substring(0, 120),
+        total: String(total).substring(0, 40),
+        currency: currency.substring(0, 3),
+        items: String(itemsStr).substring(0, 2000),
+        address: String(address).substring(0, 512),
+        order_date: String(orderDate).substring(0, 64)
+      };
+    } else if (templateKey === "confirmed_reply" || templateKey === "cancelled_reply") {
+      parameters = {
+        customer_name: String(customerName).substring(0, 120),
+        order_number: String(orderNumber).substring(0, 80)
+      };
+    } else if (templateKey === "abandoned_cart") {
+      parameters = {
+        customer_name: String(customerName).substring(0, 120),
+        store_name: String(storeName).substring(0, 120),
+        total: String(total).substring(0, 40),
+        currency: currency.substring(0, 3),
+        cart_step: "checkout",
+        recovery_url: String(data.recovery_url || data.recoveryUrl || "https://akked.app").substring(0, 2048)
+      };
+    } else {
+      templateKey = "order_confirmation";
+      parameters = {
+        customer_name: String(customerName).substring(0, 120),
+        order_number: String(orderNumber).substring(0, 80),
+        store_name: String(storeName).substring(0, 120),
+        total: String(total).substring(0, 40),
+        currency: currency.substring(0, 3),
+        items: String(itemsStr).substring(0, 2000),
+        address: String(address).substring(0, 512),
+        order_date: String(orderDate).substring(0, 64)
+      };
+    }
+
+    return {
+      to,
+      template_key: templateKey,
+      language,
+      parameters
+    };
+  };
+
+  // Check if URL belongs to Akked
+  const isAkkedUrl = (url: string): boolean => {
+    if (!url) return false;
+    return url.toLowerCase().includes("akked.app");
+  };
+
+  const isAkkedWebhookUrl = (url: string): boolean => {
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    return lower.includes("akked.app/api/webhooks") || lower.includes("akked.app/webhooks");
+  };
+
+  // Normalize Akked URL
+  const normalizeAkkedUrl = (url: string): string => {
+    if (!isAkkedUrl(url)) return url;
+    if (isAkkedWebhookUrl(url)) {
+      return url; // Keep exact dedicated webhook URL as-is
+    }
+    if (url.includes("/docs") || url.endsWith("akked.app") || url.endsWith("akked.app/")) {
+      return "https://akked.app/api/v1/messages";
+    }
+    return url;
+  };
+
+  // Endpoint: Verify Akked API Key & Senders (POST /api/v1/akked/verify)
+  app.post("/api/v1/akked/verify", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { apiKey } = body;
+      if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
+        return c.json({ success: false, error: "يرجى إدخال مفتاح API الخاص بمنصة أكد" }, 400);
+      }
+
+      const cleanKey = apiKey.trim().replace(/^Bearer\s+/i, "");
+      const res = await fetch("https://akked.app/api/v1/senders", {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${cleanKey}`,
+          "Content-Type": "application/json"
+        }
+      });
+
+      const status = res.status;
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { raw: await res.text() };
+      }
+
+      if (res.ok) {
+        return c.json({
+          success: true,
+          statusCode: status,
+          message: "تم الاتصال بنجاح بمنصة أكد والتحقق من حسابك ورقم الواتساب!",
+          data
+        });
+      } else {
+        let errorMsg = data.error || data.message || `رمز الاستجابة ${status}`;
+        if (status === 401) {
+          errorMsg = "مفتاح API غير صحيح أو ملغي. يرجى التأكد من نسخه من لوحة تحكم أكد -> API Keys (يبدأ بـ ak_live_)";
+        } else if (status === 403) {
+          errorMsg = "حسابك في أكد يحتاج إلى تفعيل باقة تدعم الـ API (مثل Growth) وربط رقم واتساب مفعل";
+        }
+        return c.json({
+          success: false,
+          statusCode: status,
+          error: errorMsg,
+          details: data
+        }, 400);
+      }
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message || "فشل الاتصال بخادم منصة أكد" }, 500);
+    }
+  });
+
+  // Endpoint: Direct Send to Akked (POST /api/v1/akked/send-message)
+  app.post("/api/v1/akked/send-message", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { apiKey, order, event = "order.completed", templateKey, language = "ar", storeName } = body;
+
+      if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
+        return c.json({ success: false, error: "مفتاح Akked API Key مطلوب" }, 400);
+      }
+
+      const cleanKey = apiKey.trim().replace(/^Bearer\s+/i, "");
+      const akkedPayload = buildAkkedPayload(event, order, { storeName, language, templateKey });
+      const idempotencyKey = `order-${order?.order_number || order?.orderNumber || order?.id || Date.now()}-${Date.now()}`;
+
+      const res = await fetch("https://akked.app/api/v1/messages", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${cleanKey}`,
+          "Content-Type": "application/json; charset=utf-8",
+          "Idempotency-Key": idempotencyKey
+        },
+        body: JSON.stringify(akkedPayload)
+      });
+
+      const status = res.status;
+      let resData: any = {};
+      try {
+        resData = await res.json();
+      } catch (e) {
+        resData = { raw: await res.text() };
+      }
+
+      if (res.ok || status === 202) {
+        return c.json({
+          success: true,
+          statusCode: status,
+          message: "تم إرسال رسالة الواتساب بنجاح إلى منصة أكد (202 Accepted) وجاري تسليمها للعميل!",
+          sentPayload: akkedPayload,
+          data: resData
+        });
+      } else {
+        let errorMsg = resData.error || resData.message || `خطأ ${status}`;
+        if (status === 401) errorMsg = "مفتاح API غير صحيح. تأكد من نسخه من أكد (يبدأ بـ ak_live_)";
+        else if (status === 402) errorMsg = "رصيد رسائل الواتساب غير كافٍ في حسابك على منصة أكد";
+        else if (status === 403) errorMsg = "الحساب أو رقم الإرسال غير مفعل في خطة أكد";
+        else if (status === 422) errorMsg = "البيانات أو رقم هاتف العميل غير متوافقة مع قالب أكد";
+
+        return c.json({
+          success: false,
+          statusCode: status,
+          error: errorMsg,
+          sentPayload: akkedPayload,
+          details: resData
+        }, 400);
+      }
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message || "فشل الاتصال بمنصة أكد" }, 500);
+    }
+  });
+
+  // =========================================================================
+  // --- AKKED INBOUND WEBHOOK / CALLBACK (منصة أكد -> متجرك لتحديث الحالات) ---
+  // =========================================================================
+  // Endpoint: Inbound Callback from Akked (POST /api/v1/akked/callback & /api/v1/webhooks/akked)
+  const handleAkkedInboundCallback = async (c: any) => {
+    try {
+      let body: any = {};
+      try {
+        body = await c.req.json();
+      } catch (e) {
+        body = {};
+      }
+
+      console.log("[AKKED-CALLBACK] Received incoming webhook from Akked:", JSON.stringify(body));
+
+      // 1. Extract Order Identifier
+      const orderRef = 
+        body.order_number || 
+        body.orderNumber || 
+        body.order_id || 
+        body.orderId || 
+        body.id || 
+        body.reference || 
+        body.data?.order_number || 
+        body.data?.order_id || 
+        body.metadata?.order_number || 
+        body.metadata?.order_id ||
+        c.req.query("order_number") ||
+        c.req.query("order_id");
+
+      const rawPhone = 
+        body.customer_phone || 
+        body.phone || 
+        body.customerPhone || 
+        body.from || 
+        body.data?.customer_phone ||
+        body.data?.phone;
+
+      // 2. Extract Event / Action / Status
+      const rawEvent = (body.event || body.type || body.action || "").toString().toLowerCase();
+      const rawStatus = (body.status || body.order_status || body.data?.status || "").toString().toLowerCase();
+      const newAddress = body.new_address || body.address || body.customer_address || body.data?.address || body.data?.new_address;
+      const newGovernorate = body.new_governorate || body.governorate || body.city || body.data?.governorate;
+      const cancelReason = body.reason || body.cancel_reason || body.cancellation_reason || body.notes || body.data?.reason || "";
+      const customerNotes = body.customer_notes || body.comment || body.notes || "";
+
+      // 3. Locate the Store
+      let storeId = c.req.query("storeId") || c.req.header("X-Store-Id") || "";
+      let authKey = c.req.header("Authorization") || c.req.header("X-API-KEY") || c.req.query("api_key") || "";
+
+      let targetStoreDoc: any = null;
+      let targetStoreId: string = "";
+
+      if (storeId) {
+        const docRef = doc(db, "stores_data", storeId);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          targetStoreDoc = snap.data();
+          targetStoreId = storeId;
+        }
+      }
+
+      // If storeId not provided, search by API Key if present
+      if (!targetStoreDoc && authKey) {
+        const cleanKey = authKey.replace(/^Bearer\s+/i, "").trim();
+        const storesCol = collection(db, "stores_data");
+        const allStores = await getDocs(storesCol);
+        for (const sDoc of allStores.docs) {
+          const sData = sDoc.data();
+          const apiKeys = sData.settings?.storeApiKeys || [];
+          if (apiKeys.some((k: any) => k.key === cleanKey)) {
+            targetStoreDoc = sData;
+            targetStoreId = sDoc.id;
+            break;
+          }
+        }
+      }
+
+      // If still not identified, search across stores for the order number or phone
+      if (!targetStoreDoc && (orderRef || rawPhone)) {
+        const storesCol = collection(db, "stores_data");
+        const allStores = await getDocs(storesCol);
+        for (const sDoc of allStores.docs) {
+          const sData = sDoc.data();
+          const orders = sData.orders || [];
+          const found = orders.some((o: any) => {
+            if (orderRef && (String(o.orderNumber) === String(orderRef) || o.id === String(orderRef))) {
+              return true;
+            }
+            if (rawPhone && (o.customerPhone === rawPhone || o.customerPhone?.replace(/\D/g, '').endsWith(rawPhone.replace(/\D/g, '').slice(-9)))) {
+              return true;
+            }
+            return false;
+          });
+          if (found) {
+            targetStoreDoc = sData;
+            targetStoreId = sDoc.id;
+            break;
+          }
+        }
+      }
+
+      if (!targetStoreDoc) {
+        return c.json({
+          success: false,
+          error: "تعذر العثور على المتجر أو الطلب المرتبط. يرجى تمرير ?storeId=YOUR_STORE_ID أو مفتاح الربط Authorization: Bearer <API_KEY>"
+        }, 404);
+      }
+
+      const orders: any[] = targetStoreDoc.orders || [];
+      const orderIndex = orders.findIndex((o: any) => {
+        if (orderRef && (String(o.orderNumber) === String(orderRef) || o.id === String(orderRef))) {
+          return true;
+        }
+        if (rawPhone && o.customerPhone) {
+          const p1 = o.customerPhone.replace(/\D/g, '');
+          const p2 = String(rawPhone).replace(/\D/g, '');
+          if (p1 === p2 || p1.endsWith(p2.slice(-9)) || p2.endsWith(p1.slice(-9))) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (orderIndex === -1) {
+        return c.json({
+          success: false,
+          error: `لم يتم العثور على الطلب رقم [${orderRef || rawPhone}] في متجرك.`
+        }, 404);
+      }
+
+      const currentOrder = orders[orderIndex];
+      let updatedOrder = { ...currentOrder };
+      let appliedAction = "updated";
+      const nowIso = new Date().toISOString();
+
+      // Determine what action to take:
+      const isConfirm = 
+        rawEvent.includes("confirm") || 
+        rawStatus.includes("confirm") || 
+        rawStatus.includes("مؤكد") || 
+        body.action === "confirm" ||
+        body.confirmed === true;
+
+      const isCancel = 
+        rawEvent.includes("cancel") || 
+        rawStatus.includes("cancel") || 
+        rawStatus.includes("ملغي") || 
+        body.action === "cancel" ||
+        body.cancelled === true;
+
+      const isAddressUpdate = 
+        Boolean(newAddress) || 
+        rawEvent.includes("address") || 
+        rawStatus.includes("address") || 
+        body.action === "edit_address" || 
+        body.action === "address_updated";
+
+      if (isConfirm) {
+        updatedOrder.status = "مؤكد";
+        updatedOrder.confirmedAt = nowIso;
+        updatedOrder.confirmedVia = "Akked WhatsApp";
+        const noteMsg = `تم تأكيد الطلب آلياً بواسطة العميل عبر واتساب (منصة أكد) في ${new Date().toLocaleTimeString('ar-EG')}`;
+        updatedOrder.notes = updatedOrder.notes ? `${updatedOrder.notes}\n${noteMsg}` : noteMsg;
+        appliedAction = "order.confirmed";
+      } else if (isCancel) {
+        updatedOrder.status = "ملغي";
+        updatedOrder.cancelledAt = nowIso;
+        updatedOrder.cancelledVia = "Akked WhatsApp";
+        const reasonText = cancelReason || "طلب العميل الإلغاء عبر الواتساب";
+        updatedOrder.cancelReason = reasonText;
+        const noteMsg = `تم إلغاء الطلب من قِبل العميل عبر واتساب (منصة أكد): ${reasonText}`;
+        updatedOrder.notes = updatedOrder.notes ? `${updatedOrder.notes}\n${noteMsg}` : noteMsg;
+        appliedAction = "order.cancelled";
+      }
+
+      if (isAddressUpdate && newAddress) {
+        updatedOrder.customerAddress = newAddress;
+        updatedOrder.address = newAddress;
+        if (newGovernorate) {
+          updatedOrder.governorate = newGovernorate;
+          updatedOrder.city = newGovernorate;
+        }
+        const noteMsg = `تم تعديل عنوان التوصيل عبر واتساب (منصة أكد) إلى: "${newAddress}" ${newGovernorate ? `(${newGovernorate})` : ''}`;
+        updatedOrder.notes = updatedOrder.notes ? `${updatedOrder.notes}\n${noteMsg}` : noteMsg;
+        appliedAction = isConfirm ? "order.confirmed_with_address_change" : "order.address_updated";
+      }
+
+      if (customerNotes && !isConfirm && !isCancel && !isAddressUpdate) {
+        updatedOrder.notes = updatedOrder.notes ? `${updatedOrder.notes}\nملاحظة العميل من واتساب: ${customerNotes}` : `ملاحظة العميل من واتساب: ${customerNotes}`;
+      }
+
+      updatedOrder.updatedAt = nowIso;
+      orders[orderIndex] = updatedOrder;
+
+      // Save to Firestore
+      const storeRefDoc = doc(db, "stores_data", targetStoreId);
+      await setDoc(storeRefDoc, { orders: cleanUndefined(orders) }, { merge: true });
+
+      console.log(`[AKKED-CALLBACK] Order ${updatedOrder.orderNumber} successfully updated to status: ${updatedOrder.status}, action: ${appliedAction}`);
+
+      return c.json({
+        success: true,
+        message: `تم تحديث الطلب رقم #${updatedOrder.orderNumber} بنجاح إلى حالة (${updatedOrder.status})`,
+        action: appliedAction,
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        newStatus: updatedOrder.status,
+        address: updatedOrder.customerAddress || updatedOrder.address,
+        updatedAt: nowIso
+      });
+    } catch (err: any) {
+      console.error("[AKKED-CALLBACK-ERROR]", err);
+      return c.json({
+        success: false,
+        error: err.message || "حدث خطأ غير متوقع أثناء معالجة رد منصة أكد"
+      }, 500);
+    }
+  };
+
+  app.post("/api/v1/akked/callback", handleAkkedInboundCallback);
+  app.post("/api/v1/webhooks/akked", handleAkkedInboundCallback);
+
+  // Endpoint: Test Webhook Dispatch (POST /api/v1/webhooks/test)
+  app.post("/api/v1/webhooks/test", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { url, event = "cart.abandoned", format = "JSON", apiVersion = "v1.0", secretKey, customData, realData } = body;
+
+      if (!url || typeof url !== "string" || !url.startsWith("http")) {
+        return c.json({
+          success: false,
+          error: "رابط الـ Webhook غير صحيح. يرجى إدخال رابط يبدأ بـ http:// أو https://"
+        }, 400);
+      }
+
+      const isAkked = isAkkedUrl(url);
+      const isWebhookEndpoint = isAkkedWebhookUrl(url);
+      const targetUrl = isAkked ? normalizeAkkedUrl(url) : url;
+
+      // Use real store data if provided, otherwise sample fallback
+      const rawData = customData || realData;
+      const standardPayload = getSampleWebhookPayload(event, apiVersion, rawData);
+      const akkedPayload = isAkked ? buildAkkedPayload(event, rawData) : null;
+      
+      let finalPayload: any;
+      if (isWebhookEndpoint) {
+        // Dedicated Akked Webhook receiver accepts standard order JSON payload with Akked fields
+        finalPayload = {
+          ...standardPayload,
+          ...akkedPayload,
+          order: standardPayload,
+          data: standardPayload
+        };
+      } else if (isAkked) {
+        finalPayload = akkedPayload;
+      } else {
+        finalPayload = standardPayload;
+      }
+
+      const startTime = Date.now();
+
+      const headers: Record<string, string> = {
+        "User-Agent": "StorePlatform-Webhook-Dispatcher/1.0",
+        "X-Webhook-Event": event,
+        "X-Webhook-Version": apiVersion,
+        "X-Webhook-Timestamp": new Date().toISOString()
+      };
+
+      if (isAkked) {
+        headers["Content-Type"] = "application/json; charset=utf-8";
+        headers["Idempotency-Key"] = `test-${Date.now()}-confirmation`;
+        if (secretKey && secretKey.trim()) {
+          const cleanKey = secretKey.trim();
+          headers["Authorization"] = cleanKey.startsWith("Bearer ") ? cleanKey : `Bearer ${cleanKey}`;
+        }
+      } else {
+        if (secretKey && secretKey.trim()) {
+          headers["X-Webhook-Secret"] = secretKey;
+          headers["X-Signature"] = `sha256=${Buffer.from(secretKey).toString("base64")}`;
+        }
+      }
+
+      let reqBody: string;
+      if (isAkked) {
+        reqBody = JSON.stringify(finalPayload, null, 2);
+      } else if (format === "JSON") {
+        headers["Content-Type"] = "application/json; charset=utf-8";
+        reqBody = JSON.stringify(standardPayload, null, 2);
+      } else if (format === "FORM") {
+        headers["Content-Type"] = "application/x-www-form-urlencoded";
+        const searchParams = new URLSearchParams();
+        searchParams.append("event", event);
+        searchParams.append("payload", JSON.stringify(standardPayload));
+        reqBody = searchParams.toString();
+      } else {
+        headers["Content-Type"] = "application/json; charset=utf-8";
+        reqBody = JSON.stringify(standardPayload);
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      try {
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers,
+          body: reqBody,
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+        const durationMs = Date.now() - startTime;
+        let responseBody = "";
+        try {
+          responseBody = await response.text();
+          if (responseBody.length > 2000) {
+            responseBody = responseBody.substring(0, 2000) + "... [تم تقصير الرد]";
+          }
+        } catch (e) {
+          responseBody = "";
+        }
+
+        let friendlyMessage = "";
+        if (isAkked) {
+          if (response.status === 202 || response.ok) {
+            friendlyMessage = `✅ تم قبول الطلب بنجاح بواسطة منصة أكد (202 Accepted) وتم وضعه في طابور إرسال الواتساب للعميل خلال ${durationMs}ms!`;
+          } else if (response.status === 401) {
+            friendlyMessage = `❌ تم الاتصال بأكد ولكن مفتاح الـ API غير صالح (401). تأكد من إدخال مفتاحك في خانة "المفتاح السري (Secret Key)" ويبدأ بـ ak_live_ من لوحة تحكم Akked.`;
+          } else if (response.status === 402) {
+            friendlyMessage = `⚠️ تم الاتصال بأكد بنجاح ولكن رصيد رسائل الواتساب في حسابك غير كافٍ (402 Insufficient credits).`;
+          } else if (response.status === 403) {
+            friendlyMessage = `⚠️ حسابك في أكد يحتاج إلى تفعيل باقة تدعم الـ API مع رقم واتساب نشط (403 Forbidden).`;
+          } else if (response.status === 422) {
+            friendlyMessage = `❌ بيانات الطلب أو رقم الهاتف غير مقبولة في قالب أكد (422 Unprocessable Entity). تم إرسال الرقم بالصيغة الدولية (+20) وتطابق الحقول.`;
+          } else {
+            friendlyMessage = `استجاب خادم أكد بكود (${response.status}: ${response.statusText})`;
+          }
+        } else {
+          friendlyMessage = response.ok
+            ? `تم إرسال الحدث بنجاح واستجاب الخادم بكود (${response.status}) خلال ${durationMs}ms`
+            : `استجاب الرابط بكود خطأ (${response.status}: ${response.statusText})`;
+        }
+
+        return c.json({
+          success: response.ok || response.status === 202,
+          statusCode: response.status,
+          statusText: response.statusText,
+          durationMs,
+          responseBody,
+          sentPayload: finalPayload,
+          isAkked,
+          targetUrl,
+          message: friendlyMessage
+        });
+      } catch (reqError: any) {
+        clearTimeout(timeoutId);
+        const durationMs = Date.now() - startTime;
+        const isAbort = reqError.name === "AbortError";
+
+        return c.json({
+          success: false,
+          statusCode: isAbort ? 504 : 500,
+          statusText: isAbort ? "Gateway Timeout" : "Connection Failed",
+          durationMs,
+          isAkked,
+          targetUrl,
+          error: isAbort 
+            ? "انتهت مهلة الاتصال (12 ثانية) دون استجابة من الرابط المحدد." 
+            : (reqError.message || "فشل الاتصال بالرابط المستهدف"),
+          sentPayload: finalPayload
+        });
+      }
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message || "خطأ غير متوقع" }, 500);
+    }
+  });
+
+  // Endpoint: Dispatch Real Webhook Event (POST /api/v1/webhooks/dispatch)
+  app.post("/api/v1/webhooks/dispatch", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { event, storeId, data, subscriptions, apiVersion = "v1.0" } = body;
+
+      if (!event) {
+        return c.json({ success: false, error: "Missing event" }, 400);
+      }
+
+      let targets: any[] = subscriptions || [];
+      if ((!targets || targets.length === 0) && storeId) {
+        try {
+          const storeRef = doc(db, "stores_data", storeId);
+          const snap = await getDoc(storeRef);
+          if (snap.exists()) {
+            const storeSettings = snap.data()?.settings;
+            targets = storeSettings?.storeWebhooks || storeSettings?.webhookIntegrations || [];
+          }
+        } catch (dbErr) {
+          console.error("[WEBHOOK-DISPATCH] Store lookup error:", dbErr);
+        }
+      }
+
+      const activeMatching = targets.filter((sub: any) => {
+        const isActive = sub.isActive !== false;
+        const subEvent = sub.event || "order.completed";
+        return isActive && (subEvent === event || subEvent === "*" || subEvent === "all");
+      });
+
+      if (activeMatching.length === 0) {
+        return c.json({ success: true, dispatchedCount: 0, message: `No active webhooks for ${event}` });
+      }
+
+      const payload = getSampleWebhookPayload(event, apiVersion, data);
+      const results: any[] = [];
+
+      for (const sub of activeMatching) {
+        const rawUrl = sub.url || sub.webhookUrl;
+        if (!rawUrl || !rawUrl.startsWith("http")) continue;
+
+        const isAkked = isAkkedUrl(rawUrl);
+        const isWebhookEndpoint = isAkkedWebhookUrl(rawUrl);
+        const url = isAkked ? normalizeAkkedUrl(rawUrl) : rawUrl;
+        const subFormat = sub.format || "JSON";
+        const subSecret = sub.secretKey;
+        const startTime = Date.now();
+
+        const headers: Record<string, string> = {
+          "User-Agent": "StorePlatform-Webhook-Dispatcher/1.0",
+          "X-Webhook-Event": event,
+          "X-Webhook-Version": apiVersion,
+          "X-Webhook-Timestamp": new Date().toISOString()
+        };
+
+        let reqBody: string;
+
+        if (isAkked) {
+          headers["Content-Type"] = "application/json; charset=utf-8";
+          headers["Idempotency-Key"] = `order-${data?.order_number || data?.orderNumber || data?.id || Date.now()}-${Date.now()}`;
+          if (subSecret && subSecret.trim()) {
+            const cleanKey = subSecret.trim();
+            headers["Authorization"] = cleanKey.startsWith("Bearer ") ? cleanKey : `Bearer ${cleanKey}`;
+          }
+          const akkedBody = buildAkkedPayload(event, data);
+          if (isWebhookEndpoint) {
+            reqBody = JSON.stringify({
+              ...payload,
+              ...akkedBody,
+              order: payload,
+              data: payload
+            });
+          } else {
+            reqBody = JSON.stringify(akkedBody);
+          }
+        } else {
+          if (subSecret) {
+            headers["X-Webhook-Secret"] = subSecret;
+            headers["X-Signature"] = `sha256=${Buffer.from(subSecret).toString("base64")}`;
+          }
+
+          if (subFormat === "FORM") {
+            headers["Content-Type"] = "application/x-www-form-urlencoded";
+            const sp = new URLSearchParams();
+            sp.append("event", event);
+            sp.append("payload", JSON.stringify(payload));
+            reqBody = sp.toString();
+          } else {
+            headers["Content-Type"] = "application/json; charset=utf-8";
+            reqBody = JSON.stringify(payload);
+          }
+        }
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: reqBody,
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          const durationMs = Date.now() - startTime;
+          const isSuccess = res.ok || res.status === 202;
+          results.push({
+            id: sub.id,
+            url,
+            isAkked,
+            success: isSuccess,
+            statusCode: res.status,
+            statusText: res.status === 202 ? "Accepted (Akked Queued)" : res.statusText,
+            durationMs
+          });
+        } catch (fetchErr: any) {
+          results.push({
+            id: sub.id,
+            url,
+            isAkked,
+            success: false,
+            statusCode: 500,
+            statusText: fetchErr.name === "AbortError" ? "Timeout" : "Failed",
+            error: fetchErr.message
+          });
+        }
+      }
+
+      return c.json({
+        success: true,
+        event,
+        dispatchedCount: results.length,
+        results
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
   // Cloudflare SaaS Domain Automation Helpers
   const fetchHostnameInternal = async (hostname: string) => {
     const zoneId = process.env.CLOUDFLARE_ZONE_ID;
@@ -738,11 +2605,16 @@ async function startServer() {
         return c.json({ success: false, error: "WhatsApp integration is not active." }, 400);
       }
  
-      // Clean phone number: remove all non-digits
-      let cleanTo = (to || '').toString().replace(/\D/g, '');
-      // If it starts with 0 and is 11 digits (Egyptian format), prepend 2
+      // Clean and normalize phone number
+      let cleanTo = (to || '').toString().replace(/\D/g, '').replace(/^00+/, '');
       if (cleanTo.startsWith('0') && cleanTo.length === 11) {
         cleanTo = '2' + cleanTo;
+      } else if (cleanTo.startsWith('1') && cleanTo.length === 10) {
+        cleanTo = '20' + cleanTo;
+      }
+
+      if (!cleanTo || cleanTo.length < 8) {
+        return c.json({ success: false, error: "رقم هاتف المستلم غير صحيح أو ناقص." }, 400);
       }
 
       // Check if Meta Cloud API is selected
@@ -776,13 +2648,16 @@ async function startServer() {
           if (templateComponents && Array.isArray(templateComponents) && templateComponents.length > 0) {
             components.push(...templateComponents);
           } else if (templateParameters && Array.isArray(templateParameters) && templateParameters.length > 0) {
-            components.push({
-              type: "body",
-              parameters: templateParameters.map((p: any) => ({
-                type: "text",
-                text: String(p || '')
-              }))
-            });
+            const validParams = templateParameters.map((p: any) => ({
+              type: "text",
+              text: String(p !== undefined && p !== null && p !== '' ? p : ' ').trim() || '-'
+            }));
+            if (validParams.length > 0) {
+              components.push({
+                type: "body",
+                parameters: validParams
+              });
+            }
           }
 
           metaPayload = {
@@ -799,8 +2674,9 @@ async function startServer() {
             }
           };
         } 
-        // 2. If buttons are provided and <= 3, use native Meta Interactive Quick Reply Buttons
-        else if (buttons && Array.isArray(buttons) && buttons.length > 0 && buttons.length <= 3) {
+        // 2. If buttons are provided and <= 3 and body <= 1024 chars, use native Meta Interactive Quick Reply Buttons
+        else if (buttons && Array.isArray(buttons) && buttons.length > 0 && buttons.length <= 3 && cleanBody.length <= 1024) {
+          const safeFooter = cleanFooter ? [...cleanFooter.trim()].slice(0, 60).join('') : undefined;
           metaPayload = {
             messaging_product: "whatsapp",
             recipient_type: "individual",
@@ -809,13 +2685,13 @@ async function startServer() {
             interactive: {
               type: "button",
               body: {
-                text: cleanBody
+                text: cleanBody.trim() || 'إشعار من المتجر'
               },
-              footer: cleanFooter ? { text: cleanFooter } : undefined,
+              footer: safeFooter ? { text: safeFooter } : undefined,
               action: {
                 buttons: buttons.map((b: any, idx: number) => {
                   const rawTitle = typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`);
-                  const title = rawTitle.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName).trim().substring(0, 20);
+                  const title = [...(rawTitle.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName).trim() || `زر ${idx + 1}`)].slice(0, 20).join('');
                   const id = (typeof b === 'object' && b.id ? b.id : `btn_${idx + 1}`).substring(0, 256);
                   return {
                     type: "reply",
@@ -826,7 +2702,7 @@ async function startServer() {
             }
           };
         } 
-        // 3. Standard Text Message (with fallback formatted buttons if > 3)
+        // 3. Standard Text Message (with fallback formatted buttons if > 3 or body > 1024 chars)
         else {
           if (buttons && buttons.length > 0) {
             fullBodyText += `\n\n🔘 الخيارات:\n` + buttons.map((b: any, idx: number) => {
@@ -856,17 +2732,50 @@ async function startServer() {
           body: JSON.stringify(metaPayload)
         });
 
-        const metaData: any = await metaRes.json();
-        const isSuccess = metaRes.ok && (metaData.messages && metaData.messages.length > 0);
+        let metaData: any = await metaRes.json();
+        let isSuccess = metaRes.ok && (metaData.messages && metaData.messages.length > 0);
+
+        // Automatic fallback: if interactive or template payload fails (e.g. #100, parameter length, unapproved buttons), attempt standard text delivery
+        if (!isSuccess && metaPayload.type !== 'text') {
+          try {
+            console.warn(`[WHATSAPP-FALLBACK] Meta ${metaPayload.type} failed (${metaData?.error?.code || 'error'}), trying text message fallback...`);
+            const fallbackPayload = {
+              messaging_product: "whatsapp",
+              recipient_type: "individual",
+              to: cleanTo,
+              type: "text",
+              text: {
+                body: fullBodyText
+              }
+            };
+            const fallbackRes = await fetch(metaUrl, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${accessToken}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(fallbackPayload)
+            });
+            const fallbackData = await fallbackRes.json();
+            if (fallbackRes.ok && fallbackData.messages && fallbackData.messages.length > 0) {
+              metaData = fallbackData;
+              isSuccess = true;
+            }
+          } catch (fallbackErr) {
+            console.error("[WHATSAPP-FALLBACK-ERR]", fallbackErr);
+          }
+        }
 
         // Intelligent Meta Error translations
         let customError: string | undefined = undefined;
-        if (metaData.error) {
+        if (!isSuccess && metaData.error) {
           const code = metaData.error.code;
           const subcode = metaData.error.error_subcode;
           const rawMsg = metaData.error.message || '';
 
-          if (code === 131047 || rawMsg.includes('24 hours') || subcode === 2494010) {
+          if (code === 100) {
+            customError = `تنبيه ميتا (كود #100 - معلَمة غير صالحة): ${metaData.error.error_user_msg || rawMsg || 'تأكد من صحة رقم الهاتف، وصيغة القالب والمتغيرات'}.`;
+          } else if (code === 131047 || rawMsg.includes('24 hours') || subcode === 2494010) {
             customError = "تنبيه ميتا (كود #131047): لا يمكن إرسال رسائل نصية أو أزرار حرة للعميل خارج نافذة الـ 24 ساعة لخدمة العملاء. وفقاً لسياسة Meta، يجب تفعيل واستخدام قالب معتمد (Approved Template) لبدء إرسال إشعارات الطلب.";
           } else if (code === 131030) {
             customError = "تنبيه ميتا (كود #131030): رقم المستلم غير مضاف لقائمة أرقام الاختبار في لوحة مطوري فيسبوك (Meta Developer Dashboard). أضف الرقم أو قم بترقية التطبيق للوضع المباشر (Live Mode).";
@@ -885,7 +2794,7 @@ async function startServer() {
           success: isSuccess,
           error: customError,
           ...metaData
-        }, metaRes.status as any);
+        }, (isSuccess ? 200 : metaRes.status) as any);
       }
  
       const { apiUrl, instanceId, token } = config;
@@ -1393,6 +3302,9 @@ async function startServer() {
     const isCancel = normalizedText.includes("إلغاء") || 
                      normalizedText.includes("الغاء") || 
                      normalizedText.includes("cancel") || 
+                     normalizedText.includes("btn_3") || 
+                     normalizedText.includes("btn_cancel") || 
+                     normalizedText.includes("btn_3️⃣") || 
                      normalizedText.includes("❌") || 
                      normalizedText === "2" || 
                      normalizedText === "3" || 
@@ -1409,6 +3321,8 @@ async function startServer() {
     const isConfirm = normalizedText.includes("تأكيد") || 
                       normalizedText.includes("تاكيد") || 
                       normalizedText.includes("confirm") || 
+                      normalizedText.includes("btn_1") || 
+                      normalizedText.includes("btn_confirm") || 
                       normalizedText.includes("👍") || 
                       normalizedText.includes("✅") || 
                       normalizedText === "1" || 
@@ -1421,7 +3335,10 @@ async function startServer() {
 
     const isEdit = normalizedText.includes("تعديل") || 
                    normalizedText.includes("edit") || 
+                   normalizedText.includes("btn_2") || 
+                   normalizedText.includes("btn_edit") || 
                    normalizedText.includes("✍️") || 
+                   normalizedText.includes("📍") || 
                    normalizedText.includes("تغيير العنوان") || 
                    normalizedText.includes("العنوان غلط");
 
@@ -1831,15 +3748,20 @@ async function startServer() {
 
   // Meta Webhook Challenge verification (GET)
   const handleMetaWhatsAppWebhookGet = async (c: any) => {
-    const mode = c.req.query("hub.mode");
-    const token = c.req.query("hub.verify_token");
-    const challenge = c.req.query("hub.challenge");
+    const mode = c.req.query("hub.mode") || c.req.query("hub_mode") || c.req.query("mode");
+    const token = c.req.query("hub.verify_token") || c.req.query("hub_verify_token") || c.req.query("token") || c.req.query("verify_token");
+    const challenge = c.req.query("hub.challenge") || c.req.query("hub_challenge") || c.req.query("challenge");
 
     console.log(`[WHATSAPP-WEBHOOK-GET] mode=${mode}, token=${token}, challenge=${challenge}`);
 
-    if (mode === "subscribe" && challenge) {
+    if (challenge && (mode === "subscribe" || !mode)) {
       console.log("✅ [WHATSAPP-WEBHOOK-GET] Meta subscription challenge verified successfully!");
-      return c.text(challenge);
+      return new Response(challenge, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8"
+        }
+      });
     }
 
     return c.json({
@@ -1852,6 +3774,59 @@ async function startServer() {
 
   app.get("/api/webhook/whatsapp", handleMetaWhatsAppWebhookGet);
   app.get("/api/webhooks/whatsapp", handleMetaWhatsAppWebhookGet);
+
+  // Privacy Policy, Terms, and Data Deletion pages for Meta Compliance
+  const serveComplianceHtml = (title: string, content: string) => {
+    return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>${title} - Abdo Media</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.8; max-width: 800px; margin: 40px auto; padding: 20px; color: #1e293b; background: #f8fafc; }
+    .card { background: white; border-radius: 16px; padding: 32px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+    h1 { color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; }
+    p, li { color: #475569; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    ${content}
+    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+    <p style="font-size: 13px; color: #94a3b8;">للتواصل: info@3bdomedia.com | Abdo Media</p>
+  </div>
+</body>
+</html>`;
+  };
+
+  const privacyHtml = serveComplianceHtml(
+    "سياسة الخصوصية (Privacy Policy)",
+    `<p>نحن في <strong>Abdo Media</strong> نلتزم بحماية خصوصية بيانات عملائنا ومستخدمينا. تقتصر معالجة البيانات وأرقام الهواتف على إرسال تأكيدات الشحن وتحديثات حالات الطلبات عبر الواتساب، ولا يتم مشاركة أي بيانات مع أي أطراف ثالثة خارجية.</p>
+    <ul>
+      <li><strong>البيانات المعالجة:</strong> الاسم، رقم الهاتف، العنوان، وحالة الطلب.</li>
+      <li><strong>الغرض:</strong> تأكيد وتوصيل شحنات وطلبات التجارة الإلكترونية وإبلاغ العميل بحالة الشحنة.</li>
+    </ul>`
+  );
+
+  const termsHtml = serveComplianceHtml(
+    "شروط الخدمة (Terms of Service)",
+    `<p>باستخدام خدمات ومنصات <strong>Abdo Media</strong> للتجارة وتأكيد الطلبات، فإنك توافق على استلام إشعارات حالات الشحن والتأكيد عبر قنوات التواصل المعتمدة (بما في ذلك الرسائل النصية والواتساب).</p>`
+  );
+
+  const dataDeletionHtml = serveComplianceHtml(
+    "تعليمات حذف بيانات المستخدم (User Data Deletion)",
+    `<p>يحق لأي مستخدم أو عميل طلب حذف بياناته الشخصية وسجلاته من أنظمتنا في أي وقت.</p>
+    <p>لحذف بياناتك، يمكنك مراسلتنا مباشرة على البريد الإلكتروني: <code>info@3bdomedia.com</code> أو عبر التواصل مع خدمة العملاء، وسيتم حذف البيانات خلال 24 ساعة عمل.</p>`
+  );
+
+  app.get("/ar/privacy", (c) => c.html(privacyHtml));
+  app.get("/privacy", (c) => c.html(privacyHtml));
+  app.get("/ar/terms", (c) => c.html(termsHtml));
+  app.get("/terms", (c) => c.html(termsHtml));
+  app.get("/ar/data-deletion", (c) => c.html(dataDeletionHtml));
+  app.get("/data-deletion", (c) => c.html(dataDeletionHtml));
 
   // Public webhook for UltraMsg & Meta callback integration
   const handleWhatsAppWebhookPost = async (c: any) => {
@@ -1884,12 +3859,12 @@ async function startServer() {
         messageId = msg.id || "";
         phone = msg.from;
         if (msg.type === "button") {
-          buttonText = msg.button?.text || msg.button?.payload || "";
+          buttonText = `${msg.button?.text || ""} ${msg.button?.payload || ""}`.trim();
         } else if (msg.type === "interactive") {
           if (msg.interactive?.button_reply) {
-            buttonText = msg.interactive.button_reply.title || msg.interactive.button_reply.id || "";
+            buttonText = `${msg.interactive.button_reply.title || ""} ${msg.interactive.button_reply.id || ""}`.trim();
           } else if (msg.interactive?.list_reply) {
-            buttonText = msg.interactive.list_reply.title || msg.interactive.list_reply.id || "";
+            buttonText = `${msg.interactive.list_reply.title || ""} ${msg.interactive.list_reply.id || ""}`.trim();
           }
         } else {
           buttonText = msg.text?.body || "";
@@ -1921,6 +3896,124 @@ async function startServer() {
 
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhookPost);
   app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookPost);
+
+  // WhatsApp Customer Action Simulation Endpoint (for testing webhook without WhatsApp)
+  app.post("/api/webhook/whatsapp/simulate", async (c) => {
+    try {
+      const { phone, text, orderId } = await c.req.json();
+      const result = await processCustomerWhatsAppAction({
+        phone: phone || "",
+        text: text || "إلغاء الطلب ❌",
+        orderId: orderId ? String(orderId) : undefined,
+        source: "simulation_test"
+      });
+      return c.json(result);
+    } catch (e: any) {
+      return c.json({ success: false, error: e.message }, 500);
+    }
+  });
+
+  // Public Order Details for Customer Action Page
+  app.get("/api/order/public-details", async (c) => {
+    try {
+      const orderId = c.req.query("orderId");
+      const orderNumber = c.req.query("orderNumber");
+      const phone = c.req.query("phone");
+
+      if (!orderId && !orderNumber && !phone) {
+        return c.json({ success: false, error: "المعلومات غير كافية للوصول إلى الطلب" }, 400);
+      }
+
+      const storesSnap = await getDocs(collection(db, "stores_data"));
+      let foundOrder: any = null;
+      let storeName = "متجرنا";
+
+      for (const storeDoc of storesSnap.docs) {
+        const storeData = storeDoc.data();
+        const orders = storeData.orders || [];
+        for (const ord of orders) {
+          const matchId = orderId && (String(ord.id) === String(orderId) || String(ord.orderNumber) === String(orderId));
+          const matchNum = orderNumber && (String(ord.orderNumber) === String(orderNumber));
+          const matchPhone = phone && ord.customerPhone && (ord.customerPhone.replace(/\D/g, '').endsWith(phone.replace(/\D/g, '')));
+
+          if (matchId || matchNum || (matchPhone && (orderId || orderNumber))) {
+            foundOrder = ord;
+            storeName = storeData.settings?.general?.storeName || storeData.settings?.storeName || storeData.name || "متجرنا";
+            break;
+          }
+        }
+        if (foundOrder) break;
+      }
+
+      if (!foundOrder) {
+        return c.json({ success: false, error: "لم يتم العثور على الطلب" }, 404);
+      }
+
+      return c.json({
+        success: true,
+        order: {
+          id: foundOrder.id,
+          orderNumber: foundOrder.orderNumber,
+          customerName: foundOrder.customerName,
+          customerPhone: foundOrder.customerPhone ? foundOrder.customerPhone.slice(0, 3) + '****' + foundOrder.customerPhone.slice(-4) : '',
+          customerAddress: foundOrder.customerAddress,
+          customerCity: foundOrder.customerCity || foundOrder.city || foundOrder.governorate,
+          governorate: foundOrder.governorate,
+          totalPrice: foundOrder.totalPrice || foundOrder.total || 0,
+          status: foundOrder.status,
+          currency: foundOrder.currency || "ج.م",
+          items: foundOrder.items || [],
+          productName: foundOrder.productName,
+          quantity: foundOrder.quantity,
+          createdAt: foundOrder.createdAt || foundOrder.date
+        },
+        storeName
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Customer 1-Click Order Action (Confirm / Cancel / Edit Address)
+  app.all("/api/order/action", async (c) => {
+    try {
+      const isPost = c.req.method === "POST";
+      let body: any = {};
+      if (isPost) {
+        try { body = await c.req.json(); } catch (_) {}
+      }
+      const orderId = body.orderId || c.req.query("orderId") || c.req.query("id");
+      const action = body.action || c.req.query("action"); // 'confirm' | 'cancel' | 'edit_address'
+      const phone = body.phone || c.req.query("phone");
+      const newAddress = body.newAddress || c.req.query("newAddress");
+      const newCity = body.newCity || c.req.query("newCity");
+
+      let actionText = "";
+      if (action === "cancel") {
+        actionText = "إلغاء الطلب ❌";
+      } else if (action === "confirm") {
+        actionText = "تأكيد الطلب 👍";
+      } else if (action === "edit_address") {
+        actionText = newAddress ? `تعديل العنوان: ${newAddress}${newCity ? ' - ' + newCity : ''}` : "تعديل العنوان ✍️";
+      } else {
+        return c.json({ success: false, error: "الإجراء المطلوب غير صالح." }, 400);
+      }
+
+      const result = await processCustomerWhatsAppAction({
+        phone: phone || "",
+        text: actionText,
+        orderId: orderId ? String(orderId) : undefined,
+        updatedAddress: newAddress,
+        updatedGovernorate: newCity,
+        source: "customer_smart_link"
+      });
+
+      return c.json(result);
+    } catch (err: any) {
+      console.error("[CUSTOMER-ORDER-ACTION] Error:", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
 
   // Temporary Introspection
   app.get("/api/introspect", async (c) => {
