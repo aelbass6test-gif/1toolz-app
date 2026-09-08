@@ -85,10 +85,14 @@ export interface BostaDistrict {
   districtId?: string;
   zoneId?: string;
   cityId?: string;
-  districtName: string;
+  districtName?: string;
   districtNameAr?: string;
+  name?: string;
+  nameAr?: string;
   zoneName?: string;
   zoneNameAr?: string;
+  cityName?: string;
+  cityNameAr?: string;
   pickupAvailability?: boolean;
   dropOffAvailability?: boolean;
 }
@@ -647,6 +651,24 @@ export const bostaService = {
       return await res.json();
     } catch {
       return { success: true, message: 'تم إلغاء الربط' };
+    }
+  },
+
+  /**
+   * List Business Products (docs.bosta.co/api#/operations/listBusinessProducts)
+   * Fetches registered Bosta Business Products & fulfillment catalog
+   */
+  async listBusinessProducts(apiKey?: string, environment?: 'production' | 'staging'): Promise<{ success: boolean; products: any[]; error?: string }> {
+    try {
+      const queryParams = new URLSearchParams();
+      if (apiKey) queryParams.append('apiKey', apiKey);
+      if (environment === 'staging') queryParams.append('staging', 'true');
+
+      const res = await fetch(`/api/bosta/products?${queryParams.toString()}`);
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, products: [], error: err.message || 'فشل جلب قائمة منتجات بوسطة' };
     }
   },
 

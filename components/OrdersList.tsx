@@ -3,6 +3,7 @@ import { parseSafeDate } from "../utils/dateUtils";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
   Plus,
+  Loader2,
   Search,
   Trash2,
   Edit3,
@@ -81,6 +82,8 @@ import {
   where,
   getDocs,
   deleteDoc,
+  doc,
+  setDoc,
 } from "firebase/firestore";
 import {
   Order,
@@ -130,6 +133,8 @@ import { OrderDetailsModal } from "./OrderDetailsModal";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { whatsappService } from "../utils/whatsappService";
 import { bostaService } from "../utils/bostaService";
+import { turboService } from "../utils/turboService";
+import { getShippingAdapter, ShippingAdapter } from "../utils/shippingAdapters";
 import { BostaTrackingModal } from "./BostaTrackingModal";
 import { inAppConfirm, inAppAlert, inAppToast } from "../utils/inAppAlert";
 import {
@@ -755,11 +760,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const activeCompanies = useMemo(
-    () =>
-      Object.keys(settings.shippingOptions || {}).filter(
+    () => {
+      const keys = new Set<string>([
+        "بوسطة",
+        "تربو",
+        ...Object.keys(settings.shippingOptions || {}),
+        ...Object.keys(settings.activeCompanies || {}),
+        ...(settings.companyNames ? Object.keys(settings.companyNames) : [])
+      ]);
+      return Array.from(keys).filter(
         (company) => settings.activeCompanies?.[company] !== false,
-      ),
-    [settings.shippingOptions, settings.activeCompanies],
+      );
+    },
+    [settings.shippingOptions, settings.activeCompanies, settings.companyNames],
   );
 
   const uniqueCustomers = useMemo(() => {
@@ -856,33 +869,87 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     }
   };
 
-  // Real Bosta API Handlers
-  const handleSendOrderToBosta = async (order: Order) => {
+  // Unified Shipping Adapter Handler
+  const handleSendToShipping = async (order: Order, preferredCarrier?: string) => {
+    const carrierToUse = preferredCarrier || order.shippingCompany;
+    const adapter = getShippingAdapter(carrierToUse);
+    if (!adapter) {
+      await inAppAlert(`شركة الشحن "${carrierToUse || 'غير المحددة'}" غير مدعومة للربط الآلي حالياً. يرجى اختيار "تربو" أو "بوسطة".`, { type: 'warning' });
+      return;
+    }
+
+    const carrierName = adapter.getCarrierName();
+    const config = carrierName === 'بوسطة' ? settings?.bostaConfig : settings?.turboConfig;
+
+    const hasKey = Boolean(config?.apiKey || (config as any)?.authenticationKey);
+    if (!hasKey) {
+      await inAppAlert(`يرجى ضبط إعدادات الربط مع شركة ${carrierName} أولاً في تبويب الشحن.`, { type: 'error' });
+      return;
+    }
+
     setIsBostaLoading(order.id);
     try {
-      const res = await bostaService.createDelivery(order, settings?.bostaConfig);
-      if (res.success && res.trackingNumber) {
-        const trackingNum = res.trackingNumber;
-        const deliveryId = res.deliveryId || trackingNum;
+      const orderToSend = preferredCarrier && order.shippingCompany !== carrierName
+        ? { ...order, shippingCompany: carrierName }
+        : order;
+
+      const res = await adapter.createShipment(orderToSend, config);
+      if (res.success && res.waybillNumber) {
+        const trackingNum = res.waybillNumber;
+
+        const orderWithWaybill: Order = {
+          ...orderToSend,
+          waybillNumber: trackingNum,
+          shippingCompany: carrierName,
+          status: 'تم_الارسال' as OrderStatus,
+        };
+
+        if (carrierName === 'بوسطة') {
+          orderWithWaybill.bostaTrackingNumber = trackingNum;
+          orderWithWaybill.bostaDeliveryId = res.shipmentId || trackingNum;
+        } else if (carrierName === 'تربو') {
+          orderWithWaybill.turboTrackingNumber = trackingNum;
+          orderWithWaybill.turboDeliveryId = res.shipmentId || trackingNum;
+        }
+
+        // 1. Sync Inventory
+        const { updatedProducts, stockDeducted } = updateInventoryForOrder(
+          orderWithWaybill,
+          'تم_الارسال' as OrderStatus,
+          settings.products,
+        );
+        if (stockDeducted !== order.stockDeducted) {
+          setSettings((prev) => ({ ...prev, products: updatedProducts }));
+        }
+
+        // 2. Update Financials / Wallet
+        const { updatedOrderData: financialUpdatedOrder, newTransactions } =
+          processFinancialsForStatusChange(orderWithWaybill, 'تم_الارسال' as OrderStatus);
+        const finalUpdatedOrder = { ...financialUpdatedOrder, stockDeducted };
+
+        if (newTransactions.length > 0) {
+          setWallet((prev) => {
+            let newBalance = prev.balance || 0;
+            newTransactions.forEach((t) => {
+              if (t.type === "إيداع") newBalance += t.amount;
+              else if (t.type === "سحب") newBalance -= t.amount;
+            });
+            return {
+              ...prev,
+              balance: newBalance,
+              transactions: [...newTransactions, ...prev.transactions],
+            };
+          });
+        }
 
         setOrders((prev) =>
-          prev.map((o) =>
-            o.id === order.id
-              ? {
-                  ...o,
-                  waybillNumber: trackingNum,
-                  bostaDeliveryId: deliveryId,
-                  bostaTrackingNumber: trackingNum,
-                  shippingCompany: 'بوسطة',
-                }
-              : o,
-          ),
+          prev.map((o) => (o.id === order.id ? finalUpdatedOrder : o)),
         );
 
-        addAuditLog(order.id, 'إنشاء بوليصة بوسطة', `رقم البوليصة: ${trackingNum}`);
+        addAuditLog(order.id, `إنشاء بوليصة ${carrierName} وتغيير الحالة تلقائياً`, `تم إنشاء البوليصة رقم ${trackingNum} بنجاح وتم تغيير حالة الطلب تلقائياً إلى "تم الإرسال"`);
 
         // Auto-send tracking link via WhatsApp API if configured
-        if (settings?.bostaConfig?.autoSendWhatsAppTracking && settings?.whatsappConfig?.isActive) {
+        if (carrierName === 'بوسطة' && settings?.bostaConfig?.autoSendWhatsAppTracking && settings?.whatsappConfig?.isActive) {
           try {
             const trackingMsg = bostaService.formatTrackingMessage(
               order,
@@ -907,28 +974,347 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           } catch (waErr) {
             console.error('Error auto-sending Bosta tracking link via WhatsApp:', waErr);
           }
+        } else if (settings.whatsappConfig?.isActive && settings.whatsappConfig?.autoSendOnStatusChange) {
+          try {
+            handleSendWhatsAppAPI(finalUpdatedOrder, 'shipping', true);
+          } catch (waErr) {
+            console.error('Error auto-sending status change WhatsApp notification:', waErr);
+          }
         }
 
-        const shouldPrint = await inAppConfirm(
-          `تم إنشاء الشحنة بنجاح في بوسطة! ✅\nرقم البوليصة الرسمية (AWB): ${trackingNum}\n\nهل ترغب في فتح وطباعة بوليصة الشحن (AWB PDF) الآن؟`,
-          {
-            title: 'تم إنشاء شحنة بوسطة بنجاح',
-            type: 'success',
-            confirmText: 'طباعة البوليصة الآن',
-            cancelText: 'لاحقاً',
+        if (carrierName === 'بوسطة' || carrierName === 'تربو') {
+          const shouldPrint = await inAppConfirm(
+            `تم إنشاء الشحنة بنجاح في ${carrierName} وتحديث حالة الطلب إلى "تم الإرسال"! ✅\nرقم البوليصة الرسمية (AWB): ${trackingNum}\n\nهل ترغب في فتح وطباعة بوليصة الشحن الرسمية (PDF) الآن؟`,
+            {
+              title: `تم إنشاء شحنة ${carrierName} بنجاح`,
+              type: 'success',
+              confirmText: 'طباعة البوليصة الآن',
+              cancelText: 'لاحقاً',
+            }
+          );
+          if (shouldPrint) {
+            handlePrintShippingAwb(orderWithWaybill);
           }
-        );
-        if (shouldPrint) {
-          handlePrintBostaAwb(deliveryId || trackingNum);
+        } else {
+          inAppToast(`تم إرسال الطلب إلى شركة ${carrierName} بنجاح! رقم البوليصة: ${trackingNum}`, 'success');
         }
       } else {
-        await inAppAlert(`فشل إنشاء الشحنة في بوسطة: ${res.error || 'خطأ غير معروف'}`, { type: 'error' });
+        await inAppAlert(`فشل إنشاء الشحنة في ${carrierName}: ${res.error || 'خطأ غير معروف'}`, { type: 'error' });
       }
     } catch (err: any) {
-      await inAppAlert(`خطأ أثناء الاتصال ببوسطة: ${err.message || 'خطأ غير متوقع'}`, { type: 'error' });
+      await inAppAlert(`خطأ أثناء الاتصال بشركة ${carrierName}: ${err.message || 'خطأ غير متوقع'}`, { type: 'error' });
     } finally {
       setIsBostaLoading(null);
     }
+  };
+
+  const handleSendOrderToShipping = (order: Order) => handleSendToShipping(order);
+  const handleSendOrderToBosta = (order: Order) => handleSendToShipping(order);
+  const handleSendOrderToTurbo = (order: Order) => handleSendToShipping(order, 'تربو');
+
+
+  const handleCancelShipping = async (order: Order) => {
+    let adapter: ShippingAdapter | null = null;
+    if (order.turboTrackingNumber || order.turboDeliveryId) {
+      adapter = getShippingAdapter('تربو');
+    } else if (order.bostaDeliveryId || order.bostaTrackingNumber) {
+      adapter = getShippingAdapter('بوسطة');
+    } else {
+      adapter = getShippingAdapter(order.shippingCompany);
+    }
+
+    if (!adapter) {
+      adapter = getShippingAdapter('تربو') || getShippingAdapter('بوسطة');
+    }
+
+    const carrierName = adapter?.getCarrierName() || order.shippingCompany || 'شركة الشحن';
+    const config = carrierName === 'بوسطة' ? settings?.bostaConfig : settings?.turboConfig;
+    const trackingId = order.turboTrackingNumber || order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber;
+
+    if (!trackingId) {
+      await inAppAlert('لا يوجد رقم بوليصة أو معرّف شحنة لهذا الطلب.', { type: 'warning' });
+      return;
+    }
+
+    const confirmCancel = await inAppConfirm(
+      `هل أنت متأكد من إلغاء الشحنة رقم ${trackingId} وحذفها تماماً من شركة ${carrierName}؟\n\n(سيتم مسح بيانات البوليصة وإعادة حالة الطلب إلى "قيد التنفيذ")`,
+      {
+        title: `تأكيد إلغاء بوليصة ${carrierName}`,
+        type: 'warning',
+        confirmText: 'نعم، إلغاء الشحنة',
+        cancelText: 'تراجع',
+      }
+    );
+
+    if (!confirmCancel) return;
+
+    setIsBostaLoading(order.id);
+    try {
+      let isSuccess = false;
+      if (adapter) {
+        const res = await adapter.cancelShipment(trackingId, config);
+        isSuccess = !!res.success;
+        if (!isSuccess) {
+          const forceClear = await inAppConfirm(
+            `تعذر إلغاء الشحنة على خوادم ${carrierName}: ${res.error || 'خطأ غير معروف'}.\n\n(قد تكون الشحنة ملغية مسبقاً على السيرفر أو أن رقم التتبع لا يطابق خوادم الشركة).\n\nهل ترغب في مسح بيانات البوليصة محلياً وإعادة الطلب إلى "قيد التنفيذ"؟`,
+            {
+              title: 'مسح بيانات البوليصة محلياً',
+              type: 'warning',
+              confirmText: 'نعم، مسح البيانات محلياً',
+              cancelText: 'إلغاء',
+            }
+          );
+          if (forceClear) {
+            isSuccess = true;
+          }
+        }
+      } else {
+        isSuccess = true;
+      }
+
+      if (isSuccess) {
+        // 1. Sync Inventory using 'قيد_التنفيذ' status
+        const { updatedProducts, stockDeducted } = updateInventoryForOrder(
+          { ...order, status: 'قيد_التنفيذ' as OrderStatus },
+          'قيد_التنفيذ' as OrderStatus,
+          settings.products,
+        );
+        if (stockDeducted !== order.stockDeducted) {
+          setSettings((prev) => ({ ...prev, products: updatedProducts }));
+        }
+
+        // 2. Update Financials / Wallet
+        const { updatedOrderData: financialUpdatedOrder, newTransactions } =
+          processFinancialsForStatusChange(order, 'قيد_التنفيذ' as OrderStatus);
+
+        // 3. Construct the final order with cleared out tracking info
+        const finalUpdatedOrder: Order = {
+          ...financialUpdatedOrder,
+          waybillNumber: '',
+          bostaDeliveryId: '',
+          bostaTrackingNumber: '',
+          turboTrackingNumber: '',
+          turboDeliveryId: '',
+          status: 'قيد_التنفيذ' as OrderStatus,
+          stockDeducted,
+        };
+
+        if (newTransactions.length > 0) {
+          setWallet((prev) => {
+            let newBalance = prev.balance || 0;
+            newTransactions.forEach((t) => {
+              if (t.type === "إيداع") newBalance += t.amount;
+              else if (t.type === "سحب") newBalance -= t.amount;
+            });
+            return {
+              ...prev,
+              balance: newBalance,
+              transactions: [...newTransactions, ...prev.transactions],
+            };
+          });
+        }
+
+        setOrders((prev) =>
+          prev.map((o) => (o.id === order.id ? finalUpdatedOrder : o)),
+        );
+
+        addAuditLog(order.id, `إلغاء وحذف بوليصة ${carrierName}`, `تم إلغاء الشحنة بنجاح ومسح رقم البوليصة ${trackingId} وإرجاع حالة الطلب إلى "قيد التنفيذ"`);
+
+        await inAppAlert(`تم إلغاء الشحنة ومسح بيانات البوليصة وإعادة الطلب إلى قيد التنفيذ! ✅`, { type: 'success' });
+      }
+    } catch (err: any) {
+      await inAppAlert(`خطأ أثناء الاتصال بـ ${carrierName} للإلغاء: ${err.message || 'خطأ غير متوقع'}`, { type: 'error' });
+    } finally {
+      setIsBostaLoading(null);
+    }
+  };
+
+  const handleCancelBostaDelivery = handleCancelShipping;
+
+  const handleSyncShippingStatus = async (order: Order) => {
+    let adapter = getShippingAdapter(order.shippingCompany);
+    if (!adapter) {
+      if (order.bostaDeliveryId || order.bostaTrackingNumber) {
+        adapter = getShippingAdapter('بوسطة');
+      } else if (order.turboTrackingNumber || order.waybillNumber) {
+        adapter = getShippingAdapter('تربو');
+      }
+    }
+
+    if (!adapter) {
+      await inAppAlert(`شركة الشحن "${order.shippingCompany || 'غير المحددة'}" غير مدعومة للمزامنة الآلية حالياً.`, { type: 'warning' });
+      return;
+    }
+
+    const carrierName = adapter.getCarrierName();
+    const config = carrierName === 'بوسطة' ? settings?.bostaConfig : settings?.turboConfig;
+    const trackingNumber = order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber;
+
+    if (!trackingNumber) {
+      await inAppAlert(`لا توجد بوليصة شحن أو رقم تتبع لـ ${carrierName} لهذا الطلب.`, { type: "warning" });
+      return;
+    }
+
+    setIsBostaLoading(order.id);
+    try {
+      const res = await adapter.trackShipment(trackingNumber, config);
+      if (res.success && (res.status || res.statusArabic)) {
+        const carrierStatus = (res.status || res.statusArabic || "").toLowerCase();
+        let newStatus: OrderStatus | null = null;
+
+        if (carrierName === 'بوسطة') {
+          if (["delivered", "تم التسليم", "توصيل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_توصيلها" as OrderStatus;
+          else if (["returned", "cancel", "terminate", "مرتجع"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مرتجع";
+          else if (["postpone", "delay", "مؤجل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مؤجل";
+          else if (["transit", "picked", "out", "تم الارسال"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_الارسال";
+        } else if (carrierName === 'تربو') {
+           if (["delivered", "تم التسليم", "تم التوصيل", "مكتمل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_توصيلها" as OrderStatus;
+           else if (["returned", "cancel", "مرتجع", "ملغي", "مرفوض"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مرتجع";
+           else if (["picked", "out", "transit", "تم الارسال", "في الطريق", "مع المندوب", "مقبولة", "مقبول", "جارى التوصيل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_الارسال";
+        }
+
+        if (newStatus && newStatus !== order.status) {
+          updateOrderStatus(order.id, newStatus);
+          inAppToast(`تم تحديث حالة الطلب تلقائياً إلى "${newStatus}" بناءً على تحديثات ${carrierName}`, "success");
+        } else {
+          inAppAlert(`حالة الشحنة الحالية في ${carrierName} هي: ${res.statusArabic || res.status || "غير معروفة"}`, { type: "info" });
+        }
+      } else {
+        await inAppAlert(`فشل جلب التحديثات من ${carrierName}: ${res.error || 'خطأ غير معروف'}`, { type: "error" });
+      }
+    } catch (err: any) {
+      await inAppAlert(`خطأ أثناء مزامنة الحالة مع ${carrierName}: ${err.message || "خطأ غير متوقع"}`, { type: "error" });
+    } finally {
+      setIsBostaLoading(null);
+    }
+  };
+
+  const handleSyncBostaStatus = handleSyncShippingStatus;
+
+  const handlePrintShippingAwb = async (order: Order) => {
+    const isTurbo = Boolean(
+      (order.shippingCompany && (
+        order.shippingCompany.toLowerCase().includes('turbo') ||
+        order.shippingCompany.includes('تربو') ||
+        order.shippingCompany.includes('توربو')
+      )) || order.turboTrackingNumber
+    );
+    const isBosta = Boolean(
+      (order.shippingCompany && (
+        order.shippingCompany.toLowerCase().includes('bosta') ||
+        order.shippingCompany.includes('بوسطة') ||
+        order.shippingCompany.includes('بوسطه')
+      )) || order.bostaDeliveryId || order.bostaTrackingNumber
+    );
+
+    const trackingNum = order.turboTrackingNumber || order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber;
+
+    if (isTurbo) {
+      if (!trackingNum) {
+        await inAppAlert('لا يوجد رقم بوليصة لشحنة تربو لهذا الطلب. يرجى إرسال الشحنة أولاً.', { type: 'warning' });
+        return;
+      }
+      setIsBostaLoading(order.id);
+      try {
+        const res = await turboService.getAwb(trackingNum, settings?.turboConfig, order);
+        if (res.success && res.data) {
+          if (res.data.startsWith('http://') || res.data.startsWith('https://')) {
+            window.open(res.data, '_blank');
+          } else if (res.data.startsWith('data:application/pdf;base64,') || !res.data.includes('<html')) {
+            const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
+              ? res.data.replace('data:application/pdf;base64,', '')
+              : res.data;
+            try {
+              const byteCharacters = atob(cleanBase64);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: 'application/pdf' });
+              const blobUrl = URL.createObjectURL(blob);
+              printPdfBlob(blobUrl, `turbo-awb-${trackingNum}.pdf`);
+            } catch {
+              window.open(res.data, '_blank');
+            }
+          } else {
+            const printWin = window.open('', '_blank');
+            if (printWin) {
+              printWin.document.write(res.data);
+              printWin.document.close();
+              printWin.focus();
+              printWin.print();
+            } else {
+              // Sandboxed iframe fallback for printing
+              const iframe = document.createElement('iframe');
+              iframe.style.position = 'fixed';
+              iframe.style.right = '0';
+              iframe.style.bottom = '0';
+              iframe.style.width = '0';
+              iframe.style.height = '0';
+              iframe.style.border = '0';
+              document.body.appendChild(iframe);
+              iframe.contentDocument?.write(res.data);
+              iframe.contentDocument?.close();
+              iframe.contentWindow?.focus();
+              setTimeout(() => {
+                iframe.contentWindow?.print();
+                setTimeout(() => {
+                  try { document.body.removeChild(iframe); } catch (_) {}
+                }, 1000);
+              }, 300);
+            }
+          }
+        } else {
+          const authKey = settings?.turboConfig?.apiToken || settings?.turboConfig?.authenticationKey || '';
+          if (authKey) {
+            const directUrl = `https://turbocourier.net/external-api/print-airwaybill?authentication_key=${encodeURIComponent(authKey)}&remote_shipment_id=${encodeURIComponent(trackingNum)}`;
+            window.open(directUrl, '_blank');
+          } else {
+            await inAppAlert(res.error || 'فشل تحميل بوليصة تربو. يرجى التأكد من صحة مفتاح الربط API في الإعدادات.', { type: 'error' });
+          }
+        }
+      } catch (err: any) {
+        await inAppAlert(`خطأ أثناء طباعة بوليصة تربو: ${err.message || 'خطأ غير متوقع'}`, { type: 'error' });
+      } finally {
+        setIsBostaLoading(null);
+      }
+      return;
+    }
+
+    if (isBosta) {
+      if (!trackingNum) {
+        await inAppAlert('لا يوجد رقم بوليصة لشحنة بوسطة لهذا الطلب.', { type: 'warning' });
+        return;
+      }
+      setIsBostaLoading(order.id);
+      try {
+        const res = await bostaService.getAwb(trackingNum, settings?.bostaConfig?.apiKey);
+        if (res.success && res.data) {
+          const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
+            ? res.data.replace('data:application/pdf;base64,', '')
+            : res.data;
+          const byteCharacters = atob(cleanBase64);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          const blob = new Blob([byteArray], { type: 'application/pdf' });
+          const blobUrl = URL.createObjectURL(blob);
+          printPdfBlob(blobUrl, `bosta-awb-${trackingNum}.pdf`);
+        } else {
+          await inAppAlert(res.error || 'فشل تحميل بوليصة الشحن من بوسطة', { type: 'error' });
+        }
+      } catch (err: any) {
+        await inAppAlert(err.message || 'خطأ في طباعة البوليصة', { type: 'error' });
+      } finally {
+        setIsBostaLoading(null);
+      }
+      return;
+    }
+
+    handlePrintShippingLabel(order);
   };
 
   const handlePrintBostaAwb = async (deliveryIdOrTracking: string) => {
@@ -959,11 +1345,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     if (!selectedOrderIds.length) return;
     const targets = orders.filter((o) => selectedOrderIds.includes(o.id));
     const ok = await inAppConfirm(
-      `هل أنت متأكد من إرسال ${targets.length} طلب إلى بوسطة وتوليد بوالص الشحن الرسمية الآن؟`,
+      `هل أنت متأكد من إرسال ${targets.length} طلب إلى بوسطة وتوليد بوالص الشحن الرسمية وتغيير حالتها إلى "تم الإرسال" تلقائياً الآن؟`,
       {
         title: 'إرسال شحنات جماعية لبوسطة',
         type: 'question',
-        confirmText: 'نعم، إرسال الكل لبوسطة',
+        confirmText: 'نعم، إرسال وتغيير الحالة',
         cancelText: 'إلغاء',
       }
     );
@@ -973,26 +1359,43 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     let successCount = 0;
     let failCount = 0;
 
+    let currentProducts = [...settings.products];
+    const allNewTransactions: Transaction[] = [];
+    const successfulUpdatesMap = new Map<string, Order>();
+
     for (const order of targets) {
       try {
         const res = await bostaService.createDelivery(order, settings?.bostaConfig);
         if (res.success && res.trackingNumber) {
           const trackingNum = res.trackingNumber;
           const deliveryId = res.deliveryId || trackingNum;
-          setOrders((prev) =>
-            prev.map((o) =>
-              o.id === order.id
-                ? {
-                    ...o,
-                    waybillNumber: trackingNum,
-                    bostaDeliveryId: deliveryId,
-                    bostaTrackingNumber: trackingNum,
-                    shippingCompany: 'بوسطة',
-                  }
-                : o,
-            ),
+
+          const orderWithWaybill: Order = {
+            ...order,
+            waybillNumber: trackingNum,
+            bostaDeliveryId: deliveryId,
+            bostaTrackingNumber: trackingNum,
+            shippingCompany: 'بوسطة',
+            status: 'تم_الارسال' as OrderStatus,
+          };
+
+          // 1. Sync Inventory locally in the loop to be robust and thread-safe
+          const { updatedProducts: nextProducts, stockDeducted } = updateInventoryForOrder(
+            orderWithWaybill,
+            'تم_الارسال' as OrderStatus,
+            currentProducts,
           );
-          addAuditLog(order.id, 'إنشاء بوليصة بوسطة', `رقم البوليصة: ${trackingNum}`);
+          currentProducts = nextProducts;
+
+          // 2. Financials / Wallet
+          const { updatedOrderData: financialUpdatedOrder, newTransactions } =
+            processFinancialsForStatusChange(orderWithWaybill, 'تم_الارسال' as OrderStatus);
+          
+          const finalUpdatedOrder = { ...financialUpdatedOrder, stockDeducted };
+          allNewTransactions.push(...newTransactions);
+          successfulUpdatesMap.set(order.id, finalUpdatedOrder);
+
+          addAuditLog(order.id, 'إنشاء بوليصة بوسطة وتغيير الحالة تلقائياً (جماعي)', `تم إنشاء البوليصة رقم ${trackingNum} بنجاح وتم تغيير حالة الطلب تلقائياً إلى "تم الإرسال"`);
 
           // Auto-send tracking link via WhatsApp API if configured
           if (settings?.bostaConfig?.autoSendWhatsAppTracking && settings?.whatsappConfig?.isActive) {
@@ -1016,20 +1419,54 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             } catch (waErr) {
               console.error('Error auto-sending Bosta bulk tracking WhatsApp:', waErr);
             }
+          } else if (settings.whatsappConfig?.isActive && settings.whatsappConfig?.autoSendOnStatusChange) {
+            try {
+              handleSendWhatsAppAPI(finalUpdatedOrder, 'shipping', true);
+            } catch (waErr) {
+              console.error('Error auto-sending status change WhatsApp in bulk Bosta:', waErr);
+            }
           }
 
           successCount++;
         } else {
           failCount++;
         }
-      } catch {
+      } catch (err) {
+        console.error('Error sending order in bulk Bosta:', err);
         failCount++;
       }
     }
 
+    // Apply accumulated states exactly once after processing all items
+    if (successCount > 0) {
+      setSettings((prev) => ({ ...prev, products: currentProducts }));
+
+      if (allNewTransactions.length > 0) {
+        setWallet((prev) => {
+          let newBalance = prev.balance || 0;
+          allNewTransactions.forEach((t) => {
+            if (t.type === "إيداع") newBalance += t.amount;
+            else if (t.type === "سحب") newBalance -= t.amount;
+          });
+          return {
+            ...prev,
+            balance: newBalance,
+            transactions: [...allNewTransactions, ...prev.transactions],
+          };
+        });
+      }
+
+      setOrders((prev) =>
+        prev.map((o) => {
+          const updated = successfulUpdatesMap.get(o.id);
+          return updated ? updated : o;
+        })
+      );
+    }
+
     setIsBulkSendingBosta(false);
     await inAppAlert(
-      `اكتملت معالجة الشحنات في بوسطة!\n\n✅ تم بنجاح: ${successCount} شحنة\n❌ تعذر أو فشل: ${failCount} شحنة`,
+      `اكتملت معالجة الشحنات في بوسطة وتحديث حالات الطلبات الناجحة إلى "تم الإرسال"!\n\n✅ تم بنجاح: ${successCount} شحنة\n❌ تعذر أو فشل: ${failCount} شحنة`,
       {
         title: 'نتيجة الإرسال لبوسطة',
         type: failCount === 0 ? 'success' : 'warning',
@@ -2580,6 +3017,76 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     return { updatedProducts, stockDeducted: newStockDeducted };
   };
 
+  const processEmployeeCommission = (
+    order: Order,
+    oldStatus: OrderStatus,
+    newStatus: OrderStatus,
+    currentSettings: Settings,
+  ): Settings => {
+    const empId = order.assignedEmployeeId || order.assignedTo || order.createdBy;
+    if (!empId || !currentSettings.employees) return currentSettings;
+
+    const empIndex = currentSettings.employees.findIndex((e) => e.id === empId || e.phone === empId);
+    if (empIndex === -1) return currentSettings;
+
+    const employee = currentSettings.employees[empIndex];
+    const commType = employee.commissionType || "fixed";
+    const commValue = employee.commissionValue || 0;
+
+    if (commValue <= 0) return currentSettings;
+
+    let commissionAmount = 0;
+    if (commType === "percentage") {
+      const orderTotal = Number(order.productPrice) || 0;
+      commissionAmount = Number((orderTotal * (commValue / 100)).toFixed(2));
+    } else {
+      commissionAmount = Number(commValue);
+    }
+
+    const isOldDelivered = ["تم_توصيلها", "تم_التحصيل", "تم_الاستبدال"].includes(oldStatus);
+    const isNewDelivered = ["تم_توصيلها", "تم_التحصيل", "تم_الاستبدال"].includes(newStatus);
+
+    if (isOldDelivered === isNewDelivered) {
+      return currentSettings;
+    }
+
+    const updatedEmployees = [...currentSettings.employees];
+    const targetEmployee = { ...updatedEmployees[empIndex] };
+    const currentBalance = targetEmployee.balance || 0;
+    const txs = targetEmployee.commissionTransactions ? [...targetEmployee.commissionTransactions] : [];
+
+    if (isNewDelivered && !isOldDelivered) {
+      const txId = `comm_add_${order.id}_${Date.now()}`;
+      const newTx = {
+        id: txId,
+        amount: commissionAmount,
+        type: "deposit" as const,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        date: new Date().toISOString(),
+        status: "completed",
+      };
+      targetEmployee.balance = Number((currentBalance + commissionAmount).toFixed(2));
+      targetEmployee.commissionTransactions = [newTx, ...txs];
+    } else if (!isNewDelivered && isOldDelivered) {
+      const txId = `comm_rev_${order.id}_${Date.now()}`;
+      const newTx = {
+        id: txId,
+        amount: commissionAmount,
+        type: "reversal" as const,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        date: new Date().toISOString(),
+        status: "completed",
+      };
+      targetEmployee.balance = Number((currentBalance - commissionAmount).toFixed(2));
+      targetEmployee.commissionTransactions = [newTx, ...txs];
+    }
+
+    updatedEmployees[empIndex] = targetEmployee;
+    return { ...currentSettings, employees: updatedEmployees };
+  };
+
   const updateOrderStatus = async (
     id: string,
     incomingStatus: OrderStatus,
@@ -2660,9 +3167,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       newStatus,
       settings.products,
     );
-    if (stockDeducted !== orderToUpdate.stockDeducted) {
-      setSettings((prev) => ({ ...prev, products: updatedProducts }));
-    }
+    setSettings((prev) => {
+      let nextSettings = prev;
+      if (stockDeducted !== orderToUpdate.stockDeducted) {
+        nextSettings = { ...nextSettings, products: updatedProducts };
+      }
+      nextSettings = processEmployeeCommission(orderToUpdate, orderToUpdate.status, newStatus, nextSettings);
+      return nextSettings;
+    });
 
     // 2. Update State
     const { updatedOrderData: financialUpdatedOrder, newTransactions } =
@@ -3496,7 +4008,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             };
           });
         }
-        setSettings((prev) => ({ ...prev, products: currentProducts }));
+        setSettings((prev) => {
+          let nextSettings = { ...prev, products: currentProducts };
+          orders.forEach((o) => {
+            if (selectedOrders.includes(o.id)) {
+              nextSettings = processEmployeeCommission(o, o.status, newStatus as OrderStatus, nextSettings);
+            }
+          });
+          return nextSettings;
+        });
         setOrders(updatedOrders);
 
         setSelectedOrders([]);
@@ -5309,12 +5829,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     settings={settings}
                     storePrefix={storePrefix}
                     customerHistory={customerHistoryMap[order.id]}
-                    onSendToBosta={() => handleSendOrderToBosta(order)}
-                    onPrintBostaAwb={() => handlePrintBostaAwb(order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber || '')}
+                    onSendToBosta={() => handleSendToShipping(order)}
+                    onCancelBostaDelivery={() => handleCancelShipping(order)}
+                    onPrintBostaAwb={() => handlePrintShippingAwb(order)}
                     onTrackBosta={() => {
                       setBostaTrackingOrder(order);
-                      setBostaTrackingNumber(order.bostaTrackingNumber || order.waybillNumber || null);
+                      setBostaTrackingNumber(order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber || null);
                     }}
+                    onSyncBosta={() => handleSyncShippingStatus(order)}
                     isBostaLoading={isBostaLoading === order.id}
                     displayDensity={displayDensity}
                   />
@@ -5377,12 +5899,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 settings={settings}
                 storePrefix={storePrefix}
                 customerHistory={customerHistoryMap[order.id]}
-                onSendToBosta={() => handleSendOrderToBosta(order)}
-                onPrintBostaAwb={() => handlePrintBostaAwb(order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber || '')}
+                onSendToBosta={() => handleSendToShipping(order)}
+                onCancelBostaDelivery={() => handleCancelShipping(order)}
+                onPrintBostaAwb={() => handlePrintShippingAwb(order)}
                 onTrackBosta={() => {
                   setBostaTrackingOrder(order);
-                  setBostaTrackingNumber(order.bostaTrackingNumber || order.waybillNumber || null);
+                  setBostaTrackingNumber(order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber || null);
                 }}
+                onSyncBosta={() => handleSyncShippingStatus(order)}
                 isBostaLoading={isBostaLoading === order.id}
               />
             ))}
@@ -6183,7 +6707,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         </div>
       )}
 
-      {/* Real Bosta Tracking Modal */}
+      {/* Real Shipping Tracking Modal (Turbo / Bosta) */}
       {bostaTrackingNumber && (
         <BostaTrackingModal
           isOpen={!!bostaTrackingNumber}
@@ -6196,6 +6720,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           customerName={bostaTrackingOrder?.customerName}
           customerPhone={bostaTrackingOrder?.customerPhone}
           totalPrice={bostaTrackingOrder?.totalPrice}
+          carrier={bostaTrackingOrder?.shippingCompany || (bostaTrackingOrder?.turboTrackingNumber ? 'تربو' : 'بوسطة')}
+          turboApiKey={settings?.turboConfig?.apiToken || settings?.turboConfig?.authenticationKey}
+          turboConfig={settings?.turboConfig}
           apiKey={settings?.bostaConfig?.apiKey}
         />
       )}
@@ -6298,8 +6825,10 @@ const OrderCard = ({
   storePrefix = "",
   customerHistory,
   onSendToBosta,
+  onCancelBostaDelivery,
   onPrintBostaAwb,
   onTrackBosta,
+  onSyncBosta,
   isBostaLoading,
   isWhatsAppSent,
 }: {
@@ -6331,8 +6860,10 @@ const OrderCard = ({
     totalOrdersCount: number;
   };
   onSendToBosta?: () => void;
+  onCancelBostaDelivery?: () => void;
   onPrintBostaAwb?: () => void;
   onTrackBosta?: () => void;
+  onSyncBosta?: () => void;
   isBostaLoading?: boolean;
   isWhatsAppSent?: boolean;
 }) => {
@@ -6868,39 +7399,86 @@ const OrderCard = ({
               تتبع عبر واتساب API <Truck size={16} />
             </button>
             <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
-            {!(order.bostaDeliveryId || order.bostaTrackingNumber) ? (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSendToBosta?.();
-                }}
-                disabled={isBostaLoading}
-                className="w-full text-right px-4 py-3 text-xs font-black text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors disabled:opacity-50"
-              >
-                {isBostaLoading ? "جاري الإرسال لبوسطة..." : "إرسال إلى بوسطة (Bosta)"} <Truck size={16} className={isBostaLoading ? "animate-spin" : ""} />
-              </button>
-            ) : (
-              <>
+            {(() => {
+              const isTurbo = Boolean(
+                (order.shippingCompany && (
+                  order.shippingCompany.toLowerCase().includes('turbo') ||
+                  order.shippingCompany.includes('تربو') ||
+                  order.shippingCompany.includes('توربو')
+                )) || order.turboTrackingNumber
+              );
+              const isBosta = Boolean(
+                (order.shippingCompany && (
+                  order.shippingCompany.toLowerCase().includes('bosta') ||
+                  order.shippingCompany.includes('بوسطة') ||
+                  order.shippingCompany.includes('بوسطه')
+                )) || order.bostaDeliveryId || order.bostaTrackingNumber
+              );
+              const activeCarrierName = isTurbo ? 'تربو (Turbo)' : isBosta ? 'بوسطة (Bosta)' : (order.shippingCompany || 'شركة الشحن');
+              const hasShipment = Boolean(
+                order.turboTrackingNumber ||
+                order.bostaDeliveryId ||
+                order.bostaTrackingNumber ||
+                (order.waybillNumber && !order.waybillNumber.startsWith('http'))
+              );
+
+              return !hasShipment ? (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onPrintBostaAwb?.();
+                    onSendToBosta?.();
                   }}
-                  className="w-full text-right px-4 py-3 text-xs font-black text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+                  disabled={isBostaLoading}
+                  className="w-full text-right px-4 py-3 text-xs font-black text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors disabled:opacity-50"
                 >
-                  بوليصة بوسطة الرسمية (PDF) <Printer size={16} />
+                  {isBostaLoading
+                    ? `جاري الإرسال لـ ${activeCarrierName}...`
+                    : `إرسال إلى ${activeCarrierName} وتوليد البوليصة`}
+                  <Truck size={16} className={isBostaLoading ? "animate-spin" : ""} />
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTrackBosta?.();
-                  }}
-                  className="w-full text-right px-4 py-3 text-xs font-black text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
-                >
-                  تتبع الشحنة المباشر في بوسطة <Search size={16} />
-                </button>
-              </>
-            )}
+              ) : (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPrintBostaAwb?.();
+                    }}
+                    className="w-full text-right px-4 py-3 text-xs font-black text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+                  >
+                    طباعة بوليصة {activeCarrierName} (PDF) <Printer size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSyncBosta?.();
+                    }}
+                    disabled={isBostaLoading}
+                    className="w-full text-right px-4 py-3 text-xs font-black text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors disabled:opacity-50"
+                  >
+                    {isBostaLoading ? "جاري المزامنة..." : `مزامنة الحالة اللحظية من ${activeCarrierName}`} <RefreshCcw size={16} className={isBostaLoading ? "animate-spin" : ""} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTrackBosta?.();
+                    }}
+                    className="w-full text-right px-4 py-3 text-xs font-black text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+                  >
+                    تتبع الشحنة المباشر في {activeCarrierName} <Search size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCancelBostaDelivery?.();
+                    }}
+                    disabled={isBostaLoading}
+                    className="w-full text-right px-4 py-3 text-xs font-black text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors disabled:opacity-50"
+                  >
+                    {isBostaLoading ? "جاري إلغاء الشحنة..." : `إلغاء وحذف الشحنة من ${activeCarrierName}`} <Trash2 size={16} className={isBostaLoading ? "animate-spin" : ""} />
+                  </button>
+                </>
+              );
+            })()}
             <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
             <button
               onClick={onDelete}
@@ -7834,8 +8412,10 @@ const OrderRow = ({
   storePrefix = "",
   customerHistory,
   onSendToBosta,
+  onCancelBostaDelivery,
   onPrintBostaAwb,
   onTrackBosta,
+  onSyncBosta,
   isBostaLoading,
   displayDensity = "comfortable",
   isWhatsAppSent,
@@ -7874,8 +8454,10 @@ const OrderRow = ({
     totalOrdersCount: number;
   };
   onSendToBosta?: () => void;
+  onCancelBostaDelivery?: () => void;
   onPrintBostaAwb?: () => void;
   onTrackBosta?: () => void;
+  onSyncBosta?: () => void;
   isBostaLoading?: boolean;
   displayDensity?: "comfortable" | "compact";
   isWhatsAppSent?: boolean;
@@ -8607,17 +9189,35 @@ const OrderRow = ({
         <td className={`${cellPadding}`}>
           <div className="flex items-center gap-2 justify-end">
             {order.bostaTrackingNumber && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTrackBosta?.();
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-xs"
-                title="تتبع مسار شحنة بوسطة الحية"
-              >
-                <Truck size={12} />
-                <span className="font-mono">#{order.bostaTrackingNumber}</span>
-              </button>
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSyncBosta?.();
+                  }}
+                  disabled={isBostaLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all shadow-xs active:scale-95 cursor-pointer"
+                  title="مزامنة الحالة اللحظية للطلب من بوسطة"
+                >
+                  {isBostaLoading ? (
+                    <Loader2 size={12} className="animate-spin text-emerald-500" />
+                  ) : (
+                    <RefreshCcw size={12} />
+                  )}
+                  <span>مزامنة</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTrackBosta?.();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 hover:bg-red-100 dark:hover:bg-red-900/50 transition-all shadow-xs active:scale-95 cursor-pointer"
+                  title="تتبع مسار شحنة بوسطة الحية"
+                >
+                  <Truck size={12} />
+                  <span className="font-mono">#{order.bostaTrackingNumber}</span>
+                </button>
+              </>
             )}
             <div className="relative" ref={opsRef}>
               <button
@@ -8842,87 +9442,157 @@ const OrderRow = ({
                       </div>
                     )}
 
-                    {/* SECTION: BOSTA SHIPPING INTEGRATION */}
-                    <div className="py-2 space-y-0.5 border-t border-slate-200 dark:border-white/5">
-                      <div className="px-3 py-1.5 flex items-center justify-between">
-                        {order.bostaTrackingNumber && (
-                          <span className="text-[9px] font-mono font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
-                            #{order.bostaTrackingNumber}
-                          </span>
-                        )}
-                        <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block text-right">
-                          📦 شركة شحن بوسطة
-                        </span>
-                      </div>
+                    {/* SECTION: DYNAMIC SHIPPING CARRIER INTEGRATION */}
+                    {(() => {
+                      const isTurbo = Boolean(
+                        (order.shippingCompany && (
+                          order.shippingCompany.toLowerCase().includes('turbo') ||
+                          order.shippingCompany.includes('تربو') ||
+                          order.shippingCompany.includes('توربو')
+                        )) || order.turboTrackingNumber
+                      );
+                      const isBosta = Boolean(
+                        (order.shippingCompany && (
+                          order.shippingCompany.toLowerCase().includes('bosta') ||
+                          order.shippingCompany.includes('بوسطة') ||
+                          order.shippingCompany.includes('بوسطه')
+                        )) || order.bostaDeliveryId || order.bostaTrackingNumber
+                      );
+                      const activeCarrierName = isTurbo ? 'تربو (Turbo)' : isBosta ? 'بوسطة (Bosta)' : (order.shippingCompany || 'شركة الشحن');
+                      const trackingNum = order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber;
+                      const hasShipment = Boolean(
+                        order.turboTrackingNumber ||
+                        order.bostaDeliveryId ||
+                        order.bostaTrackingNumber ||
+                        (order.waybillNumber && !order.waybillNumber.startsWith('http'))
+                      );
 
-                      {!(order.bostaDeliveryId || order.bostaTrackingNumber) ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowOps(false);
-                            onSendToBosta?.();
-                          }}
-                          disabled={isBostaLoading}
-                          className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group disabled:opacity-50"
-                        >
-                          <div className="text-right flex-1">
-                            <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-                              {isBostaLoading ? "جاري الإرسال لبوسطة..." : "إرسال إلى بوسطة وتوليد البوليصة"}
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-400 block">
-                              إنشاء الشحنة رسمياً وجلب رقم البوليصة AWB
+                      return (
+                        <div className="py-2 space-y-0.5 border-t border-slate-200 dark:border-white/5">
+                          <div className="px-3 py-1.5 flex items-center justify-between">
+                            {trackingNum && (
+                              <span className="text-[9px] font-mono font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-300 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                                #{trackingNum}
+                              </span>
+                            )}
+                            <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest block text-right">
+                              📦 {activeCarrierName}
                             </span>
                           </div>
-                          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                            <Truck size={15} className={isBostaLoading ? "animate-spin" : ""} />
-                          </div>
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowOps(false);
-                              onPrintBostaAwb?.();
-                            }}
-                            className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
-                          >
-                            <div className="text-right flex-1">
-                              <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-purple-600 dark:group-hover:text-purple-400">
-                                طباعة بوليصة بوسطة (AWB PDF)
-                              </span>
-                              <span className="text-[10px] font-bold text-slate-400 block">
-                                فتح وطباعة البوليصة الأصلية من بوسطة
-                              </span>
-                            </div>
-                            <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                              <Printer size={15} />
-                            </div>
-                          </button>
 
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowOps(false);
-                              onTrackBosta?.();
-                            }}
-                            className="w-full text-right p-2.5 hover:bg-indigo-50/80 dark:hover:bg-indigo-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
-                          >
-                            <div className="text-right flex-1">
-                              <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                                تتبع الشحنة المباشر في بوسطة
-                              </span>
-                              <span className="text-[10px] font-bold text-slate-400 block">
-                                استعلام لحظي عن مسار وحالة الطرد
-                              </span>
-                            </div>
-                            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                              <Search size={15} />
-                            </div>
-                          </button>
-                        </>
-                      )}
-                    </div>
+                          {!hasShipment ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setShowOps(false);
+                                onSendToBosta?.();
+                              }}
+                              disabled={isBostaLoading}
+                              className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group disabled:opacity-50"
+                            >
+                              <div className="text-right flex-1">
+                                <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                                  {isBostaLoading ? `جاري الإرسال لـ ${activeCarrierName}...` : `إرسال إلى ${activeCarrierName} وتوليد البوليصة`}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400 block">
+                                  إنشاء الشحنة رسمياً وجلب رقم البوليصة AWB
+                                </span>
+                              </div>
+                              <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                <Truck size={15} className={isBostaLoading ? "animate-spin" : ""} />
+                              </div>
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowOps(false);
+                                  onPrintBostaAwb?.();
+                                }}
+                                className="w-full text-right p-2.5 hover:bg-purple-50/80 dark:hover:bg-purple-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                              >
+                                <div className="text-right flex-1">
+                                  <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-purple-600 dark:group-hover:text-purple-400">
+                                    طباعة بوليصة {activeCarrierName} (PDF)
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400 block">
+                                    فتح وطباعة البوليصة الأصلية من {activeCarrierName}
+                                  </span>
+                                </div>
+                                <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                  <Printer size={15} />
+                                </div>
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowOps(false);
+                                  onTrackBosta?.();
+                                }}
+                                className="w-full text-right p-2.5 hover:bg-indigo-50/80 dark:hover:bg-indigo-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                              >
+                                <div className="text-right flex-1">
+                                  <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                                    تتبع الشحنة المباشر في {activeCarrierName}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400 block">
+                                    استعلام لحظي عن مسار وحالة الطرد
+                                  </span>
+                                </div>
+                                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                  <Search size={15} />
+                                </div>
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowOps(false);
+                                  onSyncBosta?.();
+                                }}
+                                className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                              >
+                                <div className="text-right flex-1">
+                                  <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                                    مزامنة الحالة اللحظية من {activeCarrierName}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400 block">
+                                    تحديث حالة وتفاصيل الشحنة والعمولات فوراً
+                                  </span>
+                                </div>
+                                <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                  <RefreshCcw size={15} />
+                                </div>
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowOps(false);
+                                  onCancelBostaDelivery?.();
+                                }}
+                                disabled={isBostaLoading}
+                                className="w-full text-right p-2.5 hover:bg-rose-50/80 dark:hover:bg-rose-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group disabled:opacity-50"
+                              >
+                                <div className="text-right flex-1">
+                                  <span className="text-xs font-black text-rose-600 dark:text-rose-400 block group-hover:text-rose-700 dark:group-hover:text-rose-300">
+                                    {isBostaLoading ? "جاري إلغاء الشحنة..." : `إلغاء الشحنة وحذف البوليصة من ${activeCarrierName}`}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-rose-400 block">
+                                    إلغاء الطلب رسمياً من {activeCarrierName} ومسح بيانات البوليصة
+                                  </span>
+                                </div>
+                                <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                  <Trash2 size={15} className={isBostaLoading ? "animate-spin" : ""} />
+                                </div>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* SECTION 3: MANAGEMENT & DELETION */}
                     <div className="pt-2 space-y-0.5">
@@ -10089,9 +10759,18 @@ const OrderModal: React.FC<OrderModalProps> = ({
       "items",
       (orderData.items || []).filter((_, i) => i !== index),
     );
-  const activeCompanies = Object.keys(settings.shippingOptions || {}).filter(
-    (company) => settings.activeCompanies?.[company] !== false,
-  );
+  const activeCompanies = useMemo(() => {
+    const keys = new Set<string>([
+      "بوسطة",
+      "تربو",
+      ...Object.keys(settings.shippingOptions || {}),
+      ...Object.keys(settings.activeCompanies || {}),
+      ...(settings.companyNames ? Object.keys(settings.companyNames) : [])
+    ]);
+    return Array.from(keys).filter(
+      (company) => settings.activeCompanies?.[company] !== false,
+    );
+  }, [settings.shippingOptions, settings.activeCompanies, settings.companyNames]);
   const shippingOptions = useMemo(() => {
     const options =
       settings.shippingOptions?.[orderData.shippingCompany!] || [];

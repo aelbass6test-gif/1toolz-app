@@ -52,6 +52,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         customerName: '',
         customerPhone: '',
         customerAddress: '',
+        buildingNumber: '',
+        floorNumber: '',
+        apartmentNumber: '',
         items: [],
         shippingCompany: Object.keys(settings?.shippingOptions || {})[0] || 'بوسطة',
         governorate: '',
@@ -59,6 +62,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         shippingFee: 0,
         discount: 0,
         merchantBrandName: activeStore?.name || settings?.storeName || 'وان تولز للعدد',
+        subSenderName: activeStore?.name || settings?.storeName || 'وان تولز للعدد',
+        shippingNotes: '',
+        deliveryNotes: '',
         paymentStatus: 'بانتظار الدفع',
         status: 'جاري_المراجعة' as OrderStatus,
         preparationStatus: 'بانتظار التجهيز',
@@ -171,7 +177,6 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             return;
         }
         
-        const fullAddress = `${orderData.customerAddress}, ${orderData.buildingDetails || ''}`.trim();
         const finalNotes = orderData.notes || '';
 
         const totalProductPrice = items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
@@ -188,7 +193,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const orderToAdd: Omit<Order, 'id'> = {
             ...(orderData as any),
             items,
-            customerAddress: fullAddress,
+            customerAddress: orderData.customerAddress,
+            buildingNumber: orderData.buildingNumber,
+            floorNumber: orderData.floorNumber,
+            apartmentNumber: orderData.apartmentNumber,
             notes: finalNotes,
             orderNumber: orderData.orderNumber || `${getNextOrderNumber()}`,
             productPrice: totalProductPrice,

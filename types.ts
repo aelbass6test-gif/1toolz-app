@@ -21,6 +21,10 @@ export interface CityOption {
   returnToSenderPrice: number;
   useParentFees?: boolean; 
   active?: boolean; 
+  paidReturnPrice?: number;
+  cancelReturnPrice?: number;
+  partialReturnPrice?: number;
+  deliveryDays?: string;
 }
 
 export interface ShippingOption {
@@ -38,6 +42,10 @@ export interface ShippingOption {
   baseWeight: number;
   cities?: CityOption[];
   active?: boolean; 
+  paidReturnPrice?: number;
+  cancelReturnPrice?: number;
+  partialReturnPrice?: number;
+  deliveryDays?: string;
 }
 
 export interface PlatformIntegration {
@@ -108,6 +116,30 @@ export interface BostaConfig {
   autoSendWhatsAppOnStatusChange?: boolean;
   whatsappStatusMessageTemplate?: string;
   webhookUrl?: string;
+  lastSync?: string;
+  connectedUserName?: string;
+  connectedUserEmail?: string;
+  connectedUserPhone?: string;
+}
+
+export interface TurboConfig {
+  apiKey: string;
+  apiToken?: string;
+  authenticationKey?: string;
+  mainClientCode?: number;
+  secondClient?: string;
+  apiFollowupPhone?: string;
+  accountEmail?: string;
+  accountPassword?: string;
+  isActive: boolean;
+  environment?: 'production' | 'staging';
+  pickupAddress?: string;
+  pickupPhone?: string;
+  allowOpenPackage?: boolean;
+  autoSendOnConfirm?: boolean;
+  defaultReturnAmount?: number;
+  webhookUrl?: string;
+  webhookToken?: string;
   lastSync?: string;
   connectedUserName?: string;
   connectedUserEmail?: string;
@@ -331,6 +363,18 @@ export interface Employee {
   phone?: string;
   permissions: Permission[];
   status?: 'active' | 'invited' | 'pending';
+  commissionType?: 'fixed' | 'percentage';
+  commissionValue?: number;
+  balance?: number;
+  commissionTransactions?: Array<{
+    id: string;
+    amount: number;
+    type: 'deposit' | 'reversal';
+    orderId: string;
+    orderNumber: string;
+    date: string;
+    status: string;
+  }>;
 }
 
 export interface StoreSection {
@@ -892,6 +936,7 @@ export interface Settings {
   whatsappConfig?: WhatsAppConfig;
   bostaConfig?: BostaConfig;
   bostaPickups?: BostaPickupRequest[];
+  turboConfig?: TurboConfig;
   callScripts?: CallScript[];
   employeeDashboardSettings?: EmployeeDashboardSettings;
   isPosEnabled?: boolean;
@@ -1409,8 +1454,13 @@ export interface Order {
   trackingUrl?: string;
   bostaDeliveryId?: string;
   bostaTrackingNumber?: string;
+  turboDeliveryId?: string;
+  turboTrackingNumber?: string;
   bostaBusinessLocationId?: string;
   bostaReturnLocationId?: string;
+  bostaDistrictId?: string;
+  bostaZoneId?: string;
+  bostaCityId?: string;
   platformOrderId?: string;
   date: string;
   shippingCompany: string;
@@ -1421,7 +1471,14 @@ export interface Order {
   customerAddress: string;
   city?: string;
   governorate?: string;
+  buildingNumber?: string;
+  floorNumber?: string;
+  apartmentNumber?: string;
+  shippingNotes?: string;
+  subSenderName?: string;
   notes?: string;
+  internalNotes?: string;
+  storeName?: string;
   items: OrderItem[];
   shippingFee: number;
   adminFee?: number;
@@ -1584,6 +1641,9 @@ export interface PlaceOrderData {
     customerName: string;
     customerPhone: string;
     customerAddress: string;
+    buildingNumber?: string;
+    floorNumber?: string;
+    apartmentNumber?: string;
     shippingCompany: string;
     shippingArea: string;
     shippingFee: number;

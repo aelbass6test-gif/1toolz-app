@@ -77,6 +77,7 @@ export const whatsappService = {
 
     const orderIdParam = ord.id || ord.orderNumber || '';
     const phoneClean = (ord.customerPhone || '').replace(/\D/g, '');
+    const portalLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&phone=${encodeURIComponent(phoneClean)}`;
     const confirmLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&action=confirm&phone=${encodeURIComponent(phoneClean)}`;
     const cancelLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&action=cancel&phone=${encodeURIComponent(phoneClean)}`;
     const editAddressLink = `${appOrigin}/order-action?orderId=${encodeURIComponent(orderIdParam)}&action=edit_address&phone=${encodeURIComponent(phoneClean)}`;
@@ -85,7 +86,10 @@ export const whatsappService = {
     const replacePlaceholders = (text: string): string => {
       if (!text) return '';
       return text
-        // Smart 1-click action links
+        // Smart interactive portal & action links
+        .replace(/{portalLink}/g, portalLink)
+        .replace(/{actionLink}/g, portalLink)
+        .replace(/{orderLink}/g, portalLink)
         .replace(/{confirmLink}/g, confirmLink)
         .replace(/{cancelLink}/g, cancelLink)
         .replace(/{editAddressLink}/g, editAddressLink)

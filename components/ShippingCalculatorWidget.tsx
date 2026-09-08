@@ -33,7 +33,7 @@ export const ShippingCalculatorWidget: React.FC<ShippingCalculatorWidgetProps> =
 }) => {
   const [productValue, setProductValue] = useState<number>(0);
   const [shippingCompany, setShippingCompany] = useState<string>(
-    Object.keys(settings.shippingOptions || {})[0] || 'aramex'
+    Object.keys(settings.shippingOptions || {})[0] || 'بوسطة'
   );
   const [governorate, setGovernorate] = useState<string>(EGYPT_GOVERNORATES[0]?.name || '');
   const [city, setCity] = useState<string>('');

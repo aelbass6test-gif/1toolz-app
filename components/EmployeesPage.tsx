@@ -160,7 +160,7 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     setEmployeeToDelete(null);
   };
   
-  const handleAddEmployee = async (data: { name: string; phone: string; email: string; password: string; roleKey: string; }) => {
+  const handleAddEmployee = async (data: { name: string; phone: string; email: string; password: string; roleKey: string; commissionType: 'fixed' | 'percentage'; commissionValue: number; }) => {
     setAddEmployeeError('');
     setNewEmployeeCredentials(null);
 
@@ -175,7 +175,18 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
 
     if (userByPhone) {
         alert(`تم العثور على حساب للمستخدم "${userByPhone.fullName}". سيتم إضافته كموظف في هذا المتجر بالدور المحدد.`);
-        const newEmployee: Employee = { id: userByPhone.phone, phone: userByPhone.phone, name: userByPhone.fullName, email: userByPhone.email, permissions: initialPermissions, status: 'active' };
+        const newEmployee: Employee = { 
+          id: userByPhone.phone, 
+          phone: userByPhone.phone, 
+          name: userByPhone.fullName, 
+          email: userByPhone.email, 
+          permissions: initialPermissions, 
+          status: 'active',
+          commissionType: data.commissionType || 'fixed',
+          commissionValue: Number(data.commissionValue) || 0,
+          balance: 0,
+          commissionTransactions: []
+        };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
         setIsAddEmployeeModalOpen(false);
     } else {
@@ -207,7 +218,18 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
         }
 
         setUsers(prev => [...prev, newUser]);
-        const newEmployee: Employee = { id: data.phone, phone: data.phone, name: data.name, email: data.email, permissions: initialPermissions, status: 'active' };
+        const newEmployee: Employee = { 
+          id: data.phone, 
+          phone: data.phone, 
+          name: data.name, 
+          email: data.email, 
+          permissions: initialPermissions, 
+          status: 'active',
+          commissionType: data.commissionType || 'fixed',
+          commissionValue: Number(data.commissionValue) || 0,
+          balance: 0,
+          commissionTransactions: []
+        };
         setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
         setNewEmployeeCredentials({ phone: data.phone, pass: data.password });
         setIsAddEmployeeModalOpen(false);
@@ -416,10 +438,11 @@ const PermissionsCard: React.FC<{
 
       <div className="overflow-x-auto">
         <table className="w-full text-right">
-          <thead className="text-slate-500 dark:text-slate-400 text-sm font-semibold">
+           <thead className="text-slate-500 dark:text-slate-400 text-sm font-semibold">
             <tr>
               <th className="px-6 py-4">الموظف</th>
               <th className="px-6 py-4">الحالة / الصلاحيات</th>
+              <th className="px-6 py-4">العمولة (الرصيد)</th>
               <th className="px-6 py-4 text-left">الإجراءات</th>
             </tr>
           </thead>
@@ -458,6 +481,18 @@ const PermissionsCard: React.FC<{
                         }
                     </td>
                     <td className="px-6 py-4">
+                        {!isOwner && !isPartner && !isInvited && (
+                            <div className="flex flex-col gap-1">
+                                <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                                    {(emp.balance || 0).toLocaleString('ar-EG')} ج.م
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                    {emp.commissionType === 'percentage' ? `نسبة: ${emp.commissionValue || 0}%` : `ثابت: ${emp.commissionValue || 0} ج.م`}
+                                </span>
+                            </div>
+                        )}
+                    </td>
+                    <td className="px-6 py-4">
                         <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                             {isOwner ? 
                                 (loggedInUser?.isAdmin ? 
@@ -491,14 +526,28 @@ const PermissionsCard: React.FC<{
 
 interface EmployeeModalProps { isOpen: boolean; onClose: () => void; onSave: (employee: Omit<Employee, 'id'> & { id?: string; phone?: string }) => void; employee: Employee | null; error: string; }
 const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, employee, error }) => {
-  const [formData, setFormData] = useState({ name: '', phone: '', email: '', permissions: [] as Permission[] });
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    phone: '', 
+    email: '', 
+    permissions: [] as Permission[],
+    commissionType: 'fixed' as 'fixed' | 'percentage',
+    commissionValue: 0
+  });
   const [activeRole, setActiveRole] = useState('custom');
 
   useEffect(() => {
     if (employee) { 
-        setFormData({ name: employee.name, phone: employee.phone || employee.id || '', email: employee.email, permissions: employee.permissions || [] });
+        setFormData({ 
+          name: employee.name, 
+          phone: employee.phone || employee.id || '', 
+          email: employee.email, 
+          permissions: employee.permissions || [],
+          commissionType: employee.commissionType || 'fixed',
+          commissionValue: employee.commissionValue || 0
+        });
     } else { 
-        setFormData({ name: '', phone: '', email: '', permissions: [] }); 
+        setFormData({ name: '', phone: '', email: '', permissions: [], commissionType: 'fixed', commissionValue: 0 }); 
     }
   }, [employee, isOpen]);
 
@@ -552,6 +601,65 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
             <div><label className="text-sm font-bold text-slate-700 dark:text-slate-400">اسم الموظف</label><input type="text" value={formData.name} onChange={e => setFormData(p => ({...p, name: e.target.value}))} className="mt-2 w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" /></div>
             <div><label className="text-sm font-bold text-slate-700 dark:text-slate-400">رقم الهاتف</label><input type="tel" value={formData.phone} onChange={e => setFormData(p => ({...p, phone: e.target.value}))} className="mt-2 w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" /></div>
             <div><label className="text-sm font-bold text-slate-700 dark:text-slate-400">البريد الإلكتروني</label><input type="email" value={formData.email} onChange={e => setFormData(p => ({...p, email: e.target.value}))} className="mt-2 w-full px-4 py-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-purple-500" /></div>
+          </div>
+          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+            <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">💰 نظام العمولات لهذا الموظف</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-slate-500">نوع العمولة</label>
+                <select 
+                  value={formData.commissionType} 
+                  onChange={e => setFormData(p => ({...p, commissionType: e.target.value as 'fixed' | 'percentage'}))}
+                  className="mt-2 w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none"
+                >
+                  <option value="fixed">قيمة ثابتة لكل أوردر مستلم</option>
+                  <option value="percentage">نسبة مئوية من سعر المنتجات</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500">
+                  {formData.commissionType === 'percentage' ? 'نسبة العمولة (%)' : 'قيمة العمولة (ج.م)'}
+                </label>
+                <input 
+                  type="number" 
+                  value={formData.commissionValue} 
+                  onChange={e => setFormData(p => ({...p, commissionValue: Number(e.target.value)}))} 
+                  className="mt-2 w-full p-3 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl outline-none" 
+                  min="0"
+                />
+              </div>
+            </div>
+            {employee && (
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-xs font-bold text-slate-500">إجمالي مستحقات الموظف الحالية:</span>
+                  <span className="text-lg font-black text-emerald-600">{(employee.balance || 0).toLocaleString('ar-EG')} ج.م</span>
+                </div>
+                {employee.commissionTransactions && employee.commissionTransactions.length > 0 ? (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    <p className="text-xs font-bold text-slate-400 mb-1">سجل العمليات المالية الأخيرة:</p>
+                    {employee.commissionTransactions.slice(0, 10).map((tx, tIdx) => (
+                      <div key={tx.id || tIdx} className="flex justify-between items-center text-xs p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700/50">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${tx.type === 'deposit' ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                          <span className="text-slate-600 dark:text-slate-300">
+                            {tx.type === 'deposit' ? 'إضافة عمولة أوردر' : 'عكس عمولة أوردر'} #{tx.orderNumber}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={tx.type === 'deposit' ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                            {tx.type === 'deposit' ? '+' : '-'}{tx.amount} ج.م
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">{new Date(tx.date).toLocaleDateString('ar-EG')}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">لا توجد حركات عمولة مسجلة للموظف بعد.</p>
+                )}
+              </div>
+            )}
           </div>
           <div>
               <h4 className="text-lg font-bold dark:text-white mb-4 flex items-center gap-2"><UserCog size={20}/> اختر دوراً سريعاً (قوالب جاهزة)</h4>
@@ -636,13 +744,15 @@ const EmployeeModal: React.FC<EmployeeModalProps> = ({ isOpen, onClose, onSave, 
   );
 };
 
-interface AddEmployeeModalProps { onClose: () => void; onAdd: (data: { name: string, phone: string, email: string, password: string, roleKey: string }) => void; error: string; }
+interface AddEmployeeModalProps { onClose: () => void; onAdd: (data: { name: string, phone: string, email: string, password: string, roleKey: string, commissionType: 'fixed' | 'percentage', commissionValue: number }) => void; error: string; }
 const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, error }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [roleKey, setRoleKey] = useState('COURIER');
+  const [commissionType, setCommissionType] = useState<'fixed' | 'percentage'>('fixed');
+  const [commissionValue, setCommissionValue] = useState<number>(0);
   
   const generateRandomPassword = () => Math.random().toString(36).slice(-8);
 
@@ -653,7 +763,7 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, err
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && phone.trim() && email.trim() && password.trim() && roleKey) {
-      onAdd({ name, phone, email, password, roleKey });
+      onAdd({ name, phone, email, password, roleKey, commissionType, commissionValue });
     }
   };
 
@@ -688,6 +798,30 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, err
                       <option key={key} value={key}>{role.icon} {role.name}</option>
                   ))}
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3 bg-purple-50/50 dark:bg-purple-900/10 p-3 rounded-xl border border-purple-100 dark:border-purple-900/30">
+              <div>
+                <label className="text-xs font-bold text-slate-500 block mb-1">نوع العمولة</label>
+                <select 
+                    value={commissionType} 
+                    onChange={e => setCommissionType(e.target.value as 'fixed' | 'percentage')} 
+                    className="w-full p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none font-bold text-xs"
+                >
+                    <option value="fixed">مبلغ ثابت</option>
+                    <option value="percentage">نسبة مئوية</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 block mb-1">قيمة العمولة</label>
+                <input 
+                    type="number" 
+                    value={commissionValue} 
+                    onChange={e => setCommissionValue(Number(e.target.value))} 
+                    placeholder="0" 
+                    className="w-full p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-purple-500 outline-none text-xs font-bold"
+                    min="0"
+                />
+              </div>
             </div>
             <div>
               <label className="text-xs font-bold text-slate-500 block mb-1">تعيين كلمة المرور</label>

@@ -248,6 +248,11 @@ export const CustomerDeliveryRateBadge: React.FC<CustomerDeliveryRateBadgeProps>
                   {rate}%
                 </span>
               )}
+              {bostaRateData?.hasBostaData && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 font-bold">
+                  Bosta API مباشر ⚡
+                </span>
+              )}
               {isLoading && <RefreshCw size={12} className="animate-spin text-slate-400" />}
             </div>
 

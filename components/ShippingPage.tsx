@@ -3,6 +3,7 @@ import { Settings, ShippingOption, CompanyFees, CityOption } from '../types';
 import { Save, Info, Truck, Plus, Trash2, Wallet, Scale, AlertCircle, XCircle, Package, RefreshCcw, Percent, Coins, Building2, MapPin, Repeat, Settings as SettingsIcon, ShieldCheck, Banknote, ChevronDown, ChevronUp, Eye, ArrowRight, Link2, Plug, CheckCircle2, Wrench, ArrowLeft, Map, Link as LinkIcon, Download, ListChecks, CheckSquare, Square, Search, Lock, Unlock, Unlink, X } from 'lucide-react';
 import SaveBar from './SaveBar';
 import BostaSystemPortal from './BostaSystemPortal';
+import TurboSystemPortal from './TurboSystemPortal';
 import { motion } from 'framer-motion';
 import { generateEgyptShippingOptions, EGYPT_GOVERNORATES } from '../constants';
 import { isBosta } from '../utils/financials';
@@ -366,6 +367,15 @@ const ShippingPage: React.FC<{
                         setOrders={setOrders}
                     />
                 )}
+                {view === 'turbo-system' && (
+                    <TurboSystemPortal 
+                        onBack={handleBack}
+                        settings={settings}
+                        setSettings={setSettings}
+                        orders={orders}
+                        setOrders={setOrders}
+                    />
+                )}
             </div>
         </div>
 
@@ -421,24 +431,45 @@ const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompa
                 </div>
             </motion.div>
 
-            <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-2xl shadow-md border border-indigo-500/30">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div className="space-y-2 text-right">
-                        <div className="flex items-center gap-2 bg-white/20 px-3 py-1 rounded-full text-[10px] font-black w-fit">
-                            <Truck size={12} /> بوابة الشريك الرسمي لبوسطة
-                        </div>
-                        <h2 className="text-xl font-black">نظام بوسطة في الشحن (Bosta Shipping System)</h2>
-                        <p className="text-blue-100 text-xs font-bold max-w-2xl leading-relaxed">استعراض أسعار شركة بوسطة الرسمية بمصر بالفئات والجهات، حاسبة الرسوم المتقدمة مع ضريبة القيمة المضافة 14% ورسوم السحب النقدي لبوسطة.</p>
-                    </div>
-                    <button 
-                        type="button"
-                        onClick={() => onManageCompany('bosta-system')} 
-                        className="bg-white text-indigo-700 hover:bg-blue-50 px-5 py-3 rounded-xl font-black text-xs shadow-xl transition-all hover:scale-[1.02] active:scale-95 whitespace-nowrap self-stretch md:self-auto text-center"
-                    >
-                        فتح بوابة بوسطة الحصرية
-                    </button>
-                </div>
-            </motion.div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <motion.div variants={itemVariants} className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-2xl shadow-md border border-indigo-500/30">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div className="space-y-2 text-right">
+                          <div className="flex items-center gap-2 bg-white/20 px-3 py-1 rounded-full text-[10px] font-black w-fit">
+                              <Truck size={12} /> بوابة الشريك لبوسطة
+                          </div>
+                          <h2 className="text-xl font-black">نظام بوسطة في الشحن (Bosta Shipping)</h2>
+                          <p className="text-blue-100 text-xs font-bold max-w-2xl leading-relaxed">استعراض أسعار شركة بوسطة الرسمية بمصر وحاسبة الرسوم المتقدمة وإدارة الشحنات.</p>
+                      </div>
+                      <button 
+                          type="button"
+                          onClick={() => onManageCompany('bosta-system')} 
+                          className="bg-white text-indigo-700 hover:bg-blue-50 px-5 py-3 rounded-xl font-black text-xs shadow-xl transition-all hover:scale-[1.02] active:scale-95 whitespace-nowrap self-stretch md:self-auto text-center"
+                      >
+                          فتح بوابة بوسطة
+                      </button>
+                  </div>
+              </motion.div>
+
+              <motion.div variants={itemVariants} className="bg-gradient-to-r from-purple-800 to-indigo-900 text-white p-6 rounded-2xl shadow-md border border-purple-500/30">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div className="space-y-2 text-right">
+                          <div className="flex items-center gap-2 bg-white/20 px-3 py-1 rounded-full text-[10px] font-black w-fit">
+                              <Truck size={12} /> بوابة شركة تربو (Turbo Express)
+                          </div>
+                          <h2 className="text-xl font-black">شركة تربو في الشحن (Turbo Shipping System)</h2>
+                          <p className="text-purple-100 text-xs font-bold max-w-2xl leading-relaxed">ربط حساب شركة تربو لشحن الطرود بمصر، تصدير الأوردرات تلقائياً، وتتبع بوالص الشحن عبر الـ API المباشر.</p>
+                      </div>
+                      <button 
+                          type="button"
+                          onClick={() => onManageCompany('turbo-system')} 
+                          className="bg-white text-purple-900 hover:bg-purple-50 px-5 py-3 rounded-xl font-black text-xs shadow-xl transition-all hover:scale-[1.02] active:scale-95 whitespace-nowrap self-stretch md:self-auto text-center"
+                      >
+                          فتح بوابة تربو
+                      </button>
+                  </div>
+              </motion.div>
+            </div>
             
             <motion.div variants={itemVariants}>
               <SectionCard title="شركات الشحن" icon={<Building2 size={22} className="text-indigo-600 dark:text-indigo-400" />} action={<button onClick={onAddCompany} className="flex items-center gap-2 text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-indigo-700 active:scale-95 transition-all"><Plus size={16} /> إضافة شركة</button>}>

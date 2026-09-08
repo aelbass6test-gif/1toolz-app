@@ -2916,6 +2916,9 @@ export const AppComponent = () => {
             customerName: orderData.customerName,
             customerPhone: orderData.customerPhone,
             customerAddress: orderData.customerAddress,
+            buildingNumber: orderData.buildingNumber,
+            floorNumber: orderData.floorNumber,
+            apartmentNumber: orderData.apartmentNumber,
             shippingCompany: orderData.shippingCompany,
             shippingArea: orderData.shippingArea,
             shippingFee: orderData.shippingFee,
@@ -3015,11 +3018,11 @@ export const AppComponent = () => {
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />
-                <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} />} />
-                <Route path="/order-action" element={<CustomerOrderActionPage />} />
-                <Route path="/order-action/" element={<CustomerOrderActionPage />} />
-                <Route path="/confirm-order/:id" element={<CustomerOrderActionPage />} />
-                <Route path="/cancel-order/:id" element={<CustomerOrderActionPage />} />
+                <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
+                <Route path="/order-action" element={<CustomerOrderActionPage orders={pageProps.orders} allStoresData={allStoresData} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} setAllStoresData={setAllStoresData} />} />
+                <Route path="/order-action/" element={<CustomerOrderActionPage orders={pageProps.orders} allStoresData={allStoresData} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} setAllStoresData={setAllStoresData} />} />
+                <Route path="/confirm-order/:id" element={<CustomerOrderActionPage orders={pageProps.orders} allStoresData={allStoresData} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} setAllStoresData={setAllStoresData} />} />
+                <Route path="/cancel-order/:id" element={<CustomerOrderActionPage orders={pageProps.orders} allStoresData={allStoresData} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} setAllStoresData={setAllStoresData} />} />
                 <Route path="/shared-report/:id" element={<SharedReportView />} />
                 <Route path="/shared-audit/:auditId" element={<WarehouseSubmitPage />} />
                 

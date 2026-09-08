@@ -31,6 +31,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [buildingNumber, setBuildingNumber] = useState('');
+  const [floorNumber, setFloorNumber] = useState('');
+  const [apartmentNumber, setApartmentNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
@@ -104,6 +107,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
         customerName,
         customerPhone,
         customerAddress,
+        buildingNumber,
+        floorNumber,
+        apartmentNumber,
         shippingCompany,
         shippingArea,
         shippingFee,
@@ -213,8 +219,23 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                 </div>
 
                 <div className="group relative">
-                  <textarea placeholder="العنوان التفصيلي (رقم المبنى، الشقة، المعالم المميزة)..." required value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all h-32 resize-none" ></textarea>
-                  <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">العنوان بالتفصيل</label>
+                  <textarea placeholder="العنوان التفصيلي (الشارع والمعالم المميزة)..." required value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all h-32 resize-none" ></textarea>
+                  <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">اسم الشارع والمعالم</label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  <div className="group relative">
+                    <input type="text" placeholder="رقم المبنى" value={buildingNumber} onChange={e => setBuildingNumber(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all" />
+                    <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">رقم المبنى</label>
+                  </div>
+                  <div className="group relative">
+                    <input type="text" placeholder="الطابق" value={floorNumber} onChange={e => setFloorNumber(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all" />
+                    <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">الطابق</label>
+                  </div>
+                  <div className="group relative">
+                    <input type="text" placeholder="رقم الشقة" value={apartmentNumber} onChange={e => setApartmentNumber(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all" />
+                    <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">رقم الشقة</label>
+                  </div>
                 </div>
               </motion.section>
 

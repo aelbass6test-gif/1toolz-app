@@ -16,6 +16,7 @@ import {
   resolveCashHolderName
 } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
+import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
 
 interface OrderDetailsModalProps {
   order: Order;
@@ -546,6 +547,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     )}
                   </div>
                   <div className="p-6 space-y-6 text-right">
+                    <CustomerDeliveryRateBadge phone={order.customerPhone} orders={allOrders} settings={settings} showDetails={true} />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-b border-slate-200 dark:border-white/5 pb-6">
                       <div>
                         <span className="text-xs font-black text-slate-400 block mb-1.5">الاسم الكامل</span>

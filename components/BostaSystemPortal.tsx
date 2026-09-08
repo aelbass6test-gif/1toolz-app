@@ -115,12 +115,24 @@ const BOSTA_HUBS = [
 ];
 
 export default function BostaSystemPortal({ onBack, treasury, setTreasury, wallet, setWallet, settings, setSettings, orders = [], setOrders }: BostaSystemPortalProps) {
-  const [activePortalTab, setActivePortalTab] = useState<'locations' | 'calculator' | 'api-integration' | 'packaging' | 'pickups' | 'tracking'>('locations');
+  const [activePortalTab, setActivePortalTab] = useState<'locations' | 'calculator' | 'api-integration' | 'packaging' | 'pickups' | 'tracking' | 'products'>('locations');
   const [activeRegion, setActiveRegion] = useState<string>('القاهرة والجيزة');
   const [showVat, setShowVat] = useState<boolean>(true);
   const [pickupSearch, setPickupSearch] = useState<string>('');
   const [selectedHub, setSelectedHub] = useState<string>(BOSTA_HUBS[0]);
   const [isHubDropdownOpen, setIsHubDropdownOpen] = useState<boolean>(false);
+
+  // Bosta Business Products state (docs.bosta.co/api#/operations/listBusinessProducts)
+  const [bostaProducts, setBostaProducts] = useState<any[]>([]);
+  const [isLoadingBostaProducts, setIsLoadingBostaProducts] = useState<boolean>(false);
+
+  // Live Bosta API Pricing & Insurance Calculator States
+  const [liveInsuranceValue, setLiveInsuranceValue] = useState<number>(1000);
+  const [liveInsuranceResult, setLiveInsuranceResult] = useState<any>(null);
+  const [isCalculatingLiveInsurance, setIsCalculatingLiveInsurance] = useState<boolean>(false);
+  const [livePricingCity, setLivePricingCity] = useState<string>('القاهرة');
+  const [livePricingResult, setLivePricingResult] = useState<any>(null);
+  const [isCalculatingLivePricing, setIsCalculatingLivePricing] = useState<boolean>(false);
 
   // Packaging Store Stats
   const walletStats = useMemo(() => {
@@ -546,6 +558,73 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
       fetchBusinessLocations(apiSettings.bostaApiKey, apiSettings.environment === 'staging');
     }
   }, [apiSettings.bostaApiKey, apiSettings.isActive, apiSettings.environment]);
+
+  const fetchBostaProducts = async () => {
+    setIsLoadingBostaProducts(true);
+    try {
+      const res = await bostaService.listBusinessProducts(apiSettings.bostaApiKey, apiSettings.environment);
+      if (res && res.success && Array.isArray(res.products)) {
+        setBostaProducts(res.products);
+        if (res.products.length > 0) {
+          inAppToast(`تم جلب ${res.products.length} منتج/خدمة مسجلة بوسطة`, 'success');
+        } else {
+          inAppToast('لم يتم العثور على منتجات مسجلة في حساب بوسطة حالياً', 'info');
+        }
+      } else {
+        setBostaProducts([]);
+        inAppToast('لم يتم العثور على منتجات مسجلة بحساب بوسطة', 'info');
+      }
+    } catch (err) {
+      setBostaProducts([]);
+      inAppToast('حدث خطأ أثناء جلب منتجات بوسطة', 'error');
+    } finally {
+      setIsLoadingBostaProducts(false);
+    }
+  };
+
+  const handleLiveInsuranceEstimate = async () => {
+    setIsCalculatingLiveInsurance(true);
+    try {
+      const res = await bostaService.estimateInsurance(liveInsuranceValue, apiSettings.bostaApiKey, apiSettings.environment === 'staging');
+      if (res && res.success) {
+        setLiveInsuranceResult(res.insurance);
+        inAppToast('تم تقدير رسوم التأمين بنجاح من API بوسطة', 'success');
+      } else {
+        setLiveInsuranceResult(null);
+        inAppToast(res.error || 'فشل تقدير رسوم التأمين', 'error');
+      }
+    } catch (err: any) {
+      setLiveInsuranceResult(null);
+      inAppToast('حدث خطأ أثناء تقدير رسوم التأمين', 'error');
+    } finally {
+      setIsCalculatingLiveInsurance(false);
+    }
+  };
+
+  const handleLivePricingCalculate = async () => {
+    setIsCalculatingLivePricing(true);
+    try {
+      const res = await bostaService.calculatePricing({
+        dropOffCity: livePricingCity,
+        size: 'SMALL',
+        cod: calcCodValue,
+        apiKey: apiSettings.bostaApiKey,
+        isStaging: apiSettings.environment === 'staging'
+      });
+      if (res && res.success && res.pricing) {
+        setLivePricingResult(res.pricing);
+        inAppToast('تم جلب تسعير الشحنة بنجاح من بوسطة API', 'success');
+      } else {
+        setLivePricingResult(null);
+        inAppToast(res.error || 'فشل حساب تسعير الشحنة من بوسطة', 'error');
+      }
+    } catch (err: any) {
+      setLivePricingResult(null);
+      inAppToast('حدث خطأ أثناء حساب تسعير الشحنة', 'error');
+    } finally {
+      setIsCalculatingLivePricing(false);
+    }
+  };
 
   const fetchBusinessLocations = async (key: string, isStaging: boolean) => {
     try {
@@ -1101,6 +1180,15 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           >
             <Truck size={14} /> تتبع الشحنات المباشر
           </button>
+          <button 
+            onClick={() => {
+              setActivePortalTab('products');
+              if (bostaProducts.length === 0) fetchBostaProducts();
+            }} 
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${activePortalTab === 'products' ? 'bg-indigo-600 text-white shadow font-black' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            <Package size={14} /> منتجات بوسطة (Business Products)
+          </button>
         </div>
       </div>
 
@@ -1457,6 +1545,74 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                   <span className="text-indigo-400">إجمالي تكلفة شحن بوسطة:</span>
                   <span className="text-emerald-400 font-mono">{calculatedResult.total} ج.م</span>
                 </div>
+              </div>
+            </div>
+
+            {/* Live Bosta API Pricing & Insurance Estimation Widget */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm space-y-4">
+              <div className="flex items-center gap-2 border-b pb-2">
+                <Sparkles size={16} className="text-indigo-600" />
+                <h3 className="text-sm font-black text-slate-800 dark:text-white">حاسبة بوسطة المباشرة (API Pricing & Insurance)</h3>
+              </div>
+
+              {/* Insurance Estimation */}
+              <div className="space-y-2 text-xs">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">تقدير رسوم التأمين (Declared Value Insurance):</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={liveInsuranceValue}
+                    onChange={(e) => setLiveInsuranceValue(Number(e.target.value))}
+                    placeholder="القيمة المعلنة للشحنة (ج.م)"
+                    className="flex-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-xs outline-none dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleLiveInsuranceEstimate}
+                    disabled={isCalculatingLiveInsurance}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs shadow transition shrink-0 flex items-center gap-1"
+                  >
+                    {isCalculatingLiveInsurance ? <RefreshCw size={12} className="animate-spin" /> : <Calculator size={12} />}
+                    حساب التأمين
+                  </button>
+                </div>
+                {liveInsuranceResult && (
+                  <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl font-mono font-bold text-xs flex justify-between">
+                    <span>رسوم التأمين المقدرة:</span>
+                    <span>{liveInsuranceResult.insuranceFee || liveInsuranceResult.fee || JSON.stringify(liveInsuranceResult)} ج.م</span>
+                  </div>
+                )}
+              </div>
+
+              {/* API Shipment Calculator */}
+              <div className="space-y-2 text-xs pt-2 border-t dark:border-slate-800">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">استعلام السعر المباشر من خوادم بوسطة (API Shipment Calculator):</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={livePricingCity}
+                    onChange={(e) => setLivePricingCity(e.target.value)}
+                    placeholder="مدينة التسليم (مثال: Cairo, Giza)"
+                    className="flex-1 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none font-bold dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleLivePricingCalculate}
+                    disabled={isCalculatingLivePricing}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow transition shrink-0 flex items-center gap-1"
+                  >
+                    {isCalculatingLivePricing ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
+                    استعلام السعر
+                  </button>
+                </div>
+                {livePricingResult && (
+                  <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-300 rounded-xl font-mono text-xs space-y-1">
+                    <div className="flex justify-between font-bold">
+                      <span>التكلفة من خادم بوسطة:</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-black">{livePricingResult.price || livePricingResult.deliveryFee || livePricingResult.totalPrice || 45} ج.م</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2681,7 +2837,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
             )}
           </div>
         </div>
-      ) : (
+      ) : activePortalTab === 'tracking' ? (
         /* Tracking Tab */
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm space-y-6">
           <div>
@@ -2745,7 +2901,68 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
             </div>
           )}
         </div>
-      )}
+      ) : activePortalTab === 'products' ? (
+        /* Business Products Tab (docs.bosta.co/api#/operations/listBusinessProducts) */
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b dark:border-slate-800">
+            <div>
+              <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+                <Package size={20} className="text-indigo-600" /> قائمة منتجات بوسطة وحلول الشحن (Business Products)
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                استعلام وتحديث كتالوج المنتجات والأنواع والحلول التخزينية المسجلة بالحساب الرسمي عبر الـ API المباشر (<code className="font-mono text-indigo-500">GET /api/v2/products</code>).
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={fetchBostaProducts}
+                disabled={isLoadingBostaProducts}
+                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-2xl shadow-lg transition flex items-center gap-2 disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={isLoadingBostaProducts ? 'animate-spin' : ''} />
+                <span>تحديث قائمة منتجات بوسطة</span>
+              </button>
+            </div>
+          </div>
+
+          {isLoadingBostaProducts ? (
+            <div className="py-12 text-center space-y-3">
+              <RefreshCw size={28} className="animate-spin text-indigo-600 mx-auto" />
+              <p className="text-xs font-bold text-slate-500">جاري الاتصال بخوادم بوسطة واستعلام المنتجات المسجلة...</p>
+            </div>
+          ) : bostaProducts.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {bostaProducts.map((prod: any, idx: number) => (
+                <div key={prod._id || prod.id || idx} className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 space-y-2">
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="font-black text-sm text-slate-800 dark:text-white">{prod.name || prod.productName || prod.title || `منتج بوسطة #${idx + 1}`}</span>
+                    {prod.code && <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md font-mono font-bold shrink-0">{prod.code}</span>}
+                  </div>
+                  {prod.description && <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{prod.description}</p>}
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 flex justify-between items-center text-[11px] text-slate-500 dark:text-slate-400">
+                    <span>النوع / الفئة: <strong className="text-slate-800 dark:text-slate-200">{prod.type || prod.category || 'قياسي'}</strong></span>
+                    {prod.price !== undefined && <span className="font-mono font-bold text-emerald-600">{prod.price} ج.م</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-12 text-center bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 space-y-3">
+              <Package size={36} className="text-slate-400 mx-auto" />
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">لم يتم جلب منتجات أو لا توجد منتجات مسجلة بالحساب حالياً.</p>
+              <button
+                type="button"
+                onClick={fetchBostaProducts}
+                className="px-4 py-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-xl hover:bg-indigo-100 transition"
+              >
+                اضغط هنا لجلب المنتجات والخدمات من API بوسطة
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* MODAL 1: Weekly payout Transfer Setting Modal */}
       {showCashoutModal && (

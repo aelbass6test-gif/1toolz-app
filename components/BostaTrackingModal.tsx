@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { X, Truck, Calendar, MapPin, CheckCircle2, AlertTriangle, RefreshCw, ExternalLink, MessageCircle, Copy, Check, Share2 } from 'lucide-react';
-import { bostaService, BostaTrackResponse } from '../utils/bostaService';
+import { X, Truck, AlertTriangle, RefreshCw, ExternalLink, MessageCircle, Copy, Check, Share2, User, Phone } from 'lucide-react';
+import { bostaService } from '../utils/bostaService';
+import { turboService, TurboConfig } from '../utils/turboService';
 
 interface BostaTrackingModalProps {
   isOpen: boolean;
@@ -12,6 +13,9 @@ interface BostaTrackingModalProps {
   customerPhone?: string;
   totalPrice?: number;
   apiKey?: string;
+  carrier?: string;
+  turboApiKey?: string;
+  turboConfig?: TurboConfig;
 }
 
 export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
@@ -23,24 +27,47 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
   customerPhone,
   totalPrice,
   apiKey,
+  carrier,
+  turboApiKey,
+  turboConfig,
 }) => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [trackData, setTrackData] = useState<any>(null);
   const [copied, setCopied] = useState<boolean>(false);
 
-  const trackingUrl = bostaService.getTrackingUrl(trackingNumber);
+  const isTurbo = Boolean(
+    carrier &&
+    (carrier.toLowerCase().includes('turbo') ||
+      carrier.includes('تربو') ||
+      carrier.includes('توربو'))
+  );
+
+  const carrierDisplayName = isTurbo ? 'تربو (Turbo)' : 'بوسطة (Bosta)';
+  const trackingUrl = isTurbo
+    ? `https://client.turbocourier.net/`
+    : bostaService.getTrackingUrl(trackingNumber);
 
   const fetchTracking = async () => {
     if (!trackingNumber) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await bostaService.trackShipment(trackingNumber, apiKey);
-      if (res.success && res.tracking) {
-        setTrackData(res.tracking);
+      if (isTurbo) {
+        const configToUse = turboConfig || (turboApiKey ? { apiToken: turboApiKey } : apiKey ? { apiToken: apiKey } : undefined);
+        const res = await turboService.trackShipment(trackingNumber, configToUse);
+        if (res.success && res.trackingInfo) {
+          setTrackData(res.trackingInfo);
+        } else {
+          setError(res.error || 'تعذر جلب تفاصيل التتبع من خوادم تربو');
+        }
       } else {
-        setError(res.error || 'تعذر جلب تفاصيل التتبع من خوادم بوسطة');
+        const res = await bostaService.trackShipment(trackingNumber, apiKey);
+        if (res.success && res.tracking) {
+          setTrackData(res.tracking);
+        } else {
+          setError(res.error || 'تعذر جلب تفاصيل التتبع من خوادم بوسطة');
+        }
       }
     } catch (err: any) {
       setError(err.message || 'خطأ في الاتصال بالخادم');
@@ -53,7 +80,7 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
     if (isOpen && trackingNumber) {
       fetchTracking();
     }
-  }, [isOpen, trackingNumber]);
+  }, [isOpen, trackingNumber, carrier]);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(trackingUrl);
@@ -67,10 +94,10 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
       cleanPhone = '2' + cleanPhone;
     }
     const message = `مرحباً ${customerName || 'عميلنا العزيز'} 👋،\n` +
-      `يسعدنا إبلاغك بأنه تم شحن طلبك ${orderNumber ? `#${orderNumber}` : ''} عبر *بوسطة (Bosta)* 🚚✨\n\n` +
+      `يسعدنا إبلاغك بأنه تم شحن طلبك ${orderNumber ? `#${orderNumber}` : ''} عبر *${isTurbo ? 'تربو (Turbo)' : 'بوسطة (Bosta)'}* 🚚✨\n\n` +
       `📋 *رقم البوليصة:* ${trackingNumber}\n` +
       (totalPrice ? `💰 *المبلغ المطلوب عند الاستلام:* ${totalPrice} ج.م\n` : '') +
-      `🔗 *رابط التتبع المباشر لشحنتك:*\n${trackingUrl}\n\n` +
+      `🔗 *رابط التتبع لشحنتك:*\n${trackingUrl}\n\n` +
       `شكراً لثقتكم بنا! ❤️`;
 
     const waUrl = cleanPhone 
@@ -81,7 +108,17 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
 
   if (!isOpen) return null;
 
-  const timeline = trackData?.timeline || trackData?.TransitEvents || [];
+  const timeline = trackData?.timeline || trackData?.TransitEvents || trackData?.history || trackData?.events || [];
+  const currentStatus =
+    trackData?.status_ar ||
+    trackData?.statusArabic ||
+    trackData?.state?.value ||
+    trackData?.state ||
+    trackData?.status ||
+    (isTurbo ? 'قيد التوصيل في تربو' : 'قيد المعالجة');
+
+  const courierName = trackData?.courier_name || trackData?.courier || trackData?.driver_name;
+  const courierPhone = trackData?.courier_phone || trackData?.driver_phone;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 dir-rtl text-right">
@@ -99,7 +136,7 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
             </div>
             <div>
               <h3 className="font-black text-slate-800 dark:text-white text-base">
-                تتبع شحنة بوسطة (Live Bosta Tracking)
+                تتبع شحنة {carrierDisplayName}
               </h3>
               <p className="text-xs text-slate-500 font-mono mt-0.5">
                 رقم البوليصة: {trackingNumber} {orderNumber ? `| طلب #${orderNumber}` : ''}
@@ -119,7 +156,7 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
           {loading ? (
             <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
               <RefreshCw className="animate-spin text-indigo-600" size={32} />
-              <p className="text-xs font-bold">جاري الاتصال بخوادم بوسطة ومزامنة بيانات الشحنة...</p>
+              <p className="text-xs font-bold">جاري الاتصال بخوادم {carrierDisplayName} ومزامنة بيانات الشحنة...</p>
             </div>
           ) : error ? (
             <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/50 flex items-start gap-3 text-amber-800 dark:text-amber-200">
@@ -140,9 +177,9 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
               {/* Status summary banner */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
                 <div>
-                  <span className="text-[11px] text-slate-400 font-bold block mb-1">الحالة الحالية في بوسطة:</span>
+                  <span className="text-[11px] text-slate-400 font-bold block mb-1">الحالة الحالية في {carrierDisplayName}:</span>
                   <span className="text-base font-black text-indigo-600 dark:text-indigo-400">
-                    {trackData?.state?.value || trackData?.state || trackData?.status || 'قيد المعالجة'}
+                    {currentStatus}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -152,10 +189,39 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
                     rel="noreferrer"
                     className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl transition flex items-center gap-1.5"
                   >
-                    <ExternalLink size={13} /> صفحة بوسطة
+                    <ExternalLink size={13} /> {isTurbo ? 'بوابة تربو' : 'صفحة بوسطة'}
                   </a>
                 </div>
               </div>
+
+              {/* Courier info if available */}
+              {(courierName || courierPhone) && (
+                <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                      <User size={16} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black text-slate-800 dark:text-white">
+                        مندوب التوصيل: {courierName || 'مندوب تربو'}
+                      </p>
+                      {courierPhone && (
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          {courierPhone}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {courierPhone && (
+                    <a
+                      href={`tel:${courierPhone}`}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1"
+                    >
+                      <Phone size={12} /> اتصال
+                    </a>
+                  )}
+                </div>
+              )}
 
               {/* Quick Customer Notification Card */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-500/20 flex flex-col gap-3">
@@ -192,7 +258,7 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
 
                 {timeline.length === 0 ? (
                   <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 text-xs text-slate-500 text-center font-bold">
-                    تم إنشاء الشحنة وبانتظار أول تحرك من مندوب بوسطة.
+                    تم تسجيل الشحنة بنجاح في {carrierDisplayName}.
                   </div>
                 ) : (
                   <div className="space-y-4 pr-2 border-r-2 border-slate-200 dark:border-slate-800 mr-2">
@@ -200,10 +266,10 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
                       <div key={idx} className="relative pr-6">
                         <span className="absolute -right-[9px] top-1 w-3 h-3 rounded-full bg-indigo-600 border-2 border-white dark:border-slate-900"></span>
                         <p className="text-xs font-black text-slate-800 dark:text-white">
-                          {ev.state || ev.status || ev.message || 'تحديث حالة'}
+                          {ev.state || ev.status || ev.message || ev.action || 'تحديث حالة'}
                         </p>
                         <p className="text-[11px] text-slate-400 mt-0.5 font-sans">
-                          {ev.timestamp ? new Date(ev.timestamp).toLocaleString('ar-EG') : (ev.date || '')}
+                          {ev.timestamp ? new Date(ev.timestamp).toLocaleString('ar-EG') : (ev.date || ev.created_at || '')}
                         </p>
                         {ev.reason && (
                           <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
@@ -239,4 +305,3 @@ export const BostaTrackingModal: React.FC<BostaTrackingModalProps> = ({
     </div>
   );
 };
-

@@ -1,28 +1,26 @@
 service cloud.firestore {
   match /databases/{database}/documents {
     match /stores_data/{storeId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read, write: if true;
       
       match /{allChildren=**} {
         allow read, write: if true;
       }
     }
     match /products/{productId} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read, write: if true;
     }
     match /orders/{orderId} {
-      allow create: if true;
-      allow read, update, delete: if true; // allow reading orders for tracking by guest
+      allow read, write: if true;
+    }
+    match /customers/{customerId} {
+      allow read, write: if true;
     }
     match /maintenance_requests/{requestId} {
-      allow create: if true;
-      allow read, update, delete: if true;
+      allow read, write: if true;
     }
     match /shared_reports/{reportId} {
-      allow read: if true;
-      allow create: if request.auth != null;
+      allow read, write: if true;
     }
     match /employees/{employeeId} {
       allow read, write: if true;

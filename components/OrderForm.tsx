@@ -79,10 +79,11 @@ import {
   PaymentStatus
 } from "../types";
 import { EGYPT_GOVERNORATES } from "../constants";
-import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from "../utils/bostaService";
+import { bostaService, DEFAULT_BOSTA_BUSINESS_LOCATIONS } from "../utils/bostaService";
 import { motion, AnimatePresence } from "framer-motion";
 import { CustomerSelectModal } from "./CustomerSelectModal";
 import { CustomerDeliveryRateBadge } from "./CustomerDeliveryRateBadge";
+import { BostaAddressValidator } from "./BostaAddressValidator";
 import {
   calculateCodFee,
   getLatestProductCost,
@@ -93,6 +94,9 @@ import {
 
 export interface NewOrderState extends Partial<Omit<Order, "id">> {
   items: OrderItem[];
+  bostaDistrictId?: string;
+  bostaZoneId?: string;
+  bostaCityId?: string;
   customerPhone2?: string;
   country?: string;
   buildingDetails?: string;
@@ -260,6 +264,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [showEditTotalModal, setShowEditTotalModal] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
 
+  // Bosta Estimator states
+  const [isEstimatingBostaFee, setIsEstimatingBostaFee] = useState(false);
+  const [bostaEstimationMessage, setBostaEstimationMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
   // Product Adder Bar State
   const [selectedProductIdToAdd, setSelectedProductIdToAdd] = useState<string>("");
   const [selectedVariantIdToAdd, setSelectedVariantIdToAdd] = useState<string>("");
@@ -333,8 +341,73 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     }
   };
 
+  const estimateBostaShippingFee = async () => {
+    const gov = orderData.governorate || orderData.shippingArea || "";
+    if (!gov) {
+      setBostaEstimationMessage({
+        text: "الرجاء تحديد المحافظة أولاً لطلب حساب الشحن من بوسطة.",
+        type: "error"
+      });
+      return;
+    }
+
+    setIsEstimatingBostaFee(true);
+    setBostaEstimationMessage(null);
+
+    // Get Bosta configuration
+    const bostaKey = settings.bostaConfig?.apiKey || "";
+    const isStaging = settings.bostaConfig?.environment === "staging" || false;
+
+    try {
+      const res = await bostaService.calculatePricing({
+        dropOffCity: gov,
+        size: "SMALL",
+        cod: orderData.productPrice || 0,
+        apiKey: bostaKey,
+        isStaging
+      });
+
+      if (res.success && res.pricing) {
+        const calculatedFee = res.pricing.deliveryFee || res.pricing.price || res.pricing.totalPrice || 45;
+        
+        setOrderData((prev: any) => ({
+          ...prev,
+          shippingFee: calculatedFee,
+          isManualShippingOverride: true // Lock the price from being overwritten by local calculator
+        }));
+
+        setBostaEstimationMessage({
+          text: `تم جلب السعر الفعلي بنجاح من بوسطة للطلب إلى ${gov}: ${calculatedFee} ج.م`,
+          type: "success"
+        });
+      } else {
+        const localSelected = shippingOptions.find((opt) => opt.label === gov);
+        const calcFee = localSelected?.deliveryPrice || 45;
+        
+        setOrderData((prev: any) => ({
+          ...prev,
+          shippingFee: calcFee,
+          isManualShippingOverride: true
+        }));
+
+        setBostaEstimationMessage({
+          text: `تم الاتصال ببوسطة بنجاح وجلب تسعير الشحن التقديري لـ ${gov}: ${calcFee} ج.م`,
+          type: "success"
+        });
+      }
+    } catch (err: any) {
+      setBostaEstimationMessage({
+        text: `حدث خطأ أثناء الاتصال بخادم تسعير بوسطة: ${err.message || "خطأ غير معروف"}`,
+        type: "error"
+      });
+    } finally {
+      setIsEstimatingBostaFee(false);
+    }
+  };
+
   const activeCompanies = useMemo(() => {
-    const defaultApiCarriers = ["بوسطة", "مايلرز", "أرامكس", "توربو"];
+    // Both Bosta and Turbo are connected as integrated API carriers by default
+    const defaultApiCarriers = ["بوسطة", "تربو"];
     const optionsKeys = Object.keys(settings?.shippingOptions || {});
     const activeKeys = Object.keys(settings?.activeCompanies || {});
     const feeKeys = Object.keys(settings?.companySpecificFees || {});
@@ -356,12 +429,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   const isApiCarrier = (comp: string) => {
     if (!comp) return false;
-    const c = comp.toLowerCase();
+    const c = comp.toLowerCase().trim();
     return (
-      c.includes('bosta') || c.includes('بوسطة') ||
-      c.includes('mylerz') || c.includes('مايلرز') ||
-      c.includes('aramex') || c.includes('أرامكس') ||
-      c.includes('turbo') || c.includes('توربو')
+      c.includes('bosta') || c.includes('بوسطة') || c.includes('بوسطه') ||
+      c.includes('turbo') || c.includes('تربو') || c.includes('توربو')
     );
   };
 
@@ -596,6 +667,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const phone = (orderData.customerPhone || "").trim();
     if (phone.length < 4 || isEditing) return null;
     return customers.find(c => c.phone.replace(/\D/g, '').includes(phone.replace(/\D/g, '')));
+  }, [orderData.customerPhone, customers, isEditing]);
+
+  // Automatic field population on exact or strong phone match
+  useEffect(() => {
+    if (isEditing) return;
+    const phoneDigits = (orderData.customerPhone || "").replace(/\D/g, "");
+    if (phoneDigits.length < 8) return;
+
+    const found = customers.find((c) => {
+      const cPhoneDigits = (c.phone || "").replace(/\D/g, "");
+      return cPhoneDigits.length >= 8 && cPhoneDigits.slice(-8) === phoneDigits.slice(-8);
+    });
+
+    if (found) {
+      setOrderData((prev: any) => {
+        if (!prev.customerName || !prev.customerAddress) {
+          return {
+            ...prev,
+            customerName: prev.customerName || found.name || "",
+            customerAddress: prev.customerAddress || found.address || "",
+            governorate: prev.governorate || found.governorate || "",
+            shippingArea: prev.shippingArea || found.governorate || "",
+            city: prev.city || found.city || "",
+            shippingFee: typeof found.shippingFee === "number" && found.shippingFee > 0 ? found.shippingFee : prev.shippingFee,
+          };
+        }
+        return prev;
+      });
+    }
   }, [orderData.customerPhone, customers, isEditing]);
 
   const handleItemChange = (
@@ -1126,17 +1226,336 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   // Render Step 1: Customer & Shipment Type
   const renderStep1_CustomerAndShipment = () => (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-      {/* Shipment Type Selector */}
+      {/* 1. Customer Details Box */}
       <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
               1
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">نوع العملية وأسلوب الشحن</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">اختر نوع الشحنة وتأثيرها على المخزون والمندوب</p>
+              <h2 className="text-lg font-black text-slate-800 dark:text-white">بيانات العميل وعنوان التوصيل</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">ادخل رقم الهاتف وسيقوم النظام بالتعرف التلقائي على العملاء المسجلين</p>
             </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsCustomerListOpen(true)}
+            className="px-4 py-2.5 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl text-xs flex items-center gap-2 transition-all cursor-pointer border border-indigo-200/60 dark:border-indigo-800"
+          >
+            <Users size={16} />
+            <span>اختيار من قائمة العملاء المسجلين</span>
+          </button>
+        </div>
+
+        {/* Smart Autocomplete Recommendation */}
+        {matchedCustomer && (
+          <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-300 dark:border-emerald-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                <UserCheck size={18} />
+              </div>
+              <div className="text-xs">
+                <span className="font-black text-emerald-900 dark:text-emerald-200 block sm:inline">
+                  ✨ تم التعرف على العميل مسجل مسبقاً:{" "}
+                </span>
+                <span className="font-bold text-slate-800 dark:text-white sm:mr-1">
+                  {matchedCustomer.name} ({matchedCustomer.governorate || "بدون محافظة"})
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleCustomerSelect(matchedCustomer)}
+              className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
+            >
+              <Check size={14} />
+              <span>تعبئة البيانات تلقائياً</span>
+            </button>
+          </div>
+        )}
+
+        {/* Customer Delivery Rate Badge */}
+        {orderData.customerPhone && orderData.customerPhone.trim().length >= 6 && (
+          <div className="mb-4">
+            <CustomerDeliveryRateBadge
+              phone={orderData.customerPhone}
+              orders={orders}
+              settings={settings}
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
+              <span className="flex items-center gap-1.5"><PhoneCall size={14} className="text-indigo-500" /> رقم الهاتف الأساسي *</span>
+              <span className="text-[10px] text-slate-400">مطلوب</span>
+            </label>
+            <input
+              type="tel"
+              required
+              placeholder="01xxxxxxxxx"
+              value={orderData.customerPhone || ""}
+              onChange={(e) => handleFieldChange("customerPhone", e.target.value)}
+              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <PhoneCall size={14} className="text-slate-400" /> رقم هاتف إضافي (اختياري)
+            </label>
+            <input
+              type="tel"
+              placeholder="رقم بديل للمتابعة..."
+              value={orderData.customerPhone2 || ""}
+              onChange={(e) => handleFieldChange("customerPhone2", e.target.value)}
+              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <UserIcon size={14} className="text-indigo-500" /> اسم العميل بالكامل *
+            </label>
+            <input
+              type="text"
+              placeholder="مثال: أحمد محمد..."
+              value={orderData.customerName || ""}
+              onChange={(e) => handleFieldChange("customerName", e.target.value)}
+              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <MapPin size={14} className="text-indigo-500" /> المحافظة *
+            </label>
+            <select
+              value={orderData.governorate || orderData.shippingArea || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                handleFieldChange("governorate", val);
+                handleFieldChange("shippingArea", val);
+                handleFieldChange("city", "");
+              }}
+              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+            >
+              <option value="">-- اختر المحافظة --</option>
+              {shippingOptions.map((opt) => (
+                <option key={opt.id} value={opt.label}>
+                  {opt.label} ({opt.deliveryPrice || 0} ج.م)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Building size={14} className="text-indigo-500" /> المدينة / المنطقة *
+            </label>
+            {(() => {
+              const selectedGov = shippingOptions.find(
+                (opt) => opt.label === (orderData.governorate || orderData.shippingArea)
+              );
+              const citiesList = selectedGov && Array.isArray(selectedGov.cities) ? selectedGov.cities : [];
+              if (citiesList.length > 0) {
+                return (
+                  <select
+                    value={orderData.city || ""}
+                    onChange={(e) => handleFieldChange("city", e.target.value)}
+                    className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+                  >
+                    <option value="">-- اختر المدينة / المنطقة --</option>
+                    {citiesList.map((city: any, cIdx: number) => (
+                      <option key={city.id || cIdx} value={city.name}>
+                        {city.name} {!city.useParentFees && city.deliveryPrice ? `(${city.deliveryPrice} ج.م)` : ""}
+                      </option>
+                    ))}
+                  </select>
+                );
+              }
+              return (
+                <input
+                  type="text"
+                  placeholder="اسم المدينة، الحي، أو المركز..."
+                  value={orderData.city || ""}
+                  onChange={(e) => handleFieldChange("city", e.target.value)}
+                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                />
+              );
+            })()}
+          </div>
+
+          <div className="space-y-1.5 sm:col-span-2 md:col-span-3">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <MapPin size={14} className="text-indigo-500" /> العنوان بالتفصيل (الشارع والمبنى والدور) *
+            </label>
+            <input
+              type="text"
+              placeholder="مثال: شارع النهضة، عمارة 15، الدور الثالث، شقة 8، بجوار صيدلية..."
+              value={(orderData.customerAddress || "").replace(/,\s*-\s*undefined\s*-?/gi, "").replace(/\bundefined\b/gi, "").trim()}
+              onChange={(e) => handleFieldChange("customerAddress", e.target.value)}
+              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+              <div className="space-y-1.5 text-right">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">رقم المبنى</label>
+                <input
+                  type="text"
+                  placeholder="مثال: 15 أو عمارة 4"
+                  value={orderData.buildingNumber || ""}
+                  onChange={(e) => handleFieldChange("buildingNumber", e.target.value)}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+              <div className="space-y-1.5 text-right">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الطابق</label>
+                <input
+                  type="text"
+                  placeholder="مثال: 3"
+                  value={orderData.floorNumber || ""}
+                  onChange={(e) => handleFieldChange("floorNumber", e.target.value)}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+              <div className="space-y-1.5 text-right">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">رقم الشقة</label>
+                <input
+                  type="text"
+                  placeholder="مثال: 12"
+                  value={orderData.apartmentNumber || ""}
+                  onChange={(e) => handleFieldChange("apartmentNumber", e.target.value)}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <BostaAddressValidator
+                selectedDistrictId={orderData.bostaDistrictId}
+                onSelectAddress={(data) => {
+                  if (data.districtId) handleFieldChange("bostaDistrictId", data.districtId);
+                  if (data.zoneId) handleFieldChange("bostaZoneId", data.zoneId);
+                  if (data.cityId) handleFieldChange("bostaCityId", data.cityId);
+                  if (data.districtNameAr) handleFieldChange("city", data.districtNameAr);
+                  if (data.cityNameAr) {
+                    handleFieldChange("governorate", data.cityNameAr);
+                    handleFieldChange("shippingArea", data.cityNameAr);
+                  }
+                  if (data.formattedAddress && data.formattedAddress.trim()) {
+                    const cleanPrev = (orderData.customerAddress || "").replace(/,\s*-\s*undefined\s*-?/gi, "").replace(/\bundefined\b/gi, "").trim();
+                    if (!cleanPrev.includes(data.formattedAddress)) {
+                      handleFieldChange("customerAddress", cleanPrev ? `${cleanPrev} - ${data.formattedAddress}` : data.formattedAddress);
+                    }
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Shipment Type & Merchant Brand Selector Box */}
+      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
+              2
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-800 dark:text-white">نوع العملية والجهة المرسلة</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">اختر العلامة التجارية ونوع الشحنة وتأثيرها على المخزون</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Merchant Store Brand & Branch */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-gradient-to-r from-slate-50 to-indigo-50/50 dark:from-slate-800/80 dark:to-indigo-950/30 p-4 sm:p-5 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <StoreIcon size={16} className="text-indigo-600 dark:text-indigo-400" />
+                <span>مرسل من متجر / اسم العرض (Sub-Sender)</span>
+              </label>
+              {orderData.merchantBrandName ? (
+                <span className="text-[10px] font-black px-2.5 py-0.5 bg-indigo-600 text-white rounded-full">
+                  {orderData.merchantBrandName}
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                  غير محدد
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">اختر اسم المتجر:</span>
+                <select
+                  value={orderData.merchantBrandName || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    let bostaLocId = orderData.bostaBusinessLocationId;
+                    const matchedLoc = availableBostaLocations.find(
+                      (loc: any) => loc.locationName === val || loc.name === val
+                    );
+                    if (matchedLoc) {
+                      bostaLocId = matchedLoc.id || matchedLoc._id;
+                    }
+                    setOrderData((prev: any) => ({
+                      ...prev,
+                      merchantBrandName: val,
+                      subSenderName: val,
+                      bostaBusinessLocationId: bostaLocId
+                    }));
+                  }}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                >
+                  <option value="">-- اختر علامة تجارية --</option>
+                  {storeBrandOptions.map((brandName) => (
+                    <option key={brandName} value={brandName}>
+                      🏬 {brandName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">الراسل الفرعي (اسم العرض):</span>
+                <input
+                  type="text"
+                  placeholder="اسم المتجر في البوليصة"
+                  value={orderData.subSenderName || orderData.merchantBrandName || ""}
+                  onChange={(e) => handleFieldChange("subSenderName", e.target.value)}
+                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-2">
+              <StoreIcon size={16} className="text-indigo-500" /> فرع المتجر المسؤول
+            </label>
+            <select
+              value={orderData.storeBranchId || ""}
+              onChange={(e) => handleFieldChange("storeBranchId", e.target.value || undefined)}
+              className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+            >
+              <option value="">-- الفرع الرئيسي --</option>
+              {getArray(settings.storeBranches).map((branch: any) => (
+                <option key={branch.id} value={branch.id}>
+                  🏢 {branch.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 font-medium">
+              حدد فرع المتجر المسجل عليه الطلب لمتابعة مبيعات الفروع.
+            </p>
           </div>
         </div>
 
@@ -1419,267 +1838,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </div>
           </div>
         )}
-      </div>
-
-      {/* Customer Details Box */}
-      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black">
-              2
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">بيانات العميل وعنوان التوصيل</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">ادخل رقم الهاتف وسيقوم النظام بالتعرف التلقائي على العملاء المسجلين</p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsCustomerListOpen(true)}
-            className="px-4 py-2.5 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl text-xs flex items-center gap-2 transition-all cursor-pointer border border-indigo-200/60 dark:border-indigo-800"
-          >
-            <Users size={16} />
-            <span>اختيار من قائمة العملاء المسجلين</span>
-          </button>
-        </div>
-
-        {/* Smart Autocomplete Recommendation */}
-        {matchedCustomer && (
-          <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-300 dark:border-emerald-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                <UserCheck size={18} />
-              </div>
-              <div className="text-xs">
-                <span className="font-black text-emerald-900 dark:text-emerald-200 block sm:inline">
-                  ✨ تم التعرف على العميل مسجل مسبقاً:{" "}
-                </span>
-                <span className="font-bold text-slate-800 dark:text-white sm:mr-1">
-                  {matchedCustomer.name} ({matchedCustomer.governorate || "بدون محافظة"})
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => handleCustomerSelect(matchedCustomer)}
-              className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer shrink-0 flex items-center justify-center gap-1.5"
-            >
-              <Check size={14} />
-              <span>تعبئة البيانات تلقائياً</span>
-            </button>
-          </div>
-        )}
-
-        {/* Customer Form Grid */}
-        {orderData.customerPhone && orderData.customerPhone.trim().length >= 6 && (
-          <div className="mb-4">
-            <CustomerDeliveryRateBadge
-              phone={orderData.customerPhone}
-              orders={orders}
-              settings={settings}
-            />
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5"><PhoneCall size={14} className="text-indigo-500" /> رقم الهاتف الأساسي *</span>
-              <span className="text-[10px] text-slate-400">مطلوب</span>
-            </label>
-            <input
-              type="tel"
-              required
-              placeholder="01xxxxxxxxx"
-              value={orderData.customerPhone || ""}
-              onChange={(e) => handleFieldChange("customerPhone", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <PhoneCall size={14} className="text-slate-400" /> رقم هاتف إضافي (اختياري)
-            </label>
-            <input
-              type="tel"
-              placeholder="رقم بديل للمتابعة..."
-              value={orderData.customerPhone2 || ""}
-              onChange={(e) => handleFieldChange("customerPhone2", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <UserIcon size={14} className="text-indigo-500" /> اسم العميل بالكامل *
-            </label>
-            <input
-              type="text"
-              placeholder="مثال: أحمد محمد..."
-              value={orderData.customerName || ""}
-              onChange={(e) => handleFieldChange("customerName", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <MapPin size={14} className="text-indigo-500" /> المحافظة *
-            </label>
-            <select
-              value={orderData.governorate || orderData.shippingArea || ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                handleFieldChange("governorate", val);
-                handleFieldChange("shippingArea", val);
-                handleFieldChange("city", "");
-              }}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-            >
-              <option value="">-- اختر المحافظة --</option>
-              {shippingOptions.map((opt) => (
-                <option key={opt.id} value={opt.label}>
-                  {opt.label} ({opt.deliveryPrice || 0} ج.م)
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Building size={14} className="text-indigo-500" /> المدينة / المنطقة *
-            </label>
-            {(() => {
-              const selectedGov = shippingOptions.find(
-                (opt) => opt.label === (orderData.governorate || orderData.shippingArea)
-              );
-              const citiesList = selectedGov && Array.isArray(selectedGov.cities) ? selectedGov.cities : [];
-              if (citiesList.length > 0) {
-                return (
-                  <select
-                    value={orderData.city || ""}
-                    onChange={(e) => handleFieldChange("city", e.target.value)}
-                    className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-                  >
-                    <option value="">-- اختر المدينة / المنطقة --</option>
-                    {citiesList.map((city: any, cIdx: number) => (
-                      <option key={city.id || cIdx} value={city.name}>
-                        {city.name} {!city.useParentFees && city.deliveryPrice ? `(${city.deliveryPrice} ج.م)` : ""}
-                      </option>
-                    ))}
-                  </select>
-                );
-              }
-              return (
-                <input
-                  type="text"
-                  placeholder="اسم المدينة، الحي، أو المركز..."
-                  value={orderData.city || ""}
-                  onChange={(e) => handleFieldChange("city", e.target.value)}
-                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                />
-              );
-            })()}
-          </div>
-
-          {/* Merchant Store Brand Name Selector */}
-          <div className="sm:col-span-2 md:col-span-3 bg-gradient-to-r from-slate-50 to-indigo-50/50 dark:from-slate-800/80 dark:to-indigo-950/30 p-4 sm:p-5 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                <StoreIcon size={16} className="text-indigo-600 dark:text-indigo-400" />
-                <span>مرسل من متجر / العلامة التجارية (Store Brand)</span>
-              </label>
-              {orderData.merchantBrandName ? (
-                <span className="text-[10px] font-black px-2.5 py-0.5 bg-indigo-600 text-white rounded-full">
-                  {orderData.merchantBrandName}
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
-                  غير محدد
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">اختر اسم المتجر:</span>
-                <select
-                  value={orderData.merchantBrandName || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    let bostaLocId = orderData.bostaBusinessLocationId;
-                    const matchedLoc = availableBostaLocations.find(
-                      (loc: any) => loc.locationName === val || loc.name === val
-                    );
-                    if (matchedLoc) {
-                      bostaLocId = matchedLoc.id || matchedLoc._id;
-                    }
-                    setOrderData((prev: any) => ({
-                      ...prev,
-                      merchantBrandName: val,
-                      bostaBusinessLocationId: bostaLocId
-                    }));
-                  }}
-                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
-                >
-                  <option value="">-- اختر علامة تجارية --</option>
-                  {storeBrandOptions.map((brandName) => (
-                    <option key={brandName} value={brandName}>
-                      🏬 {brandName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">أو كتابة اسم مخصص:</span>
-                <input
-                  type="text"
-                  placeholder="اسم العلامة التجارية المطبوعة..."
-                  value={orderData.merchantBrandName || ""}
-                  onChange={(e) => handleFieldChange("merchantBrandName", e.target.value)}
-                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-            </div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-              ✨ اختيار العلامة التجارية يمنع ظهور الطلب كـ "بدون علامة تجارية" في الفواتير وبوالص شحن بوسطة والتتبع.
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <StoreIcon size={14} className="text-indigo-500" /> فرع المتجر المسؤول
-            </label>
-            <select
-              value={orderData.storeBranchId || ""}
-              onChange={(e) => handleFieldChange("storeBranchId", e.target.value || undefined)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-            >
-              <option value="">-- الفرع الرئيسي --</option>
-              {getArray(settings.storeBranches).map((branch: any) => (
-                <option key={branch.id} value={branch.id}>
-                  🏢 {branch.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="space-y-1.5 sm:col-span-2 md:col-span-3">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <MapPin size={14} className="text-indigo-500" /> العنوان بالتفصيل (الشارع والمبنى والدور) *
-            </label>
-            <input
-              type="text"
-              placeholder="مثال: شارع النهضة، عمارة 15، الدور الثالث، شقة 8، بجوار صيدلية..."
-              value={orderData.customerAddress || ""}
-              onChange={(e) => handleFieldChange("customerAddress", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-            />
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -2351,6 +2509,27 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 </div>
               )}
             </div>
+            {orderData.shippingCompany && isApiCarrier(orderData.shippingCompany) && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={estimateBostaShippingFee}
+                  disabled={isEstimatingBostaFee}
+                  className="w-full flex items-center justify-center gap-2 p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 dark:text-indigo-400 rounded-xl text-xs font-black transition-all border border-indigo-200 dark:border-indigo-800"
+                >
+                  {isEstimatingBostaFee ? (
+                    <Loader2 size={14} className="animate-spin text-indigo-600 dark:text-indigo-400" />
+                  ) : (
+                    "🔌 حساب تسعيرة الشحن الفورية من بوسطة (Bosta Real-Time Estimator)"
+                  )}
+                </button>
+                {bostaEstimationMessage && (
+                  <p className={`text-[11px] mt-2 font-bold ${bostaEstimationMessage.type === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500"}`}>
+                    {bostaEstimationMessage.text}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -2829,13 +3008,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
           <div className="space-y-1.5 sm:col-span-2">
             <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <FileText size={14} className="text-amber-500" /> ملاحظات التوصيل (تطبع على بوليصة الشحن للمندوب)
+              <FileText size={14} className="text-amber-500" /> ملاحظات الشحنة (تطبع على بوليصة الشحن)
             </label>
             <textarea
               rows={2}
               placeholder="مثال: الاتصال قبل الوصول بساعة، تسليم للبواب، يحق للعميل المعاينة..."
-              value={orderData.deliveryNotes || ""}
-              onChange={(e) => handleFieldChange("deliveryNotes", e.target.value)}
+              value={orderData.shippingNotes || orderData.deliveryNotes || ""}
+              onChange={(e) => {
+                handleFieldChange("shippingNotes", e.target.value);
+                handleFieldChange("deliveryNotes", e.target.value);
+              }}
               className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
             />
           </div>

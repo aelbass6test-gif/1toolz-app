@@ -149,6 +149,93 @@ export const generateEgyptShippingOptions = (): ShippingOption[] => {
   });
 };
 
+export interface TurboGovOfficialPrice {
+  name: string;
+  code: number;
+  deliveryPrice: number;
+  returnToSenderPrice: number;
+  paidReturnPrice: number;
+  cancelReturnPrice: number;
+  senderReturnPrice: number;
+  receiverReturnPrice: number;
+  partialReturnPrice: number;
+  deliveryDays: string;
+}
+
+export const TURBO_OFFICIAL_RATES_DATA: TurboGovOfficialPrice[] = [
+  { name: "القاهرة", code: 1, deliveryPrice: 83.52, returnToSenderPrice: 83.52, paidReturnPrice: 83.52, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "2 يوم" },
+  { name: "الجيزة", code: 2, deliveryPrice: 83.52, returnToSenderPrice: 83.52, paidReturnPrice: 83.52, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "2 يوم" },
+  { name: "الشرقية", code: 3, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "الدقهلية", code: 4, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "البحيرة", code: 5, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "المنيا", code: 6, deliveryPrice: 127.02, returnToSenderPrice: 127.02, paidReturnPrice: 127.02, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "القليوبية", code: 7, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "الإسكندرية", code: 8, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "الغربية", code: 9, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "سوهاج", code: 10, deliveryPrice: 127.02, returnToSenderPrice: 127.02, paidReturnPrice: 127.02, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "أسيوط", code: 11, deliveryPrice: 127.02, returnToSenderPrice: 127.02, paidReturnPrice: 127.02, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "المنوفية", code: 12, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "كفر الشيخ", code: 13, deliveryPrice: 97.44, returnToSenderPrice: 97.44, paidReturnPrice: 97.44, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "الفيوم", code: 14, deliveryPrice: 127.02, returnToSenderPrice: 127.02, paidReturnPrice: 127.02, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "قنا", code: 15, deliveryPrice: 136.59, returnToSenderPrice: 136.59, paidReturnPrice: 136.59, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "بني سويف", code: 16, deliveryPrice: 127.02, returnToSenderPrice: 127.02, paidReturnPrice: 127.02, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "أسوان", code: 17, deliveryPrice: 136.59, returnToSenderPrice: 136.59, paidReturnPrice: 136.59, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "دمياط", code: 18, deliveryPrice: 93.09, returnToSenderPrice: 93.09, paidReturnPrice: 93.09, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "الإسماعيلية", code: 19, deliveryPrice: 102.66, returnToSenderPrice: 102.66, paidReturnPrice: 102.66, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "الأقصر", code: 20, deliveryPrice: 136.59, returnToSenderPrice: 136.59, paidReturnPrice: 136.59, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "بورسعيد", code: 21, deliveryPrice: 102.66, returnToSenderPrice: 102.66, paidReturnPrice: 102.66, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "السويس", code: 22, deliveryPrice: 102.66, returnToSenderPrice: 102.66, paidReturnPrice: 102.66, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "3 يوم" },
+  { name: "مطروح", code: 23, deliveryPrice: 194.88, returnToSenderPrice: 194.88, paidReturnPrice: 194.88, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "7 يوم" },
+  { name: "شمال سيناء", code: 24, deliveryPrice: 194.88, returnToSenderPrice: 194.88, paidReturnPrice: 194.88, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "7 يوم" },
+  { name: "البحر الأحمر", code: 25, deliveryPrice: 194.88, returnToSenderPrice: 194.88, paidReturnPrice: 194.88, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "7 يوم" },
+  { name: "الوادي الجديد", code: 26, deliveryPrice: 194.88, returnToSenderPrice: 194.88, paidReturnPrice: 194.88, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "7 يوم" },
+  { name: "جنوب سيناء", code: 27, deliveryPrice: 194.88, returnToSenderPrice: 194.88, paidReturnPrice: 194.88, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "7 يوم" },
+  { name: "أطراف القاهرة والجيزة", code: 28, deliveryPrice: 102.66, returnToSenderPrice: 102.66, paidReturnPrice: 102.66, cancelReturnPrice: 21.00, senderReturnPrice: 0.00, receiverReturnPrice: 0.00, partialReturnPrice: 21.00, deliveryDays: "2 يوم" }
+];
+
+export const generateTurboShippingOptions = (): ShippingOption[] => {
+  return TURBO_OFFICIAL_RATES_DATA.map((item, index) => {
+    const matchedGov = EGYPT_GOVERNORATES.find(g => g.name === item.name);
+    const cities = matchedGov
+      ? matchedGov.cities
+      : item.name === "أطراف القاهرة والجيزة"
+      ? ["الواحات البحرية", "الصف", "أطفيح", "العياط", "منشأة القناطر", "الحرانية", "أبو النمرس", "مدينة بدر", "حدائق أكتوبر البعيدة", "الشروق أطراف"]
+      : [item.name];
+
+    return {
+      id: `turbo_gov_${item.code || index + 1}`,
+      label: item.name,
+      details: `شحن تربو إكسبريس الرسمي - معاد التسليم: ${item.deliveryDays}`,
+      deliveryPrice: item.deliveryPrice,
+      baseWeight: 1,
+      extraKgPrice: 5,
+      returnPrice: item.returnToSenderPrice,
+      exchangePrice: Math.round(item.deliveryPrice * 0.6),
+      cashCollectionPrice: 0,
+      returnToSenderPrice: item.returnToSenderPrice,
+      paidReturnPrice: item.paidReturnPrice,
+      cancelReturnPrice: item.cancelReturnPrice,
+      partialReturnPrice: item.partialReturnPrice,
+      deliveryDays: item.deliveryDays,
+      cities: cities.map((city, cIndex) => ({
+        id: `turbo_city_${item.code || index + 1}_${cIndex + 1}`,
+        name: city,
+        deliveryPrice: item.deliveryPrice,
+        extraKgPrice: 5,
+        returnPrice: item.returnToSenderPrice,
+        exchangePrice: Math.round(item.deliveryPrice * 0.6),
+        cashCollectionPrice: 0,
+        returnToSenderPrice: item.returnToSenderPrice,
+        paidReturnPrice: item.paidReturnPrice,
+        cancelReturnPrice: item.cancelReturnPrice,
+        partialReturnPrice: item.partialReturnPrice,
+        deliveryDays: item.deliveryDays,
+        useParentFees: true
+      }))
+    };
+  });
+};
+
 export const DEFAULT_WHATSAPP_TEMPLATES = [
     { 
       id: 'confirm', 
@@ -214,10 +301,11 @@ export const INITIAL_SETTINGS: Settings = {
   products: [],
   warehouses: [],
   shippingOptions: {
-    'شحن داخلي': generateEgyptShippingOptions()
+    'شحن داخلي': generateEgyptShippingOptions(),
+    'تربو': generateTurboShippingOptions()
   },
-  activeCompanies: { 'شحن داخلي': true },
-  exchangeSupported: { 'شحن داخلي': true },
+  activeCompanies: { 'شحن داخلي': true, 'تربو': true },
+  exchangeSupported: { 'شحن داخلي': true, 'تربو': true },
   companySpecificFees: {
     'شحن داخلي': {
       insuranceFeePercent: 1,
@@ -234,6 +322,23 @@ export const INITIAL_SETTINGS: Settings = {
       enableExchange: true,
       enableFixedReturn: true,
       postCollectionReturnRefundsProductPrice: true,
+    },
+    'تربو': {
+      insuranceFeePercent: 0,
+      inspectionFee: 0,
+      returnShippingFee: 30,
+      useCustomFees: true,
+      defaultInspectionActive: true,
+      enableCodFees: true,
+      codThreshold: 3000,
+      codFeeRate: 0.01,
+      codTaxRate: 0.14,
+      enableReturnAfter: true,
+      enableReturnWithout: true,
+      enableExchange: true,
+      enableFixedReturn: true,
+      postCollectionReturnRefundsProductPrice: true,
+      baseWeight: 1
     }
   },
   enableGlobalCod: true,

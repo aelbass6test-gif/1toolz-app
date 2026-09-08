@@ -1,5 +1,5 @@
 import { Order, Settings, Wallet, Treasury, SupplyOrder } from '../types';
-import { EGYPT_GOVERNORATES } from '../constants';
+import { EGYPT_GOVERNORATES, generateTurboShippingOptions } from '../constants';
 
 export const isBosta = (companyName: string): boolean => {
     if (!companyName) return false;
@@ -74,7 +74,10 @@ export const getStandardShippingFee = (order: Order, settings?: Settings): numbe
     if (!settings) return order.shippingFee || 0;
     
     const company = order.shippingCompany;
-    const userOptions = (company && settings.shippingOptions?.[company]) || [];
+    let userOptions = (company && settings.shippingOptions?.[company]) || [];
+    if ((!userOptions || userOptions.length === 0) && company && (company.includes('تربو') || company.toLowerCase().includes('turbo'))) {
+        userOptions = generateTurboShippingOptions();
+    }
     
     // Fallback options
     const options = [...userOptions];
