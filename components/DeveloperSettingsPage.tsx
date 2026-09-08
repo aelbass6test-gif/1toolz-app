@@ -1295,8 +1295,6 @@ interface DeveloperSettingsPageProps {
   activeStoreId?: string | null;
   activeStore?: Store;
   hostUrl?: string;
-  dbSyncMode?: 'auto' | 'manual';
-  setDbSyncMode?: (mode: 'auto' | 'manual') => void;
   forcePullFromCloud?: () => Promise<{ success: boolean; error?: string }>;
   forceSync?: () => Promise<void>;
   saveStatus?: string;
@@ -1311,8 +1309,6 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   activeStoreId, 
   activeStore,
   hostUrl,
-  dbSyncMode = 'auto',
-  setDbSyncMode,
   forcePullFromCloud,
   forceSync,
   saveStatus,

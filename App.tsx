@@ -129,13 +129,9 @@ const MainLayout = ({
     orders = [],
     theme, 
     setTheme,
-    dbSyncMode,
-    setDbSyncMode,
     forceSync,
-    forcePullFromCloud,
     saveStatus,
     saveMessage,
-    unsavedChanges,
     isShippingCalculatorOpen,
     setIsShippingCalculatorOpen
 }: any) => {
@@ -505,13 +501,9 @@ const MainLayout = ({
                         theme={theme} 
                         setTheme={setTheme} 
                         activeStore={effectiveActiveStore} 
-                        dbSyncMode={dbSyncMode}
-                        setDbSyncMode={setDbSyncMode}
                         forceSync={forceSync}
-                        forcePullFromCloud={forcePullFromCloud}
                         saveStatus={saveStatus}
                         saveMessage={saveMessage}
-                        unsavedChanges={unsavedChanges}
                         inventoryAlerts={isStoreManagementOrCreationPage ? [] : inventoryAlerts}
                         onOpenShippingCalculator={() => setIsShippingCalculatorOpen(true)}
                     />
@@ -719,13 +711,9 @@ const OwnerLayoutWrapper = ({
     orders = [],
     theme,
     setTheme,
-    dbSyncMode,
-    setDbSyncMode,
     forceSync,
-    forcePullFromCloud,
     saveStatus,
     saveMessage,
-    unsavedChanges,
     isShippingCalculatorOpen,
     setIsShippingCalculatorOpen
 }: any) => {
@@ -849,13 +837,9 @@ const OwnerLayoutWrapper = ({
             orders={orders}
             theme={theme} 
             setTheme={setTheme} 
-            dbSyncMode={dbSyncMode}
-            setDbSyncMode={setDbSyncMode}
             forceSync={forceSync}
-            forcePullFromCloud={forcePullFromCloud}
             saveStatus={saveStatus}
             saveMessage={saveMessage}
-            unsavedChanges={unsavedChanges}
             isShippingCalculatorOpen={isShippingCalculatorOpen}
             setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
         />
