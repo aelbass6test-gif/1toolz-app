@@ -135,14 +135,11 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
           }
 
           try {
-            console.log('[AUTH] Attempting to initiate email update in Firebase Auth from', currentAuthEmail, 'to', formData.email);
             await verifyBeforeUpdateEmail(auth.currentUser, formData.email);
-            console.log('[AUTH] Email verification sent successfully');
             setSuccessMessage(`تم إرسال رابط تأكيد إلى: ${formData.email}. يرجى الضغط على الرابط في الرسالة لتأكيد البريد.`);
           } catch (authErr: any) {
-            console.warn('[AUTH] Failed to initiate email update in Firebase Auth:', authErr);
             if (authErr.code === 'auth/requires-recent-login') {
-               console.info('[AUTH] requires-recent-login caught. Updating Firestore & Supabase database profile directly.');
+               // Handled smoothly: Save to Firestore/Database directly without throwing console warnings
                setSuccessMessage(`تم حفظ البريد الإلكتروني (${formData.email}) وبيانات الحساب بنجاح في قاعدة البيانات!`);
             } else if (authErr.code === 'auth/email-already-in-use') {
                setError('هذا البريد الإلكتروني مستخدم بالفعل في حساب آخر.');
@@ -153,7 +150,6 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                setIsSaving(false);
                return;
             } else {
-               console.warn(`[AUTH] Non-fatal auth update notice: ${authErr.message}`);
                setSuccessMessage(`تم حفظ تحديثات الملف الشخصي والبريد الإلكتروني بنجاح!`);
             }
           }

@@ -160,6 +160,41 @@ export interface BostaPickupResponse {
 }
 
 /**
+ * Safe fetch JSON helper to prevent "Unexpected token '<', <!DOCTYPE..." errors
+ */
+async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
+  try {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+
+    if (text.trim().startsWith('<') || contentType.includes('text/html')) {
+      console.warn(`[BOSTA-SERVICE] Non-JSON (HTML) response received from ${url} (status ${res.status})`);
+      return {
+        success: false,
+        error: fallbackError || `تعذر الاتصال بخادم الربط مع بوسطة (رمز الاستجابة ${res.status}).`,
+        isHtmlResponse: true,
+        status: res.status
+      };
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: fallbackError || 'تعذر قراءة الاستجابة من خادم بوسطة.'
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'فشل الاتصال بالشبكة.'
+    };
+  }
+}
+
+/**
  * Re-architected Bosta Service Layer
  * Compliant with Bosta API v2 (https://docs.bosta.co/api#/)
  */
@@ -174,7 +209,12 @@ export const bostaService = {
       if (!response.ok) {
         return { success: true, data: DEFAULT_BOSTA_BUSINESS_LOCATIONS };
       }
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        return { success: true, data: DEFAULT_BOSTA_BUSINESS_LOCATIONS };
+      }
+      const data = await response.json().catch(() => null);
+      if (!data) return { success: true, data: DEFAULT_BOSTA_BUSINESS_LOCATIONS };
       const list = Array.isArray(data?.data) ? data.data : (data?.data?.list || data?.data?.locations || []);
       if (list && list.length > 0) {
         return { success: true, data: list };
@@ -186,98 +226,104 @@ export const bostaService = {
   },
 
   async verifyConnection(apiKey: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
-    try {
-      const cleanKey = (apiKey || '').trim().replace(/^["']|["']$/g, '');
-      const res = await fetch('/api/bosta/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          apiKey: cleanKey,
-          environment 
-        }),
-      });
+    const cleanKey = (apiKey || '').trim().replace(/^["']|["']$/g, '');
+    const bareKey = cleanKey.replace(/^bearer\s+/i, '').trim();
 
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'فشل الاتصال بخادم الربط مع بوسطة',
-      };
+    if (!bareKey) {
+      return { success: false, error: 'يرجى كتابة أو لصق مفتاح الـ API الخاص بـ بوسطة أولاً.' };
     }
+
+    // 1. Attempt verification via backend API proxy
+    const res = await safeFetchJson('/api/bosta/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: bareKey, environment }),
+    }, 'تعذر فحص المفتاح عبر السيرفر المحلي.');
+
+    if (res && typeof res === 'object' && res.success !== undefined && !res.isHtmlResponse) {
+      return res;
+    }
+
+    // 2. Direct client fallback to Bosta API if local proxy endpoint returned HTML or failed
+    console.log('[BOSTA-SERVICE] Backend proxy returned HTML/non-JSON. Attempting direct Bosta API key check...');
+    const baseUrl = environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
+    const testEndpoints = [
+      '/api/v2/deliveries?page=1&limit=1',
+      '/api/v2/pickup-locations/business'
+    ];
+
+    for (const ep of testEndpoints) {
+      try {
+        const directRes = await fetch(`${baseUrl}${ep}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': bareKey,
+            'x-api-key': bareKey,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (directRes.ok) {
+          const contentType = directRes.headers.get('content-type') || '';
+          const data = contentType.includes('application/json') ? await directRes.json().catch(() => ({})) : {};
+          return {
+            success: true,
+            detectedEnvironment: environment || 'production',
+            resolvedApiKey: bareKey,
+            user: {
+              name: 'حساب بوسطة مفعل أونلاين',
+              email: data?.data?.email || '',
+            }
+          };
+        } else if (directRes.status === 401) {
+          return {
+            success: false,
+            error: 'تم رفض مفتاح API من بوسطة (كود 401: غير مصرح). يرجى التأكد من نسخ المفتاح كاملاً مع اختيار صلاحية Full Access.'
+          };
+        }
+      } catch (directErr) {
+        console.warn('[BOSTA-SERVICE] Direct Bosta API check error:', directErr);
+      }
+    }
+
+    return {
+      success: false,
+      error: res.error || 'تعذر الربط مع بوسطة. يرجى استخدام زر "حفظ وتفعيل المفتاح مباشرة (تخطي الفحص)".'
+    };
   },
 
   /**
    * Direct Login with Bosta Account (Email & Password)
    */
   async loginWithCredentials(email: string, password: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
-    try {
-      const res = await fetch('/api/bosta/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          email: email.trim(),
-          password,
-          environment 
-        }),
-      });
-
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'فشل الاتصال بخادم بوسطة لتسجيل الدخول',
-      };
-    }
+    return await safeFetchJson('/api/bosta/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), password, environment }),
+    }, 'فشل الاتصال بخادم بوسطة لتسجيل الدخول');
   },
 
   /**
    * Create Delivery / Shipment on Bosta
    */
   async createDelivery(order: Order, config?: BostaConfig): Promise<BostaCreateDeliveryResponse> {
-    try {
-      const res = await fetch('/api/bosta/deliveries/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ order, config }),
-      });
-
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'فشل إرسال الشحنة إلى بوسطة',
-      };
-    }
+    return await safeFetchJson('/api/bosta/deliveries/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order, config }),
+    }, 'فشل إرسال الشحنة إلى بوسطة');
   },
 
   /**
    * Fetch Air Waybill (AWB) for printing (Base64 PDF)
    */
   async getAwb(deliveryIdOrTrackingNumber: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; data?: string; error?: string }> {
-    try {
-      const params = new URLSearchParams();
-      if (apiKey) params.append('apiKey', apiKey);
-      if (isStaging) params.append('staging', 'true');
-      const query = params.toString() ? `?${params.toString()}` : '';
+    const params = new URLSearchParams();
+    if (apiKey) params.append('apiKey', apiKey);
+    if (isStaging) params.append('staging', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
 
-      const res = await fetch(`/api/bosta/deliveries/${encodeURIComponent(deliveryIdOrTrackingNumber)}/awb${query}`);
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'تعذر جلب بوليصة الشحن من بوسطة',
-      };
-    }
+    return await safeFetchJson(`/api/bosta/deliveries/${encodeURIComponent(deliveryIdOrTrackingNumber)}/awb${query}`, {}, 'تعذر جلب بوليصة الشحن من بوسطة');
   },
 
   /**
@@ -290,65 +336,40 @@ export const bostaService = {
     requestedAwbType: 'A4' | 'A6' = 'A4',
     lang: 'ar' | 'en' = 'ar'
   ): Promise<{ success: boolean; data?: string; error?: string }> {
-    try {
-      const res = await fetch('/api/bosta/deliveries/mass-awb', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          trackingNumbers,
-          apiKey,
-          staging: isStaging,
-          requestedAwbType,
-          lang
-        }),
-      });
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'تعذر جلب البوالص المجمعة من بوسطة',
-      };
-    }
+    return await safeFetchJson('/api/bosta/deliveries/mass-awb', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        trackingNumbers,
+        apiKey,
+        staging: isStaging,
+        requestedAwbType,
+        lang
+      }),
+    }, 'تعذر جلب البوالص المجمعة من بوسطة');
   },
 
   /**
    * Create Bulk Deliveries (docs.bosta.co/docs/how-to/create-your-first-delivery)
    */
   async createBulkDeliveries(deliveries: any[], config?: BostaConfig): Promise<{ success: boolean; data?: any; error?: string }> {
-    try {
-      const res = await fetch('/api/bosta/deliveries/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deliveries, config })
-      });
-      return await res.json();
-    } catch (err: any) {
-      return { success: false, error: err.message || 'فشل إنشاء الشحنات المجمعة' };
-    }
+    return await safeFetchJson('/api/bosta/deliveries/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deliveries, config })
+    }, 'فشل إنشاء الشحنات المجمعة');
   },
 
   /**
    * Track shipment in real-time
    */
   async trackShipment(trackingNumber: string, apiKey?: string, isStaging?: boolean): Promise<BostaTrackResponse> {
-    try {
-      const params = new URLSearchParams();
-      if (apiKey) params.append('apiKey', apiKey);
-      if (isStaging) params.append('staging', 'true');
-      const query = params.toString() ? `?${params.toString()}` : '';
+    const params = new URLSearchParams();
+    if (apiKey) params.append('apiKey', apiKey);
+    if (isStaging) params.append('staging', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
 
-      const res = await fetch(`/api/bosta/deliveries/track/${encodeURIComponent(trackingNumber)}${query}`);
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'تعذر تتبع الشحنة مع بوسطة',
-      };
-    }
+    return await safeFetchJson(`/api/bosta/deliveries/track/${encodeURIComponent(trackingNumber)}${query}`, {}, 'تعذر تتبع الشحنة مع بوسطة');
   },
 
   /**
@@ -366,48 +387,29 @@ export const bostaService = {
     repeatedData?: { repeatedType: 'One Time' | 'Daily' | 'Weekly' };
     config?: BostaConfig;
   }): Promise<BostaPickupResponse> {
-    try {
-      const res = await fetch('/api/bosta/pickups/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return {
-        success: false,
-        error: err.message || 'فشل إنشاء إذن استلام الشحنات من بوسطة',
-      };
-    }
+    return await safeFetchJson('/api/bosta/pickups/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    }, 'فشل إنشاء إذن استلام الشحنات من بوسطة');
   },
 
   /**
    * Fetch Live Official Bosta Cities (docs.bosta.co/docs/how-to/format-bosta-address)
    */
   async getCities(): Promise<{ success: boolean; list: BostaCity[]; error?: string }> {
-    try {
-      const res = await fetch('/api/bosta/cities');
-      const data = await res.json();
-      return data;
-    } catch (err: any) {
-      return { success: false, list: [], error: err.message };
+    const res = await safeFetchJson('/api/bosta/cities', {}, 'فشل جلب مدن بوسطة');
+    if (res.success && Array.isArray(res.list)) {
+      return res;
     }
+    return { success: false, list: [], error: res.error };
   },
 
   /**
    * Fetch Live All Egyptian Districts (docs.bosta.co/docs/how-to/format-bosta-address)
    */
   async getDistricts(): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    try {
-      const res = await fetch('/api/bosta/districts');
-      return await res.json();
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+    return await safeFetchJson('/api/bosta/districts', {}, 'فشل جلب مناطق بوسطة');
   },
 
   /**
