@@ -8642,7 +8642,7 @@ async function startServer() {
     // Fallback to index.html for any remaining non-API GET requests (SPA Routing Support)
     app.get("/*", async (c, next) => {
       const pathName = c.req.path;
-      if (pathName.startsWith("/api/")) {
+      if (pathName.startsWith("/api/") || pathName.includes("/api/")) {
         return await next();
       }
       // Exclude asset files to prevent browser console MIME type errors
@@ -8672,8 +8672,13 @@ async function startServer() {
   const honoListener = getRequestListener(app.fetch);
 
   const server = createServer((req, res) => {
+    const rawUrl = req.url || "";
+    // Robust URL parsing to handle Cloudflare / reverse proxy absolute URLs and custom domains
+    const urlPath = rawUrl.replace(/^https?:\/\/[^\/]+/, "");
+    const isApiRequest = urlPath.startsWith("/api/") || urlPath.includes("/api/");
+
     if (!isProd && vite) {
-      if (req.url && req.url.startsWith("/api/")) {
+      if (isApiRequest) {
         honoListener(req, res);
       } else {
         vite.middlewares(req, res, () => {
