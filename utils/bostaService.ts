@@ -205,21 +205,21 @@ function normalizeCity(raw: string): string {
   if (norm.includes("قاهر") || norm.includes("cairo")) return "Cairo";
   if (norm.includes("جيز") || norm.includes("giza")) return "Giza";
   if (norm.includes("اسكندر") || norm.includes("alex")) return "Alexandria";
-  if (norm.includes("قليوب") || norm.includes("qalyubia")) return "Qalyubia";
+  if (norm.includes("قليوب") || norm.includes("qalyubia") || norm.includes("kalioubia")) return "El Kalioubia";
   if (norm.includes("شرقي") || norm.includes("sharqia")) return "Sharqia";
   if (norm.includes("دقهل") || norm.includes("منصور") || norm.includes("dakahlia")) return "Dakahlia";
   if (norm.includes("منوف") || norm.includes("monufia")) return "Monufia";
   if (norm.includes("غربي") || norm.includes("طنط") || norm.includes("gharbia")) return "Gharbia";
   if (norm.includes("كفر") || norm.includes("kafr")) return "Kafr Alsheikh";
-  if (norm.includes("بحير") || norm.includes("beheira")) return "Beheira";
+  if (norm.includes("بحير") || norm.includes("beheira") || norm.includes("behira")) return "Behira";
   if (norm.includes("دمياط") || norm.includes("damietta")) return "Damietta";
   if (norm.includes("بورسعيد") || norm.includes("port")) return "Port Said";
   if (norm.includes("اسماعيل") || norm.includes("ismailia")) return "Ismailia";
   if (norm.includes("سويس") || norm.includes("suez")) return "Suez";
   if (norm.includes("فيوم") || norm.includes("fayoum")) return "Fayoum";
-  if (norm.includes("بني سويف") || norm.includes("beni")) return "Beni Suef";
-  if (norm.includes("منيا") || norm.includes("minya")) return "Minya";
-  if (norm.includes("اسيوط") || norm.includes("assiut")) return "Asyut";
+  if (norm.includes("بني سويف") || norm.includes("beni") || norm.includes("bani")) return "Bani Suif";
+  if (norm.includes("منيا") || norm.includes("minya") || norm.includes("menya")) return "Menya";
+  if (norm.includes("اسيوط") || norm.includes("assiut") || norm.includes("assuit")) return "Assuit";
   if (norm.includes("سوهاج") || norm.includes("sohag")) return "Sohag";
   if (norm.includes("قنا") || norm.includes("qena")) return "Qena";
   if (norm.includes("اقصر") || norm.includes("luxor")) return "Luxor";
@@ -470,12 +470,34 @@ export const bostaService = {
 
       let effectiveBusinessLocationId = order.bostaBusinessLocationId || config?.defaultBusinessLocationId || (config as any)?.businessLocationId;
       if (!effectiveBusinessLocationId && config?.businessLocations && Array.isArray(config.businessLocations) && config.businessLocations.length > 0) {
-        const firstLoc = config.businessLocations[0];
-        effectiveBusinessLocationId = firstLoc?.id || firstLoc?._id || (firstLoc as any)?.businessLocationId;
+        const validLoc = config.businessLocations.find((l: any) => (l.id && /^[0-9a-fA-F]{24}$/.test(l.id)) || (l._id && /^[0-9a-fA-F]{24}$/.test(l._id)));
+        if (validLoc) {
+          effectiveBusinessLocationId = validLoc._id || validLoc.id;
+        }
       }
 
-      if (effectiveBusinessLocationId) {
-        bostaPayload.businessLocationId = effectiveBusinessLocationId;
+      const isValidObjectId = Boolean(
+        effectiveBusinessLocationId &&
+        typeof effectiveBusinessLocationId === 'string' &&
+        /^[0-9a-fA-F]{24}$/.test(effectiveBusinessLocationId)
+      );
+
+      if (isValidObjectId) {
+        bostaPayload.businessLocationId = String(effectiveBusinessLocationId);
+      } else {
+        let pickupLine = (config?.pickupAddress?.firstLine || config?.returnAddress?.firstLine || "بلطيم - كفر الشيخ - مقر المتجر الرئيسي").trim();
+        if (pickupLine.length < 5) pickupLine = `${pickupLine} - المقر الرئيسي`;
+        const pickupCityName = normalizeCity(config?.pickupAddress?.city || config?.returnAddress?.city || 'Kafr Alsheikh');
+
+        bostaPayload.pickupAddress = {
+          firstLine: pickupLine,
+          city: pickupCityName
+        };
+
+        bostaPayload.returnAddress = {
+          firstLine: pickupLine,
+          city: pickupCityName
+        };
       }
 
       const directRes = await fetch(`${baseUrl}/api/v2/deliveries`, {

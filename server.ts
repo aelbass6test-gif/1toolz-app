@@ -4563,21 +4563,21 @@ async function startServer() {
     if (norm.includes("قاهر") || norm.includes("cairo")) return "Cairo";
     if (norm.includes("جيز") || norm.includes("giza")) return "Giza";
     if (norm.includes("اسكندر") || norm.includes("alex")) return "Alexandria";
-    if (norm.includes("قليوب") || norm.includes("qalyubia")) return "Qalyubia";
+    if (norm.includes("قليوب") || norm.includes("qalyubia") || norm.includes("kalioubia")) return "El Kalioubia";
     if (norm.includes("شرقي") || norm.includes("sharqia")) return "Sharqia";
     if (norm.includes("دقهل") || norm.includes("منصور") || norm.includes("dakahlia")) return "Dakahlia";
     if (norm.includes("منوف") || norm.includes("monufia")) return "Monufia";
     if (norm.includes("غربي") || norm.includes("طنط") || norm.includes("gharbia")) return "Gharbia";
     if (norm.includes("كفر") || norm.includes("kafr")) return "Kafr Alsheikh";
-    if (norm.includes("بحير") || norm.includes("beheira")) return "Beheira";
+    if (norm.includes("بحير") || norm.includes("beheira") || norm.includes("behira")) return "Behira";
     if (norm.includes("دمياط") || norm.includes("damietta")) return "Damietta";
     if (norm.includes("بورسعيد") || norm.includes("port")) return "Port Said";
     if (norm.includes("اسماعيل") || norm.includes("ismailia")) return "Ismailia";
     if (norm.includes("سويس") || norm.includes("suez")) return "Suez";
     if (norm.includes("فيوم") || norm.includes("fayoum")) return "Fayoum";
-    if (norm.includes("بني سويف") || norm.includes("beni")) return "Beni Suef";
-    if (norm.includes("منيا") || norm.includes("minya")) return "Minya";
-    if (norm.includes("اسيوط") || norm.includes("assiut")) return "Asyut";
+    if (norm.includes("بني سويف") || norm.includes("beni") || norm.includes("bani")) return "Bani Suif";
+    if (norm.includes("منيا") || norm.includes("minya") || norm.includes("menya")) return "Menya";
+    if (norm.includes("اسيوط") || norm.includes("assiut") || norm.includes("assuit")) return "Assuit";
     if (norm.includes("سوهاج") || norm.includes("sohag")) return "Sohag";
     if (norm.includes("قنا") || norm.includes("qena")) return "Qena";
     if (norm.includes("اقصر") || norm.includes("luxor")) return "Luxor";
@@ -5102,31 +5102,37 @@ async function startServer() {
         };
       }
 
-      // Business Location ID (docs.bosta.co/docs/how-to/create-your-first-pickup-location)
-      // Robust auto-resolution fallback: try direct order value, default config value, manual config value, and finally the first fetched business location if available!
+      // Business Location ID validation
       let effectiveBusinessLocationId = order.bostaBusinessLocationId || config?.defaultBusinessLocationId || config?.businessLocationId;
       if (!effectiveBusinessLocationId && config?.businessLocations && Array.isArray(config.businessLocations) && config.businessLocations.length > 0) {
-        const firstLoc = config.businessLocations[0];
-        effectiveBusinessLocationId = firstLoc?.id || firstLoc?._id || firstLoc?.businessLocationId;
+        const validLoc = config.businessLocations.find((l: any) => (l.id && /^[0-9a-fA-F]{24}$/.test(l.id)) || (l._id && /^[0-9a-fA-F]{24}$/.test(l._id)));
+        if (validLoc) {
+          effectiveBusinessLocationId = validLoc._id || validLoc.id;
+        }
       }
 
-      if (effectiveBusinessLocationId) {
-        // Set businessLocationId at the top level of the delivery payload as required by Bosta API v2
+      const isValidBusinessLocId = Boolean(
+        effectiveBusinessLocationId &&
+        typeof effectiveBusinessLocationId === 'string' &&
+        /^[0-9a-fA-F]{24}$/.test(effectiveBusinessLocationId)
+      );
+
+      if (isValidBusinessLocId) {
         bostaPayload.businessLocationId = effectiveBusinessLocationId;
       }
 
-      // If no business location ID is specified but manual address is provided
-      if (!effectiveBusinessLocationId && config?.pickupAddress?.firstLine) {
-        let pickupLine = config.pickupAddress.firstLine.trim();
+      // If no valid business location ID is specified, attach physical pickupAddress
+      if (!isValidBusinessLocId) {
+        let pickupLine = (config?.pickupAddress?.firstLine || config?.returnAddress?.firstLine || "بلطيم - كفر الشيخ - مقر المتجر الرئيسي").trim();
         if (pickupLine.length < 5) pickupLine = `${pickupLine} - المقر الرئيسي`;
         bostaPayload.pickupAddress = {
           firstLine: pickupLine,
-          city: normalizeBostaCity(config.pickupAddress.city || 'Cairo'),
-          districtId: config.pickupAddress.districtId || undefined,
-          zoneId: config.pickupAddress.zoneId || undefined,
-          buildingNumber: config.pickupAddress.buildingNumber || undefined,
-          floor: config.pickupAddress.floor || undefined,
-          apartment: config.pickupAddress.apartment || undefined
+          city: normalizeBostaCity(config?.pickupAddress?.city || config?.returnAddress?.city || 'Kafr Alsheikh'),
+          districtId: config?.pickupAddress?.districtId || undefined,
+          zoneId: config?.pickupAddress?.zoneId || undefined,
+          buildingNumber: config?.pickupAddress?.buildingNumber || undefined,
+          floor: config?.pickupAddress?.floor || undefined,
+          apartment: config?.pickupAddress?.apartment || undefined
         };
       }
 
@@ -6123,7 +6129,18 @@ async function startServer() {
 
       const cleanPhone = phoneParam.replace(/\D/g, "");
       if (!cleanPhone || cleanPhone.length < 6) {
-        return c.json({ success: false, error: "رقم هاتف غير صالح" }, 400);
+        return c.json({
+          success: true,
+          rate: null,
+          totalOrders: 0,
+          deliveredOrders: 0,
+          returnedOrders: 0,
+          pendingOrders: 0,
+          ratingCategory: "new",
+          label: "عميل جديد (أول أوردر)",
+          color: "slate",
+          badgeIcon: "ℹ️"
+        });
       }
 
       // 1. Fetch Bosta deliveries for this phone if API key is provided
