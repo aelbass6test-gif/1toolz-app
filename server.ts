@@ -8641,20 +8641,28 @@ async function startServer() {
 
   // Provide fallback static files for production Hono server
   if (isProd) {
-    // Serve static files under dist
-    app.use("/*", serveStatic({ root: "dist" }));
+    // 1. Serve static files FIRST, but ONLY if they are not API requests
+    app.use("/*", async (c, next) => {
+      const pathName = c.req.path;
+      if (pathName.startsWith("/api/") || pathName.includes("/api/")) {
+        return await next(); // Skip static file serving for APIs
+      }
+      return serveStatic({ root: "dist" })(c, next);
+    });
 
-    // Fallback to index.html for any remaining non-API GET requests (SPA Routing Support)
+    // 2. Fallback to index.html for any REMAINING non-API GET requests (SPA Routing Support)
     app.get("/*", async (c, next) => {
       const pathName = c.req.path;
       if (pathName.startsWith("/api/") || pathName.includes("/api/")) {
-        return await next();
+        return await next(); // IMPORTANT: Let Hono handle 404 for missing APIs, DO NOT return HTML
       }
+      
       // Exclude asset files to prevent browser console MIME type errors
       const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|json|woff|woff2|ttf|map)$/i.test(pathName);
       if (isAsset) {
         return c.text("Not Found", 404);
       }
+      
       try {
         const htmlPath = path.resolve(process.cwd(), "dist", "index.html");
         if (fs.existsSync(htmlPath)) {
