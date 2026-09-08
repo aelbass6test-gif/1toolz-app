@@ -248,7 +248,12 @@ export const bostaService = {
     }, 'تعذر فحص المفتاح عبر السيرفر المحلي.');
 
     if (res && typeof res === 'object' && res.success !== undefined && !res.isHtmlResponse) {
-      return res;
+      // If Cloudflare Worker intercepted it, force the fallback
+      if (res.error && String(res.error).includes('Worker interception')) {
+        console.warn('[BOSTA-SERVICE] Cloudflare Worker intercepted the request. Forcing direct fallback.');
+      } else {
+        return res;
+      }
     }
 
     // 2. Direct client fallback to Bosta API if local proxy endpoint returned HTML or failed
@@ -303,11 +308,43 @@ export const bostaService = {
    * Direct Login with Bosta Account (Email & Password)
    */
   async loginWithCredentials(email: string, password: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
-    return await safeFetchJson('/api/bosta/login', {
+    const res = await safeFetchJson('/api/bosta/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), password, environment }),
     }, 'فشل الاتصال بخادم بوسطة لتسجيل الدخول');
+
+    if (res && res.success !== undefined && !res.isHtmlResponse) {
+      if (res.error && String(res.error).includes('Worker interception')) {
+         console.warn('[BOSTA-SERVICE] Cloudflare Worker intercepted login request. Forcing direct fallback.');
+      } else {
+         return res;
+      }
+    }
+
+    // Direct fallback
+    try {
+      const baseUrl = environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
+      const directRes = await fetch(`${baseUrl}/api/v2/users/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+      const data = await directRes.json().catch(() => ({}));
+      
+      if (directRes.ok && data.token) {
+        return {
+          success: true,
+          resolvedApiKey: data.token,
+          detectedEnvironment: environment || 'production',
+          user: data.user
+        };
+      } else {
+        return { success: false, error: data.message || 'بيانات الدخول غير صحيحة.' };
+      }
+    } catch (err: any) {
+      return { success: false, error: err.message || 'فشل الاتصال المباشر بخادم بوسطة' };
+    }
   },
 
   /**
