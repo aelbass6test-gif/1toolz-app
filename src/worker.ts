@@ -236,8 +236,41 @@ const handleWorkerMetaWebhookGet = (c: any) => {
 app.get("/api/webhook/whatsapp", handleWorkerMetaWebhookGet);
 app.get("/api/webhooks/whatsapp", handleWorkerMetaWebhookGet);
 
-// Intelligent fallback API Proxy: forwards all other /api/* requests to the active Cloud Run server
+
+app.all("/api/bosta/*", async (c) => {
+  const url = new URL(c.req.url);
+  
+  // We cannot easily proxy to Bosta directly from here if we don't have the API keys in the worker environment.
+  // The React app sends API keys in the body for most requests (like verification).
+  // For requests that just need to bypass the HTML block (like getCities):
+  
+  if (url.pathname === "/api/bosta/cities") {
+     return fetch("https://app.bosta.co/api/v2/cities", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" }
+     });
+  }
+  
+  if (url.pathname === "/api/bosta/districts") {
+     return fetch("https://app.bosta.co/api/v2/districts", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" }
+     });
+  }
+
+  // For other requests, we might need to rely on the client-side fallback
+  // So instead of returning an HTML error from Cloud Run, we return a clear JSON error
+  // which will trigger the frontend to use its direct fallback (already implemented in safeFetchJson)
+  return c.json({
+     success: false, 
+     error: "Worker interception: Please use direct client fallback for Bosta.",
+     isHtmlResponse: false 
+  }, 400);
+});
+
+// Intelligent fallback API Proxy for NON-bosta routes
 app.all("/api/*", async (c) => {
+
   const defaultBackend = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
   const backendUrl = (c.env && c.env.BACKEND_URL) || defaultBackend;
   
