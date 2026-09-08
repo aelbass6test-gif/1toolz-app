@@ -10,6 +10,8 @@ import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, l
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
+import { trimTrailingSlash } from "hono/trailing-slash";
+
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
   httpOptions: {
@@ -474,6 +476,9 @@ async function getCachedStore(db: any, storeId: string) {
 async function startServer() {
   const PORT = 3000;
   const app = new Hono();
+
+  // Strip trailing slashes to fix Cloudflare redirect issues
+  app.use("*", trimTrailingSlash());
 
   // Debug middleware to log ALL incoming requests
   app.use("*", async (c, next) => {

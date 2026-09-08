@@ -164,12 +164,19 @@ export interface BostaPickupResponse {
  */
 async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
   try {
-    const res = await fetch(url, options);
+    // Add cache buster to bypass aggressive proxy/CDN caching (e.g., Cloudflare)
+    const urlObj = new URL(url, window.location.origin);
+    if (!options || options.method === 'GET' || options.method === 'POST') {
+      urlObj.searchParams.set('_cb', Date.now().toString());
+    }
+    const finalUrl = urlObj.toString();
+
+    const res = await fetch(finalUrl, options);
     const contentType = res.headers.get('content-type') || '';
     const text = await res.text();
 
     if (text.trim().startsWith('<') || contentType.includes('text/html')) {
-      console.warn(`[BOSTA-SERVICE] Non-JSON (HTML) response received from ${url} (status ${res.status})`);
+      console.warn(`[BOSTA-SERVICE] Non-JSON (HTML) response received from ${finalUrl} (status ${res.status})`);
       return {
         success: false,
         error: fallbackError || `تعذر الاتصال بخادم الربط مع بوسطة (رمز الاستجابة ${res.status}).`,
@@ -234,7 +241,7 @@ export const bostaService = {
     }
 
     // 1. Attempt verification via backend API proxy
-    const res = await safeFetchJson('/api/bosta/verify', {
+    const res = await safeFetchJson(`/api/bosta/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiKey: bareKey, environment }),
@@ -398,7 +405,7 @@ export const bostaService = {
    * Fetch Live Official Bosta Cities (docs.bosta.co/docs/how-to/format-bosta-address)
    */
   async getCities(): Promise<{ success: boolean; list: BostaCity[]; error?: string }> {
-    const res = await safeFetchJson('/api/bosta/cities', {}, 'فشل جلب مدن بوسطة');
+    const res = await safeFetchJson(`/api/bosta/cities`, {}, 'فشل جلب مدن بوسطة');
     if (res.success && Array.isArray(res.list)) {
       return res;
     }
