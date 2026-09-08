@@ -1317,6 +1317,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
   setAllStoresData
 }) => {
   const [integrations, setIntegrations] = useState<WebhookIntegration[]>(settings.webhookIntegrations || []);
+  const [dbSyncMode, setDbSyncMode] = useState<string>(() => localStorage.getItem('dbSyncMode') || 'auto');
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [log, setLog] = useState<string>('');
   const [syncPreview, setSyncPreview] = useState<{

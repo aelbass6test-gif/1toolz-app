@@ -1,4 +1,6 @@
-import { Order, BostaConfig, BostaPickupRequest } from '../types';
+const fs = require('fs');
+
+const bostaServiceCode = `import { Order, BostaConfig, BostaPickupRequest } from '../types';
 
 export const DEFAULT_BOSTA_BUSINESS_LOCATIONS = [
   {
@@ -177,7 +179,7 @@ async function safeFetchJson(url: string, options?: RequestInit, fallbackError?:
     if (text.trim().startsWith('<') || contentType.includes('text/html')) {
       return {
         success: false,
-        error: fallbackError || `تعذر الاتصال بخادم الربط مع بوسطة (رمز الاستجابة ${res.status}).`,
+        error: fallbackError || \`تعذر الاتصال بخادم الربط مع بوسطة (رمز الاستجابة \${res.status}).\`,
         isHtmlResponse: true,
         status: res.status
       };
@@ -234,11 +236,11 @@ function normalizeCity(raw: string): string {
 
 export const bostaService = {
   async getBusinessLocations(apiKey: string, isStaging: boolean = false): Promise<any> {
-    const cleanKey = (apiKey || '').trim().replace(/^["']|["']$/g, '').replace(/^bearer\s+/i, '').trim();
+    const cleanKey = (apiKey || '').trim().replace(/^["']|["']$/g, '').replace(/^bearer\\s+/i, '').trim();
     if (cleanKey) {
       try {
         const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/pickup-locations/business`, {
+        const directRes = await fetch(\`\${baseUrl}/api/v2/pickup-locations/business\`, {
           method: 'GET',
           headers: { 'Authorization': cleanKey, 'x-api-key': cleanKey }
         });
@@ -254,13 +256,13 @@ export const bostaService = {
 
   async verifyConnection(apiKey: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
     const cleanKey = (apiKey || '').trim().replace(/^["']|["']$/g, '');
-    const bareKey = cleanKey.replace(/^bearer\s+/i, '').trim();
+    const bareKey = cleanKey.replace(/^bearer\\s+/i, '').trim();
 
     if (!bareKey) {
       return { success: false, error: 'يرجى كتابة أو لصق مفتاح الـ API الخاص بـ بوسطة أولاً.' };
     }
 
-    const res = await safeFetchJson(`/api/bosta/verify`, {
+    const res = await safeFetchJson(\`/api/bosta/verify\`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiKey: bareKey, environment }),
@@ -276,7 +278,7 @@ export const bostaService = {
 
     for (const ep of testEndpoints) {
       try {
-        const directRes = await fetch(`${baseUrl}${ep}`, {
+        const directRes = await fetch(\`\${baseUrl}\${ep}\`, {
           method: 'GET',
           headers: { 'Authorization': bareKey, 'x-api-key': bareKey, 'Content-Type': 'application/json' }
         });
@@ -316,7 +318,7 @@ export const bostaService = {
 
     try {
       const baseUrl = environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-      const directRes = await fetch(`${baseUrl}/api/v2/users/login`, {
+      const directRes = await fetch(\`\${baseUrl}/api/v2/users/login\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password })
@@ -353,12 +355,12 @@ export const bostaService = {
     // 2. Direct client fallback to Bosta API
     console.log('[BOSTA-SERVICE] Local proxy failed or intercepted. Executing direct Bosta API creation...');
     try {
-      const apiKey = (config?.apiKey || '').trim().replace(/^["']|["']$/g, '').replace(/^bearer\s+/i, '').trim();
+      const apiKey = (config?.apiKey || '').trim().replace(/^["']|["']$/g, '').replace(/^bearer\\s+/i, '').trim();
       if (!apiKey) {
         return { success: false, error: 'يرجى ربط مفتاح API الخاص بـ بوسطة في إعدادات التوصيل أولاً.' };
       }
 
-      const isStaging = config?.environment === 'staging' || (config as any)?.isStaging;
+      const isStaging = config?.environment === 'staging' || config?.isStaging;
       const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
 
       let codAmount = 0;
@@ -370,23 +372,23 @@ export const bostaService = {
         codAmount = Math.max(0, total - advance);
       }
 
-      let rawPhone = (order.customerPhone || '').toString().replace(/\D/g, '');
+      let rawPhone = (order.customerPhone || '').toString().replace(/\\D/g, '');
       if (rawPhone.startsWith('20') && rawPhone.length === 12) rawPhone = rawPhone.substring(2);
       if (!rawPhone.startsWith('0') && rawPhone.length === 10) rawPhone = '0' + rawPhone;
 
-      const nameParts = (order.customerName || 'عميل').trim().split(/\s+/);
+      const nameParts = (order.customerName || 'عميل').trim().split(/\\s+/);
       const firstName = nameParts[0] || 'عميل';
       const lastName = nameParts.slice(1).join(' ') || '.';
 
       let deliveryType = 10;
       if (order.orderType === 'exchange' || order.shipmentType === 'exchange') deliveryType = 30;
-      else if ((order as any).orderType === 'return' || order.shipmentType === 'return' || order.shipmentType === 'maintenance_pickup') deliveryType = 25;
+      else if (order.orderType === 'return' || order.shipmentType === 'return' || order.shipmentType === 'maintenance_pickup') deliveryType = 25;
       else if (order.shipmentType === 'cash_collection') deliveryType = 15;
 
       let description = order.productName || 'منتجات المتجر';
       let itemsCount = 1;
       if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-        description = order.items.map((it: any) => `${it.name || it.productName || ''}${it.variantDescription || it.variantName ? ` (${it.variantDescription || it.variantName})` : ''} × ${it.quantity || 1}`).join(' + ');
+        description = order.items.map((it: any) => \`\${it.name || it.productName || ''}\${it.variantDescription || it.variantName ? \` (\${it.variantDescription || it.variantName})\` : ''} × \${it.quantity || 1}\`).join(' + ');
         itemsCount = order.items.reduce((s: number, it: any) => s + (Number(it.quantity) || 1), 0);
       }
 
@@ -397,12 +399,12 @@ export const bostaService = {
 
       const city = normalizeCity(rawGov || (rawShippingArea && !rawCity ? rawShippingArea : rawCity) || 'Cairo');
 
-      let customerAddressLine = (order.customerAddress || (order as any).address || '').trim();
+      let customerAddressLine = (order.customerAddress || order.address || '').trim();
       if (specificArea && !customerAddressLine.includes(specificArea)) {
-        customerAddressLine = `${specificArea} - ${customerAddressLine}`.trim();
+        customerAddressLine = \`\${specificArea} - \${customerAddressLine}\`.trim();
       }
       if (customerAddressLine.length < 5) {
-        customerAddressLine = `${customerAddressLine ? customerAddressLine + ' - ' : ''}${specificArea || 'شارع رئيسي - الحي السكني'}`.trim();
+        customerAddressLine = \`\${customerAddressLine ? customerAddressLine + ' - ' : ''}\${specificArea || 'شارع رئيسي - الحي السكني'}\`.trim();
       }
 
       const calculatedItemsValue = (order.items && Array.isArray(order.items) && order.items.length > 0)
@@ -449,15 +451,15 @@ export const bostaService = {
           districtId: order.bostaDistrictId || undefined,
           zoneId: order.bostaZoneId || undefined,
           buildingNumber: order.buildingNumber || undefined,
-          floor: (order as any).floor || undefined,
-          apartment: (order as any).apartment || undefined
+          floor: order.floor || undefined,
+          apartment: order.apartment || undefined
         },
         receiver: {
           firstName: firstName,
           lastName: lastName,
           phone: rawPhone,
-          secondPhone: order.customerPhone2 ? order.customerPhone2.replace(/\D/g, '') : undefined,
-          email: (order as any).customerEmail || undefined
+          secondPhone: order.customerPhone2 ? order.customerPhone2.replace(/\\D/g, '') : undefined,
+          email: order.customerEmail || undefined
         },
         businessReference: order.orderNumber ? String(order.orderNumber) : String(order.id),
         notes: order.notes ? String(order.notes).substring(0, 250) : '',
@@ -468,17 +470,17 @@ export const bostaService = {
         bostaPayload.escrowInfo = { amountToBeCollected: Number(order.advancePayment) };
       }
 
-      let effectiveBusinessLocationId = order.bostaBusinessLocationId || config?.defaultBusinessLocationId || (config as any)?.businessLocationId;
+      let effectiveBusinessLocationId = order.bostaBusinessLocationId || config?.defaultBusinessLocationId || config?.businessLocationId;
       if (!effectiveBusinessLocationId && config?.businessLocations && Array.isArray(config.businessLocations) && config.businessLocations.length > 0) {
         const firstLoc = config.businessLocations[0];
-        effectiveBusinessLocationId = firstLoc?.id || firstLoc?._id || (firstLoc as any)?.businessLocationId;
+        effectiveBusinessLocationId = firstLoc?.id || firstLoc?._id || firstLoc?.businessLocationId;
       }
 
       if (effectiveBusinessLocationId) {
         bostaPayload.businessLocationId = effectiveBusinessLocationId;
       }
 
-      const directRes = await fetch(`${baseUrl}/api/v2/deliveries`, {
+      const directRes = await fetch(\`\${baseUrl}/api/v2/deliveries\`, {
         method: 'POST',
         headers: {
           'Authorization': apiKey,
@@ -518,9 +520,9 @@ export const bostaService = {
     const params = new URLSearchParams();
     if (apiKey) params.append('apiKey', apiKey);
     if (isStaging) params.append('staging', 'true');
-    const query = params.toString() ? `?${params.toString()}` : '';
+    const query = params.toString() ? \`?\${params.toString()}\` : '';
 
-    const res = await safeFetchJson(`/api/bosta/deliveries/${encodeURIComponent(deliveryIdOrTrackingNumber)}/awb${query}`, {}, 'تعذر جلب بوليصة الشحن من بوسطة');
+    const res = await safeFetchJson(\`/api/bosta/deliveries/\${encodeURIComponent(deliveryIdOrTrackingNumber)}/awb\${query}\`, {}, 'تعذر جلب بوليصة الشحن من بوسطة');
     if (res && res.success && !res.isHtmlResponse && res.data) {
       return res;
     }
@@ -528,7 +530,7 @@ export const bostaService = {
     if (apiKey) {
       try {
         const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/deliveries/awb/${encodeURIComponent(deliveryIdOrTrackingNumber)}?awbType=A4&lang=ar`, {
+        const directRes = await fetch(\`\${baseUrl}/api/v2/deliveries/awb/\${encodeURIComponent(deliveryIdOrTrackingNumber)}?awbType=A4&lang=ar\`, {
           headers: { 'Authorization': apiKey, 'x-api-key': apiKey }
         });
         if (directRes.ok) {
@@ -561,7 +563,7 @@ export const bostaService = {
     if (apiKey && trackingNumbers.length > 0) {
       try {
         const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/deliveries/mass-awb`, {
+        const directRes = await fetch(\`\${baseUrl}/api/v2/deliveries/mass-awb\`, {
           method: 'POST',
           headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({ trackingNumbers, awbType: requestedAwbType, lang })
@@ -588,9 +590,9 @@ export const bostaService = {
     const params = new URLSearchParams();
     if (apiKey) params.append('apiKey', apiKey);
     if (isStaging) params.append('staging', 'true');
-    const query = params.toString() ? `?${params.toString()}` : '';
+    const query = params.toString() ? \`?\${params.toString()}\` : '';
 
-    const res = await safeFetchJson(`/api/bosta/deliveries/track/${encodeURIComponent(trackingNumber)}${query}`, {}, 'تعذر تتبع الشحنة مع بوسطة');
+    const res = await safeFetchJson(\`/api/bosta/deliveries/track/\${encodeURIComponent(trackingNumber)}\${query}\`, {}, 'تعذر تتبع الشحنة مع بوسطة');
     if (res && res.success && !res.isHtmlResponse) {
       return res;
     }
@@ -603,7 +605,7 @@ export const bostaService = {
           headers['Authorization'] = apiKey;
           headers['x-api-key'] = apiKey;
         }
-        const directRes = await fetch(`${baseUrl}/api/v2/deliveries/track/${encodeURIComponent(trackingNumber)}`, { headers });
+        const directRes = await fetch(\`\${baseUrl}/api/v2/deliveries/track/\${encodeURIComponent(trackingNumber)}\`, { headers });
         if (directRes.ok) {
           const data = await directRes.json().catch(() => ({}));
           return { success: true, tracking: data.data || data };
@@ -629,7 +631,7 @@ export const bostaService = {
       try {
         const apiKey = params.config.apiKey;
         const baseUrl = params.config.isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/pickups`, {
+        const directRes = await fetch(\`\${baseUrl}/api/v2/pickups\`, {
           method: 'POST',
           headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(params)
@@ -645,7 +647,7 @@ export const bostaService = {
   },
 
   async getCities(): Promise<{ success: boolean; list: BostaCity[]; error?: string }> {
-    const res = await safeFetchJson(`/api/bosta/cities`, {}, 'فشل جلب مدن بوسطة');
+    const res = await safeFetchJson(\`/api/bosta/cities\`, {}, 'فشل جلب مدن بوسطة');
     if (res.success && Array.isArray(res.list) && res.list.length > 0) {
       return res;
     }
@@ -686,12 +688,12 @@ export const bostaService = {
 
   async getCityDistricts(cityId: string): Promise<{ success: boolean; districts?: any[]; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/cities/${encodeURIComponent(cityId)}/districts`);
+      const res = await fetch(\`/api/bosta/cities/\${encodeURIComponent(cityId)}/districts\`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
       }
-      const directRes = await fetch(`https://app.bosta.co/api/v2/districts/city/${encodeURIComponent(cityId)}`);
+      const directRes = await fetch(\`https://app.bosta.co/api/v2/districts/city/\${encodeURIComponent(cityId)}\`);
       if (directRes.ok) {
         const data = await directRes.json().catch(() => ({}));
         return { success: true, districts: data.data || data };
@@ -704,7 +706,7 @@ export const bostaService = {
 
   async getZones(cityId: string): Promise<{ success: boolean; zones: BostaZone[]; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/cities/${encodeURIComponent(cityId)}/zones`);
+      const res = await fetch(\`/api/bosta/cities/\${encodeURIComponent(cityId)}/zones\`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
@@ -720,9 +722,9 @@ export const bostaService = {
       const params = new URLSearchParams();
       if (apiKey) params.append('apiKey', apiKey);
       if (isStaging) params.append('staging', 'true');
-      const query = params.toString() ? `?${params.toString()}` : '';
+      const query = params.toString() ? \`?\${params.toString()}\` : '';
 
-      const res = await fetch(`/api/bosta/businesses/${encodeURIComponent(businessId)}${query}`);
+      const res = await fetch(\`/api/bosta/businesses/\${encodeURIComponent(businessId)}\${query}\`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
@@ -740,7 +742,7 @@ export const bostaService = {
     environment?: 'production' | 'staging'
   ): Promise<{ success: boolean; message?: string; business?: any; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/businesses/${encodeURIComponent(businessId)}/pickup-locations`, {
+      const res = await fetch(\`/api/bosta/businesses/\${encodeURIComponent(businessId)}/pickup-locations\`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pickupAddress, apiKey, environment })
@@ -774,7 +776,7 @@ export const bostaService = {
       if (params.apiKey) q.append('apiKey', params.apiKey);
       if (params.isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`/api/bosta/pricing/calculator?${q.toString()}`);
+      const res = await fetch(\`/api/bosta/pricing/calculator?\${q.toString()}\`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data) return data;
@@ -795,7 +797,7 @@ export const bostaService = {
       if (apiKey) q.append('apiKey', apiKey);
       if (isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`/api/bosta/deliveries/${encodeURIComponent(id)}?${q.toString()}`);
+      const res = await fetch(\`/api/bosta/deliveries/\${encodeURIComponent(id)}?\${q.toString()}\`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data) return data;
@@ -808,7 +810,7 @@ export const bostaService = {
 
   async terminateDelivery(id: string, config?: BostaConfig): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/deliveries/${encodeURIComponent(id)}/terminate`, {
+      const res = await fetch(\`/api/bosta/deliveries/\${encodeURIComponent(id)}/terminate\`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config })
@@ -833,10 +835,10 @@ export const bostaService = {
 
   async getCustomerDeliveryRate(phone: string, apiKey?: string, isStaging: boolean = false): Promise<any> {
     try {
-      const clean = (phone || '').replace(/\D/g, '');
+      const clean = (phone || '').replace(/\\D/g, '');
       if (!clean || clean.length < 6) return null;
       
-      const query = `/api/bosta/customer-rate?phone=${encodeURIComponent(clean)}${apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ''}&staging=${isStaging}`;
+      const query = \`/api/bosta/customer-rate?phone=\${encodeURIComponent(clean)}\${apiKey ? \`&apiKey=\${encodeURIComponent(apiKey)}\` : ''}&staging=\${isStaging}\`;
       const res = await fetch(query);
       if (!res.ok) return null;
       return await res.json();
@@ -859,7 +861,7 @@ export const bostaService = {
 
   getTrackingUrl(trackingNumber: string): string {
     if (!trackingNumber) return '';
-    return `https://bosta.co/tracking-shipment/?track=${encodeURIComponent(trackingNumber.trim())}`;
+    return \`https://bosta.co/tracking-shipment/?track=\${encodeURIComponent(trackingNumber.trim())}\`;
   },
 
   formatTrackingMessage(order: Order, trackingNumber: string, storeName: string = 'متجرنا', customTemplate?: string): string {
@@ -878,12 +880,12 @@ export const bostaService = {
         .replace(/{address}/g, order.customerAddress || '');
     }
 
-    return `مرحباً ${order.customerName || 'عميلنا العزيز'} 👋،\n` +
-      `يسعدنا إبلاغك بأنه تم شحن طلبك رقم #${order.orderNumber || order.id} عبر شركة *بوسطة (Bosta)* 🚚✨\n\n` +
-      `📋 *رقم البوليصة:* ${trackingNumber}\n` +
-      `💰 *المبلغ المطلوب سداده عند الاستلام:* ${codAmount} ج.م\n` +
-      `🔗 *رابط تتبع الشحنة المباشر:*\n${trackingUrl}\n\n` +
-      `شكراً لتسوقك من *${storeName}*! ❤️`;
+    return \`مرحباً \${order.customerName || 'عميلنا العزيز'} 👋،\\n\` +
+      \`يسعدنا إبلاغك بأنه تم شحن طلبك رقم #\${order.orderNumber || order.id} عبر شركة *بوسطة (Bosta)* 🚚✨\\n\\n\` +
+      \`📋 *رقم البوليصة:* \${trackingNumber}\\n\` +
+      \`💰 *المبلغ المطلوب سداده عند الاستلام:* \${codAmount} ج.م\\n\` +
+      \`🔗 *رابط تتبع الشحنة المباشر:*\\n\${trackingUrl}\\n\\n\` +
+      \`شكراً لتسوقك من *\${storeName}*! ❤️\`;
   },
 
   formatStatusUpdateMessage(order: Order, statusArabic: string, trackingNumber: string, storeName: string = 'متجرنا', customTemplate?: string, reason?: string): string {
@@ -904,20 +906,24 @@ export const bostaService = {
         .replace(/{address}/g, order.customerAddress || '');
     }
 
-    let statusLine = `📢 حالة الشحنة الحالية: *${statusArabic}*`;
+    let statusLine = \`📢 حالة الشحنة الحالية: *\${statusArabic}*\`;
     if (reason) {
-      statusLine += ` (${reason})`;
+      statusLine += \` (\${reason})\`;
     }
 
-    return `مرحباً ${order.customerName || 'عميلنا العزيز'} 👋،\n` +
-      `تحديث جديد بخصوص طلبك رقم #${order.orderNumber || order.id} المشحون عبر *بوسطة*:\n\n` +
-      `${statusLine}\n` +
-      `📋 *رقم البوليصة:* ${trackingNumber}\n` +
-      `🔗 *رابط التتبع المباشر:*\n${trackingUrl}\n\n` +
-      `نتمنى لك يوماً سعيداً من فريق *${storeName}*! ❤️`;
+    return \`مرحباً \${order.customerName || 'عميلنا العزيز'} 👋،\\n\` +
+      \`تحديث جديد بخصوص طلبك رقم #\${order.orderNumber || order.id} المشحون عبر *بوسطة*:\\n\\n\` +
+      \`\${statusLine}\\n\` +
+      \`📋 *رقم البوليصة:* \${trackingNumber}\\n\` +
+      \`🔗 *رابط التتبع المباشر:*\\n\${trackingUrl}\\n\\n\` +
+      \`نتمنى لك يوماً سعيداً من فريق *\${storeName}*! ❤️\`;
   },
 
-  async simulateWebhook(params: any): Promise<{ success: boolean; error?: string; mappedStatus?: string; updatedOrders?: number; timestamp?: string }> {
-    return { success: true, mappedStatus: params?.status || 'DELIVERED', updatedOrders: 1, timestamp: new Date().toISOString() };
+  async simulateWebhook(params: any): Promise<{ success: boolean; error?: string }> {
+    return { success: true };
   }
 };
+`;
+
+fs.writeFileSync('utils/bostaService.ts', bostaServiceCode);
+console.log('Successfully updated utils/bostaService.ts with client-side fallback!');
