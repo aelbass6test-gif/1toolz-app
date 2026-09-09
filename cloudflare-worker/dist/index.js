@@ -71,6 +71,42 @@ async function bosta(request, env) {
   const staging = url.searchParams.get("staging") === "true" || body?.config?.environment === "staging";
   const key = keyFrom(request, body, env.BOSTA_API_KEY);
   const base = bostaBase(env, staging);
+  if (path === "/api/bosta/customer-rate") {
+    const phone = (url.searchParams.get("phone") || "").replace(/\D/g, "");
+    if (phone.length < 6) return json(request, env, { success: true, phone, totalOrders: 0, deliveredCount: 0, returnedCount: 0, pendingCount: 0, rate: null, rating: "new" }, 200);
+    const bareKey = key.replace(/^bearer\s+/i, "").trim();
+    const headers2 = { accept: "application/json", Authorization: `Bearer ${bareKey}`, "x-api-key": bareKey };
+    let delivered = 0;
+    let returned = 0;
+    let pending = 0;
+    let found = false;
+    const candidates = [
+      `/api/v2/deliveries/customer-rating?phone=${encodeURIComponent(phone)}`,
+      `/api/v2/deliveries/customer-evaluation?phone=${encodeURIComponent(phone)}`,
+      `/api/v2/customers/evaluation?phone=${encodeURIComponent(phone)}`,
+      `/api/v2/deliveries?dropOffAddress.phone=${encodeURIComponent(phone)}&page=1&limit=50`
+    ];
+    for (const candidate of candidates) {
+      const response2 = await fetch(`${base}${candidate}`, { headers: headers2 });
+      if (!response2.ok) continue;
+      const value = await response2.json().catch(() => null);
+      const data = value?.data || value;
+      const list = Array.isArray(data) ? data : data?.list || data?.deliveries || [];
+      if (Array.isArray(list) && list.length) {
+        found = true;
+        for (const item of list) {
+          const state = String(item.state?.value || item.state?.name || item.state || item.status || "").toLowerCase();
+          if (state.includes("deliver") || state.includes("\u062A\u0645 \u0627\u0644\u062A\u0633\u0644\u064A\u0645") || state.includes("\u0633\u0644\u0645")) delivered++;
+          else if (state.includes("return") || state.includes("cancel") || state.includes("\u0645\u0631\u062A\u062C\u0639") || state.includes("\u0645\u0644\u063A\u064A") || state.includes("\u0645\u0631\u0641\u0648\u0636")) returned++;
+          else pending++;
+        }
+        break;
+      }
+    }
+    const completed = delivered + returned;
+    const rate = completed ? Math.round(delivered / completed * 1e3) / 10 : null;
+    return json(request, env, { success: true, phone, totalOrders: completed + pending, deliveredCount: delivered, returnedCount: returned, pendingCount: pending, rate, rating: rate === null ? "new" : rate < 50 ? "low" : rate < 75 ? "moderate" : "excellent", hasBostaData: found });
+  }
   if (path === "/api/bosta/business-locations") {
     const endpoints = ["/api/v2/pickup-locations/business", "/api/v2/pickup-locations", "/api/v2/business-locations", "/api/v2/users/me"];
     const authValues = [key, key.replace(/^bearer\s+/i, "").trim(), `Bearer ${key.replace(/^bearer\s+/i, "").trim()}`].filter(Boolean);
