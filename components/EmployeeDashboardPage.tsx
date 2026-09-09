@@ -26,6 +26,8 @@ const StatCard = ({ title, value, icon, colorClass }: { title: string, value: nu
 
 const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({ orders, setOrders, currentUser, settings }) => {
     
+    const canManageOrders = Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('ORDERS_MANAGE'));
+
     const assignedOrders = useMemo(() => {
         return orders.filter(o => o.assignedTo === currentUser?.phone);
     }, [orders, currentUser]);
@@ -46,6 +48,7 @@ const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({ orders, s
     }, [assignedOrders, settings, currentUser]);
 
     const handleStatusUpdate = (orderId: string, newStatus: OrderStatus) => {
+        if (!canManageOrders) return;
         setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
     };
 
@@ -92,8 +95,9 @@ const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({ orders, s
                                 </div>
                                 <select 
                                     value={order.status} 
+                                    disabled={!canManageOrders}
                                     onChange={(e) => handleStatusUpdate(order.id, e.target.value as OrderStatus)}
-                                    className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm"
+                                    className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg p-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {['في_انتظار_المكالمة', 'جاري_المراجعة', 'قيد_التنفيذ', 'تم_الارسال', 'قيد_الشحن', 'تم_توصيلها', 'تم_التحصيل', 'مرتجع', 'ملغي'].map(status => (
                                         <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>
@@ -124,7 +128,7 @@ const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({ orders, s
                 </motion.div>
             )}
 
-            <motion.div
+            {canManageOrders && <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.8, duration: 0.5 }}
@@ -138,7 +142,7 @@ const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({ orders, s
                         <ArrowLeft size={32} className="transform transition-transform group-hover:-translate-x-2" />
                     </div>
                 </Link>
-            </motion.div>
+            </motion.div>}
         </div>
     );
 };
