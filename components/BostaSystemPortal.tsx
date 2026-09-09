@@ -631,7 +631,17 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
       setIsLoadingLocations(true);
       const res = await bostaService.getBusinessLocations(key, isStaging);
       if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-        setBusinessLocations(res.data);
+        const normalizedLocations = res.data.map((location: any) => ({
+          ...location,
+          _id: location._id || location.id || location.businessLocationId,
+          id: location.id || location._id || location.businessLocationId,
+          locationName: location.locationName || location.name || location.nameAr || 'مكان الاستلام',
+          contactPersonName: location.contactPersonName || location.contactName || location.contactPerson?.name || location.contactPerson?.fullName || location.contact?.name || '',
+          contactPersonPhone: location.contactPersonPhone || location.contactPhone || location.contactPerson?.phone || location.contactPerson?.phoneNumber || location.contact?.phone || '',
+          city: typeof location.city === 'object' ? (location.city.nameAr || location.city.name || '') : (location.city || location.cityName || ''),
+          firstLine: location.firstLine || location.address || location.addressLine || ''
+        }));
+        setBusinessLocations(normalizedLocations);
       } else if (!settings?.bostaConfig?.businessLocations || settings.bostaConfig.businessLocations.length === 0) {
         setBusinessLocations(DEFAULT_BOSTA_BUSINESS_LOCATIONS);
       }
@@ -1279,6 +1289,8 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                     })
                     .map((loc, idx) => {
                       const isDefault = loc.isDefault || apiSettings.defaultBusinessLocationId === (loc._id || loc.id) || idx === 0;
+                      const contactName = loc.contactPersonName || loc.contactName || loc.contactPerson?.name || loc.contactPerson?.fullName || loc.contact?.name || '';
+                      const contactPhone = loc.contactPersonPhone || loc.contactPhone || loc.contactPerson?.phone || loc.contactPerson?.phoneNumber || loc.contact?.phone || '';
                       return (
                         <tr key={loc._id || loc.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
                           <td className="p-4">
@@ -1307,10 +1319,10 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
 
                           <td className="p-4">
                             <div className="font-bold text-slate-800 dark:text-slate-200">
-                              {loc.contactPersonName || 'غير محدد'}
+                              {contactName || 'غير محدد'}
                             </div>
                             <div className="text-[11px] font-mono text-slate-500" dir="ltr">
-                              {loc.contactPersonPhone || '-'}
+                              {contactPhone || '-'}
                             </div>
                           </td>
 
@@ -1339,8 +1351,8 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                                 onClick={() => {
                                   setEditingLocIndex(idx);
                                   setLocFormName(loc.locationName || loc.name || '');
-                                  setLocFormContactName(loc.contactPersonName || '');
-                                  setLocFormContactPhone(loc.contactPersonPhone || '');
+                                  setLocFormContactName(contactName);
+                                  setLocFormContactPhone(contactPhone);
                                   setLocFormCity(loc.city || 'كفر الشيخ - بلطيم');
                                   setLocFormAddress(loc.firstLine || 'بلطيم');
                                   setLocFormIsDefault(!!isDefault);
