@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
-import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction } from './types';
+import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb, auth } from './services/firebaseClient';
@@ -561,7 +561,12 @@ const EmployeeLayoutWrapper = ({ children, isEmployeeSession, ...props }: any) =
     }
     return <EmployeeLayout currentUser={props.currentUser} {...props}>{children}</EmployeeLayout>;
 };
-
+const EmployeePermissionRoute = ({ currentUser, permission, children }: { currentUser: User | null; permission: Permission; children: React.ReactNode }) => {
+    const hasPermission = Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes(permission));
+    if (!currentUser) return <Navigate to="/employee-login" replace />;
+    if (!hasPermission) return <Navigate to="/employee/dashboard" replace />;
+    return <>{children}</>;
+};
 function autoHealProducts(products: Product[] = [], warehouses: Warehouse[] = []): Product[] {
     const warehouseIds = warehouses.map(w => w.id);
     const defaultWhId = warehouseIds[0];
@@ -3033,7 +3038,11 @@ export const AppComponent = () => {
                 }>
                     <Route index element={<EmployeeDashboardPage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} />} />
                     <Route path="dashboard" element={<EmployeeDashboardPage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} />} />
-                    <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="confirmation-queue" element={
+                        <EmployeePermissionRoute currentUser={currentUser} permission="ORDERS_MANAGE">
+                            <ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />
+                        </EmployeePermissionRoute>
+                    } />
                     <Route path="my-activity" element={<EmployeeActivityPage currentUser={currentUser} orders={pageProps.orders} />} />
                     <Route path="account-settings" element={<EmployeeAccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
@@ -3244,4 +3253,3 @@ export const AppWrapper = () => (
 );
 
 export default AppWrapper;
-
