@@ -1452,6 +1452,21 @@ export interface Order {
   referenceNumber?: string;
   waybillNumber?: string;
   trackingUrl?: string;
+  lastShippingEventAt?: string;
+  lastShippingEventKey?: string;
+  shipmentTimeline?: Array<{
+    carrier: string;
+    externalStatus: string;
+    externalCode?: string | number | null;
+    internalStatus?: OrderStatus;
+    reason?: string;
+    eventAt: string;
+    receivedAt: string;
+    trackingNumber?: string;
+    externalId?: string;
+    source: 'webhook' | 'polling' | 'manual';
+    eventKey?: string;
+  }>;
   bostaDeliveryId?: string;
   bostaTrackingNumber?: string;
   turboDeliveryId?: string;

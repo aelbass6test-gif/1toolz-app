@@ -11,6 +11,7 @@ import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
 import { trimTrailingSlash } from "hono/trailing-slash";
+import { appendShippingTimeline, buildEventKey, getEventAt, mapBostaStatus, mapTurboStatus, shouldApplyShippingUpdate } from './utils/shippingStatus';
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -8065,44 +8066,17 @@ async function startServer() {
         return c.json({ success: false, reason: "No tracking number or order reference provided" }, 400);
       }
 
-      // Standard Bosta State Mapping to Order Status (docs.bosta.co)
-      let mappedStatus: string | null = null;
-      const normalizedState = (stateValue || "").toLowerCase();
-
-      // Check by Code first if available
-      if (stateCode !== null) {
-        if (stateCode === 45) {
-          // Delivered
-          mappedStatus = "تم_توصيلها";
-        } else if (stateCode === 46 || stateCode === 47 || stateCode === 49) {
-          // Returned to business / Returned to stock / Terminated / Canceled
-          mappedStatus = "مرتجع";
-        } else if (stateCode === 48) {
-          // Customer action required / Postponed
-          mappedStatus = "مؤجل";
-        } else if (stateCode === 10 || stateCode === 11) {
-          // Pickup requested / Waiting for route
-          mappedStatus = "قيد_التجهيز";
-        } else if ([20, 21, 22, 23, 24, 30, 40, 41, 42].includes(stateCode)) {
-          // Route assigned, Picked up, In transit, Out for delivery
-          mappedStatus = "تم_الارسال";
-        }
-      }
-
-      // If not mapped by code, map by string keywords
-      if (!mappedStatus) {
-        if (normalizedState.includes("deliver") && !normalizedState.includes("attempt") && !normalizedState.includes("out for")) {
-          mappedStatus = "تم_توصيلها";
-        } else if (normalizedState.includes("return") || normalizedState.includes("cancel") || normalizedState.includes("terminate")) {
-          mappedStatus = "مرتجع";
-        } else if (normalizedState.includes("postpone") || normalizedState.includes("action required") || normalizedState.includes("delay")) {
-          mappedStatus = "مؤجل";
-        } else if (normalizedState.includes("pickup request") || normalizedState.includes("waiting for route")) {
-          mappedStatus = "قيد_التجهيز";
-        } else if (normalizedState.includes("transit") || normalizedState.includes("out for delivery") || normalizedState.includes("picked up") || normalizedState.includes("warehouse")) {
-          mappedStatus = "تم_الارسال";
-        }
-      }
+      const mappedStatus = mapBostaStatus(stateValue, stateCode);
+      const eventAt = getEventAt(body);
+      const receivedAt = new Date().toISOString();
+      const eventKey = buildEventKey({
+        carrier: 'bosta',
+        trackingNumber: trackingNumber ? String(trackingNumber) : undefined,
+        externalId: bostaDeliveryId ? String(bostaDeliveryId) : businessRef ? String(businessRef) : undefined,
+        externalStatus: String(stateValue || ''),
+        externalCode: stateCode,
+        eventAt,
+      });
 
       console.log(`[BOSTA-WEBHOOK] Decoded tracking: ${trackingNumber}, ref: ${businessRef}, state: ${stateValue} (code: ${stateCode}), mappedTo: ${mappedStatus}`);
 
@@ -8243,6 +8217,22 @@ async function startServer() {
 
         for (const orderDoc of matchedDocs) {
           const currentData = orderDoc.data();
+          const shippingUpdate = {
+            carrier: 'bosta',
+            externalStatus: String(stateValue || ''),
+            externalCode: stateCode,
+            internalStatus: mappedStatus,
+            reason: String(reason || ''),
+            eventAt,
+            receivedAt,
+            trackingNumber: trackingNumber ? String(trackingNumber) : undefined,
+            externalId: bostaDeliveryId ? String(bostaDeliveryId) : businessRef ? String(businessRef) : undefined,
+            source: 'webhook' as const,
+          };
+          if (!shouldApplyShippingUpdate(currentData, shippingUpdate, eventKey)) {
+            console.log(`[BOSTA-WEBHOOK] Ignoring duplicate or older event for order ${orderDoc.id}`);
+            continue;
+          }
           const oldStatus = currentData.status;
           const newStatus = mappedStatus || oldStatus;
 
@@ -8436,6 +8426,9 @@ async function startServer() {
             bostaStatusCode: stateCode !== null ? stateCode : (currentData.bostaStatusCode || null),
             bostaReason: reason || currentData.bostaReason || "",
             bostaLastWebhookAt: new Date().toISOString(),
+            lastShippingEventAt: eventAt,
+            lastShippingEventKey: eventKey,
+            shipmentTimeline: appendShippingTimeline(currentData, shippingUpdate, eventKey),
             updatedAt: new Date().toISOString()
           };
 
@@ -8617,44 +8610,18 @@ async function startServer() {
         return c.json({ success: false, error: "No identifiers provided" }, 400);
       }
 
-      // Map Turbo numeric statuses to internal OrderStatus
-      let mappedStatus: string | null = null;
-      let statusArabic = "";
-
-      // Turbo Status Map (Common in Egyptian Logistics APIs)
-      switch (turboStatus) {
-        case 1:
-        case 2:
-          mappedStatus = "تم_الارسال";
-          statusArabic = "تم استلام الطلب من التاجر";
-          break;
-        case 3:
-          mappedStatus = "تم_توصيلها";
-          statusArabic = "تم التوصيل بنجاح";
-          break;
-        case 4:
-          mappedStatus = "مرتجع_جزئي";
-          statusArabic = "تسليم جزئي";
-          break;
-        case 5:
-          mappedStatus = "مرتجع";
-          statusArabic = `مرتجع ${returnReason ? `(${returnReason})` : ""}`;
-          break;
-        case 6:
-          mappedStatus = "قيد_الشحن";
-          statusArabic = "جاري التوصيل مع المندوب";
-          break;
-        case 10:
-          mappedStatus = "فشل_التوصيل";
-          statusArabic = `فشل التوصيل ${delayReason ? `(${delayReason})` : ""}`;
-          break;
-        case 12:
-          mappedStatus = "ملغي";
-          statusArabic = "تم الإلغاء";
-          break;
-        default:
-          statusArabic = `حالة تربو (${turboStatus})`;
-      }
+      const mappedStatus = mapTurboStatus(turboStatus, body.status_text || body.status || body.state);
+      const statusArabic = mappedStatus || `حالة تربو (${turboStatus})`;
+      const eventAt = getEventAt(body);
+      const receivedAt = new Date().toISOString();
+      const eventKey = buildEventKey({
+        carrier: 'turbo',
+        trackingNumber: trackingNumber || undefined,
+        externalId: remoteOrderId || undefined,
+        externalStatus: String(body.status_text || body.status || body.state || ''),
+        externalCode: turboStatus,
+        eventAt,
+      });
 
       console.log(`[TURBO-WEBHOOK] Decoded tracking: ${trackingNumber}, remoteId: ${remoteOrderId}, status: ${turboStatus}, mappedTo: ${mappedStatus}`);
 
@@ -8683,12 +8650,31 @@ async function startServer() {
 
       for (const orderDoc of matchedDocs) {
         const currentData = orderDoc.data();
+        const shippingUpdate = {
+          carrier: 'turbo',
+          externalStatus: String(body.status_text || body.status || body.state || ''),
+          externalCode: turboStatus,
+          internalStatus: mappedStatus,
+          reason: String(returnReason || delayReason || ''),
+          eventAt,
+          receivedAt,
+          trackingNumber: trackingNumber || undefined,
+          externalId: remoteOrderId || undefined,
+          source: 'webhook' as const,
+        };
+        if (!shouldApplyShippingUpdate(currentData, shippingUpdate, eventKey)) {
+          console.log(`[TURBO-WEBHOOK] Ignoring duplicate or older event for order ${orderDoc.id}`);
+          continue;
+        }
         const oldStatus = currentData.status;
         const newStatus = mappedStatus || oldStatus;
 
         const updatePayload: any = {
           turboStatus: turboStatus,
           turboLastWebhookAt: new Date().toISOString(),
+          lastShippingEventAt: eventAt,
+          lastShippingEventKey: eventKey,
+          shipmentTimeline: appendShippingTimeline(currentData, shippingUpdate, eventKey),
           updatedAt: new Date().toISOString()
         };
 
