@@ -93,7 +93,6 @@ export interface BostaDistrict {
   nameAr?: string;
   zoneName?: string;
   zoneNameAr?: string;
-  cityName?: string;
   cityNameAr?: string;
   pickupAvailability?: boolean;
   dropOffAvailability?: boolean;
@@ -305,7 +304,8 @@ export const bostaService = {
       return res;
     }
 
-    return { success: false, error: res?.error || 'فشل إنشاء الشحنة عبر خادم الربط مع بوسطة' };
+    const details = res?.errorCode ? ` (Bosta error ${res.errorCode})` : '';
+    return { success: false, error: `${res?.error || 'فشل إنشاء الشحنة عبر خادم الربط مع بوسطة'}${details}` };
   },
 
   async getAwb(deliveryIdOrTrackingNumber: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; data?: string; error?: string }> {

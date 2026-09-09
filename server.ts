@@ -5059,6 +5059,28 @@ async function startServer() {
       const webhookEndpoint = `${appOrigin}/api/webhooks/bosta`;
 
       const bostaLocationInfo = await resolveBostaDistrictInfo(city, specificArea, customerAddressLine);
+      const resolvedCityId = isValidBostaReferenceId(bostaLocationInfo.cityId)
+        ? bostaLocationInfo.cityId
+        : (isValidBostaReferenceId((order as any).bostaCityId) ? (order as any).bostaCityId : undefined);
+      const resolvedDistrictId = isValidBostaReferenceId(bostaLocationInfo.districtId)
+        ? bostaLocationInfo.districtId
+        : (isValidBostaReferenceId((order as any).bostaDistrictId) ? (order as any).bostaDistrictId : undefined);
+      const resolvedZoneId = isValidBostaReferenceId(bostaLocationInfo.zoneId)
+        ? bostaLocationInfo.zoneId
+        : (isValidBostaReferenceId((order as any).bostaZoneId) ? (order as any).bostaZoneId : undefined);
+      // Bosta rejects the request at schema level when both district fields are
+      // absent. Keep a meaningful district name for older orders that predate
+      // the live address selector; live IDs still take precedence when found.
+      const resolvedDistrictName = String(
+        bostaLocationInfo.districtName || specificArea || rawShippingArea || rawCity || city || ""
+      ).trim();
+      if (!resolvedDistrictId && !resolvedDistrictName) {
+        return c.json({
+          success: false,
+          error: "يرجى تحديد الحي/المنطقة في عنوان العميل قبل إنشاء شحنة Bosta.",
+          errorCode: 3003
+        }, 400);
+      }
 
       // Calculate total declared goods value for insurance and insurance claims with Bosta
       const calculatedItemsValue = (order.items && Array.isArray(order.items) && order.items.length > 0)
@@ -5103,10 +5125,10 @@ async function startServer() {
           firstLine: customerAddressLine,
           secondLine: String((order as any).customerAddressDetails || (order as any).addressDetails || specificArea || "غير محدد").substring(0, 120),
           city: bostaLocationInfo.cityName || city,
-          cityId: isValidBostaReferenceId(bostaLocationInfo.cityId) ? bostaLocationInfo.cityId : undefined,
-          districtName: bostaLocationInfo.districtName || undefined,
-          districtId: isValidBostaReferenceId(bostaLocationInfo.districtId || order.bostaDistrictId) ? (bostaLocationInfo.districtId || order.bostaDistrictId) : undefined,
-          zoneId: isValidBostaReferenceId(bostaLocationInfo.zoneId || order.bostaZoneId) ? (bostaLocationInfo.zoneId || order.bostaZoneId) : undefined,
+          cityId: resolvedCityId,
+          districtName: resolvedDistrictName || undefined,
+          districtId: resolvedDistrictId,
+          zoneId: resolvedZoneId,
           buildingNumber: (order.buildingNumber || (order as any).building) ? String(order.buildingNumber || (order as any).building) : "1",
           floor: (order.floor || (order as any).floorNumber) ? String(order.floor || (order as any).floorNumber) : "1",
           apartment: (order.apartment || (order as any).apartmentNumber) ? String(order.apartment || (order as any).apartmentNumber) : "1"
