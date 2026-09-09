@@ -1289,7 +1289,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       }
       setIsBostaLoading(order.id);
       try {
-        const res = await bostaService.getAwb(trackingNum, settings?.bostaConfig?.apiKey);
+        const res = await bostaService.getAwb(trackingNum, settings?.bostaConfig?.apiKey, settings?.bostaConfig?.environment === 'staging');
         if (res.success && res.data) {
           const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
             ? res.data.replace('data:application/pdf;base64,', '')
@@ -1319,7 +1319,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   const handlePrintBostaAwb = async (deliveryIdOrTracking: string) => {
     try {
-      const res = await bostaService.getAwb(deliveryIdOrTracking, settings?.bostaConfig?.apiKey);
+      const res = await bostaService.getAwb(deliveryIdOrTracking, settings?.bostaConfig?.apiKey, settings?.bostaConfig?.environment === 'staging');
       if (res.success && res.data) {
         const cleanBase64 = res.data.startsWith('data:application/pdf;base64,')
           ? res.data.replace('data:application/pdf;base64,', '')

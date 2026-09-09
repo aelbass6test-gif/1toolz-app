@@ -106,78 +106,14 @@ export const turboService = {
         body: JSON.stringify({ order, config })
       }, 'فشل إرسال الشحنة لشركة تربو');
 
-      if (res.success && (res.waybillNumber || res.shipmentId)) {
+      if (res && res.success && (res.waybillNumber || res.shipmentId)) {
         return res;
       }
 
-      // If local proxy failed or returned error / HTML response, execute direct client fallback to Turbo API
-      if (!res.success || res.isHtmlResponse) {
-        console.warn('[TURBO-SERVICE] Local proxy returned error/intercepted. Executing direct Turbo API creation...');
-        const authKey = config?.authenticationKey || (config as any)?.apiToken || config?.apiKey || '';
-        const mainClientCode = Number(config?.mainClientCode || 74068);
-        const isStaging = config?.environment === 'staging';
-        const baseUrl = isStaging ? 'https://stg-app.turbo-eg.com' : 'https://platform.turbo.info';
-
-        if (!authKey) {
-          return { success: false, error: res.error || 'مفتاح الربط الخاص بشركة تربو غير متوفر' };
-        }
-
-        const items = Array.isArray(order.items) ? order.items : [];
-        const summary = items.length > 0
-          ? items.map((i: any) => `${i.productName || i.name || 'منتج'} (العدد: ${i.quantity || 1})`).join(' | ')
-          : (order.order_summary || 'منتجات متنوعة');
-
-        const directPayload = {
-          authentication_key: authKey,
-          main_client_code: mainClientCode,
-          second_client: config?.senderName || (config as any)?.secondClient || 'وان تولز للعدد',
-          receiver: order.customerName || 'عميل بدون اسم',
-          phone1: order.customerPhone || order.phone || '01000000000',
-          government: order.governorate || order.shippingGovernorate || 'القاهرة',
-          area: order.city || order.shippingArea || order.shippingCity || 'المنطقة',
-          address: order.customerAddress || order.shippingAddress || 'العنوان بالتفصيل',
-          notes: order.notes || order.userNotes || '',
-          invoice_number: order.orderNumber || order.id || null,
-          order_summary: summary,
-          amount_to_be_collected: Number(order.totalPrice || order.productPrice || 0),
-          return_amount: Number(order.flexShipFee || order.flexShipCompanyFee || 0),
-          is_order: 0,
-          can_open: (config?.allowOpenPackage ?? true) ? 1 : 0,
-          weight: Number(order.weight || 1),
-          delivery_type: 0,
-          remote_shipment_id: String(order.id || order.orderNumber || '')
-        };
-
-        const directRes = await fetch(`${baseUrl}/external-api/add-order`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify(directPayload)
-        });
-
-        const textData = await directRes.text().catch(() => '');
-        let directJson: any = null;
-        try { directJson = JSON.parse(textData); } catch {}
-
-        const waybill = directJson?.data?.bar_code || directJson?.data?.code || directJson?.bar_code || directJson?.code || directJson?.id || directJson?.result?.bar_code;
-        const isOk = directRes.ok && (!!waybill || directJson?.status === true || directJson?.success === true || directJson?.message === 'success');
-
-        if (isOk && waybill) {
-          return {
-            success: true,
-            waybillNumber: String(waybill),
-            shipmentId: String(waybill),
-            data: directJson
-          };
-        } else {
-          const directError = directJson?.error_msg || directJson?.message || directJson?.error || res.error || 'فشل إرسال الشحنة لشركة تربو';
-          return { success: false, error: directError };
-        }
-      }
-
-      return res;
+      return {
+        success: false,
+        error: res?.error || 'فشل إنشاء الشحنة في خوادم تربو (تأكد من صحة المفتاح وبيانات العنوان)'
+      };
     } catch (err: any) {
       return { success: false, error: err.message || 'حدث خطأ أثناء إرسال الشحنة إلى تربو' };
     }

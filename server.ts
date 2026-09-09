@@ -5446,7 +5446,19 @@ async function startServer() {
         }
       }
 
-      // Method 3: Public tracking endpoint
+      // Method 3: Direct delivery lookup
+      if (!resResult.ok || !resResult.data) {
+        if (apiKey) {
+          const directResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries/${encodeURIComponent(trackingNumber)}`, {
+            headers: { "Authorization": apiKey, "x-api-key": apiKey }
+          });
+          if (directResult.ok && directResult.data) {
+            resResult = directResult;
+          }
+        }
+      }
+
+      // Method 4: Public tracking endpoint
       if (!resResult.ok || !resResult.data) {
         const pubResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries/track-shipment?trackingNumber=${encodeURIComponent(trackingNumber)}`);
         if (pubResult.ok) {
@@ -6889,7 +6901,7 @@ async function startServer() {
       return c.json({ success: true, ...result });
     } catch (err: any) {
       console.error(`[TURBO-CREATE-CRITICAL]`, err);
-      return c.json({ success: false, error: err.message }, 500);
+      return c.json({ success: false, error: err.message || "فشل إنشاء الشحنة في خوادم تربو" }, 200);
     }
   });
 
@@ -8564,9 +8576,17 @@ async function startServer() {
         }
       }
 
-      const trackingNumber = String(body.order_number || "");
+      const trackingNumber = String(
+        body.order_number || 
+        body.code || 
+        body.bar_code || 
+        body.waybill || 
+        body.airway_bill || 
+        body.invoice_number || 
+        ""
+      );
       const turboStatus = Number(body.status);
-      const remoteOrderId = String(body.remote_order_id || "");
+      const remoteOrderId = String(body.remote_order_id || body.remote_shipment_id || body.invoice_number || "");
       const returnReason = body.return_reason || "";
       const delayReason = body.delay_reason || "";
       const captainName = body.captain_name || "";
