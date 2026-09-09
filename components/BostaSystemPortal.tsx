@@ -37,6 +37,23 @@ interface BostaRegionRates {
   returnToYou: number;
 }
 
+function formatBostaLocationText(value: any): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (typeof value === 'object') {
+    return [
+      value.firstLine,
+      value.secondLine,
+      value.district?.nameAr || value.district?.name,
+      value.zone?.nameAr || value.zone?.name,
+      value.city?.nameAr || value.city?.name,
+      value.cityName,
+      value.country?.nameAr || value.country?.name,
+    ].filter(Boolean).join('، ');
+  }
+  return '';
+}
+
 // Bosta Official Egypt Shipping Rates Matrix
 const BOSTA_PRICING: Record<string, Record<string, BostaRegionRates>> = {
   'القاهرة والجيزة': {
@@ -1284,7 +1301,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                       const name = (loc.locationName || loc.name || '').toLowerCase();
                       const contact = (loc.contactPersonName || '').toLowerCase();
                       const phone = (loc.contactPersonPhone || '').toLowerCase();
-                      const addr = (loc.firstLine || loc.city || '').toLowerCase();
+                      const addr = formatBostaLocationText(loc.firstLine || loc.city).toLowerCase();
                       return name.includes(query) || contact.includes(query) || phone.includes(query) || addr.includes(query);
                     })
                     .map((loc, idx) => {
@@ -1310,10 +1327,10 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
 
                           <td className="p-4">
                             <div className="font-bold text-slate-800 dark:text-slate-200">
-                              {loc.city || 'كفر الشيخ'}
+                              {formatBostaLocationText(loc.city) || 'كفر الشيخ'}
                             </div>
                             <div className="text-[11px] text-slate-400 font-normal">
-                              {loc.firstLine || 'بلطيم'}
+                              {formatBostaLocationText(loc.firstLine) || 'بلطيم'}
                             </div>
                           </td>
 
@@ -1353,8 +1370,8 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                                   setLocFormName(loc.locationName || loc.name || '');
                                   setLocFormContactName(contactName);
                                   setLocFormContactPhone(contactPhone);
-                                  setLocFormCity(loc.city || 'كفر الشيخ - بلطيم');
-                                  setLocFormAddress(loc.firstLine || 'بلطيم');
+                                  setLocFormCity(formatBostaLocationText(loc.city) || 'كفر الشيخ - بلطيم');
+                                  setLocFormAddress(formatBostaLocationText(loc.firstLine) || 'بلطيم');
                                   setLocFormIsDefault(!!isDefault);
                                   setShowLocationModal(true);
                                 }}
