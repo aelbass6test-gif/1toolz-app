@@ -235,22 +235,10 @@ function normalizeCity(raw: string): string {
 
 export const bostaService = {
   async getBusinessLocations(apiKey: string, isStaging: boolean = false): Promise<any> {
-    const cleanKey = (apiKey || '').trim().replace(/^["']|["']$/g, '').replace(/^bearer\s+/i, '').trim();
-    if (cleanKey) {
-      try {
-        const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/pickup-locations/business`, {
-          method: 'GET',
-          headers: { 'Authorization': cleanKey, 'x-api-key': cleanKey }
-        });
-        if (directRes.ok) {
-          const data = await directRes.json().catch(() => null);
-          const list = Array.isArray(data?.data) ? data.data : (data?.data?.list || data?.data?.locations || []);
-          if (list && list.length > 0) return { success: true, data: list };
-        }
-      } catch (e) {}
-    }
-    return { success: true, data: DEFAULT_BOSTA_BUSINESS_LOCATIONS };
+    const query = new URLSearchParams({ apiKey: (apiKey || '').trim() });
+    if (isStaging) query.set('staging', 'true');
+    const res = await safeFetchJson(`/api/bosta/business-locations?${query.toString()}`, undefined, 'فشل جلب مواقع العمل من خادم بوسطة');
+    return res?.success ? res : { success: false, data: [], error: res?.error || 'فشل جلب مواقع العمل عبر خادم الربط' };
   },
 
   async verifyConnection(apiKey: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
@@ -271,37 +259,7 @@ export const bostaService = {
       return res;
     }
 
-    console.log('[BOSTA-SERVICE] Proxy returned error/worker interception. Direct Bosta API check...');
-    const baseUrl = environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-    const testEndpoints = ['/api/v2/deliveries?page=1&limit=1', '/api/v2/pickup-locations/business'];
-
-    for (const ep of testEndpoints) {
-      try {
-        const directRes = await fetch(`${baseUrl}${ep}`, {
-          method: 'GET',
-          headers: { 'Authorization': bareKey, 'x-api-key': bareKey, 'Content-Type': 'application/json' }
-        });
-
-        if (directRes.ok) {
-          const data = await directRes.json().catch(() => ({}));
-          return {
-            success: true,
-            detectedEnvironment: environment || 'production',
-            resolvedApiKey: bareKey,
-            user: { name: 'حساب بوسطة مفعل أونلاين', email: data?.data?.email || '' }
-          };
-        } else if (directRes.status === 401) {
-          return { success: false, error: 'تم رفض مفتاح API من بوسطة (401: غير مصرح).' };
-        }
-      } catch (directErr) {}
-    }
-
-    return {
-      success: true,
-      detectedEnvironment: environment || 'production',
-      resolvedApiKey: bareKey,
-      user: { name: 'حساب بوسطة مفعل أونلاين' }
-    };
+    return { success: false, error: res?.error || 'تعذر فحص مفتاح بوسطة عبر خادم الربط' };
   },
 
   async loginWithCredentials(email: string, password: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
@@ -315,28 +273,7 @@ export const bostaService = {
       return res;
     }
 
-    try {
-      const baseUrl = environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-      const directRes = await fetch(`${baseUrl}/api/v2/users/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), password })
-      });
-      const data = await directRes.json().catch(() => ({}));
-      
-      if (directRes.ok && data.token) {
-        return {
-          success: true,
-          resolvedApiKey: data.token,
-          detectedEnvironment: environment || 'production',
-          user: data.user
-        };
-      } else {
-        return { success: false, error: data.message || 'بيانات الدخول غير صحيحة.' };
-      }
-    } catch (err: any) {
-      return { success: false, error: err.message || 'فشل الاتصال المباشر بخادم بوسطة' };
-    }
+    return { success: false, error: res?.error || 'فشل الاتصال بخادم بوسطة لتسجيل الدخول' };
   },
 
   async createDelivery(order: Order, config?: BostaConfig): Promise<BostaCreateDeliveryResponse> {
@@ -351,225 +288,7 @@ export const bostaService = {
       return res;
     }
 
-    // 2. Direct client fallback to Bosta API
-    console.log('[BOSTA-SERVICE] Local proxy failed or intercepted. Executing direct Bosta API creation...');
-    try {
-      const apiKey = (config?.apiKey || '').trim().replace(/^["']|["']$/g, '').replace(/^bearer\s+/i, '').trim();
-      if (!apiKey) {
-        return { success: false, error: 'يرجى ربط مفتاح API الخاص بـ بوسطة في إعدادات التوصيل أولاً.' };
-      }
-
-      const isStaging = config?.environment === 'staging' || (config as any)?.isStaging;
-      const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-
-      let codAmount = 0;
-      if (order.paymentStatus !== "مدفوع") {
-        const total = order.totalPrice !== undefined 
-          ? order.totalPrice 
-          : ((order.productPrice || 0) + (order.shippingFee || 0));
-        const advance = order.advancePayment || 0;
-        codAmount = Math.max(0, total - advance);
-      }
-
-      let rawPhone = (order.customerPhone || '').toString().replace(/\D/g, '');
-      if (rawPhone.startsWith('20') && rawPhone.length === 12) rawPhone = rawPhone.substring(2);
-      if (!rawPhone.startsWith('0') && rawPhone.length === 10) rawPhone = '0' + rawPhone;
-
-      const nameParts = (order.customerName || 'عميل').trim().split(/\s+/);
-      const firstName = nameParts[0] || 'عميل';
-      const lastName = nameParts.slice(1).join(' ') || '.';
-
-      let deliveryType = 10;
-      if (order.orderType === 'exchange' || order.shipmentType === 'exchange') deliveryType = 30;
-      else if ((order as any).orderType === 'return' || order.shipmentType === 'return' || order.shipmentType === 'maintenance_pickup') deliveryType = 25;
-      else if (order.shipmentType === 'cash_collection') deliveryType = 15;
-
-      let description = order.productName || 'منتجات المتجر';
-      let itemsCount = 1;
-      if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-        description = order.items.map((it: any) => `${it.name || it.productName || ''}${it.variantDescription || it.variantName ? ` (${it.variantDescription || it.variantName})` : ''} × ${it.quantity || 1}`).join(' + ');
-        itemsCount = order.items.reduce((s: number, it: any) => s + (Number(it.quantity) || 1), 0);
-      }
-
-      const rawGov = (order.governorate || '').trim();
-      const rawCity = (order.city || '').trim();
-      const rawShippingArea = (order.shippingArea || '').trim();
-      let specificArea = (rawCity && rawCity !== rawGov) ? rawCity : (rawShippingArea && rawShippingArea !== rawGov) ? rawShippingArea : (rawCity || rawShippingArea || '');
-
-      const city = normalizeCity(rawGov || (rawShippingArea && !rawCity ? rawShippingArea : rawCity) || 'Cairo');
-
-      let customerAddressLine = (order.customerAddress || (order as any).address || '').trim();
-      if (specificArea && !customerAddressLine.includes(specificArea)) {
-        customerAddressLine = `${specificArea} - ${customerAddressLine}`.trim();
-      }
-      if (customerAddressLine.length < 5) {
-        customerAddressLine = `${customerAddressLine ? customerAddressLine + ' - ' : ''}${specificArea || 'شارع رئيسي - الحي السكني'}`.trim();
-      }
-
-      const calculatedItemsValue = (order.items && Array.isArray(order.items) && order.items.length > 0)
-        ? order.items.reduce((sum: number, it: any) => sum + ((Number(it.unitPrice) || Number(it.price) || 0) * (Number(it.quantity) || 1)), 0)
-        : 0;
-      
-      const totalGoodsValue = Number(
-        order.insuranceBaseValue ||
-        order.returnProductValue ||
-        order.maintenanceItemValue ||
-        calculatedItemsValue ||
-        order.productPrice ||
-        order.totalPrice ||
-        0
-      );
-
-      const bostaPayload: any = {
-        type: deliveryType,
-        specs: {
-          packageType: config?.defaultPackageType || "Parcel",
-          size: config?.defaultPackageSize || "SMALL",
-          packageDetails: {
-            itemsCount: itemsCount,
-            description: description.substring(0, 200),
-            goodsValue: totalGoodsValue,
-            declaredValue: totalGoodsValue,
-            packageValue: totalGoodsValue,
-            items: (order.items && Array.isArray(order.items)) ? order.items.map((it: any) => ({
-              name: String(it.name || it.productName || 'منتج'),
-              price: Number(it.unitPrice || it.price || 0),
-              quantity: Number(it.quantity || 1)
-            })) : []
-          },
-          goodsValue: totalGoodsValue,
-          declaredValue: totalGoodsValue
-        },
-        goodsValue: totalGoodsValue,
-        declaredValue: totalGoodsValue,
-        packageValue: totalGoodsValue,
-        cod: codAmount,
-        dropOffAddress: {
-          firstLine: customerAddressLine,
-          city: city,
-          districtId: (order.bostaDistrictId && /^[0-9a-fA-F]{24}$/.test(order.bostaDistrictId)) ? order.bostaDistrictId : undefined,
-          zoneId: (order.bostaZoneId && /^[0-9a-fA-F]{24}$/.test(order.bostaZoneId)) ? order.bostaZoneId : undefined,
-          buildingNumber: order.buildingNumber || undefined,
-          floor: (order as any).floor || undefined,
-          apartment: (order as any).apartment || undefined
-        },
-        receiver: {
-          firstName: firstName,
-          lastName: lastName,
-          phone: rawPhone,
-          secondPhone: order.customerPhone2 ? order.customerPhone2.replace(/\D/g, '') : undefined,
-          email: (order as any).customerEmail || undefined
-        },
-        businessReference: order.orderNumber ? String(order.orderNumber) : String(order.id),
-        notes: order.notes ? String(order.notes).substring(0, 250) : '',
-        allowToOpenPackage: config?.allowToOpenPackage ?? Boolean(order.includeInspectionFee),
-      };
-
-      if (order.advancePayment && Number(order.advancePayment) > 0) {
-        bostaPayload.escrowInfo = { amountToBeCollected: Number(order.advancePayment) };
-      }
-
-      let effectiveBusinessLocationId = order.bostaBusinessLocationId || config?.defaultBusinessLocationId || (config as any)?.businessLocationId;
-      if (!effectiveBusinessLocationId && config?.businessLocations && Array.isArray(config.businessLocations) && config.businessLocations.length > 0) {
-        const validLoc = config.businessLocations.find((l: any) => (l.id && /^[0-9a-fA-F]{24}$/.test(l.id)) || (l._id && /^[0-9a-fA-F]{24}$/.test(l._id)));
-        if (validLoc) {
-          effectiveBusinessLocationId = validLoc._id || validLoc.id;
-        }
-      }
-
-      const isValidObjectId = Boolean(
-        effectiveBusinessLocationId &&
-        typeof effectiveBusinessLocationId === 'string' &&
-        /^[0-9a-fA-F]{24}$/.test(effectiveBusinessLocationId)
-      );
-
-      if (isValidObjectId) {
-        bostaPayload.businessLocationId = String(effectiveBusinessLocationId);
-      } else {
-        let pickupLine = (config?.pickupAddress?.firstLine || (config as any)?.returnAddress?.firstLine || "بلطيم - كفر الشيخ - مقر المتجر الرئيسي").trim();
-        if (pickupLine.length < 5) pickupLine = `${pickupLine} - المقر الرئيسي`;
-        const pickupCityName = normalizeCity(config?.pickupAddress?.city || (config as any)?.returnAddress?.city || 'Kafr Alsheikh');
-
-        bostaPayload.pickupAddress = {
-          firstLine: pickupLine,
-          city: pickupCityName
-        };
-
-        bostaPayload.returnAddress = {
-          firstLine: pickupLine,
-          city: pickupCityName
-        };
-      }
-
-      let directRes = await fetch(`${baseUrl}/api/v2/deliveries`, {
-        method: 'POST',
-        headers: {
-          'Authorization': apiKey,
-          'x-api-key': apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(bostaPayload)
-      });
-
-      let responseData = await directRes.json().catch(() => ({}));
-      let deliveryData = responseData.data || responseData;
-
-      if (!directRes.ok) {
-        const rawErrStr = JSON.stringify(responseData || {}).toLowerCase();
-        if (rawErrStr.includes("district") || rawErrStr.includes("zone") || rawErrStr.includes("not found")) {
-          console.warn("[BOSTA-SERVICE-RETRY] District or Zone rejected by Bosta. Retrying without district/zone IDs...");
-          if (bostaPayload.dropOffAddress) {
-            delete bostaPayload.dropOffAddress.districtId;
-            delete bostaPayload.dropOffAddress.zoneId;
-          }
-          if (bostaPayload.pickupAddress) {
-            delete bostaPayload.pickupAddress.districtId;
-            delete bostaPayload.pickupAddress.zoneId;
-          }
-          if (bostaPayload.returnAddress) {
-            delete bostaPayload.returnAddress.districtId;
-            delete bostaPayload.returnAddress.zoneId;
-          }
-
-          const retryRes = await fetch(`${baseUrl}/api/v2/deliveries`, {
-            method: 'POST',
-            headers: {
-              'Authorization': apiKey,
-              'x-api-key': apiKey,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(bostaPayload)
-          });
-
-          if (retryRes.ok) {
-            directRes = retryRes;
-            responseData = await retryRes.json().catch(() => ({}));
-            deliveryData = responseData.data || responseData;
-          }
-        }
-      }
-
-      if (directRes.ok && (responseData._id || deliveryData._id || responseData.trackingNumber || deliveryData.trackingNumber)) {
-        return {
-          success: true,
-          deliveryId: deliveryData._id || deliveryData.id || responseData.trackingNumber,
-          trackingNumber: deliveryData.trackingNumber || responseData.trackingNumber,
-          message: 'تم إنشاء الشحنة بنجاح في بوسطة',
-          data: deliveryData
-        };
-      } else {
-        return {
-          success: false,
-          error: responseData.message || responseData.error || deliveryData?.message || 'فشل إنشاء الشحنة في بوسطة (تأكد من صحة بيانات العنوان والمدينة).'
-        };
-      }
-    } catch (directErr: any) {
-      console.error('[BOSTA-SERVICE] Direct creation exception:', directErr);
-      return {
-        success: false,
-        error: directErr.message || 'فشل الاتصال المباشر بخدمة بوسطة'
-      };
-    }
+    return { success: false, error: res?.error || 'فشل إنشاء الشحنة عبر خادم الربط مع بوسطة' };
   },
 
   async getAwb(deliveryIdOrTrackingNumber: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; data?: string; error?: string }> {
@@ -581,18 +300,6 @@ export const bostaService = {
     const res = await safeFetchJson(`/api/bosta/deliveries/${encodeURIComponent(deliveryIdOrTrackingNumber)}/awb${query}`, {}, 'تعذر جلب بوليصة الشحن من بوسطة');
     if (res && res.success && !res.isHtmlResponse && res.data) {
       return res;
-    }
-
-    if (apiKey) {
-      try {
-        const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/awb/${encodeURIComponent(deliveryIdOrTrackingNumber)}?awbType=A4&lang=ar`, {
-          headers: { 'Authorization': apiKey, 'x-api-key': apiKey }
-        });
-        if (directRes && (directRes.data || directRes.success)) {
-          return { success: true, data: directRes.data || directRes };
-        }
-      } catch (e) {}
     }
 
     return { success: false, error: res?.error || 'فشل جلب بوليصة الشحن من بوسطة (تأكد من وجود الشحنة ومفتاح الربط)' };
@@ -613,20 +320,6 @@ export const bostaService = {
 
     if (res && res.success && !res.isHtmlResponse && res.data) {
       return res;
-    }
-
-    if (apiKey && trackingNumbers.length > 0) {
-      try {
-        const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/mass-awb`, {
-          method: 'POST',
-          headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trackingNumbers, awbType: requestedAwbType, lang })
-        });
-        if (directRes && (directRes.data || directRes.success)) {
-          return { success: true, data: directRes.data || directRes };
-        }
-      } catch (e) {}
     }
 
     return { success: false, error: res?.error || 'فشل جلب البوالص المجمعة من بوسطة' };
@@ -651,26 +344,6 @@ export const bostaService = {
       return res;
     }
 
-    if (trackingNumber) {
-      try {
-        const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const headers: any = {};
-        if (apiKey) {
-          headers['Authorization'] = apiKey;
-          headers['x-api-key'] = apiKey;
-        }
-        const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/search`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ trackingNumbers: [trackingNumber] })
-        });
-        const trackItem = directRes?.data?.[0] || directRes?.data || directRes?.tracking;
-        if (trackItem && (trackItem.state || trackItem.status || trackItem.trackingNumber || trackItem._id)) {
-          return { success: true, tracking: trackItem };
-        }
-      } catch (e) {}
-    }
-
     return { success: false, error: res?.error || 'تعذر استرجاع تفاصيل التتبع من بوسطة' };
   },
 
@@ -685,22 +358,6 @@ export const bostaService = {
       return res;
     }
 
-    if (params.config?.apiKey) {
-      try {
-        const apiKey = params.config.apiKey;
-        const baseUrl = params.config.isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/pickups`, {
-          method: 'POST',
-          headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify(params)
-        });
-        if (directRes.ok) {
-          const data = await directRes.json().catch(() => ({}));
-          return { success: true, pickup: data.data || data };
-        }
-      } catch (e) {}
-    }
-
     return { success: false, error: res.error || 'فشل إنشاء إذن الاستلام' };
   },
 
@@ -709,19 +366,7 @@ export const bostaService = {
     if (res.success && Array.isArray(res.list) && res.list.length > 0) {
       return res;
     }
-
-    try {
-      const directRes = await fetch('https://app.bosta.co/api/v2/cities');
-      if (directRes.ok) {
-        const data = await directRes.json().catch(() => ({}));
-        const list = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
-        if (list.length > 0) {
-          return { success: true, list };
-        }
-      }
-    } catch (e) {}
-
-    return { success: false, list: [], error: 'فشل جلب قائمة المدن' };
+    return { success: false, list: [], error: res?.error || 'فشل جلب قائمة المدن عبر خادم الربط' };
   },
 
   async getDistricts(): Promise<{ success: boolean; data?: any[]; error?: string }> {
@@ -729,19 +374,7 @@ export const bostaService = {
     if (res.success && Array.isArray(res.data) && res.data.length > 0) {
       return res;
     }
-
-    try {
-      const directRes = await fetch('https://app.bosta.co/api/v2/districts');
-      if (directRes.ok) {
-        const data = await directRes.json().catch(() => ({}));
-        const list = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
-        if (list.length > 0) {
-          return { success: true, data: list };
-        }
-      }
-    } catch (e) {}
-
-    return { success: false, data: [], error: 'فشل جلب قائمة المناطق' };
+    return { success: false, data: [], error: res?.error || 'فشل جلب قائمة المناطق عبر خادم الربط' };
   },
 
   async getCityDistricts(cityId: string): Promise<{ success: boolean; districts?: any[]; error?: string }> {
@@ -750,11 +383,6 @@ export const bostaService = {
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
-      }
-      const directRes = await fetch(`https://app.bosta.co/api/v2/districts/city/${encodeURIComponent(cityId)}`);
-      if (directRes.ok) {
-        const data = await directRes.json().catch(() => ({}));
-        return { success: true, districts: data.data || data };
       }
       return { success: false, error: 'تعذر جلب مناطق المدينة' };
     } catch (err: any) {
@@ -876,21 +504,6 @@ export const bostaService = {
 
       if (res && (res.success || res.message)) {
         return { success: true, message: res.message || 'تم إلغاء الشحنة بنجاح في بوسطة' };
-      }
-
-      // If local proxy returned error or HTML, attempt direct Bosta cancellation
-      const apiKey = config?.apiKey;
-      if (apiKey) {
-        try {
-          const baseUrl = config?.environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-          const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/business/${encodeURIComponent(id)}/terminate`, {
-            method: 'DELETE',
-            headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' }
-          });
-          if (directRes && (directRes.success || directRes.message || directRes.status === 'TERMINATED')) {
-            return { success: true, message: 'تم إلغاء الشحنة بنجاح في بوسطة' };
-          }
-        } catch (e) {}
       }
 
       return {
