@@ -277,6 +277,16 @@ export const bostaService = {
   },
 
   async createDelivery(order: Order, config?: BostaConfig): Promise<BostaCreateDeliveryResponse> {
+    const existingTrackingNumber = order.bostaTrackingNumber || (order.shippingCompany?.toLowerCase().includes('bosta') ? order.waybillNumber : undefined);
+    if (existingTrackingNumber) {
+      return {
+        success: true,
+        deliveryId: order.bostaDeliveryId,
+        trackingNumber: existingTrackingNumber,
+        message: 'الشحنة موجودة بالفعل، تم إرجاع بياناتها المحفوظة.'
+      };
+    }
+
     // 1. Try local proxy
     const res = await safeFetchJson('/api/bosta/deliveries/create', {
       method: 'POST',

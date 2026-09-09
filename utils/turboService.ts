@@ -113,6 +113,16 @@ export const turboService = {
    */
   async createShipment(order: Order, config?: TurboConfig): Promise<{ success: boolean; waybillNumber?: string; shipmentId?: string; error?: string }> {
     try {
+      const existingTrackingNumber = order.turboTrackingNumber || (order.shippingCompany?.toLowerCase().includes('turbo') ? order.waybillNumber : undefined);
+      if (existingTrackingNumber) {
+        return {
+          success: true,
+          waybillNumber: existingTrackingNumber,
+          shipmentId: order.turboDeliveryId,
+          error: undefined
+        };
+      }
+
       const res = await safeFetchJson('/api/turbo/shipments/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

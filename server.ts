@@ -476,6 +476,7 @@ async function getCachedStore(db: any, storeId: string) {
 async function startServer() {
   const PORT = 3000;
   const app = new Hono();
+  const activeShipmentCreationKeys = new Set<string>();
 
   // Strip trailing slashes to fix Cloudflare redirect issues
   app.use("*", trimTrailingSlash());
@@ -4943,6 +4944,7 @@ async function startServer() {
 
   // 3. Create Delivery on Bosta (Compliant with Bosta API v2 specs)
   app.post("/api/bosta/deliveries/create", async (c) => {
+    let creationKey = "";
     try {
       const { order, config } = await c.req.json();
       const apiKey = resolveBostaKey(c, config?.apiKey);
@@ -4954,6 +4956,12 @@ async function startServer() {
       if (!order) {
         return c.json({ success: false, error: "بيانات الطلب غير متوفرة." }, 400);
       }
+
+      creationKey = `bosta:${String(order.storeId || order.store_id || "unknown")}::${String(order.id || order.orderNumber || "unknown")}`;
+      if (activeShipmentCreationKeys.has(creationKey)) {
+        return c.json({ success: false, retryable: true, error: "جاري إنشاء شحنة لهذا الطلب بالفعل. انتظر النتيجة الحالية." }, 409);
+      }
+      activeShipmentCreationKeys.add(creationKey);
 
       // Calculate Cash On Delivery (COD)
       let codAmount = 0;
@@ -5265,6 +5273,7 @@ async function startServer() {
 
       if (!resResult.ok) {
         const errorMsg = resResult.data?.message || resResult.data?.error || resResult.rawError || `فشل إنشاء الشحنة في بوسطة (كود: ${resResult.status})`;
+        activeShipmentCreationKeys.delete(creationKey);
         return c.json({ success: false, error: errorMsg, raw: resResult.data }, (resResult.status >= 200 && resResult.status < 600 ? resResult.status : 500) as any);
       }
 
@@ -5272,6 +5281,7 @@ async function startServer() {
       const deliveryId = delivery?._id || delivery?.id;
       const trackingNumber = delivery?.trackingNumber;
 
+      activeShipmentCreationKeys.delete(creationKey);
       return c.json({
         success: true,
         deliveryId,
@@ -5280,6 +5290,7 @@ async function startServer() {
         data: delivery
       });
     } catch (err: any) {
+      if (creationKey) activeShipmentCreationKeys.delete(creationKey);
       console.error("[BOSTA-CREATE-ERROR]", err);
       return c.json({ success: false, error: err.message || "حدث خطأ غير متوقع أثناء الاتصال ببوسطة" }, 500);
     }
@@ -6889,8 +6900,15 @@ async function startServer() {
 
   // 10.3 Create Order / Shipment on Turbo (/external-api/add-order)
   app.post("/api/turbo/shipments/create", async (c) => {
+    let creationKey = "";
     try {
       const { order, config } = await c.req.json();
+      if (!order) return c.json({ success: false, error: "بيانات الطلب غير متوفرة." }, 400);
+      creationKey = `turbo:${String(order.storeId || order.store_id || "unknown")}::${String(order.id || order.orderNumber || "unknown")}`;
+      if (activeShipmentCreationKeys.has(creationKey)) {
+        return c.json({ success: false, retryable: true, error: "جاري إنشاء شحنة لهذا الطلب بالفعل. انتظر النتيجة الحالية." }, 409);
+      }
+      activeShipmentCreationKeys.add(creationKey);
       const authKey = config?.authenticationKey || resolveTurboKey(c, config?.apiKey);
       
       const result = await createTurboShipmentInternal(order, { 
@@ -6898,8 +6916,10 @@ async function startServer() {
         authenticationKey: authKey 
       });
 
+      activeShipmentCreationKeys.delete(creationKey);
       return c.json({ success: true, ...result });
     } catch (err: any) {
+      if (creationKey) activeShipmentCreationKeys.delete(creationKey);
       console.error(`[TURBO-CREATE-CRITICAL]`, err);
       return c.json({ success: false, error: err.message || "فشل إنشاء الشحنة في خوادم تربو" }, 200);
     }
