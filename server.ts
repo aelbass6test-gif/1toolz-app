@@ -6855,9 +6855,14 @@ async function startServer() {
     }
 
     console.log("[TURBO-PAYLOAD]", JSON.stringify({
-      ...orderPayload,
-      authentication_key: orderPayload.authentication_key ? "[REDACTED]" : undefined
-    }, null, 2));
+      main_client_code: orderPayload.main_client_code,
+      remote_order_id: orderPayload.remote_order_id,
+      remote_shipment_id: orderPayload.remote_shipment_id,
+      government: orderPayload.government,
+      area: orderPayload.area,
+      amount_to_be_collected: orderPayload.amount_to_be_collected,
+      isStaging,
+    }));
 
     const resResult = await safeTurboFetch("/external-api/add-order", {
       method: "POST",
@@ -6884,7 +6889,7 @@ async function startServer() {
 
     if (!isActuallySuccess) {
       const errorMsg = resResult.data?.error_msg || resResult.data?.message || resResult.data?.error || resResult.rawError || "فشل إرسال الشحنة لشركة تربو";
-      throw new Error(errorMsg);
+      throw new Error(`Turbo رفض إنشاء الشحنة (HTTP ${resResult.status}): ${errorMsg}`);
     }
 
     return { waybillNumber: String(waybill || id), shipmentId: String(id || waybill), data: resResult.data };
