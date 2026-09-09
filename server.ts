@@ -5323,15 +5323,27 @@ async function startServer() {
       const baseUrl = isStaging ? "https://stg-app.bosta.co" : "https://app.bosta.co";
 
       if (!apiKey) {
-        return c.json({ success: false, error: "مفتاح الربط غير متوفر." }, 400);
+        return c.json({ success: false, error: "مفتاح الربط غير متوفر." }, 200);
       }
 
-      const resResult = await safeBostaFetch(`${baseUrl}/api/v0/deliveries/awb/${encodeURIComponent(id)}`, {
-        headers: { "Authorization": apiKey }
-      });
+      const awbEndpoints = [
+        `${baseUrl}/api/v2/deliveries/awb/${encodeURIComponent(id)}?awbType=A4&lang=ar`,
+        `${baseUrl}/api/v2/deliveries/awb/${encodeURIComponent(id)}`
+      ];
 
-      if (!resResult.ok) {
-        return c.json({ success: false, error: resResult.data?.message || resResult.rawError || "تعذر جلب البوليصة من بوسطة" }, (resResult.status >= 200 && resResult.status < 600 ? resResult.status : 500) as any);
+      let resResult: any = null;
+      for (const ep of awbEndpoints) {
+        resResult = await safeBostaFetch(ep, {
+          headers: { "Authorization": apiKey, "x-api-key": apiKey }
+        });
+        if (resResult.ok) break;
+      }
+
+      if (!resResult || !resResult.ok) {
+        return c.json({
+          success: false,
+          error: resResult?.data?.message || resResult?.rawError || "تعذر جلب بوليصة الشحن من خوادم بوسطة (تأكد من وجود الشحنة ومفتاح الربط)"
+        }, 200);
       }
 
       const base64Data = resResult.data?.data || resResult.data;
@@ -5341,7 +5353,7 @@ async function startServer() {
       });
     } catch (err: any) {
       console.error("[BOSTA-AWB-ERROR]", err);
-      return c.json({ success: false, error: err.message }, 500);
+      return c.json({ success: false, error: err.message || "حدث خطأ أثناء جلب بوليصة الشحن" }, 200);
     }
   });
 
@@ -5417,39 +5429,47 @@ async function startServer() {
       const isStaging = c.req.query("staging") === "true";
       const baseUrl = isStaging ? "https://stg-app.bosta.co" : "https://app.bosta.co";
 
-      if (!apiKey) {
-        return c.json({ success: false, error: "مفتاح الربط غير متوفر." }, 400);
-      }
-
       // Method 1: Search endpoint
       let resResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries/search`, {
         method: "POST",
-        headers: { "Authorization": apiKey },
+        headers: { "Authorization": apiKey || "", "x-api-key": apiKey || "" },
         body: JSON.stringify({ trackingNumbers: [trackingNumber] })
       });
 
       // Method 2: Fallback tracking endpoint
       if (!resResult.ok || !resResult.data?.data?.length) {
         const altResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries/${encodeURIComponent(trackingNumber)}/tracking`, {
-          headers: { "Authorization": apiKey }
+          headers: { "Authorization": apiKey || "", "x-api-key": apiKey || "" }
         });
         if (altResult.ok) {
           resResult = altResult;
         }
       }
 
+      // Method 3: Public tracking endpoint
+      if (!resResult.ok || !resResult.data) {
+        const pubResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries/track-shipment?trackingNumber=${encodeURIComponent(trackingNumber)}`);
+        if (pubResult.ok) {
+          resResult = pubResult;
+        }
+      }
+
       if (!resResult.ok) {
-        return c.json({ success: false, error: resResult.data?.message || resResult.rawError || "تعذر العثور على شحنة بهذا الرقم في بوسطة" }, (resResult.status >= 200 && resResult.status < 600 ? resResult.status : 500) as any);
+        return c.json({ success: false, error: resResult.data?.message || resResult.rawError || "تعذر العثور على شحنة بهذا الرقم في بوسطة" }, 200);
       }
 
       const trackingData = resResult.data?.data?.[0] || resResult.data?.data || resResult.data;
+      if (!trackingData) {
+        return c.json({ success: false, error: "تعذر استرجاع تفاصيل التتبع للشحنة" }, 200);
+      }
+
       return c.json({
         success: true,
         tracking: trackingData
       });
     } catch (err: any) {
       console.error("[BOSTA-TRACK-ERROR]", err);
-      return c.json({ success: false, error: err.message }, 500);
+      return c.json({ success: false, error: err.message || "فشل تتبع الشحنة مع بوسطة" }, 200);
     }
   });
 
@@ -8681,6 +8701,11 @@ async function startServer() {
   app.post("/api/webhooks/turbo", handleTurboWebhook);
   app.post("/api/webhook/turbo", handleTurboWebhook);
 
+  // Catch-all JSON 404 for missing /api/* endpoints (prevents HTML fallback on API errors)
+  app.all("/api/*", (c) => {
+    return c.json({ success: false, error: `مسار غير موجود في خادم API: ${c.req.path}` }, 404);
+  });
+
   const isProd = process.env.NODE_ENV === "production";
 
   // Provide fallback static files for production Hono server
@@ -8698,7 +8723,7 @@ async function startServer() {
     app.get("/*", async (c, next) => {
       const pathName = c.req.path;
       if (pathName.startsWith("/api/") || pathName.includes("/api/")) {
-        return await next(); // IMPORTANT: Let Hono handle 404 for missing APIs, DO NOT return HTML
+        return c.json({ success: false, error: `مسار API غير موجود: ${pathName}` }, 404);
       }
       
       // Exclude asset files to prevent browser console MIME type errors
@@ -8732,6 +8757,7 @@ async function startServer() {
     const rawUrl = req.url || "";
     // Robust URL parsing to handle Cloudflare / reverse proxy absolute URLs and custom domains
     const urlPath = rawUrl.replace(/^https?:\/\/[^\/]+/, "");
+    req.url = urlPath; // Ensure Hono & Vite always receive relative path (/api/...)
     const isApiRequest = urlPath.startsWith("/api/") || urlPath.includes("/api/");
 
     if (!isProd && vite) {

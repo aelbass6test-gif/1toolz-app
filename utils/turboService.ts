@@ -2,6 +2,43 @@ import { Order, TurboConfig } from '../types';
 
 export type { TurboConfig };
 
+async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
+  try {
+    const urlObj = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000');
+    if (!options || options.method === 'GET' || options.method === 'POST') {
+      urlObj.searchParams.set('_cb', Date.now().toString());
+    }
+    const finalUrl = urlObj.toString();
+
+    const res = await fetch(finalUrl, options);
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+
+    if (text.trim().startsWith('<') || contentType.includes('text/html')) {
+      return {
+        success: false,
+        error: fallbackError || `تعذر الاتصال بخادم الربط مع تربو (رمز الاستجابة ${res.status}).`,
+        isHtmlResponse: true,
+        status: res.status
+      };
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: fallbackError || 'تعذر قراءة الاستجابة من خادم تربو.'
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'فشل الاتصال بالشبكة.'
+    };
+  }
+}
+
 export const turboService = {
   /**
    * Get Airwaybill (AWB) for printing
@@ -11,7 +48,7 @@ export const turboService = {
       const authKey = (config as any)?.authenticationKey || (config as any)?.apiToken || (config as any)?.apiKey || '';
       const clientCode = (config as any)?.mainClientCode;
       const isStaging = (config as any)?.environment === 'staging';
-      const res = await fetch('/api/shipping/turbo/print', {
+      return await safeFetchJson('/api/shipping/turbo/print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -22,8 +59,7 @@ export const turboService = {
           order: order || null,
           config: config || null
         })
-      });
-      return await res.json();
+      }, 'فشل تحميل بوليصة تربو');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل تحميل بوليصة تربو' };
     }
@@ -35,11 +71,10 @@ export const turboService = {
     try {
       const q = new URLSearchParams({ apiKey });
       if (environment === 'staging') q.append('staging', 'true');
-      const res = await fetch(`/api/turbo/verify?${q.toString()}`, {
+      return await safeFetchJson(`/api/turbo/verify?${q.toString()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
-      });
-      return await res.json();
+      }, 'تعذر الاتصال بخدمة تربو');
     } catch (err: any) {
       return { success: false, error: err.message || 'تعذر الاتصال بخدمة تربو' };
     }
@@ -50,12 +85,11 @@ export const turboService = {
    */
   async login(email: string, password: string, environment: 'production' | 'staging' = 'production'): Promise<{ success: boolean; apiKey?: string; user?: any; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/login', {
+      return await safeFetchJson('/api/turbo/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, environment })
-      });
-      return await res.json();
+      }, 'فشل تسجيل الدخول لحساب تربو');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل تسجيل الدخول لحساب تربو' };
     }
@@ -66,12 +100,84 @@ export const turboService = {
    */
   async createShipment(order: Order, config?: TurboConfig): Promise<{ success: boolean; waybillNumber?: string; shipmentId?: string; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/shipments/create', {
+      const res = await safeFetchJson('/api/turbo/shipments/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order, config })
-      });
-      return await res.json();
+      }, 'فشل إرسال الشحنة لشركة تربو');
+
+      if (res.success && (res.waybillNumber || res.shipmentId)) {
+        return res;
+      }
+
+      // If local proxy failed or returned error / HTML response, execute direct client fallback to Turbo API
+      if (!res.success || res.isHtmlResponse) {
+        console.warn('[TURBO-SERVICE] Local proxy returned error/intercepted. Executing direct Turbo API creation...');
+        const authKey = config?.authenticationKey || (config as any)?.apiToken || config?.apiKey || '';
+        const mainClientCode = Number(config?.mainClientCode || 74068);
+        const isStaging = config?.environment === 'staging';
+        const baseUrl = isStaging ? 'https://stg-app.turbo-eg.com' : 'https://platform.turbo.info';
+
+        if (!authKey) {
+          return { success: false, error: res.error || 'مفتاح الربط الخاص بشركة تربو غير متوفر' };
+        }
+
+        const items = Array.isArray(order.items) ? order.items : [];
+        const summary = items.length > 0
+          ? items.map((i: any) => `${i.productName || i.name || 'منتج'} (العدد: ${i.quantity || 1})`).join(' | ')
+          : (order.order_summary || 'منتجات متنوعة');
+
+        const directPayload = {
+          authentication_key: authKey,
+          main_client_code: mainClientCode,
+          second_client: config?.senderName || (config as any)?.secondClient || 'وان تولز للعدد',
+          receiver: order.customerName || 'عميل بدون اسم',
+          phone1: order.customerPhone || order.phone || '01000000000',
+          government: order.governorate || order.shippingGovernorate || 'القاهرة',
+          area: order.city || order.shippingArea || order.shippingCity || 'المنطقة',
+          address: order.customerAddress || order.shippingAddress || 'العنوان بالتفصيل',
+          notes: order.notes || order.userNotes || '',
+          invoice_number: order.orderNumber || order.id || null,
+          order_summary: summary,
+          amount_to_be_collected: Number(order.totalPrice || order.productPrice || 0),
+          return_amount: Number(order.flexShipFee || order.flexShipCompanyFee || 0),
+          is_order: 0,
+          can_open: (config?.allowOpenPackage ?? true) ? 1 : 0,
+          weight: Number(order.weight || 1),
+          delivery_type: 0,
+          remote_shipment_id: String(order.id || order.orderNumber || '')
+        };
+
+        const directRes = await fetch(`${baseUrl}/external-api/add-order`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(directPayload)
+        });
+
+        const textData = await directRes.text().catch(() => '');
+        let directJson: any = null;
+        try { directJson = JSON.parse(textData); } catch {}
+
+        const waybill = directJson?.data?.bar_code || directJson?.data?.code || directJson?.bar_code || directJson?.code || directJson?.id || directJson?.result?.bar_code;
+        const isOk = directRes.ok && (!!waybill || directJson?.status === true || directJson?.success === true || directJson?.message === 'success');
+
+        if (isOk && waybill) {
+          return {
+            success: true,
+            waybillNumber: String(waybill),
+            shipmentId: String(waybill),
+            data: directJson
+          };
+        } else {
+          const directError = directJson?.error_msg || directJson?.message || directJson?.error || res.error || 'فشل إرسال الشحنة لشركة تربو';
+          return { success: false, error: directError };
+        }
+      }
+
+      return res;
     } catch (err: any) {
       return { success: false, error: err.message || 'حدث خطأ أثناء إرسال الشحنة إلى تربو' };
     }
@@ -94,7 +200,7 @@ export const turboService = {
         stagingFlag = (configOrApiKey as any)?.environment === 'staging' || isStaging === true;
       }
       
-      const res = await fetch('/api/shipping/turbo/track', {
+      return await safeFetchJson('/api/shipping/turbo/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -103,8 +209,7 @@ export const turboService = {
           remote_shipment_id: trackingNumber,
           staging: stagingFlag
         })
-      });
-      return await res.json();
+      }, 'فشل تتبع الشحنة مع تربو');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل تتبع الشحنة مع تربو' };
     }
@@ -118,8 +223,7 @@ export const turboService = {
       const q = new URLSearchParams();
       if (apiKey) q.append('apiKey', apiKey);
       if (isStaging) q.append('staging', 'true');
-      const res = await fetch(`/api/turbo/governorates?${q.toString()}`);
-      return await res.json();
+      return await safeFetchJson(`/api/turbo/governorates?${q.toString()}`, undefined, 'فشل جلب قائمة المحافظات من تربو');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل جلب قائمة المحافظات من تربو' };
     }
@@ -145,8 +249,7 @@ export const turboService = {
       if (params.apiKey) q.append('apiKey', params.apiKey);
       if (params.isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`/api/turbo/pricing/calculator?${q.toString()}`);
-      return await res.json();
+      return await safeFetchJson(`/api/turbo/pricing/calculator?${q.toString()}`, undefined, 'فشل حساب رسوم الشحن مع تربو');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل حساب رسوم الشحن مع تربو' };
     }
@@ -157,12 +260,11 @@ export const turboService = {
    */
   async cancelShipment(trackingNumber: string, config: TurboConfig): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/shipments/cancel', {
+      return await safeFetchJson('/api/turbo/shipments/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trackingNumber, config })
-      });
-      return await res.json();
+      }, 'فشل إلغاء الشحنة');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل إلغاء الشحنة' };
     }
@@ -173,12 +275,11 @@ export const turboService = {
    */
   async deleteShipment(trackingNumber: string, config: TurboConfig): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/shipments/delete', {
+      return await safeFetchJson('/api/turbo/shipments/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trackingNumber, config })
-      });
-      return await res.json();
+      }, 'فشل حذف الشحنة');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل حذف الشحنة' };
     }
@@ -189,12 +290,11 @@ export const turboService = {
    */
   async resendRequest(trackingNumber: string, config: TurboConfig): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/shipments/resend', {
+      return await safeFetchJson('/api/turbo/shipments/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trackingNumber, config })
-      });
-      return await res.json();
+      }, 'فشل إعادة إرسال الطلب');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل إعادة إرسال الطلب' };
     }
@@ -205,12 +305,11 @@ export const turboService = {
    */
   async editShipment(trackingNumber: string, order: Order, config: TurboConfig): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/shipments/edit', {
+      return await safeFetchJson('/api/turbo/shipments/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trackingNumber, order, config })
-      });
-      return await res.json();
+      }, 'فشل تعديل الشحنة');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل تعديل الشحنة' };
     }
@@ -226,8 +325,7 @@ export const turboService = {
         clientCode: String(config.mainClientCode || ''),
         staging: config.environment === 'staging' ? 'true' : 'false'
       });
-      const res = await fetch(`/api/turbo/tickets/categories?${q.toString()}`);
-      return await res.json();
+      return await safeFetchJson(`/api/turbo/tickets/categories?${q.toString()}`);
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -240,8 +338,7 @@ export const turboService = {
         clientCode: String(config.mainClientCode || ''),
         staging: config.environment === 'staging' ? 'true' : 'false'
       });
-      const res = await fetch(`/api/turbo/tickets/statuses?${q.toString()}`);
-      return await res.json();
+      return await safeFetchJson(`/api/turbo/tickets/statuses?${q.toString()}`);
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -254,8 +351,7 @@ export const turboService = {
         clientCode: String(config.mainClientCode || ''),
         staging: config.environment === 'staging' ? 'true' : 'false'
       });
-      const res = await fetch(`/api/turbo/tickets?${q.toString()}`);
-      return await res.json();
+      return await safeFetchJson(`/api/turbo/tickets?${q.toString()}`);
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -263,7 +359,7 @@ export const turboService = {
 
   async createTicket(payload: any, config: TurboConfig): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch('/api/turbo/tickets/create', {
+      return await safeFetchJson('/api/turbo/tickets/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -273,7 +369,6 @@ export const turboService = {
           staging: config.environment === 'staging'
         })
       });
-      return await res.json();
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -281,7 +376,7 @@ export const turboService = {
 
   async addTicketMessage(ticketId: string, content: string, config: TurboConfig): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`/api/turbo/tickets/${ticketId}/message`, {
+      return await safeFetchJson(`/api/turbo/tickets/${ticketId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -291,7 +386,6 @@ export const turboService = {
           staging: config.environment === 'staging'
         })
       });
-      return await res.json();
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -299,7 +393,7 @@ export const turboService = {
 
   async rateTicket(ticketId: string, rate: number, config: TurboConfig): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`/api/turbo/tickets/${ticketId}/rate`, {
+      return await safeFetchJson(`/api/turbo/tickets/${ticketId}/rate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -309,7 +403,6 @@ export const turboService = {
           staging: config.environment === 'staging'
         })
       });
-      return await res.json();
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -322,8 +415,7 @@ export const turboService = {
         clientCode: String(config.mainClientCode || ''),
         staging: config.environment === 'staging' ? 'true' : 'false'
       });
-      const res = await fetch(`/api/turbo/tickets/total-open?${q.toString()}`);
-      return await res.json();
+      return await safeFetchJson(`/api/turbo/tickets/total-open?${q.toString()}`);
     } catch (err: any) {
       return { success: false, error: err.message };
     }

@@ -164,7 +164,8 @@ export interface BostaPickupResponse {
  */
 async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
   try {
-    const urlObj = new URL(url, window.location.origin);
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000';
+    const urlObj = new URL(url, origin);
     if (!options || options.method === 'GET' || options.method === 'POST') {
       urlObj.searchParams.set('_cb', Date.now().toString());
     }
@@ -585,17 +586,16 @@ export const bostaService = {
     if (apiKey) {
       try {
         const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/deliveries/awb/${encodeURIComponent(deliveryIdOrTrackingNumber)}?awbType=A4&lang=ar`, {
+        const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/awb/${encodeURIComponent(deliveryIdOrTrackingNumber)}?awbType=A4&lang=ar`, {
           headers: { 'Authorization': apiKey, 'x-api-key': apiKey }
         });
-        if (directRes.ok) {
-          const data = await directRes.json().catch(() => ({}));
-          return { success: true, data: data.data || data };
+        if (directRes && (directRes.data || directRes.success)) {
+          return { success: true, data: directRes.data || directRes };
         }
       } catch (e) {}
     }
 
-    return { success: false, error: res.error || 'فشل جلب بوليصة الشحن' };
+    return { success: false, error: res?.error || 'فشل جلب بوليصة الشحن من بوسطة (تأكد من وجود الشحنة ومفتاح الربط)' };
   },
 
   async getMassAwb(
@@ -618,19 +618,18 @@ export const bostaService = {
     if (apiKey && trackingNumbers.length > 0) {
       try {
         const baseUrl = isStaging ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
-        const directRes = await fetch(`${baseUrl}/api/v2/deliveries/mass-awb`, {
+        const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/mass-awb`, {
           method: 'POST',
           headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({ trackingNumbers, awbType: requestedAwbType, lang })
         });
-        if (directRes.ok) {
-          const data = await directRes.json().catch(() => ({}));
-          return { success: true, data: data.data || data };
+        if (directRes && (directRes.data || directRes.success)) {
+          return { success: true, data: directRes.data || directRes };
         }
       } catch (e) {}
     }
 
-    return { success: false, error: res.error || 'فشل جلب البوالص المجمعة' };
+    return { success: false, error: res?.error || 'فشل جلب البوالص المجمعة من بوسطة' };
   },
 
   async createBulkDeliveries(deliveries: any[], config?: BostaConfig): Promise<{ success: boolean; data?: any; error?: string }> {
@@ -648,7 +647,7 @@ export const bostaService = {
     const query = params.toString() ? `?${params.toString()}` : '';
 
     const res = await safeFetchJson(`/api/bosta/deliveries/track/${encodeURIComponent(trackingNumber)}${query}`, {}, 'تعذر تتبع الشحنة مع بوسطة');
-    if (res && res.success && !res.isHtmlResponse) {
+    if (res && res.success && !res.isHtmlResponse && res.tracking) {
       return res;
     }
 
@@ -660,15 +659,19 @@ export const bostaService = {
           headers['Authorization'] = apiKey;
           headers['x-api-key'] = apiKey;
         }
-        const directRes = await fetch(`${baseUrl}/api/v2/deliveries/track/${encodeURIComponent(trackingNumber)}`, { headers });
-        if (directRes.ok) {
-          const data = await directRes.json().catch(() => ({}));
-          return { success: true, tracking: data.data || data };
+        const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/search`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackingNumbers: [trackingNumber] })
+        });
+        const trackItem = directRes?.data?.[0] || directRes?.data || directRes?.tracking;
+        if (trackItem && (trackItem.state || trackItem.status || trackItem.trackingNumber || trackItem._id)) {
+          return { success: true, tracking: trackItem };
         }
       } catch (e) {}
     }
 
-    return { success: false, error: res.error || 'تعذر تتبع الشحنة' };
+    return { success: false, error: res?.error || 'تعذر استرجاع تفاصيل التتبع من بوسطة' };
   },
 
   async createPickup(params: any): Promise<BostaPickupResponse> {
@@ -865,12 +868,35 @@ export const bostaService = {
 
   async terminateDelivery(id: string, config?: BostaConfig): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/deliveries/${encodeURIComponent(id)}/terminate`, {
+      const res = await safeFetchJson(`/api/bosta/deliveries/${encodeURIComponent(id)}/terminate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config })
-      });
-      return await res.json();
+      }, 'فشل إلغاء الشحنة في بوسطة');
+
+      if (res && (res.success || res.message)) {
+        return { success: true, message: res.message || 'تم إلغاء الشحنة بنجاح في بوسطة' };
+      }
+
+      // If local proxy returned error or HTML, attempt direct Bosta cancellation
+      const apiKey = config?.apiKey;
+      if (apiKey) {
+        try {
+          const baseUrl = config?.environment === 'staging' ? 'https://stg-app.bosta.co' : 'https://app.bosta.co';
+          const directRes = await safeFetchJson(`${baseUrl}/api/v2/deliveries/business/${encodeURIComponent(id)}/terminate`, {
+            method: 'DELETE',
+            headers: { 'Authorization': apiKey, 'x-api-key': apiKey, 'Content-Type': 'application/json' }
+          });
+          if (directRes && (directRes.success || directRes.message || directRes.status === 'TERMINATED')) {
+            return { success: true, message: 'تم إلغاء الشحنة بنجاح في بوسطة' };
+          }
+        } catch (e) {}
+      }
+
+      return {
+        success: false,
+        error: res?.error || 'قد تكون الشحنة ملغية مسبقاً على خوادم بوسطة أو أن رقم التتبع لا يطابق خوادم الشركة'
+      };
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل إلغاء الشحنة في بوسطة' };
     }
