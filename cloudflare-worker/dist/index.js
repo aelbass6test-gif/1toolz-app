@@ -80,11 +80,15 @@ async function bosta(request, env) {
   else if (path.match(/^\/api\/bosta\/cities\/[^/]+\/districts$/)) target = `/api/v2/cities/${encodeURIComponent(path.split("/")[4])}/districts`;
   else if (path.match(/^\/api\/bosta\/cities\/[^/]+\/zones$/)) target = `/api/v2/cities/${encodeURIComponent(path.split("/")[4])}/zones`;
   else if (path === "/api/bosta/deliveries/create") {
-    target = "/api/v2/deliveries";
+    target = "/api/v2/deliveries?apiVersion=1";
     method = "POST";
     payload = bostaDelivery(body?.order || {}, body?.config || {});
   } else if (path === "/api/bosta/deliveries/bulk") {
     target = "/api/v2/deliveries/bulk";
+    method = "POST";
+    payload = body;
+  } else if (path === "/api/bosta/deliveries/mass-awb") {
+    target = "/api/v2/deliveries/mass-awb";
     method = "POST";
     payload = body;
   } else if (path.match(/^\/api\/bosta\/deliveries\/track\/([^/]+)$/)) target = `/api/v2/deliveries/track-shipment?trackingNumber=${encodeURIComponent(path.split("/")[5])}`;
@@ -129,7 +133,7 @@ function bostaDelivery(order, config) {
   const names = String(order.customerName || "\u0639\u0645\u064A\u0644").trim().split(/\s+/);
   const cod = order.paymentStatus === "\u0645\u062F\u0641\u0648\u0639" ? 0 : Math.max(0, Number(order.totalPrice ?? (order.productPrice || 0) + (order.shippingFee || 0)) - Number(order.advancePayment || 0));
   const items = Array.isArray(order.items) ? order.items : [];
-  return { type: 10, specs: { packageDetails: { itemsCount: items.reduce((n, x) => n + Number(x.quantity || 1), 0) || 1, description: items.map((x) => `${x.name || x.productName || "\u0645\u0646\u062A\u062C"} \xD7 ${x.quantity || 1}`).join(" + ") || order.productName || "\u0645\u0646\u062A\u062C\u0627\u062A \u0627\u0644\u0645\u062A\u062C\u0631", shipmentType: "Parcel", packageType: "Box" }, size: "MEDIUM", itemCount: items.length || 1 }, dropOffAddress: { firstLine: order.shippingAddress || "\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u0639\u0645\u064A\u0644", city: order.city || order.governorate || "Cairo", districtId: order.bostaDistrictId, zoneId: order.bostaZoneId, buildingNumber: order.buildingNumber, floor: order.floor, apartment: order.apartment, phone: String(order.customerPhone || "").replace(/\D/g, "") }, receiver: { firstName: names[0] || "\u0639\u0645\u064A\u0644", lastName: names.slice(1).join(" ") || ".", phone: String(order.customerPhone || "").replace(/\D/g, ""), secondPhone: order.customerPhone2 || "" }, cod, businessReference: order.orderNumber || order.id, notes: order.notes || "", businessLocationId: config.defaultBusinessLocationId || order.businessLocationId };
+  return { type: 10, specs: { packageDetails: { itemsCount: items.reduce((n, x) => n + Number(x.quantity || 1), 0) || 1, description: items.map((x) => `${x.name || x.productName || "\u0645\u0646\u062A\u062C"} \xD7 ${x.quantity || 1}`).join(" + ") || order.productName || "\u0645\u0646\u062A\u062C\u0627\u062A \u0627\u0644\u0645\u062A\u062C\u0631" }, packageType: "MEDIUM" }, dropOffAddress: { firstLine: order.shippingAddress || "\u0639\u0646\u0648\u0627\u0646 \u0627\u0644\u0639\u0645\u064A\u0644", city: order.city || order.governorate || "Cairo", districtId: order.bostaDistrictId, zoneId: order.bostaZoneId, buildingNumber: order.buildingNumber, floor: order.floor, apartment: order.apartment, phone: String(order.customerPhone || "").replace(/\D/g, "") }, receiver: { firstName: names[0] || "\u0639\u0645\u064A\u0644", lastName: names.slice(1).join(" ") || ".", phone: String(order.customerPhone || "").replace(/\D/g, ""), secondPhone: order.customerPhone2 || "" }, cod, businessReference: order.orderNumber || order.id, notes: order.notes || "", businessLocationId: config.defaultBusinessLocationId || order.businessLocationId };
 }
 __name(bostaDelivery, "bostaDelivery");
 async function turbo(request, env) {
