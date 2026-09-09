@@ -61,6 +61,18 @@ async function bosta(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url); const path = url.pathname; const body = await readBody(request);
   const staging = url.searchParams.get("staging") === "true" || body?.config?.environment === "staging";
   const key = keyFrom(request, body, env.BOSTA_API_KEY); const base = bostaBase(env, staging);
+  if (path === "/api/bosta/business-locations") {
+    const endpoints = ["/api/v2/pickup-locations/business", "/api/v2/pickup-locations", "/api/v2/business-locations", "/api/v2/users/me"];
+    const authValues = [key, key.replace(/^bearer\s+/i, "").trim(), `Bearer ${key.replace(/^bearer\s+/i, "").trim()}`].filter(Boolean);
+    for (const endpoint of endpoints) for (const auth of authValues) {
+      const response = await fetch(`${base}${endpoint}`, { headers: { accept: "application/json", Authorization: auth, "x-api-key": key } });
+      if (!response.ok) continue;
+      const value: any = await response.json().catch(() => null);
+      const locations = Array.isArray(value) ? value : value?.data?.list || value?.data?.locations || value?.data?.pickupAddress || value?.list || value?.locations || value?.pickupAddress || value?.business?.pickupAddress;
+      if (Array.isArray(locations)) return json(request, env, { success: true, data: locations });
+    }
+    return json(request, env, { success: true, data: [] });
+  }
   let target = ""; let method = request.method; let payload: any = body;
   if (path === "/api/bosta/verify") target = "/api/v2/cities?countryId=60e4482c7cb7d4bc4849c4d5";
   else if (path === "/api/bosta/cities") target = "/api/v2/cities?countryId=60e4482c7cb7d4bc4849c4d5";
@@ -75,7 +87,7 @@ async function bosta(request: Request, env: Env): Promise<Response> {
   else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/terminate$/)) { target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}/terminate`; method = "POST"; }
   else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)$/)) target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}`;
   else if (path === "/api/bosta/pickups/create") { target = "/api/v2/pickups"; method = "POST"; payload = body; }
-  else if (path === "/api/bosta/pickups") target = "/api/v2/pickups";
+  else if (path === "/api/bosta/pickups") target = "/api/v2/pickups?page=" + encodeURIComponent(url.searchParams.get("page") || "1") + "&perPage=" + encodeURIComponent(url.searchParams.get("perPage") || "100");
   else if (path.match(/^\/api\/bosta\/pickups\/([^/]+)$/)) target = `/api/v2/pickups/${encodeURIComponent(path.split("/")[4])}`;
   else if (path === "/api/bosta/pickup-locations") { target = "/api/v2/pickup-locations"; method = "POST"; }
   else if (path === "/api/bosta/business-locations") target = "/api/v2/pickup-locations/business";
