@@ -8557,24 +8557,25 @@ async function startServer() {
     try {
       const body = await c.req.json().catch(() => ({}));
       const storeId = c.req.param("storeId");
-      
-      console.log(`[TURBO-WEBHOOK] Received payload (Store: ${storeId || 'N/A'}):`, JSON.stringify(body));
-
-      // 0. Verify Webhook Token if store context is provided
-      if (storeId) {
-        const storeSnap = await getDoc(doc(db, "stores_data", storeId)).catch(() => null);
-        if (storeSnap?.exists()) {
-          const turboConfig = storeSnap.data()?.settings?.turboConfig;
-          if (turboConfig?.webhookToken) {
-            const authHeader = c.req.header("Authorization") || "";
-            const token = authHeader.replace("Bearer ", "").trim();
-            if (token !== turboConfig.webhookToken) {
-              console.warn(`[TURBO-WEBHOOK-UNAUTHORIZED] Invalid token for store ${storeId}`);
-              return c.json({ success: false, error: "Unauthorized: Invalid Webhook Token" }, 401);
-            }
-          }
-        }
+      if (!storeId) {
+        return c.json({ success: false, error: "Store ID is required for Turbo webhook" }, 400);
       }
+
+      const storeSnap = await getDoc(doc(db, "stores_data", storeId)).catch(() => null);
+      if (!storeSnap?.exists()) {
+        return c.json({ success: false, error: "Unknown store" }, 404);
+      }
+
+      const turboConfig = storeSnap.data()?.settings?.turboConfig;
+      const expectedToken = String(turboConfig?.webhookToken || "").trim();
+      const authHeader = c.req.header("Authorization") || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+      if (!expectedToken || token !== expectedToken) {
+        console.warn(`[TURBO-WEBHOOK-UNAUTHORIZED] Invalid or missing token for store ${storeId}`);
+        return c.json({ success: false, error: "Unauthorized: Invalid Webhook Token" }, 401);
+      }
+
+      console.log(`[TURBO-WEBHOOK] Received authenticated payload for store ${storeId}`);
 
       const trackingNumber = String(
         body.order_number || 

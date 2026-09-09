@@ -39,6 +39,19 @@ async function safeFetchJson(url: string, options?: RequestInit, fallbackError?:
   }
 }
 
+function sanitizeTurboConfig(config?: Partial<TurboConfig>): Partial<TurboConfig> | undefined {
+  if (!config) return undefined;
+  const {
+    accountPassword,
+    webhookToken,
+    connectedUserName,
+    connectedUserEmail,
+    connectedUserPhone,
+    ...safeConfig
+  } = config;
+  return safeConfig;
+}
+
 export const turboService = {
   /**
    * Get Airwaybill (AWB) for printing
@@ -57,7 +70,7 @@ export const turboService = {
           remote_shipment_id: trackingNumberOrRemoteId,
           staging: isStaging,
           order: order || null,
-          config: config || null
+          config: sanitizeTurboConfig(config) || null
         })
       }, 'فشل تحميل بوليصة تربو');
     } catch (err: any) {
@@ -103,7 +116,7 @@ export const turboService = {
       const res = await safeFetchJson('/api/turbo/shipments/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order, config })
+        body: JSON.stringify({ order, config: sanitizeTurboConfig(config) })
       }, 'فشل إرسال الشحنة لشركة تربو');
 
       if (res && res.success && (res.waybillNumber || res.shipmentId)) {
@@ -199,7 +212,7 @@ export const turboService = {
       return await safeFetchJson('/api/turbo/shipments/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackingNumber, config })
+        body: JSON.stringify({ trackingNumber, config: sanitizeTurboConfig(config) })
       }, 'فشل إلغاء الشحنة');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل إلغاء الشحنة' };
@@ -214,7 +227,7 @@ export const turboService = {
       return await safeFetchJson('/api/turbo/shipments/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackingNumber, config })
+        body: JSON.stringify({ trackingNumber, config: sanitizeTurboConfig(config) })
       }, 'فشل حذف الشحنة');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل حذف الشحنة' };
@@ -229,7 +242,7 @@ export const turboService = {
       return await safeFetchJson('/api/turbo/shipments/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackingNumber, config })
+        body: JSON.stringify({ trackingNumber, config: sanitizeTurboConfig(config) })
       }, 'فشل إعادة إرسال الطلب');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل إعادة إرسال الطلب' };
@@ -244,7 +257,7 @@ export const turboService = {
       return await safeFetchJson('/api/turbo/shipments/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackingNumber, order, config })
+        body: JSON.stringify({ trackingNumber, order, config: sanitizeTurboConfig(config) })
       }, 'فشل تعديل الشحنة');
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل تعديل الشحنة' };
