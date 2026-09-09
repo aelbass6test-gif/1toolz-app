@@ -17,7 +17,9 @@ async function safeFetchJson(url: string, options?: RequestInit, fallbackError?:
     if (text.trim().startsWith('<') || contentType.includes('text/html')) {
       return {
         success: false,
-        error: fallbackError || `تعذر الاتصال بخادم الربط مع تربو (رمز الاستجابة ${res.status}).`,
+        error: res.status === 302 || res.url.includes('__cookie_check')
+          ? 'الخادم المنشور يحوّل طلبات API إلى صفحة حماية Cookie Check. يجب نشر الـ API بدون حماية iframe أو استخدام نطاق Backend مباشر.'
+          : (fallbackError || `تعذر الاتصال بخادم الربط مع تربو (رمز الاستجابة ${res.status}).`),
         isHtmlResponse: true,
         status: res.status
       };
