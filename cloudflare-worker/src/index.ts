@@ -5,6 +5,7 @@ export interface Env {
   BOSTA_STAGING_BASE_URL?: string;
   TURBO_API_KEY?: string;
   TURBO_BASE_URL?: string;
+  TURBO_STAGING_BASE_URL?: string;
   TURBO_MAIN_CLIENT_CODE?: string;
 }
 
@@ -18,110 +19,112 @@ function corsHeaders(request: Request, env: Env): Headers {
     headers.set("access-control-allow-origin", origin);
     headers.set("access-control-allow-credentials", "true");
   }
-  headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
-  headers.set("access-control-allow-headers", "Content-Type, Authorization, X-API-Key");
+  headers.set("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  headers.set("access-control-allow-headers", "Content-Type,Authorization,X-API-Key");
   headers.set("vary", "Origin");
   return headers;
 }
-
-function response(request: Request, env: Env, body: unknown, status = 200): Response {
+function json(request: Request, env: Env, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders(request, env) });
 }
-
-function cleanSecret(value: unknown): string {
+function clean(value: unknown): string {
   return String(value || "").replace(/^['"]+|['"]+$/g, "").replace(/^Bearer\s+/i, "").trim();
 }
-
-function bostaBase(env: Env, staging: boolean): string {
-  const base = staging
-    ? (env.BOSTA_STAGING_BASE_URL || "https://stg-app.bosta.co")
-    : (env.BOSTA_PRODUCTION_BASE_URL || "https://app.bosta.co");
-  return base.replace(/\/$/, "");
+function keyFrom(request: Request, body: any, fallback?: string): string {
+  const q = new URL(request.url).searchParams;
+  return clean(body?.config?.authenticationKey || body?.config?.apiKey || body?.config?.apiToken || body?.apiKey || q.get("apiKey") || q.get("authenticationKey") || request.headers.get("x-api-key") || request.headers.get("authorization") || fallback);
 }
-
-async function parseUpstream(res: Response): Promise<{ data: any; text: string }> {
+function bostaBase(env: Env, staging: boolean) {
+  return (staging ? env.BOSTA_STAGING_BASE_URL : env.BOSTA_PRODUCTION_BASE_URL) || "https://app.bosta.co";
+}
+function turboBase(env: Env, staging: boolean) {
+  return ((staging ? env.TURBO_STAGING_BASE_URL || env.TURBO_BASE_URL : env.TURBO_BASE_URL) || "https://platform.turbo.info").replace(/\/$/, "");
+}
+async function readBody(request: Request): Promise<any> {
+  if (["GET", "HEAD"].includes(request.method)) return {};
+  return request.json().catch(() => ({}));
+}
+async function upstream(request: Request, env: Env, url: string, init: RequestInit, mode: "bosta" | "turbo"): Promise<Response> {
+  const res = await fetch(url, init);
   const text = await res.text();
-  try { return { data: JSON.parse(text), text }; } catch { return { data: null, text }; }
+  let data: any;
+  try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 500) }; }
+  if (res.ok) return json(request, env, data, res.status);
+  return json(request, env, { success: false, error: data?.message || data?.error || data?.error_msg || `رفضت ${mode === "bosta" ? "Bosta" : "Turbo"} الطلب (HTTP ${res.status})`, data, status: res.status }, res.status);
+}
+function bostaHeaders(key: string, content = false): Record<string, string> {
+  return { ...(content ? { "content-type": "application/json" } : {}), accept: "application/json", ...(key ? { Authorization: key, "x-api-key": key } : {}) };
+}
+function turboHeaders() { return { "content-type": "application/json", accept: "application/json" }; }
+
+async function bosta(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url); const path = url.pathname; const body = await readBody(request);
+  const staging = url.searchParams.get("staging") === "true" || body?.config?.environment === "staging";
+  const key = keyFrom(request, body, env.BOSTA_API_KEY); const base = bostaBase(env, staging);
+  let target = ""; let method = request.method; let payload: any = body;
+  if (path === "/api/bosta/verify") target = "/api/v2/deliveries?page=1&perPage=1";
+  else if (path === "/api/bosta/cities") target = "/api/v2/cities?countryId=60e4482c7cb7d4bc4849c4d5";
+  else if (path === "/api/bosta/districts") target = "/api/v2/cities/getAllDistricts?countryId=60e4482c7cb7d4bc4849c4d5";
+  else if (path.match(/^\/api\/bosta\/cities\/[^/]+\/districts$/)) target = `/api/v2/cities/${encodeURIComponent(path.split("/")[4])}/districts`;
+  else if (path.match(/^\/api\/bosta\/cities\/[^/]+\/zones$/)) target = `/api/v2/cities/${encodeURIComponent(path.split("/")[4])}/zones`;
+  else if (path === "/api/bosta/deliveries/create") { target = "/api/v2/deliveries"; method = "POST"; payload = bostaDelivery(body?.order || {}, body?.config || {}); }
+  else if (path === "/api/bosta/deliveries/bulk") { target = "/api/v2/deliveries/bulk"; method = "POST"; payload = body; }
+  else if (path.match(/^\/api\/bosta\/deliveries\/track\/([^/]+)$/)) target = `/api/v2/deliveries/track-shipment?trackingNumber=${encodeURIComponent(path.split("/")[5])}`;
+  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/awb$/)) target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}/awb`;
+  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/terminate$/)) { target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}/terminate`; method = "POST"; }
+  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)$/)) target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}`;
+  else if (path === "/api/bosta/pickups/create") { target = "/api/v2/pickups"; method = "POST"; payload = body; }
+  else if (path === "/api/bosta/pickups") target = "/api/v2/pickups";
+  else if (path.match(/^\/api\/bosta\/pickups\/([^/]+)$/)) target = `/api/v2/pickups/${encodeURIComponent(path.split("/")[4])}`;
+  else if (path === "/api/bosta/pickup-locations") { target = "/api/v2/pickup-locations"; method = "POST"; }
+  else if (path === "/api/bosta/products") target = "/api/v2/products";
+  else if (path === "/api/bosta/pricing/calculator") target = "/api/v2/pricing/shipment-calculator" + url.search;
+  else if (path === "/api/bosta/pricing/insurance") target = "/api/v2/pricing/insuranceFeeEstimate" + url.search;
+  else if (path === "/api/bosta/customer-rate") target = "/api/v2/deliveries" + url.search;
+  else if (path.match(/^\/api\/bosta\/businesses\//)) target = "/api/v2" + path.replace(/^\/api\/bosta/, "");
+  else if (path === "/api/bosta/users/refresh-token") { target = "/api/v2/users/refresh-token"; method = "POST"; }
+  else return json(request, env, { success: false, error: "مسار Bosta غير مدعوم" }, 404);
+  if (path === "/api/bosta/verify") return upstream(request, env, `${base}${target}`, { method: "GET", headers: bostaHeaders(key) }, "bosta");
+  const headers = bostaHeaders(key, !["GET", "HEAD"].includes(method));
+  return upstream(request, env, `${base}${target}`, { method, headers, body: ["GET", "HEAD"].includes(method) ? undefined : JSON.stringify(payload) }, "bosta");
+}
+function bostaDelivery(order: any, config: any) {
+  const names = String(order.customerName || "عميل").trim().split(/\s+/);
+  const cod = order.paymentStatus === "مدفوع" ? 0 : Math.max(0, Number(order.totalPrice ?? ((order.productPrice || 0) + (order.shippingFee || 0))) - Number(order.advancePayment || 0));
+  const items = Array.isArray(order.items) ? order.items : [];
+  return { type: 10, specs: { packageDetails: { itemsCount: items.reduce((n: number, x: any) => n + Number(x.quantity || 1), 0) || 1, description: items.map((x: any) => `${x.name || x.productName || "منتج"} × ${x.quantity || 1}`).join(" + ") || order.productName || "منتجات المتجر", shipmentType: "Parcel", packageType: "Box" }, size: "MEDIUM", itemCount: items.length || 1 }, dropOffAddress: { firstLine: order.shippingAddress || "عنوان العميل", city: order.city || order.governorate || "Cairo", districtId: order.bostaDistrictId, zoneId: order.bostaZoneId, buildingNumber: order.buildingNumber, floor: order.floor, apartment: order.apartment, phone: String(order.customerPhone || "").replace(/\D/g, "") }, receiver: { firstName: names[0] || "عميل", lastName: names.slice(1).join(" ") || ".", phone: String(order.customerPhone || "").replace(/\D/g, ""), secondPhone: order.customerPhone2 || "" }, cod, businessReference: order.orderNumber || order.id, notes: order.notes || "", businessLocationId: config.defaultBusinessLocationId || order.businessLocationId };
 }
 
-async function bostaVerify(request: Request, env: Env): Promise<Response> {
-  const body = await request.json().catch(() => ({})) as { apiKey?: string; environment?: string };
-  const key = cleanSecret(body.apiKey || env.BOSTA_API_KEY);
-  if (!key) return response(request, env, { success: false, error: "مفتاح Bosta غير متوفر" }, 400);
-
-  const base = bostaBase(env, body.environment === "staging");
-  const upstream = await fetch(`${base}/api/v2/deliveries?page=1&perPage=1`, {
-    headers: { Authorization: key, "x-api-key": key, Accept: "application/json" }
-  });
-  const parsed = await parseUpstream(upstream);
-  if (!upstream.ok) {
-    return response(request, env, {
-      success: false,
-      error: `رفضت Bosta الطلب (HTTP ${upstream.status})`,
-      rawError: parsed.data?.message || parsed.data?.error || parsed.text.slice(0, 300),
-      lastStatus: upstream.status
-    });
-  }
-  return response(request, env, {
-    success: true,
-    detectedEnvironment: body.environment === "staging" ? "staging" : "production",
-    verifiedVia: "/api/v2/deliveries?page=1&perPage=1",
-    data: parsed.data
-  });
+async function turbo(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url); const path = url.pathname; const body = await readBody(request); const staging = url.searchParams.get("staging") === "true" || body?.config?.environment === "staging"; const key = keyFrom(request, body, env.TURBO_API_KEY); const base = turboBase(env, staging); const client = Number(body?.config?.mainClientCode || url.searchParams.get("clientCode") || env.TURBO_MAIN_CLIENT_CODE || 74068);
+  let target = ""; let method = request.method; let payload: any = body;
+  if (path === "/api/turbo/verify" || path === "/api/turbo/governorates") { target = "/external-api/get-government"; method = "POST"; payload = { authentication_key: key }; }
+  else if (path.match(/^\/api\/turbo\/areas\/[^/]+$/)) { target = `/external-api/get-area/${path.split("/")[4]}`; method = "POST"; payload = { authentication_key: key }; }
+  else if (path === "/api/turbo/login") { target = "/external-api/login"; method = "POST"; payload = { ...body, authentication_key: key }; }
+  else if (path === "/api/turbo/shipments/create") { target = "/external-api/add-order"; method = "POST"; payload = turboOrder(body?.order || {}, body?.config || {}, key, client); }
+  else if (path.match(/^\/api\/turbo\/shipments\/track\/([^/]+)$/)) { target = "/external-api/search-order"; method = "POST"; payload = { authentication_key: key, search_key: path.split("/")[5], tracking_number: path.split("/")[5], main_client_code: client }; }
+  else if (path === "/api/turbo/shipments/status") { target = "/external-api/search-order"; method = "POST"; payload = { ...body, authentication_key: key, main_client_code: client }; }
+  else if (path === "/api/turbo/shipments/cancel") { target = "/external-api/canceled"; method = "POST"; payload = { authentication_key: key, code: body.trackingNumber, main_client_code: client }; }
+  else if (path === "/api/turbo/shipments/delete") { target = "/external-api/delete-order"; method = "POST"; payload = { authentication_key: key, search_key: body.trackingNumber, tracking_number: body.trackingNumber, code: body.trackingNumber, id: body.trackingNumber, main_client_code: client }; }
+  else if (path === "/api/turbo/shipments/edit") { target = "/external-api/edit-order"; method = "POST"; payload = { ...turboOrder(body.order || {}, body.config || {}, key, client), code: body.trackingNumber }; }
+  else if (path === "/api/turbo/shipments/resend") { target = "/external-api/resend-request"; method = "POST"; payload = { authentication_key: key, code: body.trackingNumber, main_client_code: client }; }
+  else if (path.startsWith("/api/turbo/tickets/")) { target = "/external-api" + path.replace("/api/turbo/tickets", "/tickets"); method = request.method; payload = { ...body, authentication_key: key, main_client_code: client }; }
+  else if (path === "/api/turbo/tickets") { target = "/external-api/tickets"; method = "GET"; }
+  else if (path === "/api/turbo/pricing/calculator") return json(request, env, { success: true, governorate: url.searchParams.get("governorate") || "القاهرة", deliveryFee: 83.52, returnFee: 83.52, cod: Number(url.searchParams.get("cod") || 0) });
+  else return json(request, env, { success: false, error: "مسار Turbo غير مدعوم" }, 404);
+  if (!key) return json(request, env, { success: false, error: "مفتاح Turbo غير متوفر" }, 400);
+  const query = new URLSearchParams(url.search); query.delete("apiKey"); query.delete("authenticationKey");
+  const suffix = method === "GET" ? `?${query.toString()}` : "";
+  const res = await upstream(request, env, `${base}${target}${suffix}`, { method, headers: turboHeaders(), body: method === "GET" ? undefined : JSON.stringify(payload) }, "turbo");
+  if (path === "/api/turbo/governorates") { const data: any = await res.clone().json().catch(() => ({})); return json(request, env, { success: true, governorates: data?.feed || data?.data || data }); }
+  if (path.match(/^\/api\/turbo\/shipments\/track\//)) { const data = await res.clone().json().catch(() => ({})); return json(request, env, { success: true, trackingInfo: data, data }); }
+  return res;
 }
+function turboOrder(order: any, config: any, key: string, client: number) { return { authentication_key: key, main_client_code: client, remote_order_id: order.orderNumber || order.id, receiver: order.customerName, phone1: order.customerPhone, phone2: order.customerPhone2 || "", government: order.governorate, area: order.city || order.area, address: order.shippingAddress, notes: order.notes || "", amount_to_be_collected: Number(order.totalPrice || 0), order_summary: (order.items || []).map((i: any) => `${i.productName || i.name || "منتج"} (${i.quantity || 1})`).join(" - "), can_open: (config.allowOpenPackage ?? true) ? 1 : 0, weight: Number(order.weight || 1), quantity: (order.items || []).reduce((n: number, i: any) => n + Number(i.quantity || 1), 0) || 1, location_id: order.location_id || order.turboLocationId || order.locationId } }
 
-async function turboRequest(env: Env, path: string, key: string, method = "POST"): Promise<{ res: Response; data: any; text: string }> {
-  const base = (env.TURBO_BASE_URL || "https://platform.turbo.info").replace(/\/$/, "");
-  const form = new URLSearchParams({ authentication_key: key });
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-    body: method === "GET" ? undefined : form.toString()
-  });
-  const parsed = await parseUpstream(res);
-  return { res, ...parsed };
-}
-
-async function turboVerify(request: Request, env: Env): Promise<Response> {
-  const body = await request.json().catch(() => ({})) as { apiKey?: string };
-  const key = cleanSecret(body.apiKey || env.TURBO_API_KEY);
-  if (!key) return response(request, env, { success: false, error: "مفتاح Turbo غير متوفر" }, 400);
-
-  const result = await turboRequest(env, "/external-api/get-government", key);
-  if (!result.res.ok) {
-    return response(request, env, {
-      success: false,
-      error: `رفضت Turbo الطلب (HTTP ${result.res.status})`,
-      rawError: result.data?.message || result.data?.error || result.text.slice(0, 300),
-      lastStatus: result.res.status
-    });
-  }
-  return response(request, env, { success: true, data: result.data });
-}
-
-async function turboGovernorates(request: Request, env: Env): Promise<Response> {
-  const key = cleanSecret(request.headers.get("x-api-key") || env.TURBO_API_KEY);
-  if (!key) return response(request, env, { success: false, error: "مفتاح Turbo غير متوفر" }, 400);
-  const result = await turboRequest(env, "/external-api/get-government", key);
-  return response(request, env, result.data || { success: false, error: result.text.slice(0, 300) }, result.res.ok ? 200 : result.res.status);
-}
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(request, env) });
-    if (url.pathname === "/health") return response(request, env, { ok: true, service: "abdomedi-carrier-api" });
-    if (url.pathname === "/api/bosta/verify" && request.method === "POST") return bostaVerify(request, env);
-    if (url.pathname === "/api/bosta/cities" && request.method === "GET") {
-      const upstream = await fetch(`${bostaBase(env, false)}/api/v2/cities`, { headers: { Accept: "application/json" } });
-      const parsed = await parseUpstream(upstream);
-      return response(request, env, parsed.data || { success: false, error: parsed.text.slice(0, 300) }, upstream.ok ? 200 : upstream.status);
-    }
-    if (url.pathname === "/api/turbo/verify" && request.method === "POST") return turboVerify(request, env);
-    if (url.pathname === "/api/turbo/governorates" && request.method === "GET") return turboGovernorates(request, env);
-    if (url.pathname === "/api/webhooks/bosta" || url.pathname.startsWith("/api/webhooks/turbo")) {
-      return response(request, env, { success: false, error: "Webhook route is reserved for the database-bound migration phase" }, 501);
-    }
-    return response(request, env, { success: false, error: "المسار غير موجود" }, 404);
-  }
-};
+export default { async fetch(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(request, env) });
+  if (url.pathname === "/health") return json(request, env, { ok: true, service: "abdomedi-carrier-api", version: "2" });
+  try { if (url.pathname.startsWith("/api/bosta/")) return await bosta(request, env); if (url.pathname.startsWith("/api/turbo/")) return await turbo(request, env); return json(request, env, { success: false, error: "المسار غير موجود" }, 404); } catch (error: any) { return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); }
+} };

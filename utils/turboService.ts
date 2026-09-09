@@ -2,9 +2,12 @@ import { Order, TurboConfig } from '../types';
 
 export type { TurboConfig };
 
+const CARRIER_API_BASE = (import.meta.env.VITE_CARRIER_API_BASE_URL || 'https://api.abdomedi.com').replace(/\/$/, '');
+
 async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
   try {
-    const urlObj = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000');
+    const requestBase = url.startsWith('/api/turbo/') || url.startsWith('/api/shipping/turbo/') ? CARRIER_API_BASE : (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000');
+    const urlObj = new URL(url, requestBase);
     if (!options || options.method === 'GET' || options.method === 'POST') {
       urlObj.searchParams.set('_cb', Date.now().toString());
     }

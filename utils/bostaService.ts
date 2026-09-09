@@ -162,10 +162,13 @@ export interface BostaPickupResponse {
 /**
  * Safe fetch JSON helper
  */
+const CARRIER_API_BASE = (import.meta.env.VITE_CARRIER_API_BASE_URL || 'https://api.abdomedi.com').replace(/\/$/, '');
+
 async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
   try {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000';
-    const urlObj = new URL(url, origin);
+    const requestBase = url.startsWith('/api/bosta/') ? CARRIER_API_BASE : origin;
+    const urlObj = new URL(url, requestBase);
     if (!options || options.method === 'GET' || options.method === 'POST') {
       urlObj.searchParams.set('_cb', Date.now().toString());
     }
@@ -391,7 +394,7 @@ export const bostaService = {
 
   async getCityDistricts(cityId: string): Promise<{ success: boolean; districts?: any[]; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/cities/${encodeURIComponent(cityId)}/districts`);
+      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/cities/${encodeURIComponent(cityId)}/districts`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
@@ -404,7 +407,7 @@ export const bostaService = {
 
   async getZones(cityId: string): Promise<{ success: boolean; zones: BostaZone[]; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/cities/${encodeURIComponent(cityId)}/zones`);
+      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/cities/${encodeURIComponent(cityId)}/zones`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
@@ -422,7 +425,7 @@ export const bostaService = {
       if (isStaging) params.append('staging', 'true');
       const query = params.toString() ? `?${params.toString()}` : '';
 
-      const res = await fetch(`/api/bosta/businesses/${encodeURIComponent(businessId)}${query}`);
+      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/businesses/${encodeURIComponent(businessId)}${query}`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data && data.success) return data;
@@ -440,7 +443,7 @@ export const bostaService = {
     environment?: 'production' | 'staging'
   ): Promise<{ success: boolean; message?: string; business?: any; error?: string }> {
     try {
-      const res = await fetch(`/api/bosta/businesses/${encodeURIComponent(businessId)}/pickup-locations`, {
+      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/businesses/${encodeURIComponent(businessId)}/pickup-locations`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pickupAddress, apiKey, environment })
@@ -474,7 +477,7 @@ export const bostaService = {
       if (params.apiKey) q.append('apiKey', params.apiKey);
       if (params.isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`/api/bosta/pricing/calculator?${q.toString()}`);
+      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/pricing/calculator?${q.toString()}`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data) return data;
@@ -495,7 +498,7 @@ export const bostaService = {
       if (apiKey) q.append('apiKey', apiKey);
       if (isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`/api/bosta/deliveries/${encodeURIComponent(id)}?${q.toString()}`);
+      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/deliveries/${encodeURIComponent(id)}?${q.toString()}`);
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data) return data;
@@ -545,7 +548,7 @@ export const bostaService = {
       if (!clean || clean.length < 6) return null;
       
       const query = `/api/bosta/customer-rate?phone=${encodeURIComponent(clean)}${apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ''}&staging=${isStaging}`;
-      const res = await fetch(query);
+      const res = await fetch(`${CARRIER_API_BASE}${query}`);
       if (!res.ok) return null;
       return await res.json();
     } catch {
