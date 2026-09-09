@@ -5017,6 +5017,15 @@ async function startServer() {
         itemsCount = order.items.reduce((s: number, it: any) => s + (Number(it.quantity) || 1), 0);
       }
 
+      // Bosta requires product image URLs whenever opening the package is enabled.
+      // Orders may store images on the order itself or on individual items.
+      const deliveryImageUrls = [
+        ...(Array.isArray(order.images) ? order.images : []),
+        ...(Array.isArray(order.items) ? order.items.flatMap((it: any) => [it.image, it.imageUrl, ...(Array.isArray(it.images) ? it.images : [])]) : [])
+      ].filter((url: any): url is string => typeof url === "string" && /^https?:\/\//i.test(url.trim())).slice(0, 10);
+      const requestedOpenPackage = config?.allowToOpenPackage ?? Boolean(order.includeInspectionFee);
+      const allowToOpenPackage = requestedOpenPackage && deliveryImageUrls.length > 0;
+
       const rawGov = (order.governorate || '').trim();
       const rawCity = (order.city || '').trim();
       const rawShippingArea = (order.shippingArea || '').trim();
@@ -5090,14 +5099,15 @@ async function startServer() {
         cod: codAmount,
         dropOffAddress: {
           firstLine: customerAddressLine,
+          secondLine: String((order as any).customerAddressDetails || (order as any).addressDetails || specificArea || "غير محدد").substring(0, 120),
           city: bostaLocationInfo.cityName || city,
           cityId: isValidBostaReferenceId(bostaLocationInfo.cityId) ? bostaLocationInfo.cityId : undefined,
           districtName: bostaLocationInfo.districtName || undefined,
           districtId: isValidBostaReferenceId(bostaLocationInfo.districtId || order.bostaDistrictId) ? (bostaLocationInfo.districtId || order.bostaDistrictId) : undefined,
           zoneId: isValidBostaReferenceId(bostaLocationInfo.zoneId || order.bostaZoneId) ? (bostaLocationInfo.zoneId || order.bostaZoneId) : undefined,
-          buildingNumber: order.buildingNumber || undefined,
-          floor: order.floor || undefined,
-          apartment: order.apartment || undefined
+          buildingNumber: order.buildingNumber ? String(order.buildingNumber) : "1",
+          floor: order.floor ? String(order.floor) : "1",
+          apartment: order.apartment ? String(order.apartment) : "1"
         },
         receiver: {
           firstName: firstName,
@@ -5108,9 +5118,16 @@ async function startServer() {
         },
         businessReference: order.orderNumber ? String(order.orderNumber) : String(order.id),
         notes: order.notes ? String(order.notes).substring(0, 250) : '',
-        allowToOpenPackage: config?.allowToOpenPackage ?? Boolean(order.includeInspectionFee),
+        allowToOpenPackage,
         webhookUrl: webhookEndpoint
       };
+
+      if (allowToOpenPackage) {
+        bostaPayload.deliveryImages = [{
+          type: "ALLOW_TO_OPEN_THE_PACKAGE",
+          images: deliveryImageUrls
+        }];
+      }
 
       // Prepaid payment / advance payment support (docs.bosta.co/docs/how-to/create-your-first-delivery)
       if (order.advancePayment && Number(order.advancePayment) > 0) {
@@ -5282,7 +5299,13 @@ async function startServer() {
       if (!resResult.ok) {
         const errorMsg = resResult.data?.message || resResult.data?.error || resResult.rawError || `فشل إنشاء الشحنة في بوسطة (كود: ${resResult.status})`;
         activeShipmentCreationKeys.delete(creationKey);
-        return c.json({ success: false, error: errorMsg, raw: resResult.data }, (resResult.status >= 200 && resResult.status < 600 ? resResult.status : 500) as any);
+        return c.json({
+          success: false,
+          error: errorMsg,
+          errorCode: resResult.data?.errorCode || resResult.data?.code,
+          status: resResult.status,
+          raw: resResult.data
+        }, (resResult.status >= 200 && resResult.status < 600 ? resResult.status : 500) as any);
       }
 
       const delivery = resResult.data?.data || resResult.data;
@@ -5548,13 +5571,14 @@ async function startServer() {
         payload.businessLocationId = effectiveLocationId;
       } else {
         payload.pickupAddress = {
-          firstLine: pickupAddress?.firstLine || "عنوان المتجر",
+          firstLine: pickupAddress?.firstLine || "عنوان المتجر الرئيسي",
+          secondLine: pickupAddress?.secondLine || pickupAddress?.districtName || "غير محدد",
           city: normalizeBostaCity(pickupAddress?.city || "Cairo"),
           districtId: pickupAddress?.districtId || undefined,
           zoneId: pickupAddress?.zoneId || undefined,
-          buildingNumber: pickupAddress?.buildingNumber || undefined,
-          floor: pickupAddress?.floor || undefined,
-          apartment: pickupAddress?.apartment || undefined
+          buildingNumber: pickupAddress?.buildingNumber ? String(pickupAddress.buildingNumber) : "1",
+          floor: pickupAddress?.floor ? String(pickupAddress.floor) : "1",
+          apartment: pickupAddress?.apartment ? String(pickupAddress.apartment) : "1"
         };
       }
 

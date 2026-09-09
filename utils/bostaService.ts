@@ -393,29 +393,13 @@ export const bostaService = {
   },
 
   async getCityDistricts(cityId: string): Promise<{ success: boolean; districts?: any[]; error?: string }> {
-    try {
-      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/cities/${encodeURIComponent(cityId)}/districts`);
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && data.success) return data;
-      }
-      return { success: false, error: 'تعذر جلب مناطق المدينة' };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+    const data = await safeFetchJson(`/api/bosta/cities/${encodeURIComponent(cityId)}/districts`, undefined, 'تعذر جلب مناطق المدينة');
+    return data?.success ? data : { success: false, districts: [], error: data?.error || 'تعذر جلب مناطق المدينة' };
   },
 
   async getZones(cityId: string): Promise<{ success: boolean; zones: BostaZone[]; error?: string }> {
-    try {
-      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/cities/${encodeURIComponent(cityId)}/zones`);
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && data.success) return data;
-      }
-      return { success: true, zones: [] };
-    } catch (err: any) {
-      return { success: false, zones: [], error: err.message };
-    }
+    const data = await safeFetchJson(`/api/bosta/cities/${encodeURIComponent(cityId)}/zones`, undefined, 'تعذر جلب مناطق المدينة');
+    return data?.success ? data : { success: false, zones: [], error: data?.error || 'تعذر جلب مناطق المدينة' };
   },
 
   async getBusiness(businessId: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; business?: any; error?: string }> {
@@ -489,7 +473,11 @@ export const bostaService = {
   },
 
   async estimateInsurance(declaredValue: number, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; insurance?: any; error?: string }> {
-    return { success: true, insurance: { fee: 0 } };
+    const params = new URLSearchParams({ declaredValue: String(Math.max(0, Number(declaredValue) || 0)) });
+    if (apiKey) params.set('apiKey', apiKey);
+    if (isStaging) params.set('staging', 'true');
+    const data = await safeFetchJson(`/api/bosta/pricing/insurance?${params.toString()}`, undefined, 'تعذر حساب رسوم التأمين من بوسطة');
+    return data?.success ? data : { success: false, error: data?.error || 'تعذر حساب رسوم التأمين من بوسطة' };
   },
 
   async getDelivery(id: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; delivery?: any; error?: string }> {
@@ -531,15 +519,29 @@ export const bostaService = {
   },
 
   async getAvailablePickupDates(businessLocationId?: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; dates?: any[]; error?: string }> {
-    return { success: true, dates: [] };
+    const params = new URLSearchParams();
+    if (businessLocationId) params.set('businessLocationId', businessLocationId);
+    if (apiKey) params.set('apiKey', apiKey);
+    if (isStaging) params.set('staging', 'true');
+    const data = await safeFetchJson(`/api/bosta/pickups/available-dates?${params.toString()}`, undefined, 'تعذر جلب مواعيد الاستلام من بوسطة');
+    return data?.success ? data : { success: false, dates: [], error: data?.error || 'تعذر جلب مواعيد الاستلام من بوسطة' };
   },
 
   async getPickupsList(page: number = 1, limit: number = 20, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; pickups?: any[]; error?: string }> {
-    return { success: true, pickups: [] };
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (apiKey) params.set('apiKey', apiKey);
+    if (isStaging) params.set('staging', 'true');
+    const data = await safeFetchJson(`/api/bosta/pickups?${params.toString()}`, undefined, 'تعذر جلب طلبات الاستلام من بوسطة');
+    return data?.success ? data : { success: false, pickups: [], error: data?.error || 'تعذر جلب طلبات الاستلام من بوسطة' };
   },
 
   async cancelPickup(id: string, apiKey?: string, isStaging?: boolean): Promise<{ success: boolean; message?: string; error?: string }> {
-    return { success: true, message: 'تم إلغاء طلب الاستلام' };
+    const params = new URLSearchParams();
+    if (apiKey) params.set('apiKey', apiKey);
+    if (isStaging) params.set('staging', 'true');
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    const data = await safeFetchJson(`/api/bosta/pickups/${encodeURIComponent(id)}${suffix}`, { method: 'DELETE' }, 'فشل إلغاء طلب الاستلام في بوسطة');
+    return data?.success ? data : { success: false, error: data?.error || 'فشل إلغاء طلب الاستلام في بوسطة' };
   },
 
   async getCustomerDeliveryRate(phone: string, apiKey?: string, isStaging: boolean = false): Promise<any> {
@@ -557,7 +559,8 @@ export const bostaService = {
   },
 
   async getWebhookLogs(): Promise<{ success: boolean; logs: any[]; error?: string }> {
-    return { success: true, logs: [] };
+    const data = await safeFetchJson('/api/webhooks/bosta/logs', undefined, 'تعذر جلب سجلات Webhook بوسطة');
+    return data?.success ? data : { success: false, logs: [], error: data?.error || 'تعذر جلب سجلات Webhook بوسطة' };
   },
 
   async disconnect(): Promise<{ success: boolean; message: string }> {
@@ -565,7 +568,11 @@ export const bostaService = {
   },
 
   async listBusinessProducts(apiKey?: string, environment?: 'production' | 'staging'): Promise<{ success: boolean; products: any[]; error?: string }> {
-    return { success: true, products: [] };
+    const params = new URLSearchParams();
+    if (apiKey) params.set('apiKey', apiKey);
+    if (environment === 'staging') params.set('staging', 'true');
+    const data = await safeFetchJson(`/api/bosta/products?${params.toString()}`, undefined, 'تعذر جلب منتجات بوسطة');
+    return data?.success ? data : { success: false, products: [], error: data?.error || 'تعذر جلب منتجات بوسطة' };
   },
 
   getTrackingUrl(trackingNumber: string): string {
