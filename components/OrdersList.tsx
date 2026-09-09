@@ -4216,7 +4216,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   return (
     <motion.div
-      className="space-y-8 pb-20"
+      className="space-y-6 pb-20"
       variants={containerVariants}
       initial="hidden"
       animate="visible"
@@ -4250,26 +4250,28 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       {/* Header & Main Actions */}
       <div
-        className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-slate-200 dark:border-slate-800"
+        className="relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-7 rounded-[2rem] bg-[#101827] border border-slate-700/70 shadow-2xl shadow-slate-900/10"
         dir="rtl"
       >
+        <div className="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-amber-400/15 blur-3xl" />
+        <div className="pointer-events-none absolute -right-16 -bottom-32 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
         <div className="flex items-center justify-between w-full lg:w-auto shrink-0">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-              <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+              <span className="text-xs font-bold text-amber-300/80 uppercase tracking-[0.22em]">
                 نظام الطلبات واللوجستيات المركزي
               </span>
             </div>
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
                 إدارة الطلبات وسجل المبيعات
               </h1>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleManualRefresh}
-                className={`flex items-center gap-2 px-4 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm cursor-pointer ${isRefreshing ? "animate-spin text-indigo-600 border-indigo-200" : ""}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-600 bg-white/5 text-slate-200 hover:text-amber-300 hover:border-amber-300/50 transition-all cursor-pointer ${isRefreshing ? "animate-spin text-amber-300 border-amber-300/60" : ""}`}
                 title="مزامنة الطلبات"
               >
                 <RefreshCcw size={18} />
@@ -4278,14 +4280,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 </span>
               </motion.button>
             </div>
-            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-1">
+            <p className="text-xs font-bold text-slate-300/75 mt-1">
               نظام موحد ومبسط لمتابعة الشحنات، معالجة وتجهيز الأوردرات، وتحليل مبيعات وأرباح المتجر بكل سهولة
             </p>
             <div className="flex items-center gap-3 mt-2">
-              <div className="px-3 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-full text-[10px] font-black border border-indigo-100 dark:border-indigo-900/30">
+              <div className="px-3 py-1 bg-amber-300/10 text-amber-200 rounded-full text-[10px] font-black border border-amber-300/20">
                 {filteredOrders.length} طلب مطابق للفلتر
               </div>
-              <div className="px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-full text-[10px] font-black border border-emerald-100 dark:border-emerald-900/30">
+              <div className="px-3 py-1 bg-cyan-300/10 text-cyan-200 rounded-full text-[10px] font-black border border-cyan-300/20">
                 المتجر النشط: {activeStore?.id}
               </div>
             </div>
@@ -4341,14 +4343,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       </div>
 
         {/* Main Section Switcher: Operational Orders vs Sales Analytics */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-slate-100/80 dark:bg-slate-900/80 backdrop-blur-xl p-2 rounded-[2rem] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar p-1 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-[#172235] p-2 rounded-[1.75rem] border border-slate-700 shadow-xl shadow-slate-900/10">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar p-1 bg-[#0f1725] rounded-[1.25rem] border border-slate-700/70 w-full sm:w-auto">
             <button
               onClick={() => { setMainSection('orders'); setShowAnalyticsHub(false); }}
               className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap ${
                 mainSection === 'orders'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                  ? 'bg-amber-400 text-[#101827] shadow-lg shadow-amber-400/20'
+                  : 'text-slate-300 hover:bg-white/10'
               }`}
             >
               <ShoppingCart size={18} />
@@ -4358,8 +4360,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               onClick={() => { setMainSection('analytics'); setShowAnalyticsHub(true); }}
               className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-6 py-3 rounded-xl font-black text-sm transition-all whitespace-nowrap ${
                 mainSection === 'analytics'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                  ? 'bg-cyan-400 text-[#101827] shadow-lg shadow-cyan-400/20'
+                  : 'text-slate-300 hover:bg-white/10'
               }`}
             >
               <TrendingUp size={18} />
@@ -4621,7 +4623,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                   className={`cursor-pointer select-none active:scale-95 p-4 rounded-3xl border transition-all duration-300 flex flex-col justify-between relative overflow-hidden ${
                     isSelected
                       ? `${borderBg} shadow-md`
-                      : "bg-white/80 dark:bg-slate-900/60 border-slate-200/60 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 shadow-xs hover:shadow-md"
+                      : "bg-[#f8fafc] dark:bg-[#172235] border-slate-200 dark:border-slate-700/80 hover:border-amber-300 dark:hover:border-amber-400/40 shadow-sm hover:shadow-lg hover:shadow-slate-900/5"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
