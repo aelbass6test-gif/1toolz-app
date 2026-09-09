@@ -485,9 +485,9 @@ export const bostaService = {
       if (isValidObjectId) {
         bostaPayload.businessLocationId = String(effectiveBusinessLocationId);
       } else {
-        let pickupLine = (config?.pickupAddress?.firstLine || config?.returnAddress?.firstLine || "بلطيم - كفر الشيخ - مقر المتجر الرئيسي").trim();
+        let pickupLine = (config?.pickupAddress?.firstLine || (config as any)?.returnAddress?.firstLine || "بلطيم - كفر الشيخ - مقر المتجر الرئيسي").trim();
         if (pickupLine.length < 5) pickupLine = `${pickupLine} - المقر الرئيسي`;
-        const pickupCityName = normalizeCity(config?.pickupAddress?.city || config?.returnAddress?.city || 'Kafr Alsheikh');
+        const pickupCityName = normalizeCity(config?.pickupAddress?.city || (config as any)?.returnAddress?.city || 'Kafr Alsheikh');
 
         bostaPayload.pickupAddress = {
           firstLine: pickupLine,
