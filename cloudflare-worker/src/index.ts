@@ -78,6 +78,7 @@ async function bosta(request: Request, env: Env): Promise<Response> {
   else if (path === "/api/bosta/pickups") target = "/api/v2/pickups";
   else if (path.match(/^\/api\/bosta\/pickups\/([^/]+)$/)) target = `/api/v2/pickups/${encodeURIComponent(path.split("/")[4])}`;
   else if (path === "/api/bosta/pickup-locations") { target = "/api/v2/pickup-locations"; method = "POST"; }
+  else if (path === "/api/bosta/business-locations") target = "/api/v2/pickup-locations/business";
   else if (path === "/api/bosta/products") target = "/api/v2/products";
   else if (path === "/api/bosta/pricing/calculator") target = "/api/v2/pricing/calculator" + url.search;
   else if (path === "/api/bosta/pricing/insurance") target = "/api/v2/pricing/insuranceFeeEstimate" + url.search;
