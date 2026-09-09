@@ -26,6 +26,25 @@ assert.equal(mapTurboStatus(3, 'Delivered'), 'تم_توصيلها');
 assert.equal(mapTurboStatus(6, 'In transit'), 'قيد_الشحن');
 assert.equal(mapTurboStatus(10, 'Failed'), 'فشل_التوصيل');
 
+const turboReturnFixture = {
+  order_number: 751123,
+  status: 5,
+  order_price: 7525,
+  order_type: 2,
+  return_reason: 'Customer Refused',
+  delay_reason: 'Mobile Closed',
+  mission_code: 123456,
+  is_order: 0,
+  remote_order_id: '11223344',
+  return_status: 0,
+  captain_name: 'Mohamed Ahmed',
+  captain_number1: '01000000000',
+  captain_number2: '01100000000',
+};
+assert.equal(mapTurboStatus(turboReturnFixture.status), 'مرتجع');
+assert.equal(turboReturnFixture.return_reason, 'Customer Refused');
+assert.equal(turboReturnFixture.remote_order_id, '11223344');
+
 const eventKey = buildEventKey(baseUpdate);
 assert.equal(shouldApplyShippingUpdate({}, baseUpdate, eventKey), true);
 assert.equal(shouldApplyShippingUpdate({ lastShippingEventKey: eventKey }, baseUpdate, eventKey), false);

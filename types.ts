@@ -1464,6 +1464,7 @@ export interface Order {
     receivedAt: string;
     trackingNumber?: string;
     externalId?: string;
+    metadata?: Record<string, unknown>;
     source: 'webhook' | 'polling' | 'manual';
     eventKey?: string;
   }>;

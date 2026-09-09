@@ -6413,22 +6413,10 @@ async function startServer() {
   // ==========================================
 
   const safeTurboFetch = async (endpointPath: string, options: RequestInit = {}, isStaging: boolean = false): Promise<{ ok: boolean; status: number; data: any; rawError?: string }> => {
-    // Verified Turbo API Hosts (platform.turbo.info is the official active API endpoint)
-    const hostCandidates = isStaging
-      ? [
-          "https://platform.turbo.info",
-          "https://turbo.info",
-          "https://api.turbo.info",
-          "https://api.turbo-eg.com",
-          "https://app.turbo-eg.com"
-        ]
-      : [
-          "https://platform.turbo.info",
-          "https://turbo.info",
-          "https://api.turbo.info",
-          "https://api.turbo-eg.com",
-          "https://app.turbo-eg.com"
-        ];
+    const configuredHost = isStaging
+      ? process.env.TURBO_SANDBOX_BASE_URL
+      : (process.env.TURBO_PRODUCTION_BASE_URL || "https://platform.turbo.info");
+    const hostCandidates = configuredHost ? [configuredHost.replace(/\/$/, "")] : [];
 
     const path = endpointPath.startsWith("http")
       ? endpointPath.replace(/^https?:\/\/[^\/]+/, "")
@@ -6866,7 +6854,10 @@ async function startServer() {
       orderPayload.location_id = Number(order.location_id || order.turboLocationId || order.locationId);
     }
 
-    console.log("[TURBO-PAYLOAD]", JSON.stringify(orderPayload, null, 2));
+    console.log("[TURBO-PAYLOAD]", JSON.stringify({
+      ...orderPayload,
+      authentication_key: orderPayload.authentication_key ? "[REDACTED]" : undefined
+    }, null, 2));
 
     const resResult = await safeTurboFetch("/external-api/add-order", {
       method: "POST",
@@ -8660,6 +8651,15 @@ async function startServer() {
           receivedAt,
           trackingNumber: trackingNumber || undefined,
           externalId: remoteOrderId || undefined,
+          metadata: {
+            orderPrice: body.order_price,
+            orderType: body.order_type,
+            missionCode: body.mission_code,
+            isOrder: body.is_order,
+            returnStatus: body.return_status,
+            captainName,
+            captainPhone,
+          },
           source: 'webhook' as const,
         };
         if (!shouldApplyShippingUpdate(currentData, shippingUpdate, eventKey)) {
@@ -8671,6 +8671,10 @@ async function startServer() {
 
         const updatePayload: any = {
           turboStatus: turboStatus,
+          turboOrderPrice: body.order_price ?? null,
+          turboOrderType: body.order_type ?? null,
+          turboMissionCode: body.mission_code ?? null,
+          turboReturnStatus: body.return_status ?? null,
           turboLastWebhookAt: new Date().toISOString(),
           lastShippingEventAt: eventAt,
           lastShippingEventKey: eventKey,

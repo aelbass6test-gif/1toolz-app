@@ -10,6 +10,7 @@ export interface ShippingStatusUpdate {
   receivedAt: string;
   trackingNumber?: string;
   externalId?: string;
+  metadata?: Record<string, unknown>;
   source: 'webhook' | 'polling' | 'manual';
 }
 
