@@ -140,8 +140,11 @@ async function bosta(request, env) {
     method = "POST";
     payload = body;
   } else if (path.match(/^\/api\/bosta\/deliveries\/track\/([^/]+)$/)) target = `/api/v2/deliveries/track-shipment?trackingNumber=${encodeURIComponent(path.split("/")[5])}`;
-  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/awb$/)) target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}/awb`;
-  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/terminate$/)) {
+  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/awb$/)) {
+    target = "/api/v2/deliveries/mass-awb";
+    method = "POST";
+    payload = { trackingNumbers: path.split("/")[4], requestedAwbType: url.searchParams.get("type") || "A4", lang: url.searchParams.get("lang") || "ar" };
+  } else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/terminate$/)) {
     target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}/terminate`;
     method = "POST";
   } else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)$/)) target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}`;
