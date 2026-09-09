@@ -4592,6 +4592,14 @@ async function startServer() {
     return rawCity;
   };
 
+  // Bosta IDs are not Mongo ObjectIds. They are opaque alphanumeric values
+  // such as `HhJLtFM6V2F` (district) and `ByP7rFCjL6XzF6j4S` (city).
+  // Treating them as 24-character hex strings silently removed valid IDs
+  // from the delivery payload and caused Bosta to return "District Not Found".
+  const isValidBostaReferenceId = (value: unknown): value is string => {
+    return typeof value === "string" && /^[A-Za-z0-9_-]{6,}$/.test(value.trim());
+  };
+
   async function resolveBostaDistrictInfo(cityName: string, rawArea: string, addressText: string = "") {
     const normCityName = normalizeBostaCity(cityName);
     try {
@@ -5083,10 +5091,10 @@ async function startServer() {
         dropOffAddress: {
           firstLine: customerAddressLine,
           city: bostaLocationInfo.cityName || city,
-          cityId: (bostaLocationInfo.cityId && /^[0-9a-fA-F]{24}$/.test(bostaLocationInfo.cityId)) ? bostaLocationInfo.cityId : undefined,
+          cityId: isValidBostaReferenceId(bostaLocationInfo.cityId) ? bostaLocationInfo.cityId : undefined,
           districtName: bostaLocationInfo.districtName || undefined,
-          districtId: ((bostaLocationInfo.districtId || order.bostaDistrictId) && /^[0-9a-fA-F]{24}$/.test(bostaLocationInfo.districtId || order.bostaDistrictId)) ? (bostaLocationInfo.districtId || order.bostaDistrictId) : undefined,
-          zoneId: ((bostaLocationInfo.zoneId || order.bostaZoneId) && /^[0-9a-fA-F]{24}$/.test(bostaLocationInfo.zoneId || order.bostaZoneId)) ? (bostaLocationInfo.zoneId || order.bostaZoneId) : undefined,
+          districtId: isValidBostaReferenceId(bostaLocationInfo.districtId || order.bostaDistrictId) ? (bostaLocationInfo.districtId || order.bostaDistrictId) : undefined,
+          zoneId: isValidBostaReferenceId(bostaLocationInfo.zoneId || order.bostaZoneId) ? (bostaLocationInfo.zoneId || order.bostaZoneId) : undefined,
           buildingNumber: order.buildingNumber || undefined,
           floor: order.floor || undefined,
           apartment: order.apartment || undefined
@@ -5114,7 +5122,7 @@ async function startServer() {
       // Business Location ID validation
       let effectiveBusinessLocationId = order.bostaBusinessLocationId || config?.defaultBusinessLocationId || config?.businessLocationId;
       if (!effectiveBusinessLocationId && config?.businessLocations && Array.isArray(config.businessLocations) && config.businessLocations.length > 0) {
-        const validLoc = config.businessLocations.find((l: any) => (l.id && /^[0-9a-fA-F]{24}$/.test(l.id)) || (l._id && /^[0-9a-fA-F]{24}$/.test(l._id)));
+        const validLoc = config.businessLocations.find((l: any) => isValidBostaReferenceId(l.id) || isValidBostaReferenceId(l._id));
         if (validLoc) {
           effectiveBusinessLocationId = validLoc._id || validLoc.id;
         }
@@ -5122,8 +5130,7 @@ async function startServer() {
 
       const isValidBusinessLocId = Boolean(
         effectiveBusinessLocationId &&
-        typeof effectiveBusinessLocationId === 'string' &&
-        /^[0-9a-fA-F]{24}$/.test(effectiveBusinessLocationId)
+        isValidBostaReferenceId(effectiveBusinessLocationId)
       );
 
       if (isValidBusinessLocId) {
