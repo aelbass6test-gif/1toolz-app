@@ -1436,6 +1436,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
             <div className="mt-3">
               <BostaAddressValidator
+                selectedCity={orderData.governorate || orderData.shippingArea}
                 selectedDistrictId={orderData.bostaDistrictId}
                 onSelectAddress={(data) => {
                   if (data.districtId) handleFieldChange("bostaDistrictId", data.districtId);
@@ -1444,7 +1445,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   if (data.districtNameAr) handleFieldChange("city", data.districtNameAr);
                   if (data.cityNameAr) {
                     handleFieldChange("governorate", data.cityNameAr);
-                    handleFieldChange("shippingArea", data.cityNameAr);
+                  }
+                  if (data.zoneNameAr || data.districtNameAr) {
+                    handleFieldChange("shippingArea", data.zoneNameAr || data.districtNameAr);
                   }
                   if (data.formattedAddress && data.formattedAddress.trim()) {
                     const cleanPrev = (orderData.customerAddress || "").replace(/,\s*-\s*undefined\s*-?/gi, "").replace(/\bundefined\b/gi, "").trim();

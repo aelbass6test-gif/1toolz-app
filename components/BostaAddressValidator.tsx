@@ -20,6 +20,10 @@ interface BostaAddressValidatorProps {
   className?: string;
 }
 
+const isRealBostaId = (value?: string) => Boolean(
+  value && /^[A-Za-z0-9_-]{6,}$/.test(value) && !/^(?:loc|dist|city_fallback|gov_fallback)_/i.test(value)
+);
+
 const normalizeArabic = (str: string = '') => {
   return str
     .toLowerCase()
@@ -159,17 +163,9 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
         setCities(cityRes.list);
       }
       if (districtRes.success && Array.isArray(districtRes.data) && districtRes.data.length > 0) {
-        // Combine Bosta live data with fallback districts to guarantee 100% coverage
-        const combined = [...districtRes.data];
-        COMPREHENSIVE_EGYPTIAN_DISTRICTS.forEach(fb => {
-          const exists = combined.some(d => 
-            (d._id && d._id === fb._id) || 
-            (d.districtNameAr && d.districtNameAr === fb.districtNameAr) ||
-            (d.nameAr && d.nameAr === fb.districtNameAr)
-          );
-          if (!exists) combined.push(fb);
-        });
-        setDistricts(combined);
+        // Never mix synthetic fallback IDs with live Bosta IDs. The fallback
+        // list is only safe for display when Bosta is unavailable.
+        setDistricts(districtRes.data);
       }
     }).catch(err => console.error('[BOSTA-ADDRESS-VALIDATOR-ERROR]', err))
       .finally(() => { if (isMounted) setIsLoading(false); });
@@ -194,20 +190,23 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
 
   // Handle Selection
   const handleSelectDistrict = (dist: BostaDistrict & Record<string, any>) => {
-    setActiveDistrictId(dist._id || dist.districtId || '');
+    const districtId = isRealBostaId(dist.districtId || dist._id) ? (dist.districtId || dist._id) : '';
+    const zoneId = isRealBostaId(dist.zoneId) ? dist.zoneId : '';
+    const cityId = isRealBostaId(dist.cityId) ? dist.cityId : '';
+    setActiveDistrictId(districtId);
     const districtName = dist.districtNameAr || dist.nameAr || dist.districtName || dist.name || '';
     const zoneName = dist.zoneNameAr || dist.zoneName || dist.cityNameAr || dist.cityName || '';
     const parts = [districtName, zoneName].filter(Boolean);
     const formattedAddress = parts.join(' - ');
 
     onSelectAddress({
-      cityId: dist.cityId,
-      cityNameAr: dist.cityNameAr || dist.cityName || dist.zoneNameAr || '',
+      cityId,
+      cityNameAr: dist.cityOtherName || dist.cityNameAr || dist.cityName || '',
       cityName: dist.cityName || '',
-      zoneId: dist.zoneId || '',
+      zoneId,
       zoneNameAr: dist.zoneNameAr || dist.zoneName || '',
       zoneName: dist.zoneName || '',
-      districtId: dist._id || dist.districtId || '',
+      districtId,
       districtNameAr: districtName,
       districtName: dist.districtName || dist.name || districtName,
       formattedAddress

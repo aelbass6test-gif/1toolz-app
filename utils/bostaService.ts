@@ -85,6 +85,8 @@ export interface BostaDistrict {
   districtId?: string;
   zoneId?: string;
   cityId?: string;
+  cityName?: string;
+  cityOtherName?: string;
   districtName?: string;
   districtNameAr?: string;
   name?: string;

@@ -4597,7 +4597,9 @@ async function startServer() {
   // Treating them as 24-character hex strings silently removed valid IDs
   // from the delivery payload and caused Bosta to return "District Not Found".
   const isValidBostaReferenceId = (value: unknown): value is string => {
-    return typeof value === "string" && /^[A-Za-z0-9_-]{6,}$/.test(value.trim());
+    return typeof value === "string" &&
+      /^[A-Za-z0-9_-]{6,}$/.test(value.trim()) &&
+      !/^(?:loc|dist|city_fallback|gov_fallback)_/i.test(value.trim());
   };
 
   async function resolveBostaDistrictInfo(cityName: string, rawArea: string, addressText: string = "") {
@@ -5105,9 +5107,9 @@ async function startServer() {
           districtName: bostaLocationInfo.districtName || undefined,
           districtId: isValidBostaReferenceId(bostaLocationInfo.districtId || order.bostaDistrictId) ? (bostaLocationInfo.districtId || order.bostaDistrictId) : undefined,
           zoneId: isValidBostaReferenceId(bostaLocationInfo.zoneId || order.bostaZoneId) ? (bostaLocationInfo.zoneId || order.bostaZoneId) : undefined,
-          buildingNumber: order.buildingNumber ? String(order.buildingNumber) : "1",
-          floor: order.floor ? String(order.floor) : "1",
-          apartment: order.apartment ? String(order.apartment) : "1"
+          buildingNumber: (order.buildingNumber || (order as any).building) ? String(order.buildingNumber || (order as any).building) : "1",
+          floor: (order.floor || (order as any).floorNumber) ? String(order.floor || (order as any).floorNumber) : "1",
+          apartment: (order.apartment || (order as any).apartmentNumber) ? String(order.apartment || (order as any).apartmentNumber) : "1"
         },
         receiver: {
           firstName: firstName,
