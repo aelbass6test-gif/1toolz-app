@@ -161,10 +161,11 @@ async function turbo(request, env) {
     target = "/external-api/add-order";
     method = "POST";
     payload = turboOrder(body?.order || {}, body?.config || {}, key, client);
-  } else if (path.match(/^\/api\/turbo\/shipments\/track\/([^/]+)$/)) {
+  } else if (path.match(/^\/api\/turbo\/shipments\/track\/([^/]+)$/) || path === "/api/shipping/turbo/track") {
+    const tracking = path === "/api/shipping/turbo/track" ? body.remote_shipment_id || body.search_key || body.trackingNumber : path.split("/")[5];
     target = "/external-api/search-order";
     method = "POST";
-    payload = { authentication_key: key, search_key: path.split("/")[5], tracking_number: path.split("/")[5], main_client_code: client };
+    payload = { authentication_key: key, search_key: tracking, tracking_number: tracking, main_client_code: client };
   } else if (path === "/api/turbo/shipments/status") {
     target = "/external-api/search-order";
     method = "POST";
@@ -205,9 +206,11 @@ async function turbo(request, env) {
     const data = await res.clone().json().catch(() => ({}));
     return json(request, env, { success: true, governorates: data?.feed || data?.data || data });
   }
-  if (path.match(/^\/api\/turbo\/shipments\/track\//)) {
+  if (path.match(/^\/api\/turbo\/shipments\/track\//) || path === "/api/shipping/turbo/track") {
     const data = await res.clone().json().catch(() => ({}));
-    return json(request, env, { success: true, trackingInfo: data, data });
+    const raw = data?.result || data?.data || data;
+    const item = Array.isArray(raw) ? raw[0] : raw;
+    return json(request, env, { success: !!item && data?.success !== false, trackingInfo: item, data, status: item?.status || item?.state, statusArabic: item?.status || item?.state });
   }
   return res;
 }
@@ -222,7 +225,7 @@ var index_default = { async fetch(request, env) {
   if (url.pathname === "/health") return json(request, env, { ok: true, service: "abdomedi-carrier-api", version: "2" });
   try {
     if (url.pathname.startsWith("/api/bosta/")) return await bosta(request, env);
-    if (url.pathname.startsWith("/api/turbo/")) return await turbo(request, env);
+    if (url.pathname.startsWith("/api/turbo/") || url.pathname === "/api/shipping/turbo/track") return await turbo(request, env);
     return json(request, env, { success: false, error: "\u0627\u0644\u0645\u0633\u0627\u0631 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F" }, 404);
   } catch (error) {
     return json(request, env, { success: false, error: error?.message || "\u062E\u0637\u0623 \u062F\u0627\u062E\u0644\u064A \u0641\u064A Worker" }, 500);
