@@ -5074,10 +5074,10 @@ async function startServer() {
         dropOffAddress: {
           firstLine: customerAddressLine,
           city: bostaLocationInfo.cityName || city,
-          cityId: bostaLocationInfo.cityId || undefined,
+          cityId: (bostaLocationInfo.cityId && /^[0-9a-fA-F]{24}$/.test(bostaLocationInfo.cityId)) ? bostaLocationInfo.cityId : undefined,
           districtName: bostaLocationInfo.districtName || undefined,
-          districtId: bostaLocationInfo.districtId || order.bostaDistrictId || undefined,
-          zoneId: bostaLocationInfo.zoneId || order.bostaZoneId || undefined,
+          districtId: ((bostaLocationInfo.districtId || order.bostaDistrictId) && /^[0-9a-fA-F]{24}$/.test(bostaLocationInfo.districtId || order.bostaDistrictId)) ? (bostaLocationInfo.districtId || order.bostaDistrictId) : undefined,
+          zoneId: ((bostaLocationInfo.zoneId || order.bostaZoneId) && /^[0-9a-fA-F]{24}$/.test(bostaLocationInfo.zoneId || order.bostaZoneId)) ? (bostaLocationInfo.zoneId || order.bostaZoneId) : undefined,
           buildingNumber: order.buildingNumber || undefined,
           floor: order.floor || undefined,
           apartment: order.apartment || undefined
@@ -5230,11 +5230,38 @@ async function startServer() {
       const isStaging = config?.environment === 'staging';
       const baseUrl = isStaging ? "https://stg-app.bosta.co" : "https://app.bosta.co";
 
-      const resResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries?apiVersion=1`, {
+      let resResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries?apiVersion=1`, {
         method: "POST",
         headers: { "Authorization": apiKey },
         body: JSON.stringify(bostaPayload)
       });
+
+      if (!resResult.ok) {
+        const rawErrStr = JSON.stringify(resResult.data || {}).toLowerCase();
+        if (rawErrStr.includes("district") || rawErrStr.includes("zone") || rawErrStr.includes("not found")) {
+          console.warn("[BOSTA-RETRY] District or zone rejected by Bosta. Retrying without district/zone IDs...");
+          if (bostaPayload.dropOffAddress) {
+            delete bostaPayload.dropOffAddress.districtId;
+            delete bostaPayload.dropOffAddress.zoneId;
+            delete bostaPayload.dropOffAddress.districtName;
+            delete bostaPayload.dropOffAddress.cityId;
+          }
+          if (bostaPayload.pickupAddress) {
+            delete bostaPayload.pickupAddress.districtId;
+            delete bostaPayload.pickupAddress.zoneId;
+          }
+          if (bostaPayload.returnAddress) {
+            delete bostaPayload.returnAddress.districtId;
+            delete bostaPayload.returnAddress.zoneId;
+          }
+
+          resResult = await safeBostaFetch(`${baseUrl}/api/v2/deliveries?apiVersion=1`, {
+            method: "POST",
+            headers: { "Authorization": apiKey },
+            body: JSON.stringify(bostaPayload)
+          });
+        }
+      }
 
       if (!resResult.ok) {
         const errorMsg = resResult.data?.message || resResult.data?.error || resResult.rawError || `فشل إنشاء الشحنة في بوسطة (كود: ${resResult.status})`;

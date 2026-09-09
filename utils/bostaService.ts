@@ -446,8 +446,8 @@ export const bostaService = {
         dropOffAddress: {
           firstLine: customerAddressLine,
           city: city,
-          districtId: order.bostaDistrictId || undefined,
-          zoneId: order.bostaZoneId || undefined,
+          districtId: (order.bostaDistrictId && /^[0-9a-fA-F]{24}$/.test(order.bostaDistrictId)) ? order.bostaDistrictId : undefined,
+          zoneId: (order.bostaZoneId && /^[0-9a-fA-F]{24}$/.test(order.bostaZoneId)) ? order.bostaZoneId : undefined,
           buildingNumber: order.buildingNumber || undefined,
           floor: (order as any).floor || undefined,
           apartment: (order as any).apartment || undefined
@@ -500,7 +500,7 @@ export const bostaService = {
         };
       }
 
-      const directRes = await fetch(`${baseUrl}/api/v2/deliveries`, {
+      let directRes = await fetch(`${baseUrl}/api/v2/deliveries`, {
         method: 'POST',
         headers: {
           'Authorization': apiKey,
@@ -510,8 +510,43 @@ export const bostaService = {
         body: JSON.stringify(bostaPayload)
       });
 
-      const responseData = await directRes.json().catch(() => ({}));
-      const deliveryData = responseData.data || responseData;
+      let responseData = await directRes.json().catch(() => ({}));
+      let deliveryData = responseData.data || responseData;
+
+      if (!directRes.ok) {
+        const rawErrStr = JSON.stringify(responseData || {}).toLowerCase();
+        if (rawErrStr.includes("district") || rawErrStr.includes("zone") || rawErrStr.includes("not found")) {
+          console.warn("[BOSTA-SERVICE-RETRY] District or Zone rejected by Bosta. Retrying without district/zone IDs...");
+          if (bostaPayload.dropOffAddress) {
+            delete bostaPayload.dropOffAddress.districtId;
+            delete bostaPayload.dropOffAddress.zoneId;
+          }
+          if (bostaPayload.pickupAddress) {
+            delete bostaPayload.pickupAddress.districtId;
+            delete bostaPayload.pickupAddress.zoneId;
+          }
+          if (bostaPayload.returnAddress) {
+            delete bostaPayload.returnAddress.districtId;
+            delete bostaPayload.returnAddress.zoneId;
+          }
+
+          const retryRes = await fetch(`${baseUrl}/api/v2/deliveries`, {
+            method: 'POST',
+            headers: {
+              'Authorization': apiKey,
+              'x-api-key': apiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bostaPayload)
+          });
+
+          if (retryRes.ok) {
+            directRes = retryRes;
+            responseData = await retryRes.json().catch(() => ({}));
+            deliveryData = responseData.data || responseData;
+          }
+        }
+      }
 
       if (directRes.ok && (responseData._id || deliveryData._id || responseData.trackingNumber || deliveryData.trackingNumber)) {
         return {
