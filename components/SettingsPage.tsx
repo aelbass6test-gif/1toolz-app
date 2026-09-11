@@ -15,6 +15,7 @@ import * as dbService from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
+import { AdminAlertsSettingsCard } from './AdminAlertsModal';
 
 interface SettingsPageProps {
   settings: Settings;
@@ -1661,7 +1662,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   wallet,
   treasury
 }) => {
-  const [activeTab, setActiveTab ] = useState<'general' | 'database'>('general');
+  const [activeTab, setActiveTab ] = useState<'general' | 'database' | 'admin-alerts'>('general');
 
   const handleIntegrationSave = (integration: PlatformIntegration) => {
     setSettings(prev => ({ ...prev, integration }));
@@ -1724,6 +1725,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <Database size={18} />
           المزامنة والاتصال السحابي والنسخ الاحتياطي ☁️
         </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('admin-alerts')}
+          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 font-black text-sm transition-all duration-200 active:scale-95 ${
+            activeTab === 'admin-alerts'
+              ? 'border-rose-600 text-rose-650 dark:border-rose-400 dark:text-rose-400 bg-rose-50/10'
+              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+          }`}
+        >
+          <Activity size={18} />
+          إشعارات الإدارة الفورية 🚨
+        </button>
       </div>
 
       {activeTab === 'general' && (
@@ -1740,6 +1753,32 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <ExpenseCategoriesSettingsCard settings={settings} setSettings={setSettings} />
           <CommunicationSettingsCard settings={settings} setSettings={setSettings} />
           <EmployeeDashboardSettingsCard settings={settings} setSettings={setSettings} />
+        </div>
+      )}
+
+      {activeTab === 'admin-alerts' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="bg-gradient-to-l from-rose-50 to-orange-50 dark:from-rose-950/20 dark:to-orange-950/20 p-6 rounded-[2rem] border border-rose-100 dark:border-rose-900/40 shadow-sm flex flex-col lg:flex-row items-center gap-6 justify-between">
+            <div className="flex items-center gap-4">
+              <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md shrink-0">
+                <Activity className="text-rose-500 w-8 h-8" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black dark:text-white">تنبيهات الإدارة الفورية والويب هوك</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-lg leading-relaxed">
+                  يسمح لك هذا القسم بربط النظام مع تليجرام أو واتساب لاستقبال إشعارات فورية عند دخول طلبات جديدة، أو رصد أخطاء في الويب هوك، أو عند تسجيل عملاء خطرين.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/webhook-monitor" className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-xs shadow-sm hover:shadow-md transition-all flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                <Activity size={14} className="text-emerald-500" />
+                <span>مراقبة صحة الويب هوك (Live)</span>
+              </Link>
+            </div>
+          </div>
+          
+          <AdminAlertsSettingsCard settings={settings} setSettings={setSettings} />
         </div>
       )}
 

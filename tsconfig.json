@@ -33,6 +33,7 @@
     "**/*.tsx"
   ],
   "exclude": [
+    "scripts/**/*",
     "supabase/**/*",
     "my-store-app-main/**/*",
     "node_modules",

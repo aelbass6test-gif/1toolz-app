@@ -130,6 +130,7 @@ import { triggerWebhooks } from "../utils/webhook";
 import { printHTMLDirectly, printPdfBlob } from "../utils/printHelper";
 import { exportHTMLToPDF } from "../utils/pdfHelper";
 import { OrderDetailsModal } from "./OrderDetailsModal";
+import { OrderWhatsAppChatModal } from "./OrderWhatsAppChatModal";
 import { ConfirmationModal } from "./ConfirmationModal";
 import { whatsappService } from "../utils/whatsappService";
 import { bostaService } from "../utils/bostaService";
@@ -1029,7 +1030,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     const carrierName = adapter?.getCarrierName() || order.shippingCompany || 'شركة الشحن';
     const config = carrierName === 'بوسطة' ? settings?.bostaConfig : settings?.turboConfig;
-    const trackingId = order.turboTrackingNumber || order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber;
+    const trackingId = order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber || order.bostaDeliveryId;
 
     if (!trackingId) {
       await inAppAlert('لا يوجد رقم بوليصة أو معرّف شحنة لهذا الطلب.', { type: 'warning' });
@@ -1147,8 +1148,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     }
 
     const carrierName = adapter.getCarrierName();
-    const config = carrierName === 'بوسطة' ? settings?.bostaConfig : settings?.turboConfig;
-    const trackingNumber = order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber;
+    const config = carrierName === 'بوسطة' 
+      ? (settings?.bostaConfig || (settings as any)?.integration?.bosta) 
+      : (settings?.turboConfig || (settings as any)?.integration?.turbo);
+    const trackingNumber = order.bostaTrackingNumber || order.turboTrackingNumber || order.waybillNumber || order.bostaDeliveryId;
 
     if (!trackingNumber) {
       await inAppAlert(`لا توجد بوليصة شحن أو رقم تتبع لـ ${carrierName} لهذا الطلب.`, { type: "warning" });
@@ -1158,29 +1161,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     setIsBostaLoading(order.id);
     try {
       const res = await adapter.trackShipment(trackingNumber, config);
-      if (res.success && (res.status || res.statusArabic)) {
+      if (res.success && (res.status || res.statusArabic || res.data)) {
         const carrierStatus = (res.status || res.statusArabic || "").toLowerCase();
         let newStatus: OrderStatus | null = null;
 
         if (carrierName === 'بوسطة') {
-          if (["delivered", "تم التسليم", "توصيل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_توصيلها" as OrderStatus;
-          else if (["returned", "cancel", "terminate", "مرتجع"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مرتجع";
-          else if (["postpone", "delay", "مؤجل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مؤجل";
-          else if (["transit", "picked", "out", "تم الارسال"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_الارسال";
+          if (["delivered", "delivered_to_receiver", "تم التسليم", "تم التوصيل", "توصيل", "مستلم", "تم استلامها", "تسليم", "delivered to customer"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_توصيلها" as OrderStatus;
+          else if (["returned", "returned_to_business", "cancel", "cancelled", "canceled", "terminate", "terminated", "مرتجع", "ملغي", "ملغى", "إرجاع", "مرفوض", "rejected", "failed"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مرتجع";
+          else if (["postpone", "postponed", "delay", "delayed", "rescheduled", "مؤجل", "تأجيل", "مؤجلة"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مؤجل";
+          else if (["transit", "in_transit", "picked", "picked_up", "package_received", "out", "out_for_delivery", "waiting_for_route", "created", "تم الارسال", "في الطريق", "مع المندوب", "تم الاستلام", "جارى التوصيل", "تم الشحن", "شحن"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_الارسال";
         } else if (carrierName === 'تربو') {
-           if (["delivered", "تم التسليم", "تم التوصيل", "مكتمل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_توصيلها" as OrderStatus;
-           else if (["returned", "cancel", "مرتجع", "ملغي", "مرفوض"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مرتجع";
-           else if (["picked", "out", "transit", "تم الارسال", "في الطريق", "مع المندوب", "مقبولة", "مقبول", "جارى التوصيل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_الارسال";
+           if (["delivered", "تم التسليم", "تم التوصيل", "مكتمل", "مستلم"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_توصيلها" as OrderStatus;
+           else if (["returned", "cancel", "مرتجع", "ملغي", "مرفوض", "فشل التوصيل"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "مرتجع";
+           else if (["picked", "out", "transit", "تم الارسال", "في الطريق", "مع المندوب", "مقبولة", "مقبول", "جارى التوصيل", "تم الشحن"].some(s => carrierStatus.includes(s.toLowerCase()))) newStatus = "تم_الارسال";
         }
+
+        const displayStatus = res.statusArabic || res.status || "تم جلب التحديث بنجاح";
 
         if (newStatus && newStatus !== order.status) {
           updateOrderStatus(order.id, newStatus);
-          inAppToast(`تم تحديث حالة الطلب تلقائياً إلى "${newStatus}" بناءً على تحديثات ${carrierName}`, "success");
+          inAppToast(`تم تحديث حالة الطلب تلقائياً إلى "${newStatus}" بناءً على تحديثات ${carrierName} (${displayStatus})`, "success");
         } else {
-          inAppAlert(`حالة الشحنة الحالية في ${carrierName} هي: ${res.statusArabic || res.status || "غير معروفة"}`, { type: "info" });
+          inAppAlert(`حالة الشحنة الحالية في ${carrierName} هي: ${displayStatus} (الطلب متزامن بالفعل)`, { type: "info" });
         }
       } else {
-        await inAppAlert(`فشل جلب التحديثات من ${carrierName}: ${res.error || 'خطأ غير معروف'}`, { type: "error" });
+        await inAppAlert(`فشل جلب التحديثات من ${carrierName}: ${res.error || 'تعذر العثور على بيانات التتبع للشحنة'}`, { type: "error" });
       }
     } catch (err: any) {
       await inAppAlert(`خطأ أثناء مزامنة الحالة مع ${carrierName}: ${err.message || "خطأ غير متوقع"}`, { type: "error" });
@@ -1207,7 +1212,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       )) || order.bostaDeliveryId || order.bostaTrackingNumber
     );
 
-    const trackingNum = order.turboTrackingNumber || order.bostaDeliveryId || order.bostaTrackingNumber || order.waybillNumber;
+    const trackingNum = order.turboTrackingNumber || order.bostaTrackingNumber || order.waybillNumber || order.bostaDeliveryId;
 
     if (isTurbo) {
       if (!trackingNum) {
@@ -1475,12 +1480,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const handleBulkPrintBostaAwb = async (selectedOrderIds: string[], awbType: 'A4' | 'A6' = 'A4') => {
-    const targets = orders.filter((o) => selectedOrderIds.includes(o.id) && (o.waybillNumber || o.bostaDeliveryId));
+    const targets = orders.filter((o) => selectedOrderIds.includes(o.id) && (o.bostaTrackingNumber || o.waybillNumber || o.bostaDeliveryId));
     if (!targets.length) {
       await inAppAlert('لا توجد طلبات محددة تحتوي على بوليصة شحن لبوسطة. يرجى إرسال الطلبات لبوسطة أولاً لتوليد البوالص.', { type: 'warning' });
       return;
     }
-    const trackingNumbers = targets.map(o => o.waybillNumber || o.bostaDeliveryId || '').filter(Boolean);
+    const trackingNumbers = targets.map(o => o.bostaTrackingNumber || o.waybillNumber || o.bostaDeliveryId || '').filter(Boolean);
     setIsBulkPrintingBosta(true);
     try {
       const res = await bostaService.getMassAwb(

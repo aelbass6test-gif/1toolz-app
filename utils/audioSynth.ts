@@ -129,6 +129,10 @@ class AudioSynthEngine {
     this.playTone('click');
   }
 
+  public playError() {
+    this.playTone('error');
+  }
+
   /**
    * Speak Arabic narration phrases using the system Text-to-Speech synthesizer
    */

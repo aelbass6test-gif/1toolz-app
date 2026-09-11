@@ -63,6 +63,45 @@ export const DEFAULT_BOSTA_BUSINESS_LOCATIONS = [
   }
 ];
 
+/**
+ * Guarantees strictly ONE default location across an array of locations.
+ * Prevents multiple locations or zero locations from having isDefault: true.
+ */
+export function ensureSingleDefaultLocation<T extends { _id?: string; id?: string; isDefault?: boolean; isDefaultLocation?: boolean }>(
+  locations: T[],
+  preferredDefaultId?: string
+): T[] {
+  if (!Array.isArray(locations) || locations.length === 0) return [];
+
+  let targetId: string | null = null;
+
+  // 1. If preferredDefaultId exists in the list, respect it
+  if (preferredDefaultId) {
+    const found = locations.find(l => (l._id || l.id) === preferredDefaultId);
+    if (found) targetId = found._id || found.id || null;
+  }
+
+  // 2. Otherwise find the first item marked default
+  if (!targetId) {
+    const marked = locations.find(l => l.isDefault === true || l.isDefaultLocation === true);
+    if (marked) targetId = marked._id || marked.id || null;
+  }
+
+  // 3. Fallback to the first item
+  if (!targetId && locations.length > 0) {
+    targetId = locations[0]._id || locations[0].id || null;
+  }
+
+  return locations.map(loc => {
+    const isThisDefault = Boolean(targetId && (loc._id || loc.id) === targetId);
+    return {
+      ...loc,
+      isDefault: isThisDefault,
+      isDefaultLocation: isThisDefault
+    };
+  });
+}
+
 export interface BostaCity {
   _id: string;
   name: string;
@@ -163,13 +202,13 @@ export interface BostaPickupResponse {
 /**
  * Safe fetch JSON helper
  */
-const CARRIER_API_BASE = (import.meta.env.VITE_CARRIER_API_BASE_URL || 'https://api.abdomedi.com').replace(/\/$/, '');
+const CARRIER_API_BASE = (import.meta.env.VITE_CARRIER_API_BASE_URL || '').replace(/\/$/, '');
 
 async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
-  try {
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000';
-    const requestBase = url.startsWith('/api/bosta/') ? CARRIER_API_BASE : origin;
-    const urlObj = new URL(url, requestBase);
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000';
+
+  const doFetch = async (baseUrl: string) => {
+    const urlObj = new URL(url, baseUrl);
     if (!options || options.method === 'GET' || options.method === 'POST') {
       urlObj.searchParams.set('_cb', Date.now().toString());
     }
@@ -198,6 +237,23 @@ async function safeFetchJson(url: string, options?: RequestInit, fallbackError?:
         error: fallbackError || 'تعذر قراءة الاستجابة من خادم بوسطة.'
       };
     }
+  };
+
+  // If a custom external CARRIER_API_BASE is configured and valid, try it first
+  if (CARRIER_API_BASE && CARRIER_API_BASE !== origin) {
+    try {
+      const externalRes = await doFetch(CARRIER_API_BASE);
+      if (externalRes && !externalRes.isHtmlResponse && (externalRes.success !== false || externalRes.status !== 404)) {
+        return externalRes;
+      }
+    } catch (err) {
+      console.warn('External CARRIER_API_BASE unavailable, routing to local backend proxy:', err);
+    }
+  }
+
+  // Primary: Always fetch from current origin local server
+  try {
+    return await doFetch(origin);
   } catch (err: any) {
     return {
       success: false,
@@ -245,6 +301,26 @@ export const bostaService = {
     if (isStaging) query.set('staging', 'true');
     const res = await safeFetchJson(`/api/bosta/business-locations?${query.toString()}`, undefined, 'فشل جلب مواقع العمل من خادم بوسطة');
     return res?.success ? res : { success: false, data: [], error: res?.error || 'فشل جلب مواقع العمل عبر خادم الربط' };
+  },
+
+  async setDefaultPickupLocation(locationId: string, apiKey: string, isStaging: boolean = false): Promise<any> {
+    if (!locationId) return { success: false, error: 'معرف الموقع غير محدد' };
+    const res = await safeFetchJson(`/api/bosta/pickup-locations/${encodeURIComponent(locationId)}/default`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey, environment: isStaging ? 'staging' : 'production' })
+    }, 'فشل تعيين موقع الاستلام الأساسي في بوسطة');
+    return res?.success ? res : { success: false, error: res?.error || 'فشل تعيين موقع الاستلام الأساسي' };
+  },
+
+  async deletePickupLocation(locationId: string, apiKey: string, isStaging: boolean = false): Promise<any> {
+    if (!locationId) return { success: false, error: 'معرف الموقع غير محدد' };
+    const query = new URLSearchParams({ apiKey: (apiKey || '').trim() });
+    if (isStaging) query.set('staging', 'true');
+    const res = await safeFetchJson(`/api/bosta/pickup-locations/${encodeURIComponent(locationId)}?${query.toString()}`, {
+      method: 'DELETE'
+    }, 'فشل حذف موقع الاستلام من بوسطة');
+    return res?.success ? res : { success: false, error: res?.error || 'فشل حذف موقع الاستلام' };
   },
 
   async verifyConnection(apiKey: string, environment?: 'production' | 'staging'): Promise<BostaVerifyResponse> {
@@ -411,12 +487,9 @@ export const bostaService = {
       if (isStaging) params.append('staging', 'true');
       const query = params.toString() ? `?${params.toString()}` : '';
 
-      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/businesses/${encodeURIComponent(businessId)}${query}`);
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && data.success) return data;
-      }
-      return { success: false, error: 'تعذر جلب بيانات النشاط التجاري' };
+      const res = await safeFetchJson(`/api/bosta/businesses/${encodeURIComponent(businessId)}${query}`, undefined, 'تعذر جلب بيانات النشاط التجاري');
+      if (res && res.success) return res;
+      return { success: false, error: res?.error || 'تعذر جلب بيانات النشاط التجاري' };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -429,12 +502,12 @@ export const bostaService = {
     environment?: 'production' | 'staging'
   ): Promise<{ success: boolean; message?: string; business?: any; error?: string }> {
     try {
-      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/businesses/${encodeURIComponent(businessId)}/pickup-locations`, {
+      const res = await safeFetchJson(`/api/bosta/businesses/${encodeURIComponent(businessId)}/pickup-locations`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pickupAddress, apiKey, environment })
-      });
-      return await res.json();
+      }, 'فشل حفظ موقع الاستلام في بوسطة');
+      return res;
     } catch (err: any) {
       return { success: false, error: err.message || 'فشل حفظ موقع الاستلام في بوسطة' };
     }
@@ -463,10 +536,9 @@ export const bostaService = {
       if (params.apiKey) q.append('apiKey', params.apiKey);
       if (params.isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/pricing/calculator?${q.toString()}`);
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data) return data;
+      const res = await safeFetchJson(`/api/bosta/pricing/calculator?${q.toString()}`, undefined, 'تعذر حساب تكلفة الشحن');
+      if (res && (res.pricing || res.totalFee || res.success)) {
+        return res;
       }
       return { success: true, pricing: { totalFee: 50, shippingFee: 50 } };
     } catch (err: any) {
@@ -488,12 +560,9 @@ export const bostaService = {
       if (apiKey) q.append('apiKey', apiKey);
       if (isStaging) q.append('staging', 'true');
 
-      const res = await fetch(`${CARRIER_API_BASE}/api/bosta/deliveries/${encodeURIComponent(id)}?${q.toString()}`);
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data) return data;
-      }
-      return { success: false, error: 'تعذر جلب تفاصيل الشحنة' };
+      const res = await safeFetchJson(`/api/bosta/deliveries/${encodeURIComponent(id)}?${q.toString()}`, undefined, 'تعذر جلب تفاصيل الشحنة');
+      if (res && (res.delivery || res.success)) return res;
+      return { success: false, error: res?.error || 'تعذر جلب تفاصيل الشحنة' };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
@@ -552,9 +621,9 @@ export const bostaService = {
       if (!clean || clean.length < 6) return null;
       
       const query = `/api/bosta/customer-rate?phone=${encodeURIComponent(clean)}${apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ''}&staging=${isStaging}`;
-      const res = await fetch(`${CARRIER_API_BASE}${query}`);
-      if (!res.ok) return null;
-      return await res.json();
+      const res = await safeFetchJson(query);
+      if (res && res.success) return res;
+      return null;
     } catch {
       return null;
     }

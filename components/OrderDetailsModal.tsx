@@ -6,7 +6,7 @@ import {
   FileText, DollarSign, Calculator, ChevronRight, Share2, Printer, 
   ExternalLink, Sparkles, History, Check, AlertTriangle, HelpCircle,
   TrendingUp, TrendingDown, Layers, FileSearch, ArrowDownRight, ArrowUpRight,
-  RotateCcw, RefreshCcw
+  RotateCcw, RefreshCcw, MessageSquare
 } from 'lucide-react';
 import { Order, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
@@ -17,6 +17,7 @@ import {
 } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
+import { OrderWhatsAppChatModal } from './OrderWhatsAppChatModal';
 
 interface OrderDetailsModalProps {
   order: Order;
@@ -45,6 +46,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const [adjAmount, setAdjAmount] = useState('');
   const [adjNote, setAdjNote] = useState('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showWhatsAppChatModal, setShowWhatsAppChatModal] = useState(false);
 
   if (!settings) return null;
 
@@ -484,6 +486,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 {/* Quick Communication Card */}
                 <div className="bg-white dark:bg-[#0f1523] rounded-[2rem] border border-slate-200/80 dark:border-white/10 p-6 shadow-sm flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4">
                   <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      onClick={() => setShowWhatsAppChatModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-600/20 transition-all active:scale-95"
+                      title="عرض سجل ومحادثات ورسائل الواتساب لهذا الطلب"
+                    >
+                      <MessageSquare size={14} />
+                      <span>💬 محادثة ورسائل الواتساب</span>
+                    </button>
+
                     <a 
                       href={`https://wa.me/${order.customerPhone.replace(/\D/g, '')}?text=${encodeURIComponent(`مرحباً أستاذ ${order.customerName}، بخصوص طلبك رقم #${order.orderNumber || order.id.slice(0,6)} من متجرنا...`)}`} 
                       target="_blank" 
@@ -498,7 +509,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <>
                         <button 
                           onClick={() => onSendWhatsAppAPI?.('confirm')}
-                          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-600/20 transition-all active:scale-95"
+                          className="flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-700/20 transition-all active:scale-95"
                         >
                           <CheckCircle2 size={14} />
                           <span>تأكيد (API)</span>
@@ -1324,6 +1335,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         </div>
 
       </div>
+
+      {showWhatsAppChatModal && (
+        <OrderWhatsAppChatModal
+          order={order}
+          orders={allOrders.length > 0 ? allOrders : [order]}
+          settings={settings}
+          onClose={() => setShowWhatsAppChatModal(false)}
+        />
+      )}
     </div>
   );
 };

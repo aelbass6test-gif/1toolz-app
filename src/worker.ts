@@ -219,6 +219,17 @@ app.get("/api/webhook/bosta", (c) => c.json({
   message: "Bosta Webhook endpoint is active and ready to receive POST payloads from Bosta."
 }));
 
+// Intercept GET requests to Turbo webhooks directly in Cloudflare Worker to return friendly JSON status
+const handleWorkerTurboWebhookGet = (c: any) => c.json({
+  success: true,
+  status: "active",
+  message: "Turbo Webhook endpoint is active and ready to receive POST status updates from Turbo."
+});
+app.get("/api/webhooks/turbo", handleWorkerTurboWebhookGet);
+app.get("/api/webhook/turbo", handleWorkerTurboWebhookGet);
+app.get("/api/webhooks/turbo/:storeId", handleWorkerTurboWebhookGet);
+app.get("/api/webhook/turbo/:storeId", handleWorkerTurboWebhookGet);
+
 // Intercept Meta WhatsApp webhook challenge verification directly in Cloudflare Worker
 const handleWorkerMetaWebhookGet = (c: any) => {
   const mode = c.req.query("hub.mode");
@@ -235,6 +246,18 @@ const handleWorkerMetaWebhookGet = (c: any) => {
 };
 app.get("/api/webhook/whatsapp", handleWorkerMetaWebhookGet);
 app.get("/api/webhooks/whatsapp", handleWorkerMetaWebhookGet);
+
+// Intercept GET/HEAD verification requests for test & Akked webhooks
+app.get("/api/v1/webhooks/test", (c) => c.json({
+  success: true,
+  status: "active",
+  message: "Webhook test dispatcher endpoint is active."
+}));
+app.get("/api/v1/webhooks/akked", (c) => c.json({
+  success: true,
+  status: "active",
+  message: "Akked WhatsApp inbound webhook endpoint is active."
+}));
 
 
 // API Proxy for all backend routes (including Bosta, Turbo, Meta, etc.)

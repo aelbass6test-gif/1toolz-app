@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { StoreData, Product } from '../types';
 import { audioSynth } from '../utils/audioSynth';
 import { 
   CheckCircle2, ChevronLeft, Cable, HardDriveDownload, Search, Shapes, X, 
   RefreshCw, ListChecks, CheckCircle, Package, ImageIcon, Save, XCircle, 
   Sparkles, FileSpreadsheet, Eye, Printer, Sliders, Check, Download, 
-  Upload, Copy, Info, AlertTriangle, Play, HelpCircle, FileText, Key, Webhook
+  Upload, Copy, Info, AlertTriangle, Play, HelpCircle, FileText, Key, Webhook,
+  Truck, MessageSquare, PhoneCall, CreditCard, ExternalLink, Activity, ShieldCheck
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import confetti from 'canvas-confetti';
@@ -27,66 +29,145 @@ interface PlatformConfig {
   apiSecret?: string;
   shopUrl?: string;
   shopId?: string;
+  environment?: 'production' | 'staging';
   lastSync?: string;
   lastProductSync?: string;
   isActive: boolean;
 }
 
 const AVAILABLE_APPS = [
+  // 1. Shipping & Logistics
+  {
+    id: 'bosta',
+    name: 'بوسطة (Bosta Express)',
+    description: 'بوابة الشحن الأقوى بمصر لإنشاء البوالص تلقائياً، تتبع الشحنات، إدارة فروع ومخازن الاستلام، وإصدار بوالص الشحن المطبوعة.',
+    logo: 'https://app.bosta.co/assets/images/bosta-logo.svg',
+    type: 'shipping',
+    category: 'shipping',
+    tags: ['الشحن السريع', 'مصر', 'بوالص آلية', 'API'],
+    needsApi: true,
+    supportedFeatures: ['orders', 'tracking', 'warehouses']
+  },
+  {
+    id: 'turbo',
+    name: 'تربو (Turbo Express)',
+    description: 'ربط حساب شركة تربو لشحن الطرود بمصر، تصدير الأوردرات تلقائياً، وتتبع بوالص الشحن عبر الـ API المباشر.',
+    logo: 'https://turbo-eg.com/wp-content/uploads/2021/04/turbo-logo.png',
+    type: 'shipping',
+    category: 'shipping',
+    tags: ['الشحن والتوصيل', 'مصر', 'تتبع حي', 'API'],
+    needsApi: true,
+    supportedFeatures: ['orders', 'tracking']
+  },
+  // 2. Messaging & WhatsApp
+  {
+    id: 'whatsapp',
+    name: 'واتساب للأعمال (Meta WhatsApp API)',
+    description: 'إرسال إشعارات الطلبات وتأكيد الأوردرات آلياً عبر WhatsApp Cloud API مع قوالب تفاعلية واسترجاع السلات المتروكة.',
+    logo: 'https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg',
+    type: 'messaging',
+    category: 'messaging',
+    tags: ['المراسلات', 'Meta', 'تأكيد الطلبات', 'Cloud API'],
+    needsApi: true,
+    supportedFeatures: ['notifications', 'confirmations']
+  },
+  // 3. Automated Order Confirmation
+  {
+    id: 'akked',
+    name: 'أكد (Akked.io - تأكيد الطلبات)',
+    description: 'نظام التأكيد الآلي للطلبات والمكالمات التفاعلية والرسائل الذكية للحد من المرتجعات ورفع نسبة التسليم بنجاح.',
+    logo: 'https://akked.io/favicon.ico',
+    type: 'confirmation',
+    category: 'confirmation',
+    tags: ['تأكيد الطلبات', 'مكالمات آلية', 'OTP'],
+    needsApi: true,
+    supportedFeatures: ['calls', 'orders']
+  },
+  // 4. E-commerce Store Platforms
   {
     id: 'wuilt',
     name: 'ويلت (Wuilt)',
     description: 'ربط مباشر عبر API لاستيراد الطلبات وتحديث حالتها تلقائياً، مع دعم مزامنة المنتجات بشكل كامل.',
     logo: 'https://cdn.prod.website-files.com/614319338322d2f96eb4dd96/62124643bd803240ec14b13a_Wuilt%20logo.svg',
     type: 'store',
-    tags: ['E-commerce', 'Full Sync', 'API'],
+    category: 'store',
+    tags: ['المتاجر', 'Full Sync', 'API'],
     needsApi: true,
     supportedFeatures: ['orders', 'products']
   },
   {
     id: 'shopify',
     name: 'شوبيفاي (Shopify)',
-    description: 'استيراد كامل للطلبات والمخزون عبر Shopify Admin API.',
+    description: 'استيراد كامل للطلبات والمخزون والعملاء عبر Shopify Admin API.',
     logo: 'https://cdn.shopify.com/assets/images/logos/shopify-bag.png',
     type: 'store',
-    tags: ['E-commerce', 'API'],
+    category: 'store',
+    tags: ['المتاجر العالمية', 'API'],
     needsApi: true,
     supportedFeatures: ['orders']
   },
   {
     id: 'salla',
     name: 'سلة (Salla)',
-    description: 'ربط كامل مع أوامر سلة، المبيعات وحالة الشحن عبر API.',
+    description: 'ربط كامل مع أوامر سلة، المبيعات وحالة الشحن بالسعودية عبر API.',
     logo: 'https://cdn.salla.network/images/logo/logo-square.png',
     type: 'store',
-    tags: ['E-commerce', 'Saudi Arabia', 'API'],
+    category: 'store',
+    tags: ['منصات الخليج', 'السعودية', 'API'],
     needsApi: true,
     supportedFeatures: ['orders']
   },
   {
     id: 'zid',
     name: 'زد (Zid)',
-    description: 'إدارة طلبات زد وتحديث محفظة المتجر عبر API.',
+    description: 'إدارة طلبات زد وتحديث محفظة المتجر والعملاء عبر API.',
     logo: 'https://zid.sa/wp-content/uploads/2021/04/Zid-Logo-01.png',
     type: 'store',
-    tags: ['E-commerce', 'Saudi Arabia', 'API'],
+    category: 'store',
+    tags: ['منصات الخليج', 'السعودية', 'API'],
     needsApi: true,
     supportedFeatures: ['orders']
   },
   {
     id: 'taager',
     name: 'تاجر (Taager)',
-    description: 'لربط نظام الدروبشيبينج بالمنصة وإرسال الطلبات تلقائياً عبر API.',
+    description: 'لربط نظام الدروبشيبينج بالمنصة وإرسال الطلبات تلقائياً عبر API وتتبع الأرباح والمخازن.',
     logo: 'https://taager.com/assets/images/taager-logo-colored.svg',
     type: 'supplier',
-    tags: ['Dropshipping', 'API'],
+    category: 'supplier',
+    tags: ['الدروبشيبينج', 'الموردين', 'API'],
     needsApi: true,
     supportedFeatures: ['orders']
+  },
+  // 5. Payment Gateways
+  {
+    id: 'paymob',
+    name: 'بايموب (Paymob Accept)',
+    description: 'بوابة الدفع الإلكتروني الرائدة لقبول البطاقات البنكية، المحافظ الإلكترونية (فودافون كاش)، وتقسيط أمان وفاليو.',
+    logo: 'https://paymob.com/images/paymob-logo.png',
+    type: 'payment',
+    category: 'payment',
+    tags: ['بوابات الدفع', 'فيزا/ماستركارد', 'محافظ الكترونية'],
+    needsApi: true,
+    supportedFeatures: ['payments']
+  },
+  {
+    id: 'fawry',
+    name: 'فوري باي (Fawry Pay)',
+    description: 'إصدار أرقام مرجعية لعملاء المتجر للدفع النقدي الفوري عبر أكثر من 300 ألف نقطة فوري بجميع محافظات مصر.',
+    logo: 'https://fawry.com/wp-content/uploads/2020/09/fawry-logo.png',
+    type: 'payment',
+    category: 'payment',
+    tags: ['بوابات الدفع', 'دفع نقدي', 'مصر'],
+    needsApi: true,
+    supportedFeatures: ['payments']
   }
 ];
 
 export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdateOrders, onRefresh, hostUrl }: AppsPageProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'platforms' | 'libraries' | 'apikeys' | 'webhooks'>('platforms');
+  const [filterCategory, setFilterCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedApp, setSelectedApp] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -94,6 +175,8 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
   const [config, setConfig] = useState<Partial<PlatformConfig>>({});
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncingProducts, setSyncingProducts] = useState<string | null>(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Selective Sync State
   const [showSelectiveModal, setShowSelectiveModal] = useState(false);
@@ -155,6 +238,28 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
 
   const connectedPlatforms = storeData?.settings?.connectedPlatforms || [];
   const platformConfigs: Record<string, PlatformConfig> = (storeData?.settings as any)?.platformConfigs || {};
+
+  const isAppConnected = (appId: string): boolean => {
+    if (appId === 'bosta') {
+      return Boolean(storeData?.settings?.bostaConfig?.apiKey || connectedPlatforms.includes('bosta'));
+    }
+    if (appId === 'turbo') {
+      return Boolean(storeData?.settings?.turboConfig?.apiKey || connectedPlatforms.includes('turbo'));
+    }
+    if (appId === 'whatsapp') {
+      return Boolean((storeData?.settings as any)?.metaWhatsAppConfig?.accessToken || (storeData?.settings as any)?.whatsappConfig?.token || connectedPlatforms.includes('whatsapp'));
+    }
+    if (appId === 'akked') {
+      return Boolean(platformConfigs['akked']?.apiKey || connectedPlatforms.includes('akked'));
+    }
+    if (appId === 'paymob') {
+      return Boolean(platformConfigs['paymob']?.apiKey || connectedPlatforms.includes('paymob'));
+    }
+    if (appId === 'fawry') {
+      return Boolean(platformConfigs['fawry']?.apiKey || connectedPlatforms.includes('fawry'));
+    }
+    return connectedPlatforms.includes(appId);
+  };
 
   const [appToUninstall, setAppToUninstall] = useState<string | null>(null);
 
@@ -545,7 +650,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
     let currentPlatforms = storeData.settings.connectedPlatforms || [];
     const currentConfigs = (storeData.settings as any).platformConfigs || {};
 
-    const updatedSettings = {
+    let updatedSettings: any = {
         ...storeData.settings,
         connectedPlatforms: currentPlatforms.includes(selectedApp.id) 
             ? currentPlatforms 
@@ -555,13 +660,39 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
             [selectedApp.id]: {
                appId: selectedApp.id,
                ...config,
-               isActive: true
+               isActive: config.isActive !== false
             }
         }
     };
+
+    if (selectedApp.id === 'bosta') {
+      updatedSettings.bostaConfig = {
+        ...updatedSettings.bostaConfig,
+        apiKey: config.apiKey || updatedSettings.bostaConfig?.apiKey || '',
+        businessId: config.shopId || updatedSettings.bostaConfig?.businessId || '',
+        environment: config.environment || updatedSettings.bostaConfig?.environment || 'production'
+      };
+    } else if (selectedApp.id === 'turbo') {
+      updatedSettings.turboConfig = {
+        ...updatedSettings.turboConfig,
+        apiKey: config.apiKey || updatedSettings.turboConfig?.apiKey || '',
+        mainClientCode: Number(config.shopId) || updatedSettings.turboConfig?.mainClientCode || 74068,
+        environment: config.environment || updatedSettings.turboConfig?.environment || 'production'
+      };
+    } else if (selectedApp.id === 'whatsapp') {
+      updatedSettings.metaWhatsAppConfig = {
+        ...updatedSettings.metaWhatsAppConfig,
+        accessToken: config.apiKey || '',
+        phoneNumberId: config.shopId || '',
+        appId: config.apiSecret || '',
+        isActive: config.isActive !== false
+      };
+    }
+
     onUpdateSettings(updatedSettings);
     setIsModalOpen(false);
     setConfig({});
+    setTestResult(null);
   };
 
   const confirmUninstallApp = () => {
@@ -573,11 +704,22 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
       const newConfigs = { ...currentConfigs };
       delete newConfigs[appToUninstall];
 
-      const updatedSettings = {
+      let updatedSettings: any = {
           ...storeData.settings,
           connectedPlatforms: currentPlatforms.filter(id => id !== appToUninstall),
           platformConfigs: newConfigs
       };
+
+      if (appToUninstall === 'bosta' && updatedSettings.bostaConfig) {
+        updatedSettings.bostaConfig = { ...updatedSettings.bostaConfig, apiKey: '' };
+      }
+      if (appToUninstall === 'turbo' && updatedSettings.turboConfig) {
+        updatedSettings.turboConfig = { ...updatedSettings.turboConfig, apiKey: '' };
+      }
+      if (appToUninstall === 'whatsapp' && updatedSettings.metaWhatsAppConfig) {
+        updatedSettings.metaWhatsAppConfig = { ...updatedSettings.metaWhatsAppConfig, accessToken: '', isActive: false };
+      }
+
       onUpdateSettings(updatedSettings);
       setAppToUninstall(null);
   };
@@ -705,8 +847,157 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
 
   const openSettings = (app: any) => {
       setSelectedApp(app);
-      setConfig(platformConfigs[app.id] || {});
+      setTestResult(null);
+      let existingCfg: any = { ...(platformConfigs[app.id] || {}) };
+      if (app.id === 'bosta') {
+        const b = storeData?.settings?.bostaConfig;
+        existingCfg = {
+          ...existingCfg,
+          apiKey: b?.apiKey || existingCfg.apiKey || '',
+          shopId: b?.businessId || existingCfg.shopId || '',
+          environment: (b?.environment as any) || existingCfg.environment || 'production'
+        };
+      } else if (app.id === 'turbo') {
+        const t = storeData?.settings?.turboConfig;
+        existingCfg = {
+          ...existingCfg,
+          apiKey: t?.apiKey || existingCfg.apiKey || '',
+          shopId: String(t?.mainClientCode || '') || existingCfg.shopId || '74068',
+          environment: (t?.environment as any) || existingCfg.environment || 'production'
+        };
+      } else if (app.id === 'whatsapp') {
+        const wa = (storeData?.settings as any)?.metaWhatsAppConfig;
+        existingCfg = {
+          ...existingCfg,
+          apiKey: wa?.accessToken || existingCfg.apiKey || '',
+          shopId: wa?.phoneNumberId || existingCfg.shopId || '',
+          apiSecret: wa?.appId || existingCfg.apiSecret || ''
+        };
+      }
+      setConfig(existingCfg);
       setIsModalOpen(true);
+  };
+
+  const handleTestConnection = async () => {
+    if (!selectedApp) return;
+    setTestingConnection(true);
+    setTestResult(null);
+
+    try {
+      if (selectedApp.id === 'bosta') {
+        const apiKey = config.apiKey || storeData?.settings?.bostaConfig?.apiKey || '';
+        const environment = config.environment || storeData?.settings?.bostaConfig?.environment || 'production';
+        if (!apiKey) {
+          setTestResult({ success: false, message: 'يرجى إدخال مفتاح API الخاص بـ بوسطة أولاً.' });
+          return;
+        }
+        const res = await fetch('/api/bosta/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey, environment })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setTestResult({ success: true, message: data.message || 'الاتصال بحساب بوسطة سليم بنجاح وجاهز للشحن.' });
+        } else {
+          setTestResult({ success: false, message: data.error || 'فشل التحقق من مفتاح بوسطة. يرجى مراجعة الـ API Key.' });
+        }
+      } else if (selectedApp.id === 'turbo') {
+        const apiKey = config.apiKey || storeData?.settings?.turboConfig?.apiKey || '';
+        const isStaging = config.environment === 'staging';
+        if (!apiKey) {
+          setTestResult({ success: false, message: 'يرجى إدخال مفتاح الربط الخاص بـ تربو أولاً.' });
+          return;
+        }
+        const res = await fetch('/api/turbo/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey, staging: isStaging })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setTestResult({ success: true, message: data.message || 'تم التحقق من حساب تربو والاتصال سليم بنجاح!' });
+        } else {
+          setTestResult({ success: false, message: data.error || 'فشل التحقق من مفتاح تربو. يرجى التأكد من كود التوثيق.' });
+        }
+      } else if (selectedApp.id === 'whatsapp') {
+        const token = config.apiKey || (storeData?.settings as any)?.metaWhatsAppConfig?.accessToken || '';
+        const phoneId = config.shopId || (storeData?.settings as any)?.metaWhatsAppConfig?.phoneNumberId || '';
+        if (!token || !phoneId) {
+          setTestResult({ success: false, message: 'يرجى إدخال Phone Number ID و Access Token للتحقق.' });
+        } else {
+          const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId.trim()}?access_token=${token.trim()}`);
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.id) {
+            setTestResult({ success: true, message: `تم الاتصال بحساب واتساب بنجاح! الاسم المسجل: ${data.verified_name || data.display_phone_number || 'حساب مفعل'}` });
+          } else {
+            setTestResult({ success: false, message: data.error?.message || 'تعذر التحقق من بيانات واتساب. يرجى مراجعة التوكن والمعرف.' });
+          }
+        }
+      } else if (selectedApp.id === 'akked') {
+        const apiKey = config.apiKey || '';
+        if (!apiKey) {
+          setTestResult({ success: false, message: 'يرجى إدخال مفتاح API الخاص بمنصة أكد أولاً.' });
+          return;
+        }
+        const res = await fetch('/api/v1/akked/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setTestResult({ success: true, message: data.message || 'تم الاتصال بنجاح بمنصة أكد لتأكيد الطلبات!' });
+        } else {
+          setTestResult({ success: false, message: data.error || 'فشل التحقق من مفتاح أكد.' });
+        }
+      } else if (selectedApp.id === 'paymob') {
+        const apiKey = config.apiKey || '';
+        if (!apiKey) {
+          setTestResult({ success: false, message: 'يرجى إدخال مفتاح API الخاص بـ Paymob أولاً.' });
+          return;
+        }
+        const res = await fetch('/api/paymob/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setTestResult({ success: true, message: data.message || 'تم التحقق من بوابة Paymob بنجاح!' });
+        } else {
+          setTestResult({ success: false, message: data.error || 'فشل التحقق من مفتاح Paymob.' });
+        }
+      } else if (selectedApp.id === 'fawry') {
+        const merchantCode = config.shopId || '';
+        const securityKey = config.apiKey || '';
+        if (!merchantCode || !securityKey) {
+          setTestResult({ success: false, message: 'يرجى إدخال كود التاجر ومفتاح الأمان الخاص بفوري.' });
+          return;
+        }
+        const res = await fetch('/api/fawry/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ merchantCode, securityKey })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setTestResult({ success: true, message: data.message || 'تم فحص بيانات فوري وتأكيد الاتصال بنجاح!' });
+        } else {
+          setTestResult({ success: false, message: data.error || 'بيانات فوري غير صالحة.' });
+        }
+      } else {
+        if (!config.apiKey && !config.shopId) {
+          setTestResult({ success: false, message: 'يرجى إدخال مفتاح الـ API ومعرّف المتجر أولاً.' });
+        } else {
+          setTestResult({ success: true, message: `بيانات الربط مع ${selectedApp.name} جاهزة. يمكنك المزامنة اللحظية فور الحفظ!` });
+        }
+      }
+    } catch (err: any) {
+      setTestResult({ success: false, message: err.message || 'حدث خطأ في الاتصال بالخادم.' });
+    } finally {
+      setTestingConnection(false);
+    }
   };
 
   const copyToClipboard = (text: string) => {
@@ -715,7 +1006,24 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const filteredApps = AVAILABLE_APPS.filter(app => app.name.includes(searchTerm) || app.description.includes(searchTerm));
+  const totalConnectedCount = AVAILABLE_APPS.filter(a => isAppConnected(a.id)).length;
+
+  const filteredApps = AVAILABLE_APPS.filter(app => {
+    const matchesSearch = searchTerm.trim() === '' || 
+      app.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      app.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      app.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    const matchesCategory = filterCategory === 'all' || 
+      (filterCategory === 'shipping' && (app.category === 'shipping' || app.type === 'shipping')) ||
+      (filterCategory === 'messaging' && (app.category === 'messaging' || app.type === 'messaging')) ||
+      (filterCategory === 'confirmation' && (app.category === 'confirmation' || app.type === 'confirmation')) ||
+      (filterCategory === 'store' && (app.category === 'ecommerce' || app.type === 'store')) ||
+      (filterCategory === 'payment' && (app.category === 'payment' || app.type === 'payment')) ||
+      (filterCategory === 'connected' && isAppConnected(app.id));
+
+    return matchesSearch && matchesCategory;
+  });
 
   const getWebhookUrl = (appId: string) => {
      return `${hostUrl}/api/webhook/platform/${appId}/${storeId}`;
@@ -757,36 +1065,66 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
 
       {activeTab === 'platforms' && (
         <>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">مركز التحكم والربط (Integrations)</h2>
-              <p className="text-slate-500 dark:text-slate-400 mr-1 mt-1">تحكم في جميع أتمتة متجرك وعمليات المزامنة من مكان واحد.</p>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">مركز التكاملات والربط السحابي</h2>
+                <span className="bg-indigo-100 text-indigo-800 text-xs px-2.5 py-0.5 rounded-full font-bold dark:bg-indigo-900/40 dark:text-indigo-300">
+                  {totalConnectedCount} من {AVAILABLE_APPS.length} متصل
+                </span>
+              </div>
+              <p className="text-slate-500 dark:text-slate-400 mr-1 mt-1 text-sm">تحكم شامل في بوابات الشحن، المراسلات، بوابات الدفع، والمتاجر الإلكترونية مع فحص الاتصال التلقائي.</p>
             </div>
-            <div className="bg-indigo-100 p-3 rounded-full hidden sm:block dark:bg-indigo-900/30">
-               <Shapes className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+            <div className="flex items-center gap-2">
+               <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 px-3 py-2 rounded-xl flex items-center gap-2 text-emerald-700 dark:text-emerald-300 text-xs font-bold">
+                  <Activity className="w-4 h-4 animate-pulse" />
+                  مزامنة لحظية نشطة
+               </div>
             </div>
           </div>
 
-          <div className="flex gap-4 items-center">
+          {/* Category Filter Chips & Search Bar */}
+          <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
              <div className="relative flex-1 max-w-sm">
                 <Search className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input 
                    type="text"
-                   placeholder="ابحث عن تطبيق أو منصة..." 
-                   className="w-full pr-9 pl-4 py-2 border border-slate-200 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                   placeholder="ابحث عن تطبيق، منصة أو بوابة..." 
+                   className="w-full pr-9 pl-4 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
                    value={searchTerm}
                    onChange={(e) => setSearchTerm(e.target.value)}
                 />
+             </div>
+
+             {/* Filter Categories */}
+             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 hide-scrollbar">
+                {[
+                  { id: 'all', label: 'الكل' },
+                  { id: 'connected', label: `المتصلة (${totalConnectedCount})` },
+                  { id: 'shipping', label: 'الشحن' },
+                  { id: 'messaging', label: 'الواتساب' },
+                  { id: 'confirmation', label: 'التأكيد' },
+                  { id: 'store', label: 'المتاجر' },
+                  { id: 'payment', label: 'الدفع' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setFilterCategory(cat.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${filterCategory === cat.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'}`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
              </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
              {filteredApps.map((app) => {
-                const isConnected = connectedPlatforms.includes(app.id);
+                const isConnected = isAppConnected(app.id);
                 const appConfig = platformConfigs[app.id];
                 
                 return (
-                  <div key={app.id} className={`flex flex-col bg-white dark:bg-slate-800 rounded-xl overflow-hidden transition-all duration-200 shadow-sm border ${isConnected ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'}`}>
+                  <div key={app.id} className={`flex flex-col bg-white dark:bg-slate-800 rounded-xl overflow-hidden transition-all duration-200 shadow-sm border ${isConnected ? 'border-indigo-500 ring-1 ring-indigo-500 shadow-indigo-50 dark:shadow-none' : 'border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700'}`}>
                     <div className="p-5 pb-4">
                        <div className="flex items-start justify-between">
                            <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center p-2 shadow-sm border border-slate-200">
@@ -796,24 +1134,30 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                                   <div className="font-bold text-xl text-indigo-600">{app.name[0]}</div>
                                )}
                            </div>
-                           {isConnected && (
+                           {isConnected ? (
                                <div className="flex flex-col items-end gap-1">
-                                   <span className="flex items-center gap-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs px-2.5 py-1 rounded-full font-medium">
-                                      مُثبت <CheckCircle2 className="w-3 h-3 block" />
+                                   <span className="flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs px-2.5 py-1 rounded-full font-bold">
+                                      مُتصل ومفعل <CheckCircle2 className="w-3 h-3 block" />
                                    </span>
                                    {appConfig?.lastSync && (
                                       <span className="text-[10px] text-slate-400">آخر مزامنة: {appConfig.lastSync}</span>
                                    )}
                                </div>
+                           ) : (
+                               <span className="text-xs bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400 px-2.5 py-1 rounded-full font-medium">
+                                  غير متصل
+                               </span>
                            )}
                        </div>
-                       <h3 className="text-lg font-semibold mt-4 text-slate-900 dark:text-white">{app.name}</h3>
-                       <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 min-h-[40px]">{app.description}</p>
+                       <h3 className="text-lg font-bold mt-4 text-slate-900 dark:text-white flex items-center gap-2">
+                         {app.name}
+                       </h3>
+                       <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 mt-1 min-h-[40px] leading-relaxed">{app.description}</p>
                     </div>
                     <div className="px-5 flex-1 mt-auto">
                         <div className="flex gap-2 flex-wrap pb-4">
                            {app.tags.map(tag => (
-                               <span key={tag} className="text-xs bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md">
+                               <span key={tag} className="text-xs bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md font-medium">
                                    {tag}
                                </span>
                            ))}
@@ -822,30 +1166,85 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                     <div className="pt-0 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-4">
                        {isConnected ? (
                            <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-2">
-                                <button 
-                                    onClick={() => handleSyncOrders(app.id)}
-                                    disabled={syncing === app.id}
-                                    className={`py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${syncing === app.id ? 'bg-indigo-100 text-indigo-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
-                                 >
-                                    <Cable className={`w-3.5 h-3.5 ${syncing === app.id ? 'animate-spin' : ''}`} />
-                                    {syncing === app.id ? 'جاري...' : 'مزامنة الطلبات'}
-                                </button>
-                                <button 
-                                    onClick={() => handleFetchSelectable(app.id)}
-                                    disabled={syncing === app.id + '-products' || isFetchingSelectable}
-                                    className={`py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${syncing === app.id + '-products' ? 'bg-indigo-100 text-indigo-400' : 'bg-slate-900 text-white dark:bg-slate-700 hover:bg-black dark:hover:bg-slate-600'}`}
-                                 >
-                                    {syncing === app.id + '-products' || isFetchingSelectable ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <HardDriveDownload className="w-3.5 h-3.5" />}
-                                    {isFetchingSelectable ? 'جاري...' : 'مزامنة المنتجات'}
-                                </button>
-                              </div>
+                              {/* Tailored Action Buttons depending on type */}
+                              {app.type === 'shipping' ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button 
+                                      onClick={() => navigate('/shipping')}
+                                      className="py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                                   >
+                                      <Truck className="w-3.5 h-3.5" />
+                                      بوابة الشحن
+                                  </button>
+                                  <button 
+                                      onClick={() => openSettings(app)}
+                                      className="py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                   >
+                                      <Sliders className="w-3.5 h-3.5" />
+                                      إعدادات الربط
+                                  </button>
+                                </div>
+                              ) : app.id === 'whatsapp' ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button 
+                                      onClick={() => navigate('/whatsapp')}
+                                      className="py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                                   >
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                      المحادثات
+                                  </button>
+                                  <button 
+                                      onClick={() => openSettings(app)}
+                                      className="py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                   >
+                                      <Sliders className="w-3.5 h-3.5" />
+                                      إعدادات الربط
+                                  </button>
+                                </div>
+                              ) : app.type === 'payment' ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button 
+                                      onClick={() => navigate('/settings')}
+                                      className="py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                                   >
+                                      <CreditCard className="w-3.5 h-3.5" />
+                                      إعدادات الدفع
+                                  </button>
+                                  <button 
+                                      onClick={() => openSettings(app)}
+                                      className="py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                   >
+                                      <Sliders className="w-3.5 h-3.5" />
+                                      إعدادات الـ API
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button 
+                                      onClick={() => handleSyncOrders(app.id)}
+                                      disabled={syncing === app.id}
+                                      className={`py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${syncing === app.id ? 'bg-indigo-100 text-indigo-400' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                   >
+                                      <Cable className={`w-3.5 h-3.5 ${syncing === app.id ? 'animate-spin' : ''}`} />
+                                      {syncing === app.id ? 'جاري...' : 'مزامنة الطلبات'}
+                                  </button>
+                                  <button 
+                                      onClick={() => handleFetchSelectable(app.id)}
+                                      disabled={syncing === app.id + '-products' || isFetchingSelectable}
+                                      className={`py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${syncing === app.id + '-products' ? 'bg-indigo-100 text-indigo-400' : 'bg-slate-900 text-white dark:bg-slate-700 hover:bg-black dark:hover:bg-slate-600'}`}
+                                   >
+                                      {syncing === app.id + '-products' || isFetchingSelectable ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <HardDriveDownload className="w-3.5 h-3.5" />}
+                                      {isFetchingSelectable ? 'جاري...' : 'مزامنة المنتجات'}
+                                  </button>
+                                </div>
+                              )}
+
                               <div className="grid grid-cols-2 gap-2">
                                  <button 
                                     onClick={() => openSettings(app)}
                                     className="py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-lg transition-colors"
                                   >
-                                     الإعدادات
+                                     فحص وتعديل
                                  </button>
                                  <button 
                                     onClick={() => setAppToUninstall(app.id)}
@@ -858,9 +1257,9 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                        ) : (
                            <button 
                               onClick={() => openSettings(app)}
-                              className="w-full py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-xl transition-colors flex items-center justify-center gap-2"
+                              className="w-full py-2.5 text-sm font-bold text-slate-800 bg-white border border-slate-300 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm"
                             >
-                              بدء الربط (API) <ChevronLeft className="w-4 h-4" />
+                              بدء الربط وتفعيل (API) <ChevronLeft className="w-4 h-4" />
                            </button>
                        )}
                     </div>
@@ -1512,35 +1911,284 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
 
                      {/* API Configuration Section */}
                      <div className={`space-y-4 transition-all duration-300 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                        <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 ">
-                           <Key className="w-4 h-4" />
-                           <h4 className="font-bold text-sm uppercase tracking-wider">إعدادات الـ API</h4>
+                        <div className="flex items-center justify-between">
+                           <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 ">
+                              <Key className="w-4 h-4" />
+                              <h4 className="font-bold text-sm uppercase tracking-wider">إعدادات الربط والتوثيق (API & Credentials)</h4>
+                           </div>
+                           <button
+                             type="button"
+                             onClick={handleTestConnection}
+                             disabled={testingConnection}
+                             className="px-3 py-1 text-xs font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center gap-1.5"
+                           >
+                             {testingConnection ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                             {testingConnection ? 'جاري الفحص...' : 'فحص واختبار الاتصال'}
+                           </button>
                         </div>
+
+                        {/* Test Connection Result Banner */}
+                        {testResult && (
+                           <div className={`p-4 rounded-xl border flex items-start gap-3 animate-in fade-in duration-200 ${testResult.success ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-800 dark:text-red-300'}`}>
+                              {testResult.success ? <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-600 mt-0.5" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-600 mt-0.5" />}
+                              <div className="text-xs font-medium leading-relaxed">
+                                 <strong className="block font-bold mb-0.5">{testResult.success ? 'الاتصال ناجح ومؤكد' : 'تنبيه الاتصال'}</strong>
+                                 {testResult.message}
+                              </div>
+                           </div>
+                        )}
                         
                         <div className="space-y-4 p-5 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-xl">
-                           <div className="space-y-1.5">
-                              <label className="text-xs font-black text-slate-600 dark:text-slate-400 block mr-1">معرف المتجر (Store ID)</label>
-                              <input 
-                                type="text"
-                                placeholder="Store_cm84j35..."
-                                value={config.shopId || ''}
-                                onChange={(e) => setConfig({...config, shopId: e.target.value})}
-                                className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                                dir="ltr"
-                              />
-                              <p className="text-[10px] text-slate-400 mt-1 mr-1">تجد الـ Store ID في رابط لوحة تحكم ويلت الخاص بك.</p>
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-xs font-black text-slate-600 dark:text-slate-400 block mr-1">مفتاح الـ API (Access Token / API Key)</label>
-                              <input 
-                                type="password"
-                                placeholder="أدخل مفتاح الربط هنا"
-                                value={config.apiKey || ''}
-                                onChange={(e) => setConfig({...config, apiKey: e.target.value})}
-                                className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                                dir="ltr"
-                              />
-                           </div>
+                           {/* 1. BOSTA CONFIG */}
+                           {selectedApp.id === 'bosta' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">مفتاح API الخاص بـ بوسطة (Bosta API Key) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="أدخل الـ API Key من لوحة تحكم بوسطة"
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">معرّف النشاط التجاري (Business ID - اختياري)</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="مثال: 64a8b..."
+                                    value={config.shopId || ''}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">بيئة العمل (Environment)</label>
+                                  <select
+                                    value={config.environment || 'production'}
+                                    onChange={(e: any) => setConfig({...config, environment: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium"
+                                  >
+                                    <option value="production">الإنتاج الرسمي المباشر (Production - Live)</option>
+                                    <option value="staging">البيئة التجريبية (Staging / Sandbox)</option>
+                                  </select>
+                               </div>
+                             </>
+                           )}
+
+                           {/* 2. TURBO CONFIG */}
+                           {selectedApp.id === 'turbo' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">كود التوثيق السري لـ تربو (Authentication Key) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="أدخل Authentication Key من إعدادات تربو"
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">كود العميل الرئيسي (Main Client Code) *</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="74068"
+                                    value={config.shopId || '74068'}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">بيئة العمل (Environment)</label>
+                                  <select
+                                    value={config.environment || 'production'}
+                                    onChange={(e: any) => setConfig({...config, environment: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium"
+                                  >
+                                    <option value="production">الإنتاج الرسمي المباشر (Production - Turbo API)</option>
+                                    <option value="staging">البيئة التجريبية (Staging Sandbox)</option>
+                                  </select>
+                               </div>
+                             </>
+                           )}
+
+                           {/* 3. WHATSAPP CONFIG */}
+                           {selectedApp.id === 'whatsapp' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">معرّف رقم الهاتف (Phone Number ID) *</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="مثال: 105934812398210"
+                                    value={config.shopId || ''}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                                  <p className="text-[10px] text-slate-400 mt-0.5">تجد Phone Number ID داخل لوحة مطوري Meta في قسم WhatsApp API Setup.</p>
+                                </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">رمز الوصول الدائم (Permanent Access Token) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="EAAG..."
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">معرّف التطبيق (Meta App ID - اختياري)</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="مثال: 8192348129"
+                                    value={config.apiSecret || ''}
+                                    onChange={(e) => setConfig({...config, apiSecret: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                             </>
+                           )}
+
+                           {/* 4. AKKED CONFIG */}
+                           {selectedApp.id === 'akked' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">مفتاح API الخاص بـ أكد (Akked API Key) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="ak_live_..."
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">اسم المرسل للرسائل النصية (Sender ID - اختياري)</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="اسم متجرك المسجل في أكد"
+                                    value={config.shopId || ''}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                                  />
+                               </div>
+                             </>
+                           )}
+
+                           {/* 5. PAYMOB CONFIG */}
+                           {selectedApp.id === 'paymob' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">مفتاح الـ API لـ Paymob (Paymob API Key) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="ZXlKaGJHY2lPaUpJVXpVeE1p..."
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">معرّف وسيلة الدفع (Integration ID) *</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="مثال: 412850"
+                                    value={config.shopId || ''}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">مفتاح التشفير HMAC Secret (للتحقق من المعاملات)</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="أدخل HMAC Secret من لوحة Paymob"
+                                    value={config.apiSecret || ''}
+                                    onChange={(e) => setConfig({...config, apiSecret: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                             </>
+                           )}
+
+                           {/* 6. FAWRY CONFIG */}
+                           {selectedApp.id === 'fawry' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">كود التاجر في فوري (Merchant Code) *</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="مثال: 10000000000"
+                                    value={config.shopId || ''}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">مفتاح الأمان السري (Security Key) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="أدخل Security Key الخاص بفوري"
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                             </>
+                           )}
+
+                           {/* 7. E-COMMERCE STORES (Shopify, Wuilt, Salla, Zid, Taager) */}
+                           {!['bosta', 'turbo', 'whatsapp', 'akked', 'paymob', 'fawry'].includes(selectedApp.id) && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">معرف المتجر (Store ID / Shop Name)</label>
+                                  <input 
+                                    type="text"
+                                    placeholder={selectedApp.id === 'wuilt' ? 'Store_cm84j35...' : 'mystore.myshopify.com'}
+                                    value={config.shopId || ''}
+                                    onChange={(e) => setConfig({...config, shopId: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">مفتاح الـ API (Access Token / API Key) *</label>
+                                  <input 
+                                    type="password"
+                                    placeholder="أدخل مفتاح الربط هنا"
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                               <div className="space-y-1.5">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">رابط المتجر (Store URL - اختياري)</label>
+                                  <input 
+                                    type="text"
+                                    placeholder="https://yourstore.com"
+                                    value={config.shopUrl || ''}
+                                    onChange={(e) => setConfig({...config, shopUrl: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                               </div>
+                             </>
+                           )}
                         </div>
                      </div>
 
@@ -1548,21 +2196,25 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                      <div className={`space-y-4 pt-2 border-t border-slate-200 dark:border-slate-700 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
                         <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 ">
                            <Webhook className="w-4 h-4" />
-                           <h4 className="font-bold text-sm uppercase tracking-wider">إعدادات الـ Webhook (للاستقبال اللحظي)</h4>
+                           <h4 className="font-bold text-sm uppercase tracking-wider">رابط استقبال الإشعارات (Webhook URL)</h4>
                         </div>
                         
                         <div className="space-y-3">
-                           <p className="text-[11px] text-slate-500 mr-1 leading-relaxed">انسخ الرابط التالي وضعه في إعدادات الـ Webhook في لوحة تحكم {selectedApp.name} لاستقبال الطلبات والسلات بمجرد حدوثها.</p>
+                           <p className="text-[11px] text-slate-500 mr-1 leading-relaxed">
+                             {selectedApp.id === 'whatsapp' 
+                               ? 'انسخ الرابط التالي وضعه في Webhooks داخل لوحة مطوري Meta مع التحقق من الرمز: 123456'
+                               : `انسخ هذا الرابط وضعه في إعدادات الـ Webhooks في لوحة ${selectedApp.name} لاستقبال التحديثات والطلبات لحظياً فور حدوثها.`}
+                           </p>
                            <div className="flex border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-900 group">
                              <input 
                                type="text"
                                readOnly 
-                               value={getWebhookUrl(selectedApp.id)} 
+                               value={selectedApp.id === 'whatsapp' ? `${hostUrl}/api/webhook/whatsapp` : getWebhookUrl(selectedApp.id)} 
                                className="w-full px-4 py-3 text-xs font-mono bg-transparent text-left focus:outline-none"
                                dir="ltr"
                              />
                              <button 
-                               onClick={() => copyToClipboard(getWebhookUrl(selectedApp.id))} 
+                               onClick={() => copyToClipboard(selectedApp.id === 'whatsapp' ? `${hostUrl}/api/webhook/whatsapp` : getWebhookUrl(selectedApp.id))} 
                                className={`px-6 flex items-center justify-center transition-all border-r dark:border-slate-700 min-w-[80px] font-bold text-xs ${copied ? 'bg-green-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                              >
                                {copied ? 'تم النسخ!' : 'نسخ الرابط'}
@@ -1571,18 +2223,31 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                         </div>
                      </div>
 
-                     <div className="bg-amber-50 dark:bg-amber-900/10 text-amber-800 dark:text-amber-400 p-4 rounded-xl text-xs leading-relaxed border border-amber-100 dark:border-amber-900/20">
-                         <strong>توصية:</strong> الربط عبر الـ API يضمن جلب البيانات السابقة، بينما الـ Webhook يضمن استمرارية العمل اللحظي دون تدخل منك.
+                     <div className="bg-indigo-50/60 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 p-4 rounded-xl text-xs leading-relaxed border border-indigo-100 dark:border-indigo-900/30 flex items-start gap-2.5">
+                         <Info className="w-4 h-4 flex-shrink-0 text-indigo-600 dark:text-indigo-400 mt-0.5" />
+                         <div>
+                            <strong>تكامل ذكي متكامل:</strong> يتم حفظ بيانات الربط والتحقق من صحتها سحابياً مع تشفير المفاتيح والاتصال الفوري بجميع خدمات المتجر.
+                         </div>
                      </div>
                   </div>
 
-                  <div className="p-5 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3 items-center">
-                     <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 transition-all">
-                        إلغاء
-                     </button>
-                     <button onClick={handleInstallApp} className="px-8 py-2.5 text-sm font-black text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-xl shadow-indigo-200 dark:shadow-none transition-all active:scale-95">
-                       {connectedPlatforms.includes(selectedApp.id) ? 'حفظ التفييرات' : 'تفعيل الربط الآن'}
-                     </button>
+                  <div className="p-5 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center gap-3">
+                     <div>
+                       {isAppConnected(selectedApp.id) && (
+                         <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                           <CheckCircle2 className="w-3.5 h-3.5" /> مفعل حالياً
+                         </span>
+                       )}
+                     </div>
+                     <div className="flex gap-2.5">
+                        <button onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 transition-all">
+                           إلغاء
+                        </button>
+                        <button onClick={handleInstallApp} className="px-7 py-2.5 text-sm font-black text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 shadow-xl shadow-indigo-200 dark:shadow-none transition-all active:scale-95 flex items-center gap-2">
+                          <Check className="w-4 h-4" />
+                          {isAppConnected(selectedApp.id) ? 'حفظ التغييرات' : 'تفعيل الربط والاتصال'}
+                        </button>
+                     </div>
                   </div>
 
               </div>

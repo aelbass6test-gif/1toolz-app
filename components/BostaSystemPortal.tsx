@@ -11,7 +11,7 @@ import {
   Code, Zap, CheckCheck, BookOpen, Radio, Key, MessageCircle
 } from 'lucide-react';
 import { ConfirmationModal } from './ConfirmationModal';
-import { bostaService, DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
+import { bostaService, DEFAULT_BOSTA_BUSINESS_LOCATIONS, ensureSingleDefaultLocation } from '../utils/bostaService';
 import { printPdfBlob } from '../utils/printHelper';
 import { BostaPickupModal } from './BostaPickupModal';
 import { BostaTrackingModal } from './BostaTrackingModal';
@@ -539,10 +539,10 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
   });
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [businessLocations, setBusinessLocations] = useState<any[]>(() => {
-    if (settings?.bostaConfig?.businessLocations && settings.bostaConfig.businessLocations.length > 0) {
-      return settings.bostaConfig.businessLocations;
-    }
-    return DEFAULT_BOSTA_BUSINESS_LOCATIONS;
+    const rawList = (settings?.bostaConfig?.businessLocations && settings.bostaConfig.businessLocations.length > 0)
+      ? settings.bostaConfig.businessLocations
+      : DEFAULT_BOSTA_BUSINESS_LOCATIONS;
+    return ensureSingleDefaultLocation(rawList, settings?.bostaConfig?.defaultBusinessLocationId);
   });
   const [isLoadingLocations, setIsLoadingLocations] = useState(false);
 
@@ -557,14 +557,22 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
   const [locFormIsDefault, setLocFormIsDefault] = useState<boolean>(false);
   const [locationSearch, setLocationSearch] = useState<string>('');
 
-  const saveLocationsList = (newList: any[]) => {
-    setBusinessLocations(newList);
+  const saveLocationsList = (newList: any[], explicitDefaultId?: string) => {
+    const targetDefId = explicitDefaultId || apiSettings.defaultBusinessLocationId;
+    const sanitized = ensureSingleDefaultLocation(newList, targetDefId);
+    setBusinessLocations(sanitized);
+    const activeDef = sanitized.find(l => l.isDefault);
+    const activeDefId = activeDef ? (activeDef._id || activeDef.id) : '';
+    if (activeDefId && activeDefId !== apiSettings.defaultBusinessLocationId) {
+      setApiSettings(prev => ({ ...prev, defaultBusinessLocationId: activeDefId }));
+    }
     if (setSettings) {
       setSettings((prev: any) => ({
         ...prev,
         bostaConfig: {
           ...(prev?.bostaConfig || {}),
-          businessLocations: newList
+          businessLocations: sanitized,
+          defaultBusinessLocationId: activeDefId || prev?.bostaConfig?.defaultBusinessLocationId || ''
         }
       }));
     }
@@ -648,7 +656,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
       setIsLoadingLocations(true);
       const res = await bostaService.getBusinessLocations(key, isStaging);
       if (res && res.success && res.data && Array.isArray(res.data) && res.data.length > 0) {
-        const normalizedLocations = res.data.map((location: any) => ({
+        const mapped = res.data.map((location: any) => ({
           ...location,
           _id: location._id || location.id || location.businessLocationId,
           id: location.id || location._id || location.businessLocationId,
@@ -658,9 +666,10 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
           city: typeof location.city === 'object' ? (location.city.nameAr || location.city.name || '') : (location.city || location.cityName || ''),
           firstLine: location.firstLine || location.address || location.addressLine || ''
         }));
-        setBusinessLocations(normalizedLocations);
+        const normalizedLocations = ensureSingleDefaultLocation(mapped, apiSettings.defaultBusinessLocationId);
+        saveLocationsList(normalizedLocations);
       } else if (!settings?.bostaConfig?.businessLocations || settings.bostaConfig.businessLocations.length === 0) {
-        setBusinessLocations(DEFAULT_BOSTA_BUSINESS_LOCATIONS);
+        saveLocationsList(DEFAULT_BOSTA_BUSINESS_LOCATIONS);
       }
     } catch (e) {
       console.error("Failed to load business locations", e);
@@ -1294,114 +1303,141 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {businessLocations
-                    .filter(loc => {
-                      if (!locationSearch) return true;
-                      const query = locationSearch.toLowerCase();
-                      const name = (loc.locationName || loc.name || '').toLowerCase();
-                      const contact = (loc.contactPersonName || '').toLowerCase();
-                      const phone = (loc.contactPersonPhone || '').toLowerCase();
-                      const addr = formatBostaLocationText(loc.firstLine || loc.city).toLowerCase();
-                      return name.includes(query) || contact.includes(query) || phone.includes(query) || addr.includes(query);
-                    })
-                    .map((loc, idx) => {
-                      const isDefault = loc.isDefault || apiSettings.defaultBusinessLocationId === (loc._id || loc.id) || idx === 0;
-                      const contactName = loc.contactPersonName || loc.contactName || loc.contactPerson?.name || loc.contactPerson?.fullName || loc.contact?.name || '';
-                      const contactPhone = loc.contactPersonPhone || loc.contactPhone || loc.contactPerson?.phone || loc.contactPerson?.phoneNumber || loc.contact?.phone || '';
-                      return (
-                        <tr key={loc._id || loc.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
-                          <td className="p-4">
-                            <div className="font-extrabold text-slate-900 dark:text-white text-sm">
-                              {loc.locationName || loc.name}
-                            </div>
-                            {isDefault && (
-                              <span className="mt-1 inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded text-[10px] font-black border border-emerald-200 dark:border-emerald-800">
-                                أساسي (الاستلامات والإرجاع)
-                              </span>
-                            )}
-                          </td>
+                  {(() => {
+                    const activeDefaultLocId = (() => {
+                      if (apiSettings.defaultBusinessLocationId && businessLocations.some(l => (l._id || l.id) === apiSettings.defaultBusinessLocationId)) {
+                        return apiSettings.defaultBusinessLocationId;
+                      }
+                      const marked = businessLocations.find(l => l.isDefault === true || l.isDefaultLocation === true);
+                      if (marked) return marked._id || marked.id;
+                      return businessLocations[0]?._id || businessLocations[0]?.id || null;
+                    })();
 
-                          <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">
-                            🇪🇬 مصر
-                          </td>
+                    return businessLocations
+                      .filter(loc => {
+                        if (!locationSearch) return true;
+                        const query = locationSearch.toLowerCase();
+                        const name = (loc.locationName || loc.name || '').toLowerCase();
+                        const contact = (loc.contactPersonName || '').toLowerCase();
+                        const phone = (loc.contactPersonPhone || '').toLowerCase();
+                        const addr = formatBostaLocationText(loc.firstLine || loc.city).toLowerCase();
+                        return name.includes(query) || contact.includes(query) || phone.includes(query) || addr.includes(query);
+                      })
+                      .map((loc, idx) => {
+                        const isDefault = Boolean(activeDefaultLocId && (loc._id || loc.id) === activeDefaultLocId);
+                        const contactName = loc.contactPersonName || loc.contactName || loc.contactPerson?.name || loc.contactPerson?.fullName || loc.contact?.name || '';
+                        const contactPhone = loc.contactPersonPhone || loc.contactPhone || loc.contactPerson?.phone || loc.contactPerson?.phoneNumber || loc.contact?.phone || '';
+                        return (
+                          <tr key={loc._id || loc.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
+                            <td className="p-4">
+                              <div className="font-extrabold text-slate-900 dark:text-white text-sm">
+                                {loc.locationName || loc.name}
+                              </div>
+                              {isDefault && (
+                                <span className="mt-1 inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded text-[10px] font-black border border-emerald-200 dark:border-emerald-800">
+                                  أساسي (الاستلامات والإرجاع)
+                                </span>
+                              )}
+                            </td>
 
-                          <td className="p-4">
-                            <div className="font-bold text-slate-800 dark:text-slate-200">
-                              {formatBostaLocationText(loc.city) || 'كفر الشيخ'}
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-normal">
-                              {formatBostaLocationText(loc.firstLine) || 'بلطيم'}
-                            </div>
-                          </td>
+                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">
+                              🇪🇬 مصر
+                            </td>
 
-                          <td className="p-4">
-                            <div className="font-bold text-slate-800 dark:text-slate-200">
-                              {contactName || 'غير محدد'}
-                            </div>
-                            <div className="text-[11px] font-mono text-slate-500" dir="ltr">
-                              {contactPhone || '-'}
-                            </div>
-                          </td>
+                            <td className="p-4">
+                              <div className="font-bold text-slate-800 dark:text-slate-200">
+                                {formatBostaLocationText(loc.city) || 'كفر الشيخ'}
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-normal">
+                                {formatBostaLocationText(loc.firstLine) || 'بلطيم'}
+                              </div>
+                            </td>
 
-                          <td className="p-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {!isDefault && (
+                            <td className="p-4">
+                              <div className="font-bold text-slate-800 dark:text-slate-200">
+                                {contactName || 'غير محدد'}
+                              </div>
+                              <div className="text-[11px] font-mono text-slate-500" dir="ltr">
+                                {contactPhone || '-'}
+                              </div>
+                            </td>
+
+                            <td className="p-4 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                {!isDefault && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const targetId = loc._id || loc.id;
+                                      saveLocationsList(businessLocations, targetId);
+                                      setApiSettings(prev => ({ ...prev, defaultBusinessLocationId: targetId }));
+
+                                      if (apiSettings.bostaApiKey && targetId && !targetId.startsWith('loc_')) {
+                                        try {
+                                          await bostaService.setDefaultPickupLocation(targetId, apiSettings.bostaApiKey, apiSettings.environment === 'staging');
+                                        } catch (e) {
+                                          console.warn("Could not sync default pickup location to Bosta:", e);
+                                        }
+                                      }
+
+                                      inAppToast(`تم تعيين "${loc.locationName || loc.name}" كمكان أساسي وحيد بنجاح`, 'success');
+                                    }}
+                                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold transition"
+                                  >
+                                    تعيين كأساسي
+                                  </button>
+                                )}
+
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    const updated = businessLocations.map((item, i) => ({
-                                      ...item,
-                                      isDefault: i === idx
-                                    }));
-                                    saveLocationsList(updated);
-                                    setApiSettings(prev => ({ ...prev, defaultBusinessLocationId: loc._id || loc.id }));
-                                    inAppToast(`تم تعيين "${loc.locationName || loc.name}" كمكان أساسي`, 'success');
+                                    setEditingLocIndex(idx);
+                                    setLocFormName(loc.locationName || loc.name || '');
+                                    setLocFormContactName(contactName);
+                                    setLocFormContactPhone(contactPhone);
+                                    setLocFormCity(formatBostaLocationText(loc.city) || 'كفر الشيخ - بلطيم');
+                                    setLocFormAddress(formatBostaLocationText(loc.firstLine) || 'بلطيم');
+                                    setLocFormIsDefault(!!isDefault);
+                                    setShowLocationModal(true);
                                   }}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-bold transition"
+                                  className="p-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 rounded-lg text-xs transition"
+                                  title="تعديل المكان"
                                 >
-                                  تعيين كأساسي
+                                  <Settings size={14} />
                                 </button>
-                              )}
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingLocIndex(idx);
-                                  setLocFormName(loc.locationName || loc.name || '');
-                                  setLocFormContactName(contactName);
-                                  setLocFormContactPhone(contactPhone);
-                                  setLocFormCity(formatBostaLocationText(loc.city) || 'كفر الشيخ - بلطيم');
-                                  setLocFormAddress(formatBostaLocationText(loc.firstLine) || 'بلطيم');
-                                  setLocFormIsDefault(!!isDefault);
-                                  setShowLocationModal(true);
-                                }}
-                                className="p-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 rounded-lg text-xs transition"
-                                title="تعديل المكان"
-                              >
-                                <Settings size={14} />
-                              </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (businessLocations.length <= 1) {
+                                      inAppAlert("يجب الإبقاء على مكان استلام واحد على الأقل.", { title: "تنبيه" });
+                                      return;
+                                    }
+                                    const toDelete = loc;
+                                    const updated = businessLocations.filter((l) => (l._id || l.id) !== (loc._id || loc.id));
+                                    saveLocationsList(updated);
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (businessLocations.length <= 1) {
-                                    inAppAlert("يجب الإبقاء على مكان استلام واحد على الأقل.", { title: "تنبيه" });
-                                    return;
-                                  }
-                                  const updated = businessLocations.filter((_, i) => i !== idx);
-                                  saveLocationsList(updated);
-                                  inAppToast("تم حذف المكان بنجاح", 'success');
-                                }}
-                                className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 rounded-lg text-xs transition"
-                                title="حذف المكان"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                                    if (apiSettings.bostaApiKey && toDelete?._id && !toDelete._id.startsWith('loc_')) {
+                                      try {
+                                        await bostaService.deletePickupLocation(toDelete._id, apiSettings.bostaApiKey, apiSettings.environment === 'staging');
+                                      } catch (e) {
+                                        console.warn("Could not delete location from Bosta:", e);
+                                      }
+                                    }
+
+                                    inAppToast("تم حذف المكان بنجاح", 'success');
+                                  }}
+                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-600 rounded-lg text-xs transition"
+                                  title="حذف المكان"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -2783,9 +2819,9 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                           </td>
                           <td className="py-3">
                             <div className="flex items-center justify-center gap-2">
-                              {(ord.bostaDeliveryId || ord.waybillNumber) && (
+                              {(ord.bostaTrackingNumber || ord.waybillNumber || ord.bostaDeliveryId) && (
                                 <button
-                                  onClick={() => handlePrintAwbDirect(ord.bostaDeliveryId || ord.waybillNumber!)}
+                                  onClick={() => handlePrintAwbDirect(ord.bostaTrackingNumber || ord.waybillNumber || ord.bostaDeliveryId!)}
                                   className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-bold text-[11px] transition flex items-center gap-1"
                                 >
                                   <Printer size={12} /> طباعة البوليصة
@@ -3597,14 +3633,17 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                     newList.push(newLocObj);
                   }
 
-                  if (locFormIsDefault) {
-                    newList = newList.map((item, i) => ({
-                      ...item,
-                      isDefault: editingLocIndex !== null ? i === editingLocIndex : i === newList.length - 1
-                    }));
+                  const targetDefaultId = locFormIsDefault ? (newLocObj._id || newLocObj.id) : apiSettings.defaultBusinessLocationId;
+                  saveLocationsList(newList, targetDefaultId);
+
+                  if (locFormIsDefault && targetDefaultId) {
+                    setApiSettings(prev => ({ ...prev, defaultBusinessLocationId: targetDefaultId }));
+                    if (apiSettings.bostaApiKey && !targetDefaultId.startsWith('loc_')) {
+                      bostaService.setDefaultPickupLocation(targetDefaultId, apiSettings.bostaApiKey, apiSettings.environment === 'staging')
+                        .catch(err => console.warn("Could not sync default location on Bosta:", err));
+                    }
                   }
 
-                  saveLocationsList(newList);
                   setShowLocationModal(false);
                   inAppToast(editingLocIndex !== null ? "تم تحديث بيانات المكان بنجاح" : "تمت إضافة المكان الجديد بنجاح", 'success');
                 }}

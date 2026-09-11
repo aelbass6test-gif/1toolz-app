@@ -81,24 +81,28 @@ export class BostaAdapter implements ShippingAdapter {
     };
   }
 
-  async trackShipment(trackingNumber: string, config: BostaConfig): Promise<TrackingResult> {
-    const res = await bostaService.trackShipment(trackingNumber, config.apiKey, config.environment === 'staging');
+  async trackShipment(trackingNumber: string, config?: BostaConfig): Promise<TrackingResult> {
+    const res = await bostaService.trackShipment(trackingNumber, config?.apiKey, config?.environment === 'staging');
+    const t = res.tracking || (res as any).data || (res as any).delivery;
+    const stateVal = t?.state?.value || t?.state?.name || t?.state || t?.status || t?.currentState;
+    const stateArVal = t?.state?.name || t?.state?.value || t?.stateArabic || t?.statusArabic || (typeof stateVal === 'string' ? stateVal : undefined);
+    
     return {
       success: res.success,
-      status: res.tracking?.status,
-      statusArabic: res.tracking?.state?.value,
-      timeline: res.tracking?.timeline,
+      status: (typeof stateVal === 'string' ? stateVal : (stateVal?.value || stateVal?.name)) || t?.status,
+      statusArabic: (typeof stateArVal === 'string' ? stateArVal : (stateArVal?.name || stateArVal?.value)) || t?.statusArabic || (typeof stateVal === 'string' ? stateVal : undefined),
+      timeline: t?.timeline || t?.transitEvents || t?.history,
       error: res.error,
-      data: res.tracking
+      data: t
     };
   }
 
-  async cancelShipment(trackingNumber: string, config: BostaConfig): Promise<{ success: boolean; message?: string; error?: string }> {
+  async cancelShipment(trackingNumber: string, config?: BostaConfig): Promise<{ success: boolean; message?: string; error?: string }> {
     return bostaService.terminateDelivery(trackingNumber, config);
   }
 
-  async getAwb(trackingNumber: string, config: BostaConfig, order?: Order): Promise<{ success: boolean; data?: string; error?: string }> {
-    return bostaService.getAwb(trackingNumber, config.apiKey, config.environment === 'staging');
+  async getAwb(trackingNumber: string, config?: BostaConfig, order?: Order): Promise<{ success: boolean; data?: string; error?: string }> {
+    return bostaService.getAwb(trackingNumber, config?.apiKey, config?.environment === 'staging');
   }
 
   getCarrierName(): string {

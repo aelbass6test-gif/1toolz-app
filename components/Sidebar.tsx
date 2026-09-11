@@ -5,7 +5,7 @@ import {
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
     Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, ShieldAlert,
     AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake,
-    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet
+    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet, Activity
 } from 'lucide-react';
 import { Store as StoreType, Settings } from '../types';
 
@@ -43,6 +43,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 { to: `${storePrefix}/reports`, label: 'التحليلات ومؤشرات النمو', icon: <BarChart2 size={18} /> },
                 { to: `${storePrefix}/standard-reports`, label: 'التقارير وسجلات الطباعة', icon: <FileText size={18} /> },
                 { to: `${storePrefix}/activity-logs`, label: 'نشاطات العمليات الفورية', icon: <History size={18} /> },
+                { 
+                    to: `${storePrefix}/webhook-monitor`, 
+                    label: 'صحة الويب هوك والإشعارات', 
+                    icon: <Activity size={18} />,
+                    badge: { text: "مباشر ⚡", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[9px] font-bold" }
+                },
             ]
         },
         {

@@ -122,8 +122,12 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
             const payload = data.data || data;
             const phoneId = payload.phone_number_id || payload.phoneNumberId;
             const wabaIdVal = payload.waba_id || payload.wabaId;
+            const capturedToken = payload.access_token || payload.accessToken;
 
-            if (phoneId) {
+            if (phoneId || wabaIdVal) {
+              if (capturedToken) setAccessToken(capturedToken);
+              if (phoneId) setPhoneNumberId(phoneId);
+              if (wabaIdVal) setWabaId(wabaIdVal);
               const updatedConfig: WhatsAppConfig = {
                 ...config,
                 providerType: 'meta_cloud',
@@ -260,16 +264,22 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
           });
           const data = await res.json();
           if (data.success && data.accessToken) {
+            const resolvedPhone = data.phoneNumberId || phoneNumberId;
+            const resolvedWaba = data.wabaId || wabaId;
             const updatedConfig: WhatsAppConfig = {
               ...config,
               providerType: 'meta_cloud',
               isActive: true,
               accessToken: data.accessToken,
+              phoneNumberId: resolvedPhone || config.phoneNumberId,
+              wabaId: resolvedWaba || config.wabaId,
               metaAppId: appId,
               metaAppSecret: metaAppSecret.trim()
             };
             setConfig(updatedConfig);
             setAccessToken(data.accessToken);
+            if (resolvedPhone) setPhoneNumberId(resolvedPhone);
+            if (resolvedWaba) setWabaId(resolvedWaba);
             if (onSave) await onSave();
             await checkLiveStatus(false, updatedConfig);
             setShowConfigModal(false);
@@ -324,7 +334,8 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
       extras: {
         feature: 'whatsapp_embedded_signup',
         version: 2,
-        sessionInfoVersion: 2
+        sessionInfoVersion: 2,
+        setup: {}
       }
     };
 
@@ -957,6 +968,11 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
                       💡 تنبيه وضع الاختبار: حساب ميتا الحالي في وضع التجربة (Test Mode). يجب إضافة هذا الرقم في قائمة To المستلمة في لوحة تحكم Meta Developer أو بدء المحادثة من لوحة ميتا أولاً.
                     </p>
                   )}
+                  {!testResult.success && testResult.text.includes('#133010') && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400 font-medium leading-relaxed">
+                      💡 تنبيه التسجيل: رقم الهاتف الخاص بك غير مسجل أو لم يكمل التفعيل في WhatsApp Cloud API. توجه إلى (Meta Developers &gt; WhatsApp &gt; API Setup) وأكمل تسجيل الرقم وتأكيد الـ OTP.
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -1556,7 +1572,8 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
                 </div>
 
                 <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200 dark:border-blue-900/50 text-[11px] text-blue-700 dark:text-blue-300 leading-relaxed font-medium">
-                  💡 للحصول على هذه البيانات مجاناً: توجه إلى <a href="https://developers.facebook.com" target="_blank" rel="noreferrer" className="underline font-bold">developers.facebook.com</a> &gt; أنشئ تطبيق نوع Business &gt; أضف منتج WhatsApp &gt; خذ الـ <strong>Phone Number ID</strong> والـ <strong>Temporary / Permanent Token</strong> مباشرة!
+                  <p>💡 للحصول على هذه البيانات مجاناً: توجه إلى <a href="https://developers.facebook.com" target="_blank" rel="noreferrer" className="underline font-bold">developers.facebook.com</a> &gt; أنشئ تطبيق نوع Business &gt; أضف منتج WhatsApp &gt; خذ الـ <strong>Phone Number ID</strong> والـ <strong>Temporary / Permanent Token</strong> مباشرة!</p>
+                  <p className="mt-2 pt-2 border-t border-blue-200/50 dark:border-blue-900/50">⚠️ <strong className="text-red-600 dark:text-red-400">إذا ظهر لك خطأ (Unsupported post request / Object does not exist / missing permissions):</strong> تأكد أن حسابك الشخصي مضاف كـ <strong>Admin (Full Control)</strong> على حساب الواتساب والتطبيق من داخل <a href="https://business.facebook.com/settings/people" target="_blank" rel="noreferrer" className="underline font-bold">إعدادات مدير الأعمال (Business Settings)</a>، وتأكد أن التطبيق تم إضافته لمدير الأعمال بنجاح.</p>
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">

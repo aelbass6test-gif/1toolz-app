@@ -1316,6 +1316,7 @@ export interface InventoryAuditSession {
 export interface OrderItem {
   productId: string;
   name: string;
+  productName?: string;
   quantity: number;
   price: number;
   cost: number;
@@ -1442,6 +1443,20 @@ export interface MaintenanceRequest {
   stockDeducted?: boolean;
 }
 
+export interface WhatsAppMessageLog {
+  id: string;
+  timestamp: string;
+  type: 'confirmation' | 'cancellation' | 'shipping' | 'tracking' | 'custom' | 'incoming' | 'manual';
+  direction: 'outgoing' | 'incoming';
+  message: string;
+  sender?: string;
+  recipient?: string;
+  status?: 'sent' | 'delivered' | 'read' | 'failed' | 'received';
+  buttonSelected?: string;
+  actionTaken?: string;
+  rawPayload?: any;
+}
+
 export interface Order {
   id: string;
   createdAt?: string;
@@ -1454,6 +1469,7 @@ export interface Order {
   trackingUrl?: string;
   lastShippingEventAt?: string;
   lastShippingEventKey?: string;
+  whatsappLogs?: WhatsAppMessageLog[];
   shipmentTimeline?: Array<{
     carrier: string;
     externalStatus: string;
@@ -1486,6 +1502,7 @@ export interface Order {
   customerPhone2?: string;
   customerAddress: string;
   city?: string;
+  customerCity?: string;
   governorate?: string;
   buildingNumber?: string;
   floorNumber?: string;

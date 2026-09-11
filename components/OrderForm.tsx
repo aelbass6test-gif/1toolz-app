@@ -30,6 +30,8 @@ import {
   Settings as SettingsIcon,
   Wand2,
   Shield,
+  ShieldAlert,
+  CheckCircle2,
   CreditCard,
   Star,
   AlertCircle,
@@ -84,6 +86,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CustomerSelectModal } from "./CustomerSelectModal";
 import { CustomerDeliveryRateBadge } from "./CustomerDeliveryRateBadge";
 import { BostaAddressValidator } from "./BostaAddressValidator";
+import { validateEgyptianPhone, validateAddressQuality } from "../utils/validationUtils";
+import { evaluateCustomerRisk, saveBlacklistEntry, removeBlacklistEntry } from "../utils/fraudShield";
+import { FraudShieldModal } from "./FraudShieldModal";
+import { audioSynth } from "../utils/audioSynth";
 import {
   calculateCodFee,
   getLatestProductCost,
@@ -261,6 +267,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
+  const [showFraudModal, setShowFraudModal] = useState(false);
   const [showEditTotalModal, setShowEditTotalModal] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
 
@@ -489,6 +496,18 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
     return { total, delivered, returned, rate, statusLabel, badgeColor };
   }, [orders, orderData.customerPhone]);
+
+  const phoneValidation = useMemo(() => {
+    return validateEgyptianPhone(orderData.customerPhone || '');
+  }, [orderData.customerPhone]);
+
+  const customerRisk = useMemo(() => {
+    return evaluateCustomerRisk(orderData.customerPhone || '', orders);
+  }, [orderData.customerPhone, orders]);
+
+  const addressQuality = useMemo(() => {
+    return validateAddressQuality(orderData.customerAddress || '', orderData.governorate || '');
+  }, [orderData.customerAddress, orderData.governorate]);
 
   const shippingOptions = useMemo(() => {
     const company = orderData.shippingCompany;
@@ -1220,6 +1239,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    
+    // Enforce Fraud Shield Blocking
+    if (customerRisk.isBlacklisted) {
+      setValidationError("تم حظر إنشاء الطلب: العميل مسجل في القائمة التحذيرية السوداء.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
     onSubmit(e);
   };
 
@@ -1276,14 +1303,104 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           </div>
         )}
 
-        {/* Customer Delivery Rate Badge */}
+        {/* Customer Delivery Rate & Fraud Shield Warning */}
         {orderData.customerPhone && orderData.customerPhone.trim().length >= 6 && (
-          <div className="mb-4">
-            <CustomerDeliveryRateBadge
-              phone={orderData.customerPhone}
-              orders={orders}
-              settings={settings}
-            />
+          <div className="mb-4 space-y-3">
+            {/* High Risk / Blacklist Shield Alert */}
+            {(customerRisk.isBlacklisted || customerRisk.riskLevel === 'high_risk') && (
+              <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500/60 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md animate-pulse">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 bg-rose-600 text-white rounded-xl shrink-0 mt-0.5 shadow-sm">
+                    <ShieldAlert size={20} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-black text-rose-900 dark:text-rose-200 flex items-center gap-2 flex-wrap">
+                      <span>🚨 درع الحماية: عميل عالي الخطورة / طلب غير مؤكد!</span>
+                      {customerRisk.isBlacklisted && (
+                        <span className="px-2 py-0.5 bg-rose-600 text-white rounded-full text-[10px] font-extrabold">
+                          مسجل بالقائمة التحذيرية
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-rose-700 dark:text-rose-300 mt-1 font-bold">
+                      {customerRisk.recommendation}
+                    </p>
+                    {customerRisk.reasons.length > 0 && (
+                      <ul className="text-[11px] text-rose-600 dark:text-rose-400 mt-1 list-disc list-inside space-y-0.5">
+                        {customerRisk.reasons.map((r, i) => (
+                          <li key={i}>{r}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                  {customerRisk.isBlacklisted ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        removeBlacklistEntry(orderData.customerPhone || '');
+                        audioSynth.playClick();
+                      }}
+                      className="px-3 py-1.5 bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 text-xs font-bold rounded-xl cursor-pointer"
+                    >
+                      إزالة من التحذير
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        saveBlacklistEntry({
+                          phone: orderData.customerPhone || '',
+                          customerName: orderData.customerName || undefined,
+                          reason: 'طلب غير جاد / تم حظره من شاشة الأوردر',
+                          severity: 'high',
+                          addedAt: new Date().toISOString()
+                        });
+                        audioSynth.playClick();
+                      }}
+                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-sm"
+                    >
+                      حظر هذا الرقم
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowFraudModal(true)}
+                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    إدارة الدرع 🛡️
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CustomerDeliveryRateBadge
+                phone={orderData.customerPhone}
+                orders={orders}
+                settings={settings}
+              />
+              {!customerRisk.isBlacklisted && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveBlacklistEntry({
+                      phone: orderData.customerPhone || '',
+                      customerName: orderData.customerName || undefined,
+                      reason: 'تسجيل يدوي كطلب وهمي',
+                      severity: 'high',
+                      addedAt: new Date().toISOString()
+                    });
+                    audioSynth.playClick();
+                  }}
+                  className="text-[11px] font-bold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <ShieldAlert size={13} />
+                  <span>إضافة للقائمة التحذيرية</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -1301,6 +1418,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               onChange={(e) => handleFieldChange("customerPhone", e.target.value)}
               className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
             />
+            {/* Live Phone Validator & WhatsApp Auto-format */}
+            {orderData.customerPhone && orderData.customerPhone.trim().length >= 3 && (
+              <div className="flex items-center justify-between text-[11px] pt-1 flex-wrap gap-1">
+                {phoneValidation.isValid ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
+                    <CheckCircle2 size={13} />
+                    <span>رقم مصري صحيح: {phoneValidation.operator || 'محمول'}</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+                    <AlertCircle size={13} />
+                    <span>{phoneValidation.error}</span>
+                  </span>
+                )}
+
+                {phoneValidation.cleanPhone && phoneValidation.cleanPhone !== orderData.customerPhone && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange('customerPhone', phoneValidation.cleanPhone);
+                      audioSynth.playClick();
+                    }}
+                    className="text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline cursor-pointer"
+                  >
+                    تنسيق الرقم ({phoneValidation.cleanPhone})
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -1400,6 +1546,42 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               onChange={(e) => handleFieldChange("customerAddress", e.target.value)}
               className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
             />
+            {/* Live Address Quality Indicator for Carriers */}
+            {orderData.customerAddress && orderData.customerAddress.trim().length > 0 && (
+              <div className="pt-1.5 space-y-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <span className="text-slate-500 dark:text-slate-400">جودة العنوان لشركة الشحن:</span>
+                    <span className={`px-2 py-0.5 rounded-md font-black ${
+                      addressQuality.score === 'excellent' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                      addressQuality.score === 'good' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
+                      addressQuality.score === 'medium' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                      'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                    }`}>
+                      {addressQuality.scoreLabel}
+                    </span>
+                  </div>
+                  <span className="text-slate-400 font-mono text-[10px]">{addressQuality.scorePercentage}%</span>
+                </div>
+                <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-300 ${
+                      addressQuality.score === 'excellent' ? 'bg-emerald-500' :
+                      addressQuality.score === 'good' ? 'bg-indigo-500' :
+                      addressQuality.score === 'medium' ? 'bg-amber-500' :
+                      'bg-rose-500'
+                    }`}
+                    style={{ width: `${addressQuality.scorePercentage}%` }}
+                  />
+                </div>
+                {addressQuality.warnings.length > 0 && (
+                  <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                    <AlertCircle size={11} />
+                    <span>{addressQuality.warnings[0]}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
               <div className="space-y-1.5 text-right">
@@ -3416,6 +3598,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         onClose={() => setIsCustomerListOpen(false)}
         customers={customers}
         onSelect={handleCustomerSelect}
+      />
+
+      <FraudShieldModal
+        isOpen={showFraudModal}
+        onClose={() => setShowFraudModal(false)}
+        defaultPhone={orderData.customerPhone || ''}
+        defaultName={orderData.customerName || ''}
       />
 
       {showEditTotalModal && (

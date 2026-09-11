@@ -346,7 +346,7 @@ const ShippingPage: React.FC<{
                 />
             </div>
             <div className={`transition-all duration-500 ease-in-out absolute w-full top-0 ${view === 'main' ? 'translate-x-full opacity-0 pointer-events-none' : 'translate-x-0'}`}>
-                {view !== 'main' && view !== 'bosta-system' && (
+                {view !== 'main' && view !== 'bosta-system' && view !== 'turbo-system' && (
                     <CompanyManager 
                         companyName={view} 
                         settings={localSettings} 

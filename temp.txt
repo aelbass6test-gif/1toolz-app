@@ -1,1 +1,0 @@
-                                if (compFees.enableExchange !== false) tabs.push({ id: 'exchange', label: 'تبد�                                 if (compFees.enableCashCollection !== false) tabs.push({ id: 'cash_collection', label: 'تحصيل نقدي', icon: <Coins size={17} /> });

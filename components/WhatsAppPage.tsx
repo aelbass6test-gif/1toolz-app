@@ -11,6 +11,7 @@ import { whatsappService } from '../utils/whatsappService';
 import { DEFAULT_WHATSAPP_TEMPLATES } from '../constants';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 import { MetaWhatsAppSection } from './MetaWhatsAppSection';
+import { OrderWhatsAppChatModal } from './OrderWhatsAppChatModal';
 
 interface WhatsAppPageProps {
   orders: Order[];
@@ -63,19 +64,29 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
   // Synchronize config changes immediately to store settings
   const handleConfigChange = (newConfig: React.SetStateAction<WhatsAppConfig>) => {
-    setConfig(prev => {
-      const updated = typeof newConfig === 'function' ? (newConfig as (p: WhatsAppConfig) => WhatsAppConfig)(prev) : newConfig;
-      setSettings(s => ({
-        ...s,
-        whatsappConfig: {
-          ...s.whatsappConfig,
-          ...updated,
-          isActive: true
-        }
-      }));
-      return updated;
-    });
+    setConfig(newConfig);
   };
+
+  // Sync config to parent settings whenever it changes
+  useEffect(() => {
+    setSettings(s => {
+      const updatedConfig = {
+        ...s.whatsappConfig,
+        ...config,
+        isActive: true
+      };
+      
+      // Prevent unnecessary parent renders if the config hasn't actually changed
+      if (JSON.stringify(s.whatsappConfig) === JSON.stringify(updatedConfig)) {
+        return s;
+      }
+      
+      return {
+        ...s,
+        whatsappConfig: updatedConfig
+      };
+    });
+  }, [config, setSettings]);
 
   // Check live status
   const checkLiveStatus = async (silent = false, customConfig?: WhatsAppConfig) => {
@@ -621,10 +632,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         </button>
         <button 
           onClick={() => setActiveTab('chats')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'chats' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black transition-all text-xs ${activeTab === 'chats' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
         >
           <MessageSquare size={16} />
-          دردشات سريعة
+          💬 شات ورسائل الطلبات (تأكيد وإلغاء)
+          <span className="px-1.5 py-0.5 text-[9px] rounded-md bg-emerald-400 text-emerald-950 font-black">جديد 🔥</span>
         </button>
         <button 
           onClick={() => setActiveTab('templates')}
@@ -942,52 +954,15 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'chats' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 h-full divide-x divide-x-reverse divide-slate-100 dark:divide-slate-800">
-            <div className="p-6 border-l border-slate-200 dark:border-slate-800">
-              <div className="relative mb-6">
-                <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="بحث عن عميل..." 
-                  className="w-full pr-12 pl-4 py-3 bg-slate-50 dark:bg-slate-800 border-none rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              
-              <div className="space-y-2 overflow-y-auto max-h-[600px] no-scrollbar">
-                {filteredCustomers.map((customer, idx) => (
-                  <button 
-                    key={idx}
-                    className="w-full text-right p-4 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center gap-4 group"
-                    onClick={() => {
-                      const msg = `أهلاً ${customer.name}، نود تأكيد طلبك رقم ${customer.lastOrder.orderNumber}`;
-                      const phone = customer.phone.replace(/\D/g, '');
-                      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-                    }}
-                  >
-                    <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 rounded-full flex items-center justify-center font-black text-lg">
-                      {customer.name.charAt(0)}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-slate-800 dark:text-white group-hover:text-emerald-600 transition-colors">{customer.name}</h3>
-                      <p className="text-xs text-slate-500">{customer.phone}</p>
-                    </div>
-                    <Send size={16} className="text-slate-300 group-hover:text-emerald-500 transition-all" />
-                  </button>
-                ))}
-              </div>
-            </div>
-            
-            <div className="md:col-span-2 flex flex-col items-center justify-center p-12 text-center text-slate-400">
-              <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
-                <MessageSquare size={48} className="text-slate-200 dark:text-slate-700" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-700 dark:text-slate-300">أرسل رسائل يدوية سريعة</h3>
-              <p className="max-w-md mx-auto mt-2 text-sm leading-relaxed">
-                حدد عميلاً من القائمة لفتح نافذة واتساب وإرسال رسالة يدوية سريعة له. لتفعيل الأتمتة (الإرسال التلقائي)، يرجى ضبط إعدادات الـ API والقوالب.
-              </p>
-            </div>
+          <div className="p-3 md:p-6 bg-slate-50/50 dark:bg-slate-900/30">
+            <OrderWhatsAppChatModal 
+              orders={orders} 
+              settings={settings} 
+              isEmbedded={true}
+              onUpdateOrder={async () => {
+                if (onSave) await onSave();
+              }}
+            />
           </div>
         )}
 

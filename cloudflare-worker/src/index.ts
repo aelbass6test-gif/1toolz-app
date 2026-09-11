@@ -48,7 +48,17 @@ async function upstream(request: Request, env: Env, url: string, init: RequestIn
   const res = await fetch(url, init);
   const text = await res.text();
   let data: any;
-  try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 500) }; }
+  try { 
+    data = JSON.parse(text); 
+  } catch { 
+    if (text && (text.includes("<html") || text.includes("<!DOCTYPE") || text.includes("<pre>"))) {
+      const preMatch = text.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+      const cleanMsg = preMatch ? preMatch[1].replace(/<[^>]+>/g, '').trim() : (res.status === 404 ? `لم يتم العثور على المسار في خوادم ${mode === "bosta" ? "Bosta" : "Turbo"} (404 Not Found)` : `استجابة غير صالحة من ${mode === "bosta" ? "Bosta" : "Turbo"}`);
+      data = { message: cleanMsg, raw: cleanMsg };
+    } else {
+      data = { raw: text.slice(0, 500) }; 
+    }
+  }
   if (res.ok) return json(request, env, data, res.status);
   return json(request, env, { success: false, error: data?.message || data?.error || data?.error_msg || `رفضت ${mode === "bosta" ? "Bosta" : "Turbo"} الطلب (HTTP ${res.status})`, data, status: res.status }, res.status);
 }
@@ -115,7 +125,7 @@ async function bosta(request: Request, env: Env): Promise<Response> {
   else if (path === "/api/bosta/deliveries/bulk") { target = "/api/v2/deliveries/bulk"; method = "POST"; payload = body; }
   else if (path === "/api/bosta/deliveries/mass-awb") { target = "/api/v2/deliveries/mass-awb"; method = "POST"; payload = body; }
   else if (path.match(/^\/api\/bosta\/deliveries\/track\/([^/]+)$/)) target = `/api/v2/deliveries/track-shipment?trackingNumber=${encodeURIComponent(path.split("/")[5])}`;
-  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/awb$/)) { target = "/api/v2/deliveries/mass-awb"; method = "POST"; payload = { trackingNumbers: path.split("/")[4], requestedAwbType: url.searchParams.get("type") || "A4", lang: url.searchParams.get("lang") || "ar" }; }
+  else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/awb$/)) { target = "/api/v2/deliveries/mass-awb"; method = "POST"; payload = { trackingNumbers: [path.split("/")[4]], requestedAwbType: url.searchParams.get("type") || "A4", lang: url.searchParams.get("lang") || "ar" }; }
   else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)\/terminate$/)) { target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}/terminate`; method = "POST"; }
   else if (path.match(/^\/api\/bosta\/deliveries\/([^/]+)$/)) target = `/api/v2/deliveries/${encodeURIComponent(path.split("/")[4])}`;
   else if (path === "/api/bosta/pickups/create") { target = "/api/v2/pickups"; method = "POST"; payload = body; }
@@ -175,6 +185,14 @@ function turboOrder(order: any, config: any, key: string, client: number) { retu
 export default { async fetch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(request, env) });
-  if (url.pathname === "/health") return json(request, env, { ok: true, service: "abdomedi-carrier-api", version: "2" });
+  if (url.pathname === "/health" || url.pathname === "/" || url.pathname === "/api") {
+    return json(request, env, {
+      ok: true,
+      service: "abdomedi-carrier-api",
+      version: "2",
+      status: "online",
+      message: "بوابة الربط السحابي مع شركات الشحن تعمل بنجاح (Bosta & Turbo Carrier Gateway)"
+    });
+  }
   try { if (url.pathname.startsWith("/api/bosta/")) return await bosta(request, env); if (url.pathname.startsWith("/api/turbo/") || url.pathname === "/api/shipping/turbo/track") return await turbo(request, env); return json(request, env, { success: false, error: "المسار غير موجود" }, 404); } catch (error: any) { return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); }
 } };

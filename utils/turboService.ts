@@ -2,12 +2,13 @@ import { Order, TurboConfig } from '../types';
 
 export type { TurboConfig };
 
-const CARRIER_API_BASE = (import.meta.env.VITE_CARRIER_API_BASE_URL || 'https://api.abdomedi.com').replace(/\/$/, '');
+const CARRIER_API_BASE = (import.meta.env.VITE_CARRIER_API_BASE_URL || '').replace(/\/$/, '');
 
 async function safeFetchJson(url: string, options?: RequestInit, fallbackError?: string): Promise<any> {
-  try {
-    const requestBase = url.startsWith('/api/turbo/') || url.startsWith('/api/shipping/turbo/') ? CARRIER_API_BASE : (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000');
-    const urlObj = new URL(url, requestBase);
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:3000';
+
+  const doFetch = async (baseUrl: string) => {
+    const urlObj = new URL(url, baseUrl);
     if (!options || options.method === 'GET' || options.method === 'POST') {
       urlObj.searchParams.set('_cb', Date.now().toString());
     }
@@ -36,6 +37,23 @@ async function safeFetchJson(url: string, options?: RequestInit, fallbackError?:
         error: fallbackError || 'تعذر قراءة الاستجابة من خادم تربو.'
       };
     }
+  };
+
+  // If external CARRIER_API_BASE is configured and valid, try it first
+  if (CARRIER_API_BASE && CARRIER_API_BASE !== origin) {
+    try {
+      const externalRes = await doFetch(CARRIER_API_BASE);
+      if (externalRes && !externalRes.isHtmlResponse && (externalRes.success !== false || externalRes.status !== 404)) {
+        return externalRes;
+      }
+    } catch (err) {
+      console.warn('External CARRIER_API_BASE unavailable, routing to local backend proxy:', err);
+    }
+  }
+
+  // Primary: Always fetch from local origin
+  try {
+    return await doFetch(origin);
   } catch (err: any) {
     return {
       success: false,

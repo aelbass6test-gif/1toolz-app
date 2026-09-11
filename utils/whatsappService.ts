@@ -180,6 +180,194 @@ export const whatsappService = {
   },
 
   /**
+   * تنسيق رسالة تأكيد الطلب التفاعلية
+   */
+  formatConfirmationMessage(order: Order, settings: Settings, storeName?: string): { text: string; buttons: string[]; footer: string } {
+    const template = `أهلاً بك يا {customerName} 👋
+شكراً لطلبك من {storeName} 🛍️
+
+📦 تفاصيل طلبك رقم #{orderNumber}:
+{products}
+💰 إجمالي المبلغ عند الاستلام: {totalPrice} {currency}
+📍 عنوان التوصيل: {address} ({city})
+
+🛡️ يُرجى تأكيد الطلب للبدء في شحنه وتجهيزه فوراً، أو اختيار الإلغاء إذا رغبت في ذلك:`;
+    const buttons = ['تأكيد الطلب ✅', 'تعديل العنوان ✍️', 'إلغاء الطلب ❌'];
+    const footer = `متجر ${storeName || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'المتجر'} - تسوق آمن 🛍️`;
+    const text = this.formatMessage(template, order, settings, buttons, footer, storeName);
+    return { text, buttons, footer };
+  },
+
+  /**
+   * تنسيق رسالة إلغاء الطلب
+   */
+  formatCancellationMessage(order: Order, settings: Settings, storeName?: string, reason?: string): { text: string; footer: string } {
+    const template = `عزيزي العميل {customerName} 👋
+تم إلغاء طلبك رقم #{orderNumber} من {storeName}.
+${reason ? `📌 سبب الإلغاء: ${reason}\n` : ''}
+إذا كان الإلغاء عن طريق الخطأ أو رغبت في إعادة تفعيل الطلب، يسعدنا تواصلك معنا في أي وقت. نتمنى لك يوماً سعيداً! 🌸`;
+    const footer = `خدمة العملاء - ${storeName || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'المتجر'}`;
+    const text = this.formatMessage(template, order, settings, [], footer, storeName);
+    return { text, footer };
+  },
+
+  /**
+   * تنسيق رسالة الشحن والتتبع
+   */
+  formatShippingMessage(order: Order, settings: Settings, storeName?: string): { text: string; footer: string } {
+    const template = `مرحباً {customerName} 🚚
+تم شحن طلبك رقم #{orderNumber} مع شركة الشحن ({shippingCompany})!
+
+📦 رقم التتبع / البوليصة: {trackingNumber}
+🔗 رابط التتبع المباشر للشحنة:
+{trackingUrl}
+
+💰 المبلغ المطلوب عند الاستلام: {totalPrice} {currency}
+مندوب الشحن سيتواصل معك قريباً لتسليم الشحنة. شكراً لاختيارك لنا! ✨`;
+    const footer = `فريق التوصيل - ${storeName || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'المتجر'}`;
+    const text = this.formatMessage(template, order, settings, [], footer, storeName);
+    return { text, footer };
+  },
+
+  /**
+   * استخراج وبناء محادثة ورسائل الواتساب الكاملة للطلب
+   */
+  getEffectiveChatForOrder(order: Order, settings: Settings, storeName?: string): Array<{
+    id: string;
+    timestamp: string;
+    type: 'confirmation' | 'cancellation' | 'shipping' | 'tracking' | 'custom' | 'incoming' | 'manual';
+    direction: 'outgoing' | 'incoming';
+    message: string;
+    sender: string;
+    recipient: string;
+    status: 'sent' | 'delivered' | 'read' | 'failed' | 'received';
+    buttons?: string[];
+    actionTaken?: string;
+  }> {
+    if (!order) return [];
+
+    // 1. إذا كان الطلب يحتوي على سجل رسائل محفوظ مسبقاً
+    if (order.whatsappLogs && Array.isArray(order.whatsappLogs) && order.whatsappLogs.length > 0) {
+      return order.whatsappLogs.map((log: any, idx: number) => ({
+        id: log.id || `log_${idx}`,
+        timestamp: log.timestamp || order.date || new Date().toISOString(),
+        type: log.type || 'custom',
+        direction: log.direction || (log.sender?.includes('العميل') ? 'incoming' : 'outgoing'),
+        message: log.message || '',
+        sender: log.sender || (log.direction === 'incoming' ? (order.customerName || 'العميل') : 'المتجر'),
+        recipient: log.recipient || (log.direction === 'incoming' ? 'المتجر' : (order.customerName || 'العميل')),
+        status: log.status || (log.direction === 'incoming' ? 'received' : 'read'),
+        buttons: log.buttons,
+        actionTaken: log.actionTaken
+      }));
+    }
+
+    // 2. إذا لم يكن هناك سجل سابق، نقوم بتوليد تسلسل المحادثة التلقائي الواقعي للطلب بناءً على حالته وتاريخه
+    const chat: any[] = [];
+    const baseDate = new Date(order.date || order.createdAt || Date.now());
+    const store = storeName || (settings as any)?.storeName || (settings as any)?.general?.storeName || 'المتجر';
+
+    // أ) رسالة التأكيد التفاعلية الصادرة من المتجر
+    const conf = this.formatConfirmationMessage(order, settings, store);
+    chat.push({
+      id: `gen_conf_${order.id || order.orderNumber}`,
+      timestamp: baseDate.toISOString(),
+      type: 'confirmation',
+      direction: 'outgoing',
+      message: conf.text,
+      sender: `${store} (بوت الواتساب)`,
+      recipient: order.customerName || 'العميل',
+      status: 'read',
+      buttons: conf.buttons
+    });
+
+    // ب) استجابة العميل إن وجدت بناءً على حالة الطلب أو الملاحظات
+    const isCancelled = order.status === 'ملغي';
+    const isConfirmed = order.status === 'قيد_التنفيذ' || order.status === 'قيد_الشحن' || order.status === 'تم_الارسال' || (order.status as string) === 'تم_الشحن' || (order.status as string) === 'مع_المندوب' || order.status === 'تم_التوصيل' || order.status === 'تم_التحصيل';
+    const isPostponed = order.status === 'مؤجل';
+
+    const customerReplyDate = new Date(baseDate.getTime() + 15 * 60 * 1000);
+
+    if (isCancelled) {
+      chat.push({
+        id: `gen_cust_cancel_${order.id}`,
+        timestamp: customerReplyDate.toISOString(),
+        type: 'cancellation',
+        direction: 'incoming',
+        message: 'إلغاء الطلب ❌',
+        sender: order.customerName || 'العميل',
+        recipient: store,
+        status: 'received',
+        actionTaken: 'إلغاء الطلب وتحديث الحالة إلى: ملغي'
+      });
+
+      const cancelNotice = this.formatCancellationMessage(order, settings, store, order.notes || 'بناءً على طلب العميل');
+      chat.push({
+        id: `gen_store_cancel_${order.id}`,
+        timestamp: new Date(customerReplyDate.getTime() + 2 * 60 * 1000).toISOString(),
+        type: 'cancellation',
+        direction: 'outgoing',
+        message: cancelNotice.text,
+        sender: `${store} (رد تلقائي)`,
+        recipient: order.customerName || 'العميل',
+        status: 'read'
+      });
+    } else if (isConfirmed) {
+      chat.push({
+        id: `gen_cust_confirm_${order.id}`,
+        timestamp: customerReplyDate.toISOString(),
+        type: 'confirmation',
+        direction: 'incoming',
+        message: 'تأكيد الطلب ✅',
+        sender: order.customerName || 'العميل',
+        recipient: store,
+        status: 'received',
+        actionTaken: 'تأكيد الطلب وتحديث الحالة إلى: قيد التنفيذ'
+      });
+
+      chat.push({
+        id: `gen_store_ack_${order.id}`,
+        timestamp: new Date(customerReplyDate.getTime() + 1 * 60 * 1000).toISOString(),
+        type: 'custom',
+        direction: 'outgoing',
+        message: 'تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة والتسليم فوراً. 📦✨',
+        sender: `${store} (رد تلقائي)`,
+        recipient: order.customerName || 'العميل',
+        status: 'read'
+      });
+
+      if (order.status === 'قيد_الشحن' || order.status === 'تم_الارسال' || (order.status as string) === 'تم_الشحن' || (order.status as string) === 'مع_المندوب' || order.status === 'تم_التوصيل' || order.waybillNumber || order.trackingUrl) {
+        const shipDate = new Date(customerReplyDate.getTime() + 4 * 3600 * 1000);
+        const shipMsg = this.formatShippingMessage(order, settings, store);
+        chat.push({
+          id: `gen_store_ship_${order.id}`,
+          timestamp: shipDate.toISOString(),
+          type: 'shipping',
+          direction: 'outgoing',
+          message: shipMsg.text,
+          sender: `${store} (تحديث الشحن)`,
+          recipient: order.customerName || 'العميل',
+          status: 'read'
+        });
+      }
+    } else if (isPostponed) {
+      chat.push({
+        id: `gen_cust_edit_${order.id}`,
+        timestamp: customerReplyDate.toISOString(),
+        type: 'incoming',
+        direction: 'incoming',
+        message: 'تعديل العنوان ✍️',
+        sender: order.customerName || 'العميل',
+        recipient: store,
+        status: 'received',
+        actionTaken: 'طلب تعديل العنوان'
+      });
+    }
+
+    return chat;
+  },
+
+  /**
    * إرسال الرسالة عبر الـ API الداخلي (Proxy)
    */
   async sendMessage(phone: string, message: string, config: WhatsAppConfig, buttons?: string[], footer?: string, storeName?: string): Promise<{ success: boolean; error?: string }> {

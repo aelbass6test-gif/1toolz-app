@@ -82,8 +82,10 @@ export const syncSupabaseCredentials = (storeId: string, settings: any) => {
 
 export const getSupabaseClient = () => {
     if (typeof window === 'undefined') return null;
-    const url = localStorage.getItem('custom_cloud_url');
-    const key = localStorage.getItem('custom_cloud_anon_key');
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+    const url = localStorage.getItem('custom_cloud_url') || envUrl;
+    const key = localStorage.getItem('custom_cloud_anon_key') || envKey;
     
     if (url && key && url.startsWith('http')) {
         // Reuse existing client if credentials haven't changed
@@ -107,7 +109,11 @@ export const getSupabaseClient = () => {
 };
 
 export const isSupabaseActive = (): boolean => {
-    return !!localStorage.getItem('custom_cloud_url') && !!localStorage.getItem('custom_cloud_anon_key');
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
+    const hasUrl = !!localStorage.getItem('custom_cloud_url') || !!envUrl;
+    const hasKey = !!localStorage.getItem('custom_cloud_anon_key') || !!envKey;
+    return hasUrl && hasKey;
 };
 
 /**

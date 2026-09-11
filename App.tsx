@@ -92,6 +92,7 @@ const SharedReportView = lazyWithRetry(() => import('./components/SharedReportVi
 const FailedDeliveryCompensationPage = lazyWithRetry(() => import('./components/FailedDeliveryCompensationPage'), 'FailedDeliveryCompensationPage');
 const DropshippingPage = lazyWithRetry(() => import('./components/DropshippingPage'), 'DropshippingPage');
 const SmartUpdatesWidget = lazyWithRetry(() => import('./components/SmartUpdatesWidget'), 'SmartUpdatesWidget');
+const WebhookMonitorPage = lazyWithRetry(() => import('./components/WebhookMonitorPage'));
 
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
@@ -3197,6 +3198,7 @@ export const AppComponent = () => {
                             setAllStoresData={setAllStoresData}
                         />
                     } />
+                    <Route path="webhook-monitor" element={<WebhookMonitorPage />} />
                     <Route path="docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                     <Route path="api-docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                 </Route>

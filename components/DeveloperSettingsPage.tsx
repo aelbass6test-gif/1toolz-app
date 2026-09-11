@@ -13,11 +13,21 @@ const SupabaseIcon = () => (
   </svg>
 );
 
-const SQL_SCHEMA_SCRIPT = `-- 1. STORES_DATA (قاعدة بيانات المتاجر)
+const SQL_SCHEMA_SCRIPT = `-- =========================================================================
+-- السكربت الشامل والمتكامل لإنشاء وضبط جميع جداول وأعمدة قاعدة بيانات Supabase
+-- يتضمن 38 جدولاً متكاملاً مع جميع الأعمدة بصيغتي CamelCase و snake_case
+-- وتعطيل RLS وتعيين الصلاحيات لضمان أقصى سرعة ومزامنة سلسة 100%
+-- =========================================================================
+
+-- 1. STORES_DATA (قاعدة بيانات المتاجر والإعدادات)
 CREATE TABLE IF NOT EXISTS stores_data (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    settings JSONB DEFAULT '{}'::jsonb
+    settings JSONB DEFAULT '{}'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 2. USERS (المستخدمون والمدراء)
@@ -34,26 +44,70 @@ CREATE TABLE IF NOT EXISTS users (
     is_banned BOOLEAN DEFAULT false,
     isBanned BOOLEAN DEFAULT false,
     join_date TEXT,
-    joinDate TEXT
+    joinDate TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 3. PRODUCTS (المنتجات)
+-- 3. PRODUCTS (المنتجات والمخزون)
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     name TEXT NOT NULL,
     sku TEXT,
-    price NUMERIC NOT NULL,
+    description TEXT,
+    price NUMERIC NOT NULL DEFAULT 0,
+    cost_price NUMERIC DEFAULT 0,
+    costPrice NUMERIC DEFAULT 0,
+    base_price NUMERIC DEFAULT 0,
+    basePrice NUMERIC DEFAULT 0,
     stock_quantity NUMERIC DEFAULT 0,
     stockQuantity NUMERIC DEFAULT 0,
+    stock NUMERIC DEFAULT 0,
     min_stock_level NUMERIC DEFAULT 0,
     minStockLevel NUMERIC DEFAULT 0,
+    stock_threshold NUMERIC DEFAULT 0,
+    stockThreshold NUMERIC DEFAULT 0,
     last_audited JSONB DEFAULT '{}'::jsonb,
     lastAudited JSONB DEFAULT '{}'::jsonb,
+    warehouse_stock JSONB DEFAULT '{}'::jsonb,
+    warehouseStock JSONB DEFAULT '{}'::jsonb,
     details JSONB DEFAULT '{}'::jsonb,
     expiry_date TEXT,
-    expiryDate TEXT
+    expiryDate TEXT,
+    profit_mode TEXT DEFAULT 'manual',
+    profitMode TEXT DEFAULT 'manual',
+    profit_percentage NUMERIC DEFAULT 0,
+    profitPercentage NUMERIC DEFAULT 0,
+    commission_percentage NUMERIC DEFAULT 0,
+    commissionPercentage NUMERIC DEFAULT 0,
+    use_profit_percentage BOOLEAN DEFAULT false,
+    useProfitPercentage BOOLEAN DEFAULT false,
+    weight NUMERIC DEFAULT 0,
+    thumbnail TEXT,
+    images JSONB DEFAULT '[]'::jsonb,
+    in_stock BOOLEAN DEFAULT true,
+    inStock BOOLEAN DEFAULT true,
+    has_variants BOOLEAN DEFAULT false,
+    hasVariants BOOLEAN DEFAULT false,
+    options JSONB DEFAULT '[]'::jsonb,
+    variants JSONB DEFAULT '[]'::jsonb,
+    collection_id TEXT,
+    collectionId TEXT,
+    category_id TEXT,
+    categoryId TEXT,
+    barcode TEXT,
+    supplier_id TEXT,
+    supplierId TEXT,
+    is_archived BOOLEAN DEFAULT false,
+    isArchived BOOLEAN DEFAULT false,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 4. ORDERS (الطلبات والأوردرات)
@@ -63,32 +117,109 @@ CREATE TABLE IF NOT EXISTS orders (
     storeId TEXT,
     order_number TEXT NOT NULL,
     orderNumber TEXT,
+    reference_number TEXT,
+    referenceNumber TEXT,
+    waybill_number TEXT,
+    waybillNumber TEXT,
+    tracking_url TEXT,
+    trackingUrl TEXT,
+    platform_order_id TEXT,
+    platformOrderId TEXT,
     customer_name TEXT NOT NULL,
     customerName TEXT,
-    customerPhone TEXT,
     customer_phone TEXT,
-    shippingCompany TEXT,
+    customerPhone TEXT,
+    customer_phone2 TEXT,
+    customerPhone2 TEXT,
+    customer_address TEXT,
+    customerAddress TEXT,
+    city TEXT,
+    governorate TEXT,
+    shipping_area TEXT,
+    shippingArea TEXT,
     shipping_company TEXT,
-    status TEXT NOT NULL,
+    shippingCompany TEXT,
+    status TEXT NOT NULL DEFAULT 'قيد_المراجعة',
     date TEXT NOT NULL,
-    total_price NUMERIC NOT NULL,
-    totalPrice NUMERIC,
-    shippingFee NUMERIC,
-    shipping_fee NUMERIC,
-    flexShipFee NUMERIC,
-    flexShipCompanyFee NUMERIC,
-    enableFlexShip BOOLEAN,
-    flexShipFeePaidByCustomer BOOLEAN,
+    total_price NUMERIC NOT NULL DEFAULT 0,
+    totalPrice NUMERIC DEFAULT 0,
+    shipping_fee NUMERIC DEFAULT 0,
+    shippingFee NUMERIC DEFAULT 0,
+    flex_ship_fee NUMERIC DEFAULT 0,
+    flexShipFee NUMERIC DEFAULT 0,
+    flex_ship_company_fee NUMERIC DEFAULT 0,
+    flexShipCompanyFee NUMERIC DEFAULT 0,
+    enable_flex_ship BOOLEAN DEFAULT false,
+    enableFlexShip BOOLEAN DEFAULT false,
+    flex_ship_fee_paid_by_customer BOOLEAN DEFAULT false,
+    flexShipFeePaidByCustomer BOOLEAN DEFAULT false,
     channel TEXT DEFAULT 'online',
     warehouse_id TEXT,
     warehouseId TEXT,
+    payment_method TEXT,
+    paymentMethod TEXT,
+    payment_status TEXT,
+    paymentStatus TEXT,
+    preparation_status TEXT,
+    preparationStatus TEXT,
+    classification TEXT,
+    notes TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
     details JSONB DEFAULT '{}'::jsonb,
+    discount NUMERIC DEFAULT 0,
+    tax NUMERIC DEFAULT 0,
+    admin_fee NUMERIC DEFAULT 0,
+    adminFee NUMERIC DEFAULT 0,
+    insurance_fee NUMERIC DEFAULT 0,
+    insuranceFee NUMERIC DEFAULT 0,
+    inspection_fee NUMERIC DEFAULT 0,
+    inspectionFee NUMERIC DEFAULT 0,
+    weight NUMERIC DEFAULT 0,
+    is_insured BOOLEAN DEFAULT false,
+    isInsured BOOLEAN DEFAULT false,
+    include_inspection_fee BOOLEAN DEFAULT false,
+    includeInspectionFee BOOLEAN DEFAULT false,
+    inspection_fee_paid_by_customer BOOLEAN DEFAULT false,
+    inspectionFeePaidByCustomer BOOLEAN DEFAULT false,
+    recorded_as_debt BOOLEAN DEFAULT false,
+    recordedAsDebt BOOLEAN DEFAULT false,
+    defer_payment_to_return BOOLEAN DEFAULT false,
+    deferPaymentToReturn BOOLEAN DEFAULT false,
+    return_cash_to_customer BOOLEAN DEFAULT false,
+    returnCashToCustomer BOOLEAN DEFAULT false,
+    cash_to_return_amount NUMERIC DEFAULT 0,
+    cashToReturnAmount NUMERIC DEFAULT 0,
+    credit_amount NUMERIC DEFAULT 0,
+    creditAmount NUMERIC DEFAULT 0,
+    total_amount_override NUMERIC,
+    totalAmountOverride NUMERIC,
+    total_amount_override_reason TEXT,
+    totalAmountOverrideReason TEXT,
+    order_type TEXT DEFAULT 'standard',
+    orderType TEXT DEFAULT 'standard',
+    shipment_type TEXT DEFAULT 'delivery',
+    shipmentType TEXT DEFAULT 'delivery',
+    original_order_id TEXT,
+    originalOrderId TEXT,
     "advancePayment" NUMERIC DEFAULT 0,
     "advancePaymentPartnerId" TEXT,
     "advancePaymentTreasuryId" TEXT,
     "advancePaymentEmployeeId" TEXT,
     "advancePaymentRecipientPhone" TEXT,
-    "advancePaymentSenderDetails" TEXT
+    "advancePaymentSenderDetails" TEXT,
+    "advancePaymentHistory" JSONB DEFAULT '[]'::jsonb,
+    "createdBy" TEXT,
+    "source" TEXT,
+    "vatOnStandardShipping" BOOLEAN DEFAULT false,
+    "confirmationLogs" JSONB DEFAULT '[]'::jsonb,
+    "cancellationReason" TEXT,
+    "followUpReminder" TEXT,
+    "auditLogs" JSONB DEFAULT '[]'::jsonb,
+    "callAttempts" JSONB DEFAULT '[]'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 5. TRANSACTIONS (الحركات المالية والمحفظة)
@@ -97,12 +228,24 @@ CREATE TABLE IF NOT EXISTS transactions (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     type TEXT NOT NULL,
-    amount NUMERIC NOT NULL,
+    amount NUMERIC NOT NULL DEFAULT 0,
     date TEXT NOT NULL,
     category TEXT,
     status TEXT DEFAULT 'completed',
     note TEXT,
-    details JSONB DEFAULT '{}'::jsonb
+    details JSONB DEFAULT '{}'::jsonb,
+    fees NUMERIC DEFAULT 0,
+    "orderId" TEXT,
+    order_id TEXT,
+    "orderNumber" TEXT,
+    order_number TEXT,
+    service TEXT,
+    "treasuryAccountId" TEXT,
+    treasury_account_id TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 6. SUPPLIERS (الموردين)
@@ -114,7 +257,11 @@ CREATE TABLE IF NOT EXISTS suppliers (
     phone TEXT,
     address TEXT,
     notes TEXT,
-    balance NUMERIC DEFAULT 0
+    balance NUMERIC DEFAULT 0,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 7. SUPPLY_ORDERS (أوردرات الإمداد والمخزون)
@@ -124,32 +271,70 @@ CREATE TABLE IF NOT EXISTS supply_orders (
     storeId TEXT,
     supplier_id TEXT,
     supplierId TEXT,
-    total_cost NUMERIC NOT NULL,
-    totalCost NUMERIC,
+    order_number TEXT,
+    orderNumber TEXT,
+    reference_number TEXT,
+    referenceNumber TEXT,
+    total_cost NUMERIC NOT NULL DEFAULT 0,
+    totalCost NUMERIC DEFAULT 0,
+    total_paid NUMERIC DEFAULT 0,
+    totalPaid NUMERIC DEFAULT 0,
+    discount NUMERIC DEFAULT 0,
+    shipping_fees NUMERIC DEFAULT 0,
+    shippingFees NUMERIC DEFAULT 0,
+    other_fees NUMERIC DEFAULT 0,
+    otherFees NUMERIC DEFAULT 0,
+    tax_rate NUMERIC DEFAULT 0,
+    taxRate NUMERIC DEFAULT 0,
+    tax_amount NUMERIC DEFAULT 0,
+    taxAmount NUMERIC DEFAULT 0,
+    grand_total NUMERIC DEFAULT 0,
+    grandTotal NUMERIC DEFAULT 0,
     date TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'مكتمل',
     items JSONB DEFAULT '[]'::jsonb,
     notes TEXT,
     details JSONB DEFAULT '{}'::jsonb,
+    attachment_url TEXT,
+    attachmentUrl TEXT,
+    treasury_account_id TEXT,
+    treasuryAccountId TEXT,
+    warehouse_id TEXT,
+    warehouseId TEXT,
+    partner_id TEXT,
+    partnerId TEXT,
+    payment_method TEXT,
+    paymentMethod TEXT,
+    "treasuryPayments" JSONB DEFAULT '[]'::jsonb,
+    "custodyPayments" JSONB DEFAULT '[]'::jsonb,
+    "partnerPayments" JSONB DEFAULT '[]'::jsonb,
     "distributeExpensesEqually" BOOLEAN DEFAULT false,
     "recordExpensesFormally" BOOLEAN DEFAULT false,
     "shippingFeesNote" TEXT,
     "otherFeesNote" TEXT,
-    "expensePaidBy" TEXT
+    "expensePaidBy" TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 8. REVIEWS (مراجعات وآراء التقاطعات)
+-- 8. REVIEWS (مراجعات وآراء العملاء)
 CREATE TABLE IF NOT EXISTS reviews (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
-    product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
+    product_id TEXT,
     productId TEXT,
     customer_name TEXT,
     customerName TEXT,
     rating NUMERIC DEFAULT 5,
     comment TEXT,
-    status TEXT
+    status TEXT DEFAULT 'pending',
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 9. ABANDONED_CARTS (السلات المتروكة)
@@ -161,10 +346,14 @@ CREATE TABLE IF NOT EXISTS abandoned_carts (
     customerName TEXT,
     customer_phone TEXT,
     customerPhone TEXT,
-    total_value NUMERIC,
-    totalValue NUMERIC,
+    total_value NUMERIC DEFAULT 0,
+    totalValue NUMERIC DEFAULT 0,
     date TEXT,
-    items JSONB DEFAULT '[]'::jsonb
+    items JSONB DEFAULT '[]'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 10. ACTIVITY_LOGS (سجل الحركات العام)
@@ -176,9 +365,13 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     user_name TEXT,
     userName TEXT,
     action TEXT NOT NULL,
-    details JSONB,
-    timestamp TEXT,
-    date TEXT
+    details TEXT,
+    timestamp NUMERIC,
+    date TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 11. EMPLOYEES (الموظفون وصلاحياتهم)
@@ -189,7 +382,11 @@ CREATE TABLE IF NOT EXISTS employees (
     name TEXT,
     email TEXT,
     permissions JSONB DEFAULT '[]'::jsonb,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT,
     PRIMARY KEY (store_id, phone)
 );
 
@@ -199,20 +396,24 @@ CREATE TABLE IF NOT EXISTS discount_codes (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     code TEXT NOT NULL,
-    discount_type TEXT NOT NULL,
-    discountType TEXT,
-    value NUMERIC NOT NULL,
+    discount_type TEXT NOT NULL DEFAULT 'percentage',
+    discountType TEXT DEFAULT 'percentage',
+    value NUMERIC NOT NULL DEFAULT 0,
     usage_limit NUMERIC,
     usageLimit TEXT,
     usage_count NUMERIC DEFAULT 0,
-    usageCount NUMERIC,
+    usageCount NUMERIC DEFAULT 0,
     expiration_date TEXT,
     expirationDate TEXT,
     is_active BOOLEAN DEFAULT true,
-    isActive BOOLEAN DEFAULT true
+    isActive BOOLEAN DEFAULT true,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 13. COLLECTIONS (التصنيفات والجموعات للمنتجات)
+-- 13. COLLECTIONS (التصنيفات والمجموعات)
 CREATE TABLE IF NOT EXISTS collections (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
@@ -222,10 +423,14 @@ CREATE TABLE IF NOT EXISTS collections (
     image_url TEXT,
     imageUrl TEXT,
     is_active BOOLEAN DEFAULT true,
-    isActive BOOLEAN DEFAULT true
+    isActive BOOLEAN DEFAULT true,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 14. CUSTOM_PAGES (الصفحات التعريفية المخصصة)
+-- 14. CUSTOM_PAGES (الصفحات المخصصة)
 CREATE TABLE IF NOT EXISTS custom_pages (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
@@ -234,7 +439,11 @@ CREATE TABLE IF NOT EXISTS custom_pages (
     slug TEXT NOT NULL,
     content TEXT,
     is_active BOOLEAN DEFAULT true,
-    isActive BOOLEAN DEFAULT true
+    isActive BOOLEAN DEFAULT true,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 15. PAYMENT_METHODS (طرق الدفع المفعلة)
@@ -248,7 +457,11 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     logoUrl TEXT,
     is_active BOOLEAN DEFAULT true,
     isActive BOOLEAN DEFAULT true,
-    details JSONB DEFAULT '{}'::jsonb
+    details JSONB DEFAULT '{}'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 16. CUSTOMERS (بيانات العملاء وتقييمات الولاء)
@@ -259,17 +472,35 @@ CREATE TABLE IF NOT EXISTS customers (
     name TEXT NOT NULL,
     phone TEXT NOT NULL,
     address TEXT,
+    city TEXT,
+    governorate TEXT,
     loyalty_points NUMERIC DEFAULT 0,
-    loyaltyPoints NUMERIC,
+    loyaltyPoints NUMERIC DEFAULT 0,
     total_spent NUMERIC DEFAULT 0,
-    totalSpent NUMERIC,
+    totalSpent NUMERIC DEFAULT 0,
+    total_orders NUMERIC DEFAULT 0,
+    totalOrders NUMERIC DEFAULT 0,
+    successful_orders NUMERIC DEFAULT 0,
+    successfulOrders NUMERIC DEFAULT 0,
+    returned_orders NUMERIC DEFAULT 0,
+    returnedOrders NUMERIC DEFAULT 0,
+    average_order_value NUMERIC DEFAULT 0,
+    averageOrderValue NUMERIC DEFAULT 0,
+    shipping_fee NUMERIC DEFAULT 0,
+    shippingFee NUMERIC DEFAULT 0,
     first_order_date TEXT,
     firstOrderDate TEXT,
     last_order_date TEXT,
     lastOrderDate TEXT,
     notes TEXT,
+    debt_balance NUMERIC DEFAULT 0,
     debtBalance NUMERIC DEFAULT 0,
-    debtHistory JSONB DEFAULT '[]'::jsonb
+    debt_history JSONB DEFAULT '[]'::jsonb,
+    debtHistory JSONB DEFAULT '[]'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 17. GLOBAL_OPTIONS (خيارات الضبط العام للمتجر)
@@ -280,7 +511,11 @@ CREATE TABLE IF NOT EXISTS global_options (
     key TEXT NOT NULL,
     value TEXT,
     is_active BOOLEAN DEFAULT true,
-    isActive BOOLEAN DEFAULT true
+    isActive BOOLEAN DEFAULT true,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 18. SHIPPING_INTEGRATIONS (تكاملات شركات الشحن والدليفري)
@@ -298,18 +533,22 @@ CREATE TABLE IF NOT EXISTS shipping_integrations (
     is_connected BOOLEAN DEFAULT false,
     isConnected BOOLEAN DEFAULT false,
     details JSONB DEFAULT '{}'::jsonb,
-    updated_at TEXT,
-    updatedAt TEXT,
     created_at TEXT,
-    createdAt TEXT
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
+-- 19. DOCUMENTS (أرشيف المستندات والفواتير)
 CREATE TABLE IF NOT EXISTS documents (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
-    content JSONB DEFAULT '{}'::jsonb
+    content JSONB DEFAULT '{}'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 20. TREASURY_ACCOUNTS (خزائن وحسابات السيولة المالية)
@@ -318,7 +557,7 @@ CREATE TABLE IF NOT EXISTS treasury_accounts (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     name TEXT NOT NULL,
-    type TEXT NOT NULL, -- safe, bank, wallet, custody
+    type TEXT NOT NULL DEFAULT 'safe',
     balance NUMERIC DEFAULT 0,
     currency TEXT DEFAULT 'EGP',
     account_number TEXT,
@@ -330,10 +569,14 @@ CREATE TABLE IF NOT EXISTS treasury_accounts (
     wallet_number TEXT,
     walletNumber TEXT,
     wallet_name TEXT,
-    walletName TEXT
+    walletName TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 21. TREASURY_TRANSACTIONS (الحركات والمعاملات المالية الخزينة)
+-- 21. TREASURY_TRANSACTIONS (الحركات المالية للخزينة)
 CREATE TABLE IF NOT EXISTS treasury_transactions (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
@@ -343,10 +586,14 @@ CREATE TABLE IF NOT EXISTS treasury_transactions (
     fromAccountId TEXT,
     to_account_id TEXT,
     toAccountId TEXT,
-    amount NUMERIC NOT NULL,
-    type TEXT NOT NULL, -- deposit, withdrawal, transfer, advance
+    amount NUMERIC NOT NULL DEFAULT 0,
+    type TEXT NOT NULL,
     description TEXT,
-    reference TEXT
+    reference TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 22. PARTNERS (بيانات الشركاء وحصص رأس المال)
@@ -361,8 +608,8 @@ CREATE TABLE IF NOT EXISTS partners (
     profit_ratio NUMERIC DEFAULT 0,
     profitRatio NUMERIC DEFAULT 0,
     capital NUMERIC DEFAULT 0,
-    initialCapital NUMERIC DEFAULT 0,
     initial_capital NUMERIC DEFAULT 0,
+    initialCapital NUMERIC DEFAULT 0,
     created_at TEXT,
     createdAt TEXT,
     updated_at TEXT,
@@ -380,8 +627,8 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     partnerName TEXT,
     treasury_account_id TEXT,
     treasuryAccountId TEXT,
-    type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
-    amount NUMERIC NOT NULL,
+    type TEXT NOT NULL,
+    amount NUMERIC NOT NULL DEFAULT 0,
     date TEXT NOT NULL,
     note TEXT,
     notes TEXT,
@@ -393,25 +640,7 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     updatedAt TEXT
 );
 
--- Ensure columns exist for partner_transactions
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-
--- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم الفني والداخلي)
+-- 24. CHAT_MESSAGES (سجل المحادثات ورسائل الدعم)
 CREATE TABLE IF NOT EXISTS chat_messages (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
@@ -421,12 +650,14 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     receiver_id TEXT NOT NULL,
     receiverId TEXT,
     content TEXT NOT NULL,
-    created_at TEXT,
-    createdAt TEXT,
     is_read BOOLEAN DEFAULT false,
     isRead BOOLEAN DEFAULT false,
     is_file BOOLEAN DEFAULT false,
-    isFile BOOLEAN DEFAULT false
+    isFile BOOLEAN DEFAULT false,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 25. WAREHOUSES (المخازن والمستودعات)
@@ -437,7 +668,11 @@ CREATE TABLE IF NOT EXISTS warehouses (
     name TEXT NOT NULL,
     location TEXT,
     is_default BOOLEAN DEFAULT false,
-    isDefault BOOLEAN DEFAULT false
+    isDefault BOOLEAN DEFAULT false,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 26. INVENTORY_AUDITS (جلسات جرد المخزون)
@@ -464,7 +699,11 @@ CREATE TABLE IF NOT EXISTS inventory_audits (
     totalItemsAudited NUMERIC DEFAULT 0,
     timestamp BIGINT,
     discrepancies JSONB DEFAULT '[]'::jsonb,
-    notes TEXT
+    notes TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 27. STOCK_TRANSFERS (تحويلات المخزون بين المستودعات)
@@ -480,10 +719,14 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
     destination_warehouse_id TEXT,
     destinationWarehouseId TEXT,
     items JSONB DEFAULT '[]'::jsonb,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'مكتمل',
     notes TEXT,
     performed_by TEXT,
-    performedBy TEXT
+    performedBy TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 28. ORDER_RETURNS (مرتجعات طلبات البيع)
@@ -506,10 +749,14 @@ CREATE TABLE IF NOT EXISTS order_returns (
     warehouseId TEXT,
     restock_items BOOLEAN DEFAULT true,
     restockItems BOOLEAN DEFAULT true,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'مكتمل',
     performed_by TEXT,
     performedBy TEXT,
-    notes TEXT
+    notes TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 29. PURCHASE_RETURNS (مرتجعات طلبات الشراء من الموردين)
@@ -529,10 +776,14 @@ CREATE TABLE IF NOT EXISTS purchase_returns (
     totalRefundAmount NUMERIC DEFAULT 0,
     warehouse_id TEXT,
     warehouseId TEXT,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'مكتمل',
     notes TEXT,
     performed_by TEXT,
-    performedBy TEXT
+    performedBy TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 30. POS_SALES (مبيعات الكاشير ونقاط البيع)
@@ -562,7 +813,11 @@ CREATE TABLE IF NOT EXISTS pos_sales (
     cashHolderId TEXT,
     cash_holder_name TEXT,
     cashHolderName TEXT,
-    notes TEXT
+    notes TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 31. CASH_HOLDERS (عهد الكاشير والمناديب)
@@ -577,6 +832,10 @@ CREATE TABLE IF NOT EXISTS cash_holders (
     currentBalance NUMERIC DEFAULT 0,
     last_updated TEXT,
     lastUpdated TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT,
     PRIMARY KEY (store_id, user_id)
 );
 
@@ -593,14 +852,18 @@ CREATE TABLE IF NOT EXISTS cash_handovers (
     toUserId TEXT,
     to_user_name TEXT,
     toUserName TEXT,
-    amount NUMERIC NOT NULL,
+    amount NUMERIC NOT NULL DEFAULT 0,
     date TEXT NOT NULL,
     notes TEXT,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'approved',
     is_virtual BOOLEAN DEFAULT FALSE,
     isVirtual BOOLEAN DEFAULT FALSE,
     order_number TEXT,
-    orderNumber TEXT
+    orderNumber TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)
@@ -612,7 +875,11 @@ CREATE TABLE IF NOT EXISTS whatsapp_templates (
     text TEXT NOT NULL,
     footer TEXT,
     buttons JSONB DEFAULT '[]'::jsonb,
-    details JSONB DEFAULT '{}'::jsonb
+    details JSONB DEFAULT '{}'::jsonb,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
@@ -621,87 +888,136 @@ CREATE TABLE IF NOT EXISTS call_scripts (
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
     storeId TEXT,
     title TEXT NOT NULL,
-    text TEXT NOT NULL
+    text TEXT NOT NULL,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 35. CUSTOMER_TRANSACTIONS (سجل حركات مديونيات العملاء)
 CREATE TABLE IF NOT EXISTS customer_transactions (
     id TEXT PRIMARY KEY,
+    store_id TEXT,
+    storeId TEXT,
+    customer_id TEXT,
     customerId TEXT,
     date TEXT,
-    amount NUMERIC,
-    type TEXT, -- debt, payment, refund
+    amount NUMERIC DEFAULT 0,
+    type TEXT,
     note TEXT,
+    order_id TEXT,
     orderId TEXT,
-    storeId TEXT
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
 -- 36. SUPPLIER_TRANSACTIONS (سجل حركات مديونيات الموردين)
 CREATE TABLE IF NOT EXISTS supplier_transactions (
     id TEXT PRIMARY KEY,
+    store_id TEXT,
+    storeId TEXT,
+    supplier_id TEXT,
     supplierId TEXT,
     date TEXT,
-    amount NUMERIC,
-    type TEXT, -- credit, payment, refund
+    amount NUMERIC DEFAULT 0,
+    type TEXT,
     note TEXT,
+    order_id TEXT,
     orderId TEXT,
-    storeId TEXT
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- 37. WITHDRAWAL_REQUESTS (سجل طلبات سحب الرصيد)
+-- 37. SHARED_AUDITS (جلسات الجرد السحابي المشترك)
 CREATE TABLE IF NOT EXISTS shared_audits (
     id TEXT PRIMARY KEY,
-    storeId TEXT,
     store_id TEXT,
+    storeId TEXT,
     title TEXT,
-    warehouseId TEXT,
     warehouse_id TEXT,
+    warehouseId TEXT,
+    warehouse_name TEXT,
     warehouseName TEXT,
     protocol TEXT,
+    is_protocol_locked BOOLEAN DEFAULT false,
     isProtocolLocked BOOLEAN DEFAULT false,
     status TEXT,
-    createdAt TEXT,
-    submittedAt TEXT,
     passcode TEXT,
+    manager_name TEXT,
     managerName TEXT,
+    manager_id TEXT,
     managerId TEXT,
     items JSONB DEFAULT '[]'::jsonb,
     logs JSONB DEFAULT '[]'::jsonb,
     assignments JSONB DEFAULT '[]'::jsonb,
     presence JSONB DEFAULT '{}'::jsonb,
     conflicts JSONB DEFAULT '[]'::jsonb,
+    draft_counts JSONB DEFAULT '{}'::jsonb,
     draftCounts JSONB DEFAULT '{}'::jsonb,
+    draft_notes JSONB DEFAULT '{}'::jsonb,
     draftNotes JSONB DEFAULT '{}'::jsonb,
     locks JSONB DEFAULT '{}'::jsonb,
+    last_saved_at TEXT,
     lastSavedAt TEXT,
+    unlock_reason TEXT,
     unlockReason TEXT,
+    unlocked_by TEXT,
     unlockedBy TEXT,
+    unlocked_at TEXT,
     unlockedAt TEXT,
     notes TEXT,
+    signature_data TEXT,
     signatureData TEXT,
+    is_blind_count BOOLEAN DEFAULT false,
     isBlindCount BOOLEAN DEFAULT false,
+    worker_signature TEXT,
     workerSignature TEXT,
+    manager_signature TEXT,
     managerSignature TEXT,
+    reject_reason TEXT,
     rejectReason TEXT,
     progress NUMERIC,
+    accuracy_score NUMERIC,
     accuracyScore NUMERIC,
-    healthScore NUMERIC
+    health_score NUMERIC,
+    healthScore NUMERIC,
+    submitted_at TEXT,
+    submittedAt TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
+-- 38. WITHDRAWAL_REQUESTS (طلبات سحب الرصيد والسيولة)
 CREATE TABLE IF NOT EXISTS withdrawal_requests (
     id TEXT PRIMARY KEY,
+    store_id TEXT,
     storeId TEXT,
-    amount NUMERIC NOT NULL,
+    amount NUMERIC NOT NULL DEFAULT 0,
     date TEXT NOT NULL,
-    status TEXT DEFAULT 'pending', -- pending, completed, cancelled
-    method TEXT, -- bank, wallet, instapay, treasury
+    status TEXT DEFAULT 'pending',
+    method TEXT,
     details TEXT,
     fee NUMERIC DEFAULT 0,
+    net_amount NUMERIC,
     netAmount NUMERIC,
-    isSameDay BOOLEAN DEFAULT false
+    is_same_day BOOLEAN DEFAULT false,
+    isSameDay BOOLEAN DEFAULT false,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
 );
 
--- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
+-- =========================================================================
+-- تعطيل نظام الحماية RLS لجميع الجداول (لتسهيل وسرعة المزامنة بدون أخطاء)
+-- =========================================================================
 ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE products DISABLE ROW LEVEL SECURITY;
@@ -716,11 +1032,18 @@ ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
 ALTER TABLE discount_codes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
+ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
+ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_accounts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE treasury_transactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE partners DISABLE ROW LEVEL SECURITY;
 ALTER TABLE partner_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
 ALTER TABLE inventory_audits DISABLE ROW LEVEL SECURITY;
-ALTER TABLE shared_audits DISABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_transfers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE order_returns DISABLE ROW LEVEL SECURITY;
 ALTER TABLE purchase_returns DISABLE ROW LEVEL SECURITY;
@@ -729,565 +1052,15 @@ ALTER TABLE cash_holders DISABLE ROW LEVEL SECURITY;
 ALTER TABLE cash_handovers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE whatsapp_templates DISABLE ROW LEVEL SECURITY;
 ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE customer_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE supplier_transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE shared_audits DISABLE ROW LEVEL SECURITY;
+ALTER TABLE withdrawal_requests DISABLE ROW LEVEL SECURITY;
 
--- ⚡ تأمين وجود جميع الأعمدة اللازمة (SQL Patches) لضمان توافق جميع إصدارات البيانات
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS last_audited JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT DEFAULT 'manual';
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0;
-
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fees NUMERIC DEFAULT 0;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "orderId" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS service TEXT;
-
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS details TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_name TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS timestamp NUMERIC;
-
--- تأمين أعمدة الربط لجميع الجداول
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock_level NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_quantity NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS last_audited JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT DEFAULT 'manual';
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0;
-
--- تأمين أعمدة الموظفين
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS name TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS email TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS supplier_id TEXT;
-
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "treasuryPayments" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "custodyPayments" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "discount" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "partnerPayments" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFees" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFees" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "taxRate" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "taxAmount" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "grandTotal" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "attachmentUrl" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalCost" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalPaid" NUMERIC DEFAULT 0;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS status TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
-
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "capital" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initialCapital" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initial_capital" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profit_ratio" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
-
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "footer" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "buttons" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalSystemQty" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalActualQty" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceQty" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceValue" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalItemsAudited" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "total_items_audited" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "timestamp" BIGINT;
-
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "transferNumber" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "sourceWarehouseId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "destinationWarehouseId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "returnNumber" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "orderId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "totalRefund" NUMERIC DEFAULT 0;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "restockItems" BOOLEAN DEFAULT true;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "returnNumber" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "supplierName" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "totalRefundAmount" NUMERIC DEFAULT 0;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "saleNumber" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "totalAmount" NUMERIC DEFAULT 0;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "userId" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "userName" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "currentBalance" NUMERIC DEFAULT 0;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "lastUpdated" TEXT;
-
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "isVirtual" BOOLEAN DEFAULT FALSE;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "is_virtual" BOOLEAN DEFAULT FALSE;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "order_number" TEXT;
-
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS action TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS details TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS date TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS timestamp NUMERIC;
-
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiKey" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_key TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiSecret" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_secret TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS account_number TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "isConnected" BOOLEAN DEFAULT false;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS is_connected BOOLEAN DEFAULT false;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS provider TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "productId" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS product_id TEXT;
-
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE customer_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE supplier_transactions ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS store_id TEXT;
-
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
-
--- تأمين أعمدة العربون والديون
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePayment" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentPartnerId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentTreasuryId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentEmployeeId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentRecipientPhone" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentSenderDetails" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentHistory" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdBy" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "source" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "vatOnStandardShipping" BOOLEAN DEFAULT false;
-
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
-
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
-
--- تأمين أعمدة البيانات الإضافية
-ALTER TABLE products ADD COLUMN IF NOT EXISTS sku TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS weight NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "costPrice" NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS thumbnail TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "inStock" BOOLEAN DEFAULT true;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS stock NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "collectionId" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "hasVariants" BOOLEAN DEFAULT false;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS options JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "categoryId" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "useProfitPercentage" BOOLEAN DEFAULT false;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS expiry_date TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
-
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "referenceNumber" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "waybillNumber" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "trackingUrl" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "platformOrderId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingCompany" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingArea" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerName" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone2" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS city TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS governorate TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS items JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "adminFee" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS tax NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentStatus" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "productName" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "productPrice" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "productCost" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalPrice" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "insuranceFee" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFee" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS weight NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalAmountOverride" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalAmountOverrideReason" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "includeInspectionFee" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "isInsured" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFeeDeducted" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFeePaidByCustomer" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingAndInsuranceDeducted" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnFeeDeducted" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "collectionProcessed" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "preparationStatus" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS classification TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "redeemedPoints" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "pointsDiscount" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "loyaltyPointsAwarded" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "stockDeducted" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderType" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipmentType" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "originalOrderId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "confirmationLogs" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "followUpReminder" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "auditLogs" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "callAttempts" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel TEXT DEFAULT 'online';
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
-
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "totalSpent" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyaltyPoints" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "totalOrders" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "successfulOrders" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "returnedOrders" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "lastOrderDate" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "firstOrderDate" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "averageOrderValue" NUMERIC;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS governorate TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS city TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC;
-
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS action TEXT;
-
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_id TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_holder_name TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_address TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS payment_method TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS performed_by TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS warehouse_id TEXT;
-
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "senderId" TEXT;
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "receiverId" TEXT;
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "isRead" BOOLEAN DEFAULT false;
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "isFile" BOOLEAN DEFAULT false;
-
--- تأمين جداول الخزينة (Treasury)
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "beneficiaryName" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "bankName" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "walletNumber" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "walletName" TEXT;
-
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "fromAccountId" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "toAccountId" TEXT;
-
--- تأمين جداول الشركاء (Partners)
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS treasury_account_id TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
-
--- إعادة تفعيل الصلاحيات (RLS Disable is enough)
-ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;`;
-
+-- منح كامل الصلاحيات لجميع المفاتيح (anon, authenticated, service_role)
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+`;
 
 interface DeveloperSettingsPageProps {
   settings: Settings;
@@ -2057,8 +1830,12 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
   };
   
   // Custom Database Credentials States
-  const [customCloudUrl, setCustomCloudUrl] = useState(localStorage.getItem('custom_cloud_url') || '');
-  const [customCloudAnonKey, setCustomCloudAnonKey] = useState(localStorage.getItem('custom_cloud_anon_key') || '');
+  const [customCloudUrl, setCustomCloudUrl] = useState(
+    () => localStorage.getItem('custom_cloud_url') || (import.meta as any).env?.VITE_SUPABASE_URL || ''
+  );
+  const [customCloudAnonKey, setCustomCloudAnonKey] = useState(
+    () => localStorage.getItem('custom_cloud_anon_key') || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || ''
+  );
   const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
   const [showSqlSchema, setShowSqlSchema] = useState(false);
 
