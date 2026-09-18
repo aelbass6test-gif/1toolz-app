@@ -165,17 +165,17 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         buttons, 
         footer, 
         storeDisplayName
-      );
+      ) as any;
 
       const newLog: WhatsAppMessageLog = {
-        id: 'wa_' + Math.random().toString(36).substr(2, 9),
+        id: res.messageId || ('wa_' + Math.random().toString(36).substr(2, 9)),
         timestamp: new Date().toISOString(),
         type,
         direction: 'outgoing',
         message: textToSend,
         sender: storeDisplayName + ' (المتجر)',
         recipient: activeOrder.customerName || phone,
-        status: res.success ? 'sent' : 'failed'
+        status: res.success ? (whatsappConfig.providerType === 'meta_cloud' ? 'sent' : 'delivered') : 'failed'
       };
 
       const updatedLogs = [...(activeOrder.whatsappLogs || []), newLog];

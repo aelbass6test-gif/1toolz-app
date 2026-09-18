@@ -16,4 +16,7 @@ META_VERIFY_TOKEN = "abdomedi_whatsapp_meta_token"
 TURBO_BASE_URL = "https://platform.turbo.info"
 BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"
 BOSTA_STAGING_BASE_URL = "https://stg-app.bosta.co"
+FIREBASE_PROJECT_ID = "gen-lang-client-0887706674"
+FIREBASE_API_KEY = "AIzaSyDe0wW1dG5lQph7u2SJoilpIjMRdm80hDo"
+FIREBASE_DATABASE_ID = "ai-studio-9e748a9b-76d5-4a17-a942-c8226e822acb"
 

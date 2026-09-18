@@ -370,7 +370,7 @@ ${reason ? `📌 سبب الإلغاء: ${reason}\n` : ''}
   /**
    * إرسال الرسالة عبر الـ API الداخلي (Proxy)
    */
-  async sendMessage(phone: string, message: string, config: WhatsAppConfig, buttons?: string[], footer?: string, storeName?: string): Promise<{ success: boolean; error?: string }> {
+  async sendMessage(phone: string, message: string, config: WhatsAppConfig, buttons?: string[], footer?: string, storeName?: string): Promise<{ success: boolean; error?: string; messageId?: string }> {
     if (!config || !config.isActive) {
       return { success: false, error: 'خدمة الواتساب غير مفعلة' };
     }
@@ -518,7 +518,7 @@ ${reason ? `📌 سبب الإلغاء: ${reason}\n` : ''}
           }
 
           if (data.messages && data.messages.length > 0) {
-            return { success: true };
+            return { success: true, messageId: data.messages[0].id };
           } else {
             const errStr = data.error?.message || 'فشل الإرسال عبر Meta Cloud API';
             throw new Error(errStr);
@@ -541,7 +541,7 @@ ${reason ? `📌 سبب الإلغاء: ${reason}\n` : ''}
         throw new Error(errStr);
       }
 
-      return { success: true };
+      return { success: true, messageId: data.id || (data.messages?.[0]?.id) };
     } catch (error: any) {
       console.error('WhatsApp Send Error:', error);
       return { success: false, error: error.message };

@@ -14,6 +14,11 @@ export interface Env {
   FIREBASE_DATABASE_ID?: string;
 }
 
+export interface ExecutionContext {
+  waitUntil(promise: Promise<any>): void;
+  passThroughOnException(): void;
+}
+
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
 async function getFirestoreToken(env: Env) {
@@ -33,56 +38,376 @@ async function getFirestoreToken(env: Env) {
 }
 
 async function writeToFirestore(payload: any, env: Env) {
+  // Always log raw payload first for debugging
+  await logWebhook(payload, env);
+
   const token = await getFirestoreToken(env);
   if (!token || !env.FIREBASE_PROJECT_ID) return false;
 
   const dbId = env.FIREBASE_DATABASE_ID || "(default)";
-  const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents/orders`;
-
-  // Extract basic info from WhatsApp payload
+  
+  // Extract info from WhatsApp payload
   let phone = "";
   let text = "";
+  let isStatusUpdate = false;
+  let referral: any = null;
+  let contactName = "";
+  
   try {
     const entry = payload.entry?.[0];
     const change = entry?.changes?.[0];
     const value = change?.value;
+    
+    if (value?.statuses) {
+      isStatusUpdate = true;
+    }
+
+    const contact = value?.contacts?.[0];
+    if (contact) {
+      contactName = contact.profile?.name || "";
+    }
+
     const message = value?.messages?.[0];
     if (message) {
       phone = message.from;
-      text = message.text?.body || message.button?.text || "رسالة وسائط";
+      referral = message.referral || null;
+      
+      if (message.type === 'text') {
+        text = message.text?.body || "";
+      } else if (message.type === 'interactive') {
+        text = `${message.interactive?.button_reply?.title || ""} ${message.interactive?.button_reply?.id || ""}`.trim();
+      } else if (message.type === 'button') {
+        text = `${message.button?.text || ""} ${message.button?.payload || ""}`.trim();
+      } else {
+        text = `[${message.type}]`;
+      }
     }
   } catch (e) {}
 
-  if (!phone) return false;
+  // Don't create leads for status updates or empty messages
+  if (isStatusUpdate || !phone || !text) return false;
 
-  const doc = {
-    fields: {
-      customerPhone: { stringValue: phone },
-      customerName: { stringValue: "عميل واتساب (جديد)" },
-      totalPrice: { integerValue: "0" },
-      status: { stringValue: "lead" },
-      notes: { stringValue: `رسالة تلقائية من الواتساب: ${text}` },
-      createdAt: { timestampValue: new Date().toISOString() },
-      updatedAt: { timestampValue: new Date().toISOString() },
-      items: { arrayValue: { values: [] } },
-      source: { stringValue: "whatsapp_edge" }
-    }
-  };
+  const normalizedText = text.toLowerCase();
+  const isCancel = normalizedText.includes("إلغاء") || normalizedText.includes("الغاء") || normalizedText.includes("cancel") || normalizedText.includes("btn_3") || normalizedText.includes("btn_cancel") || normalizedText.includes("❌");
+  const isConfirm = normalizedText.includes("تأكيد") || normalizedText.includes("تاكيد") || normalizedText.includes("confirm") || normalizedText.includes("btn_1") || normalizedText.includes("btn_confirm") || normalizedText.includes("✅");
 
   try {
-    const res = await fetch(url, {
+    // 1. Search for existing order by phone number
+    const queryUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents:runQuery`;
+    
+    const cleanPhone = phone.replace(/\D/g, "");
+    const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
+    const phoneCandidates = [phone, cleanPhone, basePhone, "0" + basePhone, "20" + basePhone];
+
+    const queryBody = {
+      structuredQuery: {
+        from: [{ collectionId: "orders" }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: "customerPhone" },
+            op: "IN",
+            value: {
+              arrayValue: {
+                values: phoneCandidates.map(p => ({ stringValue: p }))
+              }
+            }
+          }
+        },
+        orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESC" }],
+        limit: 1
+      }
+    };
+
+    const queryRes = await fetch(queryUrl, {
       method: 'POST',
-      headers: { 
-        'content-type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(doc)
+      headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(queryBody)
     });
-    return res.ok;
+
+    const queryResults: any = await queryRes.json();
+    const existingDoc = Array.isArray(queryResults) && queryResults[0]?.document ? queryResults[0].document : null;
+
+    if (existingDoc) {
+      // 2. Update existing order
+      const docPath = existingDoc.name; 
+      const fields = existingDoc.fields || {};
+      
+      const existingLogs = fields.whatsappLogs?.arrayValue?.values || [];
+      const newLog = {
+        mapValue: {
+          fields: {
+            id: { stringValue: "wa_" + Math.random().toString(36).substr(2, 9) },
+            timestamp: { stringValue: new Date().toISOString() },
+            type: { stringValue: isCancel ? "cancellation" : (isConfirm ? "confirmation" : "incoming") },
+            direction: { stringValue: "incoming" },
+            message: { stringValue: text },
+            sender: { stringValue: contactName || phone },
+            status: { stringValue: "received" }
+          }
+        }
+      };
+
+      const updatedLogs = [...existingLogs, newLog];
+      
+      let updatedStatus = fields.status?.stringValue || "جديد";
+      let updatedNotes = fields.notes?.stringValue || "";
+      let existingAuditLogs = fields.auditLogs?.arrayValue?.values || [];
+
+      let replyMessage = "";
+      let actionName = "رسالة واردة";
+      if (isCancel) {
+        updatedStatus = "ملغي";
+        actionName = "إلغاء الطلب عبر واتساب";
+        updatedNotes += `\n[تنبيه إيدج] تم الإلغاء عبر الواتساب: ${text}`;
+        replyMessage = "تم الإلغاء بنجاح ❌";
+      } else if (isConfirm) {
+        updatedStatus = "قيد_التنفيذ";
+        actionName = "تأكيد الطلب عبر واتساب";
+        updatedNotes += `\n[تنبيه إيدج] تم التأكيد عبر الواتساب: ${text}`;
+        replyMessage = "تم التأكيد، شكراً لتعاملك معنا! ✅";
+      } else {
+        updatedNotes += `\n[تنبيه إيدج] رسالة جديدة: ${text}`;
+      }
+
+      const newAuditLog = {
+        mapValue: {
+          fields: {
+            id: { stringValue: Math.random().toString(36).substr(2, 9) },
+            timestamp: { stringValue: new Date().toISOString() },
+            action: { stringValue: actionName },
+            details: { stringValue: `العميل أرسل: "${text}"` },
+            userEmail: { stringValue: "WhatsApp Edge Worker" }
+          }
+        }
+      };
+      const updatedAuditLogs = [...existingAuditLogs, newAuditLog];
+
+      const patchUrl = `https://firestore.googleapis.com/v1/${docPath}?updateMask.fieldPaths=whatsappLogs&updateMask.fieldPaths=status&updateMask.fieldPaths=notes&updateMask.fieldPaths=updatedAt&updateMask.fieldPaths=auditLogs`;
+      
+      const patchDoc = {
+        fields: {
+          whatsappLogs: { arrayValue: { values: updatedLogs } },
+          status: { stringValue: updatedStatus },
+          notes: { stringValue: updatedNotes },
+          auditLogs: { arrayValue: { values: updatedAuditLogs } },
+          updatedAt: { timestampValue: new Date().toISOString() }
+        }
+      };
+
+      await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(patchDoc)
+      });
+
+      // Send auto-reply if needed
+      if (replyMessage) {
+        const storeId = fields.storeId?.stringValue || fields.store_id?.stringValue || await getFirstStoreId(token, env);
+        await sendWhatsAppReply(phone, replyMessage, storeId, token, env);
+      }
+
+      return true;
+    } else {
+      // 3. Create new lead if no existing order found
+      // We need a storeId. Let's try to find the first one.
+      const storeId = await getFirstStoreId(token, env);
+      
+      const createUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents/orders`;
+      
+      let notesText = `[تنبيه إيدج] عميل جديد أرسل: ${text}`;
+      if (referral) {
+        notesText += `\n\n📌 [بيانات الإعلان الممول]:` +
+          `\n- معرف الإعلان (Ad ID): ${referral.source_id || "غير معروف"}` +
+          `\n- عنوان الإعلان (Headline): ${referral.headline || "لا يوجد"}` +
+          `\n- وصف الإعلان (Body): ${referral.body || "لا يوجد"}` +
+          `\n- رابط المصدر (URL): ${referral.source_url || "لا يوجد"}`;
+      }
+
+      const newDoc = {
+        fields: {
+          storeId: { stringValue: storeId },
+          store_id: { stringValue: storeId },
+          customerPhone: { stringValue: phone },
+          customer_phone: { stringValue: phone },
+          customerName: { stringValue: contactName || "عميل واتساب (جديد)" },
+          customer_name: { stringValue: contactName || "عميل واتساب (جديد)" },
+          totalPrice: { integerValue: "0" },
+          status: { stringValue: "جديد" },
+          notes: { stringValue: notesText },
+          createdAt: { timestampValue: new Date().toISOString() },
+          updatedAt: { timestampValue: new Date().toISOString() },
+          items: { arrayValue: { values: [] } },
+          source: { stringValue: referral ? "meta_ad" : "whatsapp_edge_lead" },
+          auditLogs: {
+            arrayValue: {
+              values: [
+                {
+                  mapValue: {
+                    fields: {
+                      id: { stringValue: Math.random().toString(36).substr(2, 9) },
+                      timestamp: { stringValue: new Date().toISOString() },
+                      action: { stringValue: "إنشاء عميل محتمل جديد" },
+                      details: { stringValue: `رسالة الواتساب: "${text}"` },
+                      userEmail: { stringValue: "WhatsApp Edge Worker" }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          whatsappLogs: {
+            arrayValue: {
+              values: [
+                {
+                  mapValue: {
+                    fields: {
+                      id: { stringValue: "wa_" + Math.random().toString(36).substr(2, 9) },
+                      timestamp: { stringValue: new Date().toISOString() },
+                      type: { stringValue: "incoming" },
+                      direction: { stringValue: "incoming" },
+                      message: { stringValue: text },
+                      sender: { stringValue: contactName || phone },
+                      status: { stringValue: "received" }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      };
+
+      if (referral) {
+        (newDoc.fields as any).referral = {
+          mapValue: {
+            fields: {
+              source_id: { stringValue: referral.source_id || "" },
+              source_type: { stringValue: referral.source_type || "" },
+              source_url: { stringValue: referral.source_url || "" },
+              headline: { stringValue: referral.headline || "" },
+              body: { stringValue: referral.body || "" }
+            }
+          }
+        };
+      }
+
+      const res = await fetch(createUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(newDoc)
+      });
+      return res.ok;
+    }
   } catch (e) {
     console.error("Firestore Write Error:", e);
     return false;
   }
+}
+
+async function getFirstStoreId(token: string, env: Env) {
+  const dbId = env.FIREBASE_DATABASE_ID || "(default)";
+  const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents/stores_data?pageSize=1`;
+  try {
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data: any = await res.json();
+    if (data.documents && data.documents.length > 0) {
+      const name = data.documents[0].name;
+      return name.split('/').pop() || "default";
+    }
+  } catch (e) {}
+  return "default";
+}
+
+async function sendWhatsAppReply(phone: string, message: string, storeId: string, token: string, env: Env) {
+  const dbId = env.FIREBASE_DATABASE_ID || "(default)";
+  const storeUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents/stores_data/${storeId}`;
+  
+  try {
+    const storeRes = await fetch(storeUrl, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const storeData: any = await storeRes.json();
+    const config = storeData.fields?.settings?.mapValue?.fields?.whatsappConfig?.mapValue?.fields;
+    
+    if (!config || config.isActive?.booleanValue === false) return;
+
+    let cleanTo = phone.replace(/\D/g, "");
+    if (cleanTo.startsWith("0") && cleanTo.length === 11) {
+      cleanTo = "2" + cleanTo;
+    }
+
+    const providerType = config.providerType?.stringValue || "meta_cloud";
+
+    if (providerType === "meta_cloud") {
+      const phoneNumberId = config.phoneNumberId?.stringValue || config.instanceId?.stringValue;
+      const accessToken = config.accessToken?.stringValue || config.token?.stringValue;
+
+      if (phoneNumberId && accessToken) {
+        await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to: cleanTo,
+            type: "text",
+            text: { body: message }
+          })
+        });
+      }
+    } else if (providerType === "ultramsg") {
+      const instanceId = config.instanceId?.stringValue;
+      const tokenMsg = config.token?.stringValue;
+      let apiUrl = config.apiUrl?.stringValue || "";
+      
+      if (instanceId && tokenMsg) {
+        if (!apiUrl) apiUrl = `https://api.ultramsg.com/${instanceId}/messages/chat`;
+        if (apiUrl.includes("api.ultramsg.com") && !apiUrl.includes("/messages/chat")) {
+          apiUrl = apiUrl.split('/messages/')[0] + '/messages/chat';
+        }
+
+        await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: tokenMsg,
+            to: cleanTo,
+            body: message,
+            priority: 10
+          })
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Error sending WhatsApp reply from worker:", e);
+  }
+}
+
+async function logWebhook(payload: any, env: Env) {
+  const token = await getFirestoreToken(env);
+  if (!token || !env.FIREBASE_PROJECT_ID) return;
+
+  const dbId = env.FIREBASE_DATABASE_ID || "(default)";
+  const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents/webhook_logs`;
+
+  const doc = {
+    fields: {
+      timestamp: { timestampValue: new Date().toISOString() },
+      payload: { stringValue: JSON.stringify(payload) },
+      source: { stringValue: "whatsapp_edge" }
+    }
+  };
+
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Authorization': `Bearer ${token}` },
+    body: JSON.stringify(doc)
+  }).catch(() => {});
 }
 
 /**
@@ -224,11 +549,12 @@ async function handleWhatsAppWebhook(request: Request, env: Env, ctx: ExecutionC
     const firestorePromise = writeToFirestore(payload, env);
 
     // Forward to app backend asynchronously if configured
-    // We forward to the custom domain (env.APP_ORIGIN) using the unintercepted '/wa-webhook-direct' path
-    // to bypass the Google Frontend cookie wall on .run.app preview domains
-    const directBackendUrl = env.APP_ORIGIN || "https://app.abdomedi.com";
+    // We favor APP_BACKEND_URL if present as it typically points to the actual running instance
+    const directBackendUrl = env.APP_BACKEND_URL || env.APP_ORIGIN || "https://app.abdomedi.com";
     if (directBackendUrl) {
       const targetEndpoint = `${directBackendUrl.replace(/\/$/, "")}/wa-webhook-direct`;
+      
+      console.log(`[Edge Webhook] Forwarding to backend: ${targetEndpoint}`);
       
       // We use a non-blocking fetch for the backend forward to ensure Meta gets a fast 200 OK
       ctx.waitUntil(
@@ -242,8 +568,8 @@ async function handleWhatsAppWebhook(request: Request, env: Env, ctx: ExecutionC
           body: rawBody
         }).then(async res => {
           console.log(`[Edge Webhook] Backend forward status: ${res.status}`);
-          if (res.status === 302) {
-             console.warn("[Edge Webhook] Backend returned 302 Redirect (Cookie Wall). Firestore direct write is the primary channel now.");
+          if (res.status === 302 || res.status === 403) {
+             console.warn(`[Edge Webhook] Backend returned ${res.status} (Likely Cookie Wall or Forbidden).`);
           }
         }).catch(err => {
           console.error(`[Edge Webhook] Backend forward failed: ${err.message}`);
@@ -464,7 +790,7 @@ function turboOrder(order: any, config: any, key: string, client: number) {
 /* Main Worker Fetch Handler                                                  */
 /* -------------------------------------------------------------------------- */
 export default { 
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Preflight CORS

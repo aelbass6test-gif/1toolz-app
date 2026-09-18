@@ -3589,7 +3589,7 @@ async function startServer() {
           if (isNumMatch) score += 1000;
           if (isPhoneMatch) score += 100;
 
-          const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'draft', 'pending'].includes(ord.status);
+          const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'بالانتظار التأكيد', 'draft', 'pending'].includes(ord.status);
           if (isPending) score += 50;
           if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
           if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
@@ -3625,7 +3625,7 @@ async function startServer() {
             if (isNumMatch) score += 1000;
             if (isPhoneMatch) score += 100;
 
-            const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'draft', 'pending'].includes(ord.status);
+            const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'بالانتظار التأكيد', 'draft', 'pending'].includes(ord.status);
             if (isPending) score += 50;
             if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
             if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
@@ -3856,12 +3856,12 @@ async function startServer() {
       updatedStatus = "ملغي";
       actionName = "إلغاء الطلب";
       notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
-      replyMessage = "تم إلغاء الشحنة بنجاح و بنتمنالك يوم سعيد 😊";
+      replyMessage = "تم الإلغاء بنجاح ❌";
     } else if (isConfirm) {
       updatedStatus = "قيد_التنفيذ";
       actionName = "تأكيد الطلب";
       notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
-      replyMessage = "تم تأكيد طلبك بنجاح! شكراً لك وجاري تجهيز الشحنة والتسليم فوراً. 📦✨";
+      replyMessage = "تم التأكيد، شكراً لتعاملك معنا! ✅";
     } else if (isEdit) {
       updatedStatus = "مؤجل";
       actionName = "طلب تعديل البيانات/العنوان";
@@ -4439,6 +4439,67 @@ async function startServer() {
   app.get("/ar/data-deletion", (c) => c.html(dataDeletionHtml));
   app.get("/data-deletion", (c) => c.html(dataDeletionHtml));
 
+  /**
+   * Processes Meta WhatsApp status updates (delivered, read, failed)
+   * Updates the specific message in whatsappLogs for the corresponding order.
+   */
+  async function processWhatsAppStatusUpdate(statusObj: any) {
+    const messageId = statusObj.id;
+    const status = statusObj.status; // delivered, read, failed, sent
+    const recipientPhone = statusObj.recipient_id;
+
+    if (!messageId || !recipientPhone) return;
+
+    // Search for the order(s) belonging to this phone number
+    const cleanPhone = recipientPhone.replace(/\D/g, "");
+    const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
+    const phoneCandidates = [recipientPhone, cleanPhone, basePhone, "0" + basePhone, "20" + basePhone];
+
+    const ordersRef = collection(db, "orders");
+    const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
+    const qSnap = await getDocs(q);
+
+    if (qSnap.empty) return;
+
+    for (const ordDoc of qSnap.docs) {
+      const orderData = ordDoc.data() as any;
+      const logs = orderData.whatsappLogs || [];
+      
+      let changed = false;
+      const updatedLogs = logs.map((log: any) => {
+        if (log.id === messageId) {
+          changed = true;
+          return { ...log, status: status === 'read' ? 'read' : (status === 'delivered' ? 'delivered' : status) };
+        }
+        return log;
+      });
+
+      if (changed) {
+        await setDoc(ordDoc.ref, { whatsappLogs: updatedLogs, updatedAt: new Date().toISOString() }, { merge: true });
+        
+        // Also update in stores_data if applicable
+        const storeId = orderData.storeId || orderData.store_id;
+        if (storeId) {
+          const storeRef = doc(db, "stores_data", storeId);
+          const storeSnap = await getDoc(storeRef);
+          if (storeSnap.exists()) {
+            const storeData = storeSnap.data();
+            const storeOrders = storeData.orders || [];
+            const updatedStoreOrders = storeOrders.map((o: any) => {
+              if (o.id === ordDoc.id) {
+                return { ...o, whatsappLogs: updatedLogs, updatedAt: new Date().toISOString() };
+              }
+              return o;
+            });
+            await setDoc(storeRef, { orders: updatedStoreOrders, lastUpdated: new Date().toISOString() }, { merge: true });
+          }
+        }
+        console.log(`[WHATSAPP-STATUS] Updated message ${messageId} to ${status} for order ${ordDoc.id}`);
+        break; // Assume one match is enough
+      }
+    }
+  }
+
   // Public webhook for UltraMsg & Meta callback integration
   const handleWhatsAppWebhookPost = async (c: any) => {
     try {
@@ -4450,6 +4511,14 @@ async function startServer() {
       if (body.entry?.[0]?.changes?.[0]?.value?.statuses) {
         const statuses = body.entry[0].changes[0].value.statuses;
         console.log(`[WHATSAPP-WEBHOOK-STATUS] Received ${statuses.length} message delivery status updates from Meta.`);
+        
+        // Asynchronously process status updates to keep Meta response fast
+        for (const statusObj of statuses) {
+          processWhatsAppStatusUpdate(statusObj).catch(err => {
+            console.error("[WHATSAPP-STATUS-ERR]", err);
+          });
+        }
+        
         return c.json({ success: true, processed: "statuses" });
       }
 
@@ -9945,7 +10014,7 @@ async function startServer() {
     // 1. Serve static files FIRST, but ONLY if they are not API requests
     app.use("/*", async (c, next) => {
       const pathName = c.req.path;
-      if (pathName.startsWith("/api/") || pathName.includes("/api/")) {
+      if (pathName.startsWith("/api/") || pathName.includes("/api/") || pathName.includes("/wa-webhook-direct")) {
         return await next(); // Skip static file serving for APIs
       }
       return serveStatic({ root: "dist" })(c, next);
@@ -9954,7 +10023,7 @@ async function startServer() {
     // 2. Fallback to index.html for any REMAINING non-API GET requests (SPA Routing Support)
     app.get("/*", async (c, next) => {
       const pathName = c.req.path;
-      if (pathName.startsWith("/api/") || pathName.includes("/api/")) {
+      if (pathName.startsWith("/api/") || pathName.includes("/api/") || pathName.includes("/wa-webhook-direct")) {
         return c.json({ success: false, error: `مسار API غير موجود: ${pathName}` }, 404);
       }
       
