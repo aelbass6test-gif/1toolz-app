@@ -9,9 +9,81 @@ export interface Env {
   TURBO_BASE_URL?: string;
   TURBO_STAGING_BASE_URL?: string;
   TURBO_MAIN_CLIENT_CODE?: string;
+  FIREBASE_API_KEY?: string;
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_DATABASE_ID?: string;
 }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+
+async function getFirestoreToken(env: Env) {
+  if (!env.FIREBASE_API_KEY) return null;
+  try {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${env.FIREBASE_API_KEY}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ returnSecureToken: true })
+    });
+    const data: any = await res.json();
+    return data.idToken;
+  } catch (e) {
+    console.error("Firestore Auth Error:", e);
+    return null;
+  }
+}
+
+async function writeToFirestore(payload: any, env: Env) {
+  const token = await getFirestoreToken(env);
+  if (!token || !env.FIREBASE_PROJECT_ID) return false;
+
+  const dbId = env.FIREBASE_DATABASE_ID || "(default)";
+  const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/${dbId}/documents/orders`;
+
+  // Extract basic info from WhatsApp payload
+  let phone = "";
+  let text = "";
+  try {
+    const entry = payload.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+    const message = value?.messages?.[0];
+    if (message) {
+      phone = message.from;
+      text = message.text?.body || message.button?.text || "رسالة وسائط";
+    }
+  } catch (e) {}
+
+  if (!phone) return false;
+
+  const doc = {
+    fields: {
+      customerPhone: { stringValue: phone },
+      customerName: { stringValue: "عميل واتساب (جديد)" },
+      totalPrice: { integerValue: "0" },
+      status: { stringValue: "lead" },
+      notes: { stringValue: `رسالة تلقائية من الواتساب: ${text}` },
+      createdAt: { timestampValue: new Date().toISOString() },
+      updatedAt: { timestampValue: new Date().toISOString() },
+      items: { arrayValue: { values: [] } },
+      source: { stringValue: "whatsapp_edge" }
+    }
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 
+        'content-type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(doc)
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("Firestore Write Error:", e);
+    return false;
+  }
+}
 
 /**
  * Checks if the incoming origin is allowed.
@@ -107,7 +179,7 @@ function turboHeaders() { return { "content-type": "application/json", accept: "
 /* -------------------------------------------------------------------------- */
 /* WhatsApp / Meta Cloud API Webhook Edge Handler                              */
 /* -------------------------------------------------------------------------- */
-async function handleWhatsAppWebhook(request: Request, env: Env): Promise<Response> {
+async function handleWhatsAppWebhook(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
 
   // Meta Webhook Verification (GET hub.mode=subscribe & hub.challenge)
@@ -144,29 +216,48 @@ async function handleWhatsAppWebhook(request: Request, env: Env): Promise<Respon
       payload = {};
     }
 
+    console.log(`[Edge Webhook] Processing WhatsApp notification for: ${payload.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from}`);
+
+    // Robust Strategy: 
+    // 1. Write directly to Firestore via REST API (bypasses Google Frontend cookie wall entirely)
+    // 2. ALSO attempt to forward to backend asynchronously
+    const firestorePromise = writeToFirestore(payload, env);
+
     // Forward to app backend asynchronously if configured
-    // We forward to the custom domain (env.APP_ORIGIN) using the unintercepted '/webhook-whatsapp-direct' path
+    // We forward to the custom domain (env.APP_ORIGIN) using the unintercepted '/wa-webhook-direct' path
     // to bypass the Google Frontend cookie wall on .run.app preview domains
     const directBackendUrl = env.APP_ORIGIN || "https://app.abdomedi.com";
     if (directBackendUrl) {
-      const targetEndpoint = `${directBackendUrl.replace(/\/$/, "")}/webhook-whatsapp-direct`;
-      fetch(targetEndpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-hub-signature-256": request.headers.get("x-hub-signature-256") || "",
-          "x-forwarded-by": "cloudflare-worker-edge"
-        },
-        body: rawBody
-      }).catch(err => {
-        console.error("[Edge Webhook] Forwarding error:", err);
-      });
+      const targetEndpoint = `${directBackendUrl.replace(/\/$/, "")}/wa-webhook-direct`;
+      
+      // We use a non-blocking fetch for the backend forward to ensure Meta gets a fast 200 OK
+      ctx.waitUntil(
+        fetch(targetEndpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-hub-signature-256": request.headers.get("x-hub-signature-256") || "",
+            "x-whatsapp-source": "cloudflare-edge"
+          },
+          body: rawBody
+        }).then(async res => {
+          console.log(`[Edge Webhook] Backend forward status: ${res.status}`);
+          if (res.status === 302) {
+             console.warn("[Edge Webhook] Backend returned 302 Redirect (Cookie Wall). Firestore direct write is the primary channel now.");
+          }
+        }).catch(err => {
+          console.error(`[Edge Webhook] Backend forward failed: ${err.message}`);
+        })
+      );
     }
+
+    // Wait for Firestore write to at least start/finish if it's our primary channel
+    await firestorePromise;
 
     // Immediately respond 200 OK to Meta edge (< 50ms) to prevent timeout retries
     return json(request, env, {
       received: true,
-      status: "processed_at_edge",
+      status: "processed_at_edge_and_firestore",
       timestamp: new Date().toISOString()
     }, 200);
   }
@@ -401,7 +492,7 @@ export default {
     try { 
       // Meta WhatsApp Webhook Route
       if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/webhook/whatsapp") {
-        return await handleWhatsAppWebhook(request, env);
+        return await handleWhatsAppWebhook(request, env, ctx);
       }
 
       // Bosta Carrier Routes

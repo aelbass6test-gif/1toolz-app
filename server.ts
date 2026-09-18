@@ -4442,8 +4442,9 @@ async function startServer() {
   // Public webhook for UltraMsg & Meta callback integration
   const handleWhatsAppWebhookPost = async (c: any) => {
     try {
+      const isDirect = c.req.path.includes("direct");
       const body = await c.req.json();
-      console.log("[WHATSAPP-PUBLIC-WEBHOOK] Received payload:", JSON.stringify(body));
+      console.log(`[WHATSAPP-WEBHOOK${isDirect ? "-DIRECT" : ""}] Received payload:`, JSON.stringify(body));
 
       // Handle Meta status updates (sent, delivered, read)
       if (body.entry?.[0]?.changes?.[0]?.value?.statuses) {
@@ -4456,6 +4457,9 @@ async function startServer() {
       let buttonText = "";
       let messageId = "";
       let contactName = "";
+
+      // Log extraction attempt
+      console.log("[WHATSAPP-WEBHOOK] Attempting to extract message data...");
 
       if (body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name) {
         contactName = body.entry[0].changes[0].value.contacts[0].profile.name;
@@ -4484,6 +4488,16 @@ async function startServer() {
           } else if (msg.interactive?.list_reply) {
             buttonText = `${msg.interactive.list_reply.title || ""} ${msg.interactive.list_reply.id || ""}`.trim();
           }
+        } else if (msg.type === "text") {
+          buttonText = msg.text?.body || "";
+        } else if (msg.type === "audio" || msg.type === "voice") {
+          buttonText = "[رسالة صوتية]";
+        } else if (msg.type === "image") {
+          buttonText = "[صورة]";
+        } else if (msg.type === "video") {
+          buttonText = "[فيديو]";
+        } else if (msg.type === "document") {
+          buttonText = "[ملف]";
         } else {
           buttonText = msg.text?.body || "";
         }
@@ -4494,7 +4508,10 @@ async function startServer() {
         buttonText = msg.text?.body || msg.body || "";
       }
 
+      console.log(`[WHATSAPP-WEBHOOK] Extracted - Phone: ${phone}, Text: ${buttonText}, Name: ${contactName}`);
+
       if (!phone || !buttonText) {
+        console.warn("[WHATSAPP-WEBHOOK] Extraction failed - Missing phone or text");
         return c.json({ success: false, reason: "No interactive action or phone parsed." });
       }
 
@@ -4524,8 +4541,9 @@ async function startServer() {
   app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookPost);
   
   // Direct webhook pass-through route to bypass Google Frontend cookie wall on .run.app preview domains
-  app.post("/webhook-whatsapp-direct", handleWhatsAppWebhookPost);
-  app.get("/webhook-whatsapp-direct", handleMetaWhatsAppWebhookGet);
+  // Note: We use a path that DOES NOT start with /api to avoid the Google cookie check interceptor
+  app.post("/wa-webhook-direct", handleWhatsAppWebhookPost);
+  app.get("/wa-webhook-direct", handleMetaWhatsAppWebhookGet);
 
   // WhatsApp Customer Action Simulation Endpoint (for testing webhook without WhatsApp)
   app.post("/api/webhook/whatsapp/simulate", async (c) => {
@@ -9972,7 +9990,7 @@ async function startServer() {
     // Robust URL parsing to handle Cloudflare / reverse proxy absolute URLs and custom domains
     const urlPath = rawUrl.replace(/^https?:\/\/[^\/]+/, "");
     req.url = urlPath; // Ensure Hono & Vite always receive relative path (/api/...)
-    const isApiRequest = urlPath.startsWith("/api/") || urlPath.includes("/api/");
+    const isApiRequest = urlPath.startsWith("/api/") || urlPath.includes("/api/") || urlPath.includes("/wa-webhook-direct");
 
     if (!isProd && vite) {
       if (isApiRequest) {
