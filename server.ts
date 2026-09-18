@@ -3354,6 +3354,7 @@ async function startServer() {
   const processCustomerWhatsAppAction = async ({
     phone,
     text,
+    contactName,
     source,
     orderId,
     messageId,
@@ -3362,6 +3363,7 @@ async function startServer() {
   }: {
     phone?: string;
     text: string;
+    contactName?: string;
     source: string;
     orderId?: string;
     messageId?: string;
@@ -3575,9 +3577,94 @@ async function startServer() {
       } catch (_) {}
     }
 
+    // If customer contacted without an existing order (e.g. from Facebook / Meta Ads Click-to-WhatsApp),
+    // automatically capture their lead and message so the merchant sees it instantly!
     if (!matchedOrder) {
-      console.log(`[WHATSAPP-PROCESSOR] No matching order found for phone: ${phone}, text: "${text}", source: ${source}`);
-      return { success: false, reason: "No matching order found." };
+      console.log(`[WHATSAPP-PROCESSOR] Creating new ad lead/inquiry for customer with phone: ${phone}, text: "${text}"`);
+      
+      let targetStoreId = matchedStoreDocId || "default";
+      if (!matchedStoreDocId) {
+        try {
+          const storesSnap = await getDocs(collection(db, "stores_data"));
+          if (!storesSnap.empty) {
+            targetStoreId = storesSnap.docs[0].id;
+            matchedStoreDocId = targetStoreId;
+            matchedStoreData = storesSnap.docs[0].data();
+          }
+        } catch (_) {}
+      }
+
+      const cleanDigits = (phone || "").replace(/\D/g, "");
+      const newOrderId = `lead_wa_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const orderNumber = `WA-${cleanDigits.slice(-5) || Math.floor(1000 + Math.random() * 9000)}`;
+      const displayName = (contactName || "").trim() || `عميل إعلان واتساب (${cleanDigits.slice(-4) || 'جديد'})`;
+
+      const initialIncomingLog = {
+        id: "wa_" + Math.random().toString(36).substr(2, 9),
+        timestamp: new Date().toISOString(),
+        type: 'incoming',
+        direction: 'incoming',
+        message: text,
+        sender: displayName,
+        recipient: "المتجر",
+        status: 'received',
+        actionTaken: 'استفسار جديد من إعلان واتساب'
+      };
+
+      const newLeadOrder = {
+        id: newOrderId,
+        storeId: targetStoreId,
+        orderNumber: orderNumber,
+        customerName: displayName,
+        customerPhone: phone || "",
+        customerAddress: "",
+        governorate: "القاهرة",
+        status: "جديد",
+        date: new Date().toISOString(),
+        total: 0,
+        items: [],
+        notes: `[استفسار واتساب جديد من الإعلان]:\n"${text}"`,
+        source: "إعلان واتساب (Meta Ad)",
+        whatsappLogs: [initialIncomingLog],
+        auditLogs: [
+          {
+            id: Math.random().toString(36).substr(2, 9),
+            timestamp: new Date().toISOString(),
+            action: "استقبال رسالة واتساب من عميل جديد",
+            details: `العميل أرسل: "${text}" عبر إعلان واتساب`,
+            userEmail: "WhatsApp Bot"
+          }
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // Save to standalone orders collection
+      await setDoc(doc(db, "orders", newOrderId), newLeadOrder, { merge: true }).catch(err => {
+        console.error("[WHATSAPP-PROCESSOR] Error creating new lead in orders:", err);
+      });
+
+      // Also save to stores_data
+      if (matchedStoreDocId && matchedStoreData) {
+        const existingOrders = matchedStoreData.orders || [];
+        await setDoc(doc(db, "stores_data", matchedStoreDocId), {
+          ...matchedStoreData,
+          orders: [newLeadOrder, ...existingOrders],
+          lastUpdated: new Date().toISOString()
+        }, { merge: true }).catch(err => {
+          console.error("[WHATSAPP-PROCESSOR] Error adding lead to stores_data:", err);
+        });
+        storeCache.delete(matchedStoreDocId);
+      }
+
+      return {
+        success: true,
+        action: "created_new_lead",
+        orderId: newOrderId,
+        orderNumber: orderNumber,
+        customerName: displayName,
+        message: "تم إنشاء شات واستفسار جديد للعميل بنجاح ووصلت الرسالة إلى لوحة التحكم! 💬"
+      };
     }
 
     const normalizedText = (text || "").toLowerCase().trim();
@@ -4233,6 +4320,13 @@ async function startServer() {
       let phone = "";
       let buttonText = "";
       let messageId = "";
+      let contactName = "";
+
+      if (body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name) {
+        contactName = body.entry[0].changes[0].value.contacts[0].profile.name;
+      } else if (body.data?.name || body.data?.profile?.name || body.data?.senderName) {
+        contactName = body.data.name || body.data.profile?.name || body.data.senderName;
+      }
 
       if (body.data && (body.event_type === "message_received" || body.event === "message")) {
         const msg = body.data;
@@ -4272,6 +4366,7 @@ async function startServer() {
       const result = await processCustomerWhatsAppAction({
         phone,
         text: buttonText,
+        contactName,
         source: "webhook",
         messageId
       });

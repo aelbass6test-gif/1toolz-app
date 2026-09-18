@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
+import { doc, setDoc } from 'firebase/firestore';
+import { db as firebaseDb } from '../services/firebaseClient';
 
 interface OrderWhatsAppChatModalProps {
   order?: Order | null;
@@ -51,6 +53,17 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     } else if (selectedOrderId) {
       const found = orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId);
       if (found) setActiveOrder(found);
+    } else if (activeOrder) {
+      const found = orders.find(o => o.id === activeOrder.id || o.orderNumber === activeOrder.orderNumber);
+      if (found && (
+        found.whatsappLogs?.length !== activeOrder.whatsappLogs?.length ||
+        found.status !== activeOrder.status ||
+        found.notes !== activeOrder.notes
+      )) {
+        setActiveOrder(found);
+      }
+    } else if (orders.length > 0) {
+      setActiveOrder(orders[0]);
     }
   }, [initialOrder, selectedOrderId, orders]);
 
@@ -168,6 +181,14 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       setActiveOrder(updatedOrder);
       if (onUpdateOrder) {
         await onUpdateOrder(updatedOrder);
+      }
+
+      // Also persist directly to Firestore orders collection for zero-loss guarantee
+      if (activeOrder.id) {
+        setDoc(doc(firebaseDb, 'orders', activeOrder.id), {
+          whatsappLogs: updatedLogs,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch((err: any) => console.warn('[PERSIST-CHAT-WARN]', err));
       }
 
       if (res.success) {

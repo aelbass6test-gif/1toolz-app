@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Order, Settings, WhatsAppConfig, WhatsAppTemplate } from '../types';
 import { 
   MessageSquare, Send, Search, Settings as SettingsIcon, 
   Save, Trash2, Plus, Bell, CheckCircle2, AlertTriangle, 
   RefreshCw, Smartphone, Code, FileText, Phone, X, QrCode as QrIcon,
-  Wifi, WifiOff, ExternalLink, ShieldCheck, BatteryCharging, Zap
+  Wifi, WifiOff, ExternalLink, ShieldCheck, BatteryCharging, Zap,
+  Activity, Users, Shield, Radio, CheckCheck, Clock, Layers
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { whatsappService } from '../utils/whatsappService';
@@ -18,10 +20,22 @@ interface WhatsAppPageProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   onSave?: () => Promise<void>;
+  setOrders?: React.Dispatch<React.SetStateAction<Order[]>> | ((updater: any) => void);
 }
 
-const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettings, onSave }) => {
-  const [activeTab, setActiveTab] = useState<'meta' | 'interactive' | 'chats' | 'templates' | 'devices' | 'settings'>('meta');
+const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettings, onSave, setOrders }) => {
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab') as 'meta' | 'interactive' | 'chats' | 'templates' | 'devices' | 'settings' | null;
+  const [activeTab, setActiveTab] = useState<'meta' | 'interactive' | 'chats' | 'templates' | 'devices' | 'settings'>(
+    requestedTab || 'chats'
+  );
+
+  useEffect(() => {
+    if (requestedTab) {
+      setActiveTab(requestedTab);
+    }
+  }, [requestedTab]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [testPhone, setTestPhone] = useState('');
   const [isSendingTest, setIsSendingTest] = useState(false);
@@ -95,13 +109,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     try {
       let data: any = null;
 
-      // 1. First try server endpoint
+      // 1. First try server endpoint with strict 6s timeout to prevent endless hanging
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
         const res = await fetch('/api/whatsapp/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: cfg })
+          body: JSON.stringify({ config: cfg }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
         const contentType = res.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
           data = await res.json();
@@ -116,9 +134,13 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         const token = (cfg.accessToken || cfg.token || '').trim();
         if (phoneId && token) {
           try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 7000);
             const metaRes = await fetch(
-              `https://graph.facebook.com/v21.0/${phoneId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,status&access_token=${token}`
+              `https://graph.facebook.com/v21.0/${phoneId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,status&access_token=${token}`,
+              { signal: controller.signal }
             );
+            clearTimeout(timeoutId);
             const metaJson = await metaRes.json();
             if (metaRes.ok && (metaJson.id || metaJson.display_phone_number)) {
               data = {
@@ -131,12 +153,18 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                 codeVerificationStatus: metaJson.code_verification_status
               };
             } else {
-              const errDetail = metaJson.error?.message || 'فشل التحقق من بيانات ميتا';
+              const errCode = metaJson.error?.code;
+              let errDetail = metaJson.error?.message || 'فشل التحقق من بيانات ميتا';
+              if (errCode === 190) {
+                errDetail = 'رمز الوصول (Access Token) منتهي الصلاحية. الرمز المؤقت مدته 24 ساعة فقط؛ يرجى استخراج رمز دائم (Permanent Token).';
+              } else if (errCode === 33) {
+                errDetail = 'معرّف رقم الهاتف (Phone Number ID) غير صحيح. تأكد من نسخه من صفحة API Setup وليس WABA ID.';
+              }
               data = {
                 success: false,
                 connected: false,
                 status: 'error',
-                error: `${errDetail} (كود: ${metaJson.error?.code || 'N/A'})`
+                error: `${errDetail} (كود: ${errCode || 'N/A'})`
               };
             }
           } catch (directErr: any) {
@@ -144,7 +172,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
               success: false,
               connected: false,
               status: 'error',
-              error: `تعذر الاتصال بـ Meta Graph: ${directErr.message}`
+              error: `تعذر الاتصال بـ Meta Graph: ${directErr.name === 'AbortError' ? 'انتهت مهلة الانتظار (تأكد من اتصال الإنترنت)' : directErr.message}`
             };
           }
         }
@@ -587,89 +615,196 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
 
+  // WhatsApp Quick Stats for Header Bar
+  const stats = useMemo(() => {
+    let totalMessagesCount = 0;
+    let confirmedCount = 0;
+    let leadsCount = 0;
+    orders.forEach(o => {
+      if (o.whatsappLogs && o.whatsappLogs.length > 0) {
+        totalMessagesCount += o.whatsappLogs.length;
+      }
+      if (o.status === 'قيد_التنفيذ' || o.status === 'تم_الارسال' || (o.status as string) === 'مؤكد') {
+        confirmedCount++;
+      }
+      if (o.source?.includes('واتساب') || o.orderNumber?.startsWith('WA-')) {
+        leadsCount++;
+      }
+    });
+    return {
+      totalConversations: orders.filter(o => Boolean(o.customerPhone)).length,
+      totalMessages: totalMessagesCount,
+      confirmedOrders: confirmedCount,
+      adLeads: leadsCount
+    };
+  }, [orders]);
+
   return (
-    <div className="p-2 md:p-6 space-y-6" dir="rtl">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-2xl shadow-sm">
-            <MessageSquare size={32} />
+    <div className="p-3 md:p-6 max-w-7xl mx-auto space-y-6 select-text" dir="rtl">
+      {/* Modern High-Impact Header */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white p-6 md:p-8 shadow-xl shadow-emerald-900/10 border border-emerald-500/20">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur border border-white/20 flex items-center justify-center shadow-inner">
+                <MessageSquare size={26} className="text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white">نظام واتساب الذكي المتكامل</h1>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black bg-white/20 backdrop-blur text-white border border-white/30">
+                    <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+                    {liveStatus.connected ? 'متصل سحابياً مع Meta' : 'جاهز للربط والتفعيل'}
+                  </span>
+                </div>
+                <p className="text-xs md:text-sm text-emerald-100 font-medium mt-1">
+                  منصة مركزية لإدارة رسائل إعلانات Meta، أتمتة التأكيد الفوري، واستقبال محادثات العملاء بدون انقطاع.
+                </p>
+              </div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-800 dark:text-white">نظام واتساب الذكي</h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-1">أتمتة تأكيد الطلبات وتتبع الشحنات عبر WhatsApp API.</p>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={() => checkLiveStatus()}
+              disabled={isCheckingStatus}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all active:scale-95 disabled:opacity-50"
+              title="فحص حالة الاتصال بالسيرفر"
+            >
+              <RefreshCw size={14} className={isCheckingStatus ? 'animate-spin' : ''} />
+              <span>فحص الاتصال</span>
+            </button>
+
+            <button 
+              onClick={handleSaveSettings}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white hover:bg-slate-50 text-emerald-800 rounded-xl font-black text-xs shadow-lg shadow-black/10 transition-all active:scale-95"
+            >
+              <Save size={15} />
+              <span>حفظ التغييرات</span>
+            </button>
           </div>
         </div>
-        
-        <div className="flex items-center gap-2">
+
+        {/* Live Metrics Quick Strip */}
+        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/10">
+          <div className="bg-white/10 backdrop-blur rounded-2xl p-3 border border-white/15">
+            <span className="text-[11px] font-bold text-emerald-100 block">إجمالي جهات الاتصال</span>
+            <span className="text-xl font-black text-white font-mono mt-0.5 block">{stats.totalConversations} عميل</span>
+          </div>
+          <div className="bg-white/10 backdrop-blur rounded-2xl p-3 border border-white/15">
+            <span className="text-[11px] font-bold text-emerald-100 block">عملاء إعلانات Meta</span>
+            <span className="text-xl font-black text-emerald-200 font-mono mt-0.5 block">{stats.adLeads} استفسار</span>
+          </div>
+          <div className="bg-white/10 backdrop-blur rounded-2xl p-3 border border-white/15">
+            <span className="text-[11px] font-bold text-emerald-100 block">رسائل وسجلات المحادثات</span>
+            <span className="text-xl font-black text-white font-mono mt-0.5 block">{stats.totalMessages} رسالة</span>
+          </div>
+          <div className="bg-white/10 backdrop-blur rounded-2xl p-3 border border-white/15">
+            <span className="text-[11px] font-bold text-emerald-100 block">الطلبات المؤكدة بالواتساب</span>
+            <span className="text-xl font-black text-emerald-300 font-mono mt-0.5 block">{stats.confirmedOrders} طلب</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Modern Filter / Tab Navigation Navigation Bar */}
+      <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button 
-            onClick={handleSaveSettings}
-            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-600/20 transition-all active:scale-95"
+            onClick={() => setActiveTab('chats')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black transition-all text-xs ${
+              activeTab === 'chats' 
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/25' 
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
           >
-            <Save size={18} />
-            حفظ التغييرات
+            <MessageSquare size={15} />
+            <span>صندوق محادثات العملاء</span>
+            <span className={`px-1.5 py-0.5 text-[10px] rounded-md font-mono font-bold ${
+              activeTab === 'chats' ? 'bg-white/20 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+            }`}>
+              {orders.length}
+            </span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('meta')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black transition-all text-xs ${
+              activeTab === 'meta' 
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25' 
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <ShieldCheck size={15} />
+            <span>ربط Meta Cloud API</span>
+            {liveStatus.connected && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            )}
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('interactive')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition-all text-xs ${
+              activeTab === 'interactive' 
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25' 
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Zap size={15} />
+            <span>الأزرار التفاعلية والمحاكي</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('templates')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition-all text-xs ${
+              activeTab === 'templates' 
+                ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-md' 
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <FileText size={15} />
+            <span>قوالب الرسائل</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('devices')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition-all text-xs ${
+              activeTab === 'devices' 
+                ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-md' 
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <QrIcon size={15} />
+            <span>ربط الموبايل (QR / UltraMsg)</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('settings')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition-all text-xs ${
+              activeTab === 'settings' 
+                ? 'bg-slate-800 dark:bg-slate-700 text-white shadow-md' 
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <SettingsIcon size={15} />
+            <span>إعدادات السيرفر</span>
           </button>
         </div>
       </div>
 
-      {/* Tabs Control */}
-      <div className="flex bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 w-fit flex-wrap gap-1">
-        <button 
-          onClick={() => setActiveTab('meta')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black transition-all text-xs ${activeTab === 'meta' ? 'bg-[#1877F2] text-white shadow-md shadow-blue-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
-        >
-          <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-          </svg>
-          واجهة Meta Cloud API الرسمية 🛡️
-        </button>
-        <button 
-          onClick={() => setActiveTab('interactive')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'interactive' ? 'bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
-        >
-          <Smartphone size={16} className="text-indigo-500" />
-          🤖 أتمتة الأزرار التفاعلية والمحاكي
-        </button>
-        <button 
-          onClick={() => setActiveTab('chats')}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-black transition-all text-xs ${activeTab === 'chats' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
-        >
-          <MessageSquare size={16} />
-          💬 شات ورسائل الطلبات (تأكيد وإلغاء)
-          <span className="px-1.5 py-0.5 text-[9px] rounded-md bg-emerald-400 text-emerald-950 font-black">جديد 🔥</span>
-        </button>
-        <button 
-          onClick={() => setActiveTab('templates')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'templates' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
-        >
-          <FileText size={16} />
-          قوالب الرسائل
-        </button>
-        <button 
-          onClick={() => setActiveTab('devices')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'devices' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
-        >
-          <Smartphone size={16} />
-          ربط الأجهزة والـ QR
-        </button>
-        <button 
-          onClick={() => setActiveTab('settings')}
-          className={`flex items-center gap-2 px-5 py-2 rounded-xl font-bold transition-all text-xs ${activeTab === 'settings' ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400' : 'text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50'}`}
-        >
-          <SettingsIcon size={16} />
-          إعدادات الـ API
-        </button>
-      </div>
-
       {statusMsg && (
-        <div className={`p-4 rounded-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${statusMsg.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 border border-emerald-100 dark:border-emerald-900' : 'bg-red-50 dark:bg-red-950/20 text-red-600 border border-red-100 dark:border-red-900'}`}>
-          {statusMsg.type === 'success' ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
-          <span className="font-bold">{statusMsg.text}</span>
+        <div className={`p-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 border ${
+          statusMsg.type === 'success' 
+            ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60' 
+            : 'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800/60'
+        }`}>
+          {statusMsg.type === 'success' ? <CheckCircle2 size={18} className="shrink-0" /> : <AlertTriangle size={18} className="shrink-0" />}
+          <span className="font-bold text-xs md:text-sm leading-relaxed">{statusMsg.text}</span>
         </div>
       )}
 
-      {/* Tab Content */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] shadow-sm overflow-hidden min-h-[500px]">
+      {/* Tab Content Box */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden min-h-[550px]">
         {activeTab === 'meta' && (
           <MetaWhatsAppSection
             config={config}
@@ -760,33 +895,47 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
               </div>
 
               {/* Status Log & Webhook Info with 1-Click Auto Setup */}
-              <div className="p-4 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/50 rounded-2xl space-y-3">
+              <div className="p-5 bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-black text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
-                    <span>📡 رابط استقبال الويب-هوك الفعلي (WhatsApp Webhook URL):</span>
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Radio size={14} className="text-emerald-500 animate-pulse" />
+                    <span>رابط استقبال الويب-هوك الفعلي (WhatsApp Webhook Callback):</span>
                   </span>
-                  <span className="text-[9px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full font-bold">
-                    جاهز للاستقبال 🟢
+                  <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 px-2.5 py-0.5 rounded-full font-black">
+                    نشط وجاهز للاستقبال 🟢
                   </span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-[10px] font-mono text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-left select-all overflow-x-auto" dir="ltr">
+                  <code className="flex-1 text-[11px] font-mono font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-left select-all overflow-x-auto shadow-xs" dir="ltr">
                     {typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : '/api/webhook/whatsapp'}
                   </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : '/api/webhook/whatsapp';
+                      navigator.clipboard?.writeText(url);
+                      setStatusMsg({ type: 'success', text: 'تم نسخ رابط الويب-هوك بنجاح!' });
+                      setTimeout(() => setStatusMsg(null), 3000);
+                    }}
+                    className="p-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-600 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
+                    title="نسخ الرابط"
+                  >
+                    <Code size={16} />
+                  </button>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
                   <button
                     type="button"
                     disabled={isSettingUpWebhook}
                     onClick={handleAutoSetupWebhook}
-                    className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-black transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     {isSettingUpWebhook ? (
-                      <RefreshCw size={13} className="animate-spin" />
+                      <RefreshCw size={14} className="animate-spin" />
                     ) : (
-                      <Zap size={13} />
+                      <Zap size={14} />
                     )}
                     <span>ربط وتفعيل الويب-هوك تلقائياً بنقرة واحدة ⚡</span>
                   </button>
@@ -795,25 +944,25 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                     type="button"
                     disabled={isSyncingMessages}
                     onClick={handleSyncMessagesNow}
-                    className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black transition-all shadow-md shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                     title="فحص الرسائل الواردة من العملاء وتحديث الأوردرات فوراً"
                   >
                     {isSyncingMessages ? (
-                      <RefreshCw size={13} className="animate-spin" />
+                      <RefreshCw size={14} className="animate-spin" />
                     ) : (
-                      <RefreshCw size={13} />
+                      <RefreshCw size={14} />
                     )}
                     <span>مزامنة الردود الواردة الآن 🔄</span>
                   </button>
                 </div>
 
                 {syncStatusResult && (
-                  <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-xs font-bold text-emerald-800 dark:text-emerald-300">
                     {syncStatusResult}
                   </div>
                 )}
 
-                <p className="text-[10px] text-indigo-500/90 dark:text-indigo-400/90 font-bold leading-relaxed">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
                   💡 عند نقر العميل على "إلغاء الطلب ❌" أو "تأكيد الطلب 👍" في رسالة الواتساب، يتم تغيير حالة الأوردر تلقائياً باللوحة وإرسال الرد الفوري للعميل ("تم إلغاء الشحنة بنجاح و بنتمنالك يوم سعيد 😊").
                 </p>
               </div>
@@ -954,12 +1103,21 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'chats' && (
-          <div className="p-3 md:p-6 bg-slate-50/50 dark:bg-slate-900/30">
+          <div className="h-[750px] w-full">
             <OrderWhatsAppChatModal 
               orders={orders} 
               settings={settings} 
               isEmbedded={true}
-              onUpdateOrder={async () => {
+              onUpdateOrder={async (updatedOrder: Order) => {
+                if (setOrders && updatedOrder) {
+                  setOrders((prev: Order[]) => {
+                    const exists = prev.some(o => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
+                    if (exists) {
+                      return prev.map(o => (o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber) ? updatedOrder : o);
+                    }
+                    return [updatedOrder, ...prev];
+                  });
+                }
                 if (onSave) await onSave();
               }}
             />
@@ -967,96 +1125,116 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'templates' && (
-          <div className="p-8 space-y-8">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold text-slate-800 dark:text-white">قوالب الرسائل الجاهزة</h3>
-                <p className="text-sm text-slate-500 mt-1">اضغط على أي متغير لنسخه أو إضافته للقالب الخاص بك تلقائياً:</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {[
-                    { tag: '{customerName}', label: 'اسم العميل' },
-                    { tag: '{orderNumber}', label: 'رقم الطلب' },
-                    { tag: '{totalPrice}', label: 'إجمالي المبلغ' },
-                    { tag: '{currency}', label: 'العملة' },
-                    { tag: '{flexShipFee}', label: 'مبلغ الفليكس شيب (عدم الاستلام) 🛡️' },
-                    { tag: '{products}', label: 'المنتجات المطلوبة' },
-                    { tag: '{address}', label: 'عنوان التوصيل' },
-                    { tag: '{city}', label: 'المدينة/المحافظة' },
-                    { tag: '{storeName}', label: 'اسم المتجر' },
-                    { tag: '{trackingUrl}', label: 'رابط التتبع' },
-                    { tag: '{shippingCompany}', label: 'شركة الشحن' },
-                  ].map((v) => (
-                    <button
-                      key={v.tag}
-                      type="button"
-                      onClick={() => {
-                        try {
-                          navigator.clipboard?.writeText(v.tag);
-                          setStatusMsg({ type: 'success', text: `تم نسخ المتغير ${v.tag} بنجاح! يمكنك لصقه في القالب.` });
-                          setTimeout(() => setStatusMsg(null), 3000);
-                        } catch (_) {}
-                      }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-300 hover:text-emerald-600 rounded-lg text-xs font-mono font-bold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
-                      title="اضغط للنسخ"
-                    >
-                      <span className="text-emerald-600 font-black">{v.tag}</span>
-                      <span className="text-[10px] text-slate-400 font-sans">({v.label})</span>
-                    </button>
-                  ))}
+          <div className="p-6 md:p-8 space-y-8">
+            {/* Header & Quick Variable Pill Tags */}
+            <div className="bg-slate-50 dark:bg-slate-800/40 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <FileText size={20} className="text-emerald-600" />
+                    <span>قوالب الرسائل التلقائية والمتغيرات الذكية</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
+                    انقر على أي متغير بالأسفل لنسخه وإدراجه في قالب رسالتك، وسيتم استبداله تلقائياً ببيانات العميل الحقيقية:
+                  </p>
                 </div>
+                <button 
+                  onClick={addTemplate}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-600/20 transition-all active:scale-95 shrink-0 self-start sm:self-center cursor-pointer"
+                >
+                  <Plus size={16} />
+                  <span>إضافة قالب جديد</span>
+                </button>
               </div>
-              <button 
-                onClick={addTemplate}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 rounded-lg font-bold hover:bg-emerald-100 transition-all shrink-0 self-start md:self-center"
-              >
-                <Plus size={18} />
-                إضافة قالب
-              </button>
+
+              {/* Variable Chips */}
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                {[
+                  { tag: '{customerName}', label: 'اسم العميل' },
+                  { tag: '{orderNumber}', label: 'رقم الطلب' },
+                  { tag: '{totalPrice}', label: 'إجمالي المبلغ' },
+                  { tag: '{currency}', label: 'العملة' },
+                  { tag: '{flexShipFee}', label: 'مبلغ الفليكس شيب (عدم الاستلام)' },
+                  { tag: '{products}', label: 'المنتجات المطلوبة' },
+                  { tag: '{address}', label: 'عنوان التوصيل' },
+                  { tag: '{city}', label: 'المدينة/المحافظة' },
+                  { tag: '{storeName}', label: 'اسم المتجر' },
+                  { tag: '{trackingUrl}', label: 'رابط التتبع' },
+                  { tag: '{shippingCompany}', label: 'شركة الشحن' },
+                ].map((v) => (
+                  <button
+                    key={v.tag}
+                    type="button"
+                    onClick={() => {
+                      try {
+                        navigator.clipboard?.writeText(v.tag);
+                        setStatusMsg({ type: 'success', text: `تم نسخ المتغير ${v.tag} بنجاح! يمكنك لصقه داخل نص القالب.` });
+                        setTimeout(() => setStatusMsg(null), 3000);
+                      } catch (_) {}
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-slate-700 dark:text-slate-200 hover:text-emerald-700 rounded-xl text-xs font-mono font-bold border border-slate-200 dark:border-slate-700 transition-all cursor-pointer shadow-xs active:scale-95"
+                    title="اضغط لنسخ المتغير"
+                  >
+                    <span className="text-emerald-600 dark:text-emerald-400 font-black">{v.tag}</span>
+                    <span className="text-[10px] text-slate-400 font-sans">({v.label})</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
+            {/* Template Cards Grid */}
             <div className="grid grid-cols-1 gap-6">
               {templates.map((template) => (
-                <div key={template.id} className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <input 
-                      type="text" 
-                      className="bg-transparent border-none outline-none font-black text-slate-800 dark:text-white text-lg focus:ring-0 w-full"
-                      value={template.label}
-                      onChange={(e) => updateTemplate(template.id, 'label', e.target.value)}
-                    />
+                <div key={template.id} className="p-6 bg-slate-50/60 dark:bg-slate-800/40 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4 hover:border-emerald-300 dark:hover:border-emerald-700/50 transition-all">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                      <input 
+                        type="text" 
+                        className="bg-transparent border-none outline-none font-black text-slate-900 dark:text-white text-base focus:ring-0 w-full"
+                        value={template.label}
+                        onChange={(e) => updateTemplate(template.id, 'label', e.target.value)}
+                        placeholder="عنوان القالب..."
+                      />
+                    </div>
                     <button 
                       onClick={() => removeTemplate(template.id)}
-                      className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                      className="p-2 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                      title="حذف القالب"
                     >
-                      <Trash2 size={18} />
+                      <Trash2 size={16} />
                     </button>
                   </div>
-                  <textarea 
-                    className="w-full p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium leading-relaxed"
-                    rows={4}
-                    value={template.text}
-                    onChange={(e) => updateTemplate(template.id, 'text', e.target.value)}
-                    placeholder="اكتب نص الرسالة هنا..."
-                  />
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300">محتوى رسالة الواتساب:</label>
+                    <textarea 
+                      className="w-full p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-xs md:text-sm font-medium leading-relaxed shadow-inner"
+                      rows={4}
+                      value={template.text}
+                      onChange={(e) => updateTemplate(template.id, 'text', e.target.value)}
+                      placeholder="اكتب نص الرسالة هنا..."
+                    />
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">تذييل الرسالة (Footer)</label>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-600 dark:text-slate-300">تذييل الرسالة (Footer):</label>
                       <input 
                         type="text"
-                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                        placeholder="مثال: متجرنا الذكي"
+                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                        placeholder="مثال: متجرنا الذكي لخدمات الشحن"
                         value={template.footer || ''}
                         onChange={(e) => updateTemplate(template.id, 'footer', e.target.value)}
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">الأزرار (Buttons - بحد أقصى 3)</label>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-600 dark:text-slate-300">الأزرار التفاعلية (بحد أقصى 3):</label>
                       <div className="flex flex-wrap gap-2">
                         {(template.buttons || []).map((btn, bIdx) => (
-                          <div key={bIdx} className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg border border-emerald-100 dark:border-emerald-900/50">
-                            <span className="text-xs font-bold">{btn}</span>
+                          <div key={bIdx} className="flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800/60 shadow-xs">
+                            <span className="text-xs font-black">{btn}</span>
                             <button 
                               type="button"
                               onClick={(e) => {
@@ -1065,7 +1243,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                                 newBtns.splice(bIdx, 1);
                                 updateTemplate(template.id, 'buttons', newBtns);
                               }}
-                              className="hover:text-red-500 transition-colors"
+                              className="hover:text-rose-500 transition-colors cursor-pointer"
                             >
                               <X size={14} />
                             </button>
@@ -1076,7 +1254,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                             type="button"
                             onClick={(e) => {
                               e.preventDefault();
-                              const btnText = prompt('أدخل نص الزر:');
+                              const btnText = prompt('أدخل نص الزر (مثال: تأكيد الطلب 👍):');
                               if (btnText && btnText.trim()) {
                                 setTemplates(prev => prev.map(t => 
                                   t.id === template.id 
@@ -1085,26 +1263,44 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                                 ));
                               }
                             }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all text-xs font-bold"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 hover:text-emerald-600 transition-all text-xs font-black cursor-pointer shadow-xs active:scale-95"
                           >
                             <Plus size={14} />
-                            إضافة زر
+                            إضافة زر تفاعلي
                           </button>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <span className="text-[10px] font-bold text-slate-400">معاينة النص:</span>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap">
-                      {whatsappService.formatMessage(template.text, orders[0] || { customerName: 'عميل تجريبي', orderNumber: '1001', totalPrice: 750, status: 'pending', customerAddress: 'القاهرة، مصر' } as any, settings)}
-                    </p>
-                    {template.footer && (
-                      <div className="pt-2 border-t border-slate-50 dark:border-slate-800 text-[10px] text-slate-400 italic">
-                        {template.footer}
-                      </div>
-                    )}
+                  {/* Live Render Preview */}
+                  <div className="p-4 bg-white dark:bg-slate-900/80 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <MessageSquare size={13} />
+                        معاينة الرسالة الحية على هاتف العميل:
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">نموذج تجريبي</span>
+                    </div>
+                    <div className="p-3 bg-[#efeae2]/40 dark:bg-slate-950/60 rounded-xl border border-slate-100 dark:border-slate-800">
+                      <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-medium leading-relaxed">
+                        {whatsappService.formatMessage(template.text, orders[0] || { customerName: 'أحمد محمود', orderNumber: '1001', totalPrice: 750, status: 'pending', customerAddress: 'القاهرة، مصر' } as any, settings)}
+                      </p>
+                      {template.footer && (
+                        <div className="pt-2 mt-2 border-t border-slate-200/60 dark:border-slate-800 text-[10px] text-slate-400 font-semibold">
+                          {template.footer}
+                        </div>
+                      )}
+                      {(template.buttons || []).length > 0 && (
+                        <div className="pt-2 mt-2 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap gap-1.5">
+                          {(template.buttons || []).map((b, idx) => (
+                            <span key={idx} className="px-3 py-1 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs">
+                              {b}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1397,120 +1593,125 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'settings' && (
-          <div className="p-8 max-w-3xl mx-auto space-y-10">
+          <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-8" dir="rtl">
             {/* Provider Type Selector */}
             <div className="space-y-4">
-              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-200 dark:border-slate-800">
-                <Smartphone size={24} />
-                <h3 className="text-xl font-black">طريقة الاتصال والإرسال</h3>
+              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-3 border-b border-slate-200 dark:border-slate-800">
+                <Smartphone size={22} />
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-white">طريقة الاتصال ومزود خدمة الواتساب</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">اختر المنصة التي تناسب متجرك لإرسال الإشعارات وتأكيدات الطلبات</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, providerType: 'direct_web', isActive: true })}
-                  className={`p-5 rounded-2xl border text-right transition-all flex flex-col gap-2 ${(!config.providerType || config.providerType === 'direct_web') ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50'}`}
+                  className={`p-5 rounded-2xl border text-right transition-all flex flex-col gap-2 cursor-pointer ${(!config.providerType || config.providerType === 'direct_web') ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 ring-2 ring-emerald-500/20 shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700'}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 dark:text-white text-base">الربط المباشر المجاني</span>
-                    <span className="text-xs bg-emerald-100 dark:bg-emerald-900 text-emerald-600 dark:text-emerald-400 px-2.5 py-1 rounded-full font-bold">مجاني</span>
+                    <span className="font-black text-slate-900 dark:text-white text-sm">الربط المباشر المجاني</span>
+                    <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 px-2 py-0.5 rounded-full font-black">مجاني 100%</span>
                   </div>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    يفتح واتساب ويب أو الهاتف مباشرة بنقرة واحدة بدون اشتراكات.
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                    يفتح تطبيق واتساب على هاتفك أو واتساب ويب بضغطة زر واحدة بدون اشتراكات أو أية تكاليف.
                   </p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, providerType: 'meta_cloud', isActive: true })}
-                  className={`p-5 rounded-2xl border text-right transition-all flex flex-col gap-2 ${config.providerType === 'meta_cloud' ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50'}`}
+                  className={`p-5 rounded-2xl border text-right transition-all flex flex-col gap-2 cursor-pointer ${config.providerType === 'meta_cloud' ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/40 ring-2 ring-blue-500/20 shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700'}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 dark:text-white text-base">ميتا الرسمية (Cloud API)</span>
-                    <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 px-2.5 py-1 rounded-full font-bold">رسمي</span>
+                    <span className="font-black text-slate-900 dark:text-white text-sm">ميتا الرسمية (Cloud API)</span>
+                    <span className="text-[10px] bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded-full font-black">رسمي موثق</span>
                   </div>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    ربط مباشر مع منصة واتساب للأعمال الرسمية عبر Meta Developers.
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                    ربط رسمي عبر Meta Developers مع أزرار تفاعلية وشات بوت متكامل لحملات الإعلانات.
                   </p>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setConfig({ ...config, providerType: 'ultramsg', isActive: true })}
-                  className={`p-5 rounded-2xl border text-right transition-all flex flex-col gap-2 ${config.providerType === 'ultramsg' ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50'}`}
+                  className={`p-5 rounded-2xl border text-right transition-all flex flex-col gap-2 cursor-pointer ${config.providerType === 'ultramsg' ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/40 ring-2 ring-amber-500/20 shadow-sm' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850 hover:border-slate-300 dark:hover:border-slate-700'}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 dark:text-white text-base">مزود خارجي (UltraMsg)</span>
-                    <span className="text-xs bg-amber-100 dark:bg-amber-900 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-full font-bold">أتمتة</span>
+                    <span className="font-black text-slate-900 dark:text-white text-sm">UltraMsg API</span>
+                    <span className="text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-black">أتمتة فورية</span>
                   </div>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    إرسال الرسائل تلقائياً عبر خدمات مزود خارجي.
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                    إرسال تلقائي عبر مسح رمز الباركود دون الحاجة لتوثيق السجل التجاري لدى فيسبوك.
                   </p>
                 </button>
               </div>
             </div>
 
             {config.providerType === 'meta_cloud' && (
-              <div className="space-y-6">
-                <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 pb-4 border-b border-slate-200 dark:border-slate-800">
-                  <Code size={24} />
-                  <h3 className="text-xl font-black">إعدادات ميتا الرسمية (WhatsApp Business Cloud API)</h3>
+              <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-6">
+                <div className="flex items-center gap-3 text-blue-600 dark:text-blue-400 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                  <Code size={20} />
+                  <h4 className="text-base font-black">بيانات مصادقة Meta Cloud API</h4>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-600 flex items-center justify-between">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
                       <span>Phone Number ID</span>
-                      <span className="text-[10px] text-slate-400">معرف رقم الهاتف من لوحة ميتا</span>
+                      <span className="text-[10px] text-slate-400 font-normal">معرف الهاتف في لوحة مطوري فيسبوك</span>
                     </label>
                     <input 
                       type="text" 
                       placeholder="مثال: 105928374029182"
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                      className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs font-bold text-slate-800 dark:text-white shadow-xs"
                       value={config.phoneNumberId || ''}
                       onChange={(e) => setConfig({ ...config, phoneNumberId: e.target.value })}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-600 flex items-center justify-between">
-                      <span>Temporary / Permanent Access Token</span>
-                      <span className="text-[10px] text-slate-400">رمز المصادقة من Meta Developers</span>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                      <span>Meta Access Token (رمز الوصول)</span>
+                      <span className="text-[10px] text-slate-400 font-normal">System User Token أو مؤقت</span>
                     </label>
                     <input 
                       type="password" 
                       placeholder="EAAG..."
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                      className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs font-bold text-slate-800 dark:text-white shadow-xs"
                       value={config.accessToken || ''}
                       onChange={(e) => setConfig({ ...config, accessToken: e.target.value })}
                     />
                   </div>
                 </div>
-                <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-2xl text-xs text-blue-700 dark:text-blue-300 space-y-2">
-                  <p className="font-bold">⚠️ تنبيه هامة بخصوص Meta Cloud API (وضع الاختبار):</p>
-                  <p>
-                    إذا ظهر خطأ <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded font-mono">Recipient phone number not in allowed list (#131030)</code>، فهذا يعني أن حسابك في وضع الاختبار (Test Mode). يجب عليك إضافة رقم هاتف العميل يدوياً في لوحة تحكم مطوري ميتا (<a href="https://developers.facebook.com" target="_blank" rel="noreferrer" className="underline font-bold">Meta App Dashboard &gt; WhatsApp &gt; API Setup</a>) في خانة "To" وإتمام عملية التحقق برمز الـ OTP، أو إرسال أول رسالة من لوحة ميتا مباشرة.
+                <div className="p-4 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 rounded-xl text-xs text-blue-800 dark:text-blue-300 space-y-1.5 leading-relaxed font-medium">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <span>ℹ️ تنبيه وضع الاختبار (Test Mode):</span>
+                  </p>
+                  <p className="text-[11px]">
+                    في حال استخدام حساب تجريبي من مطوري فيسبوك، يجب إضافة أرقام الهواتف المستقبلة مسبقاً في قائمة To في لوحة تحكم Meta أو ترقية الحساب لإرسال الإشعارات لكافة العملاء بحرية.
                   </p>
                 </div>
               </div>
             )}
 
             {config.providerType === 'ultramsg' && (
-              <div className="space-y-6">
-                <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-200 dark:border-slate-800">
-                  <Code size={24} />
-                  <h3 className="text-xl font-black">إعدادات الاتصال بالـ API الخارجي</h3>
+              <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-6">
+                <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                  <Code size={20} />
+                  <h4 className="text-base font-black">بيانات الاتصال بمزود UltraMsg</h4>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2 md:col-span-2">
-                    <label className="text-sm font-bold text-slate-600 flex items-center justify-between">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="space-y-1.5 md:col-span-2">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
                       <span>WhatsApp API URL (Endpoint)</span>
-                      <span className="text-[10px] text-slate-400">مثال: https://api.ultramsg.com/instanceXXXX/messages/chat</span>
+                      <span className="text-[10px] text-slate-400 font-mono font-normal">مثال: https://api.ultramsg.com/instanceXXXX/messages/chat</span>
                     </label>
                     <input 
                       type="text" 
                       placeholder="https://api.ultramsg.com/instanceXXXX/messages/chat"
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-sm"
+                      className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-xs font-bold text-slate-800 dark:text-white shadow-xs"
                       value={config.apiUrl}
                       onChange={(e) => {
                         let val = e.target.value.trim();
@@ -1550,11 +1751,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                       }}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-600">Instance ID</label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">معرف النسخة (Instance ID)</label>
                     <input 
                       type="text" 
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-xs font-bold text-slate-800 dark:text-white shadow-xs"
                       value={config.instanceId}
                       onChange={(e) => {
                         let val = e.target.value.trim();
@@ -1570,11 +1771,11 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                       }}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-bold text-slate-600">API Token</label>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">رمز المرور السري (API Token)</label>
                     <input 
                       type="password" 
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
+                      className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-xs font-bold text-slate-800 dark:text-white shadow-xs"
                       value={config.token}
                       onChange={(e) => {
                         let val = e.target.value;
@@ -1590,44 +1791,45 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
               </div>
             )}
 
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-4 border-b border-slate-200 dark:border-slate-800">
-                <Bell size={24} />
-                <h3 className="text-xl font-black">أتمتة الرسائل</h3>
+            {/* Automation Options */}
+            <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+              <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                <Bell size={20} />
+                <h4 className="text-base font-black">خيارات الأتمتة والتكامل الفوري</h4>
               </div>
               
-              <div className="space-y-4">
-                <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg ${config.isActive ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-400'}`}>
-                      <CheckCircle2 size={20} />
+              <div className="grid grid-cols-1 gap-3">
+                <label className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-700 transition-all shadow-xs">
+                  <div className="flex items-center gap-3.5">
+                    <div className={`p-2.5 rounded-xl ${config.isActive ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
+                      <CheckCircle2 size={18} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-800 dark:text-white">تفعيل نظام API الواتساب</h4>
-                      <p className="text-xs text-slate-500 mt-1">السماح للنظام بإرسال الرسائل عبر الـ API المذكور أعلاه.</p>
+                      <h5 className="font-bold text-slate-900 dark:text-white text-xs">تفعيل نظام إرسال الرسائل الآلي</h5>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">السماح لمدير الأوردرات بإرسال رسائل التأكيد والواتساب تلقائياً.</p>
                     </div>
                   </div>
                   <input 
                     type="checkbox" 
-                    className="w-6 h-6 accent-emerald-600"
+                    className="w-5 h-5 accent-emerald-600 cursor-pointer rounded"
                     checked={config.isActive}
                     onChange={(e) => setConfig({ ...config, isActive: e.target.checked })}
                   />
                 </label>
 
-                <label className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg ${config.autoSendOnStatusChange ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-400'}`}>
-                      <RefreshCw size={20} />
+                <label className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 cursor-pointer hover:border-emerald-400 dark:hover:border-emerald-700 transition-all shadow-xs">
+                  <div className="flex items-center gap-3.5">
+                    <div className={`p-2.5 rounded-xl ${config.autoSendOnStatusChange ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>
+                      <RefreshCw size={18} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-slate-800 dark:text-white">إرسال تلقائي عند تغيير الحالة</h4>
-                      <p className="text-xs text-slate-500 mt-1">يرسل رسالة التتبع تلقائياً عند تغيير حالة الطلب إلى "شحن" أو "توصيل".</p>
+                      <h5 className="font-bold text-slate-900 dark:text-white text-xs">إرسال تلقائي وفوري عند تغيير حالة الطلب</h5>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">إرسال رسالة برابط التتبع فور انتقال الأوردر إلى حالة الشحن أو التوصيل.</p>
                     </div>
                   </div>
                   <input 
                     type="checkbox" 
-                    className="w-6 h-6 accent-emerald-600"
+                    className="w-5 h-5 accent-emerald-600 cursor-pointer rounded"
                     checked={config.autoSendOnStatusChange}
                     onChange={(e) => setConfig({ ...config, autoSendOnStatusChange: e.target.checked })}
                   />
@@ -1635,29 +1837,53 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
               </div>
             </div>
 
-            <div className="p-6 bg-emerald-50 dark:bg-emerald-950/20 rounded-2xl border border-emerald-100 dark:border-emerald-900 space-y-4">
-              <h4 className="font-black text-emerald-800 dark:text-emerald-400 flex items-center gap-2">
-                <Smartphone size={18} />
-                اختبار الاتصال
-              </h4>
-              <div className="flex gap-3">
+            {/* Test Connection Box */}
+            <div className="p-6 bg-emerald-50/70 dark:bg-emerald-950/20 rounded-2xl border border-emerald-200 dark:border-emerald-900/60 space-y-4">
+              <div>
+                <h4 className="font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-2 text-sm">
+                  <Smartphone size={18} className="text-emerald-600" />
+                  اختبار وصول الرسائل الحية لهاتفك
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 font-medium mt-1">
+                  أدخل رقم هاتفك لتجربة إرسال رسالة تجريبية والتأكد من صحة إعدادات الربط.
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
                 <input 
                   type="text" 
-                  placeholder="رقم الهاتف (بمفتاح الدولة)..." 
-                  className="flex-1 p-3 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
+                  placeholder="رقم الهاتف بمفتاح الدولة (مثال: 01012345678 أو 2010...)" 
+                  className="flex-1 p-3 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-xs font-bold text-slate-800 dark:text-white shadow-xs"
                   value={testPhone}
                   onChange={(e) => setTestPhone(e.target.value)}
                 />
                 <button 
                   onClick={handleSendTest}
                   disabled={isSendingTest || !testPhone}
-                  className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 disabled:bg-slate-300 transition-all flex items-center gap-2"
+                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
                 >
-                  {isSendingTest ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
-                  إرسال تجربة
+                  {isSendingTest ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+                  <span>إرسال تجربة الآن</span>
                 </button>
               </div>
             </div>
+
+            {/* Global Save Button */}
+            {onSave && (
+              <div className="flex items-center justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onSave();
+                    setStatusMsg({ type: 'success', text: 'تم حفظ كافة إعدادات الواتساب بنجاح!' });
+                    setTimeout(() => setStatusMsg(null), 4000);
+                  }}
+                  className="px-8 py-3 bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-lg transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+                >
+                  <Save size={16} />
+                  <span>حفظ وتثبيت الإعدادات الآن</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

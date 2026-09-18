@@ -106,7 +106,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             title: 'التسويق وعلاقات العملاء CRM',
             links: [
                 { to: `${storePrefix}/customers`, label: 'قاعدة بيانات العملاء', icon: <Users size={18} /> },
-                { to: `${storePrefix}/whatsapp`, label: 'إرسال حملات واتساب متكاملة', icon: <MessageSquare size={18} /> },
+                { 
+                    to: `${storePrefix}/whatsapp`, 
+                    label: 'شات ورسائل واتساب للعملاء', 
+                    icon: <MessageSquare size={18} />, 
+                    badge: { text: "شات 💬", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-bold" } 
+                },
                 { to: `${storePrefix}/team-chat`, label: 'دردشة ومناقشات طاقم العمل', icon: <Users2 size={18} /> },
                 { 
                     to: `${storePrefix}/ai-assistant`, 

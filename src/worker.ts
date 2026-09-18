@@ -259,6 +259,367 @@ app.get("/api/v1/webhooks/akked", (c) => c.json({
   message: "Akked WhatsApp inbound webhook endpoint is active."
 }));
 
+// Direct Cloudflare Edge WhatsApp Status Endpoint (Prevents hanging and 302 proxy redirects)
+app.post("/api/whatsapp/status", async (c) => {
+  try {
+    const { config } = await c.req.json();
+    if (!config) {
+      return c.json({ success: false, error: "Missing config" }, 400);
+    }
+
+    if (config.providerType === 'meta_cloud') {
+      const phoneNumberId = (config.phoneNumberId || config.instanceId || '').trim();
+      const accessToken = (config.accessToken || config.token || '').trim();
+      if (!phoneNumberId || !accessToken) {
+        return c.json({ 
+          success: false, 
+          connected: false, 
+          status: 'unconfigured', 
+          message: 'يرجى إدخال Phone Number ID و Access Token الخاصين بـ Meta' 
+        });
+      }
+
+      try {
+        const metaRes = await fetch(
+          `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,status&access_token=${accessToken}`
+        );
+        const data: any = await metaRes.json();
+
+        if (metaRes.ok && (data.id || data.display_phone_number)) {
+          let wabaData: any = null;
+          if (config.wabaId) {
+            try {
+              const wRes = await fetch(
+                `https://graph.facebook.com/v21.0/${config.wabaId.trim()}?fields=id,name,currency,timezone_id,account_review_status&access_token=${accessToken}`
+              );
+              wabaData = await wRes.json();
+            } catch (_) {}
+          }
+
+          return c.json({
+            success: true,
+            connected: true,
+            status: 'authenticated',
+            phone: data.display_phone_number || data.id,
+            name: data.verified_name || wabaData?.name || 'Abdo Media - واتساب',
+            qualityRating: data.quality_rating,
+            codeVerificationStatus: data.code_verification_status,
+            wabaData
+          });
+        } else {
+          const errCode = data.error?.code;
+          const errSubcode = data.error?.error_subcode;
+          let detail = data.error?.message || 'تعذر التحقق من إعدادات Meta Cloud API';
+
+          if (errCode === 190) {
+            detail = 'رمز الوصول (Access Token) منتهي الصلاحية أو غير صالح. يرجى إنشاء Permanent Token من System Users في Meta Business Suite.';
+          } else if (errCode === 33 || errSubcode === 33) {
+            // Auto check if this was WABA ID
+            try {
+              const pRes = await fetch(
+                `https://graph.facebook.com/v21.0/${phoneNumberId}/phone_numbers?fields=id,display_phone_number,verified_name,quality_rating,code_verification_status&access_token=${accessToken}`
+              );
+              const pData: any = await pRes.json();
+              if (pRes.ok && pData.data && pData.data.length > 0) {
+                const first = pData.data[0];
+                return c.json({
+                  success: true,
+                  connected: true,
+                  status: 'authenticated',
+                  phone: first.display_phone_number || first.id,
+                  name: first.verified_name || 'Abdo Media - واتساب',
+                  qualityRating: first.quality_rating,
+                  autoResolvedPhoneNumberId: first.id,
+                  notice: `تم اكتشاف أن الرقم المدخل هو WABA ID، وتم استخراج Phone Number ID الصحيح تلقائياً: ${first.id}`
+                });
+              }
+            } catch (_) {}
+            detail = 'معرف رقم الهاتف (Phone Number ID) غير صحيح. يرجى التأكد من نسخ Phone Number ID وليس WABA ID.';
+          }
+
+          return c.json({
+            success: false,
+            connected: false,
+            status: 'error',
+            error: detail,
+            metaError: data.error
+          });
+        }
+      } catch (err: any) {
+        return c.json({ success: false, connected: false, error: `خطأ أثناء الاتصال بميتا: ${err.message}` });
+      }
+    }
+
+    // UltraMsg provider
+    const instanceId = (config.instanceId || '').replace(/\s+/g, '');
+    const token = (config.token || '').trim();
+
+    if (!instanceId || !token) {
+      return c.json({
+        success: false,
+        connected: false,
+        status: 'unconfigured',
+        message: 'يرجى إدخال Instance ID و Token الخاص بـ UltraMsg'
+      });
+    }
+
+    try {
+      const statusRes = await fetch(`https://api.ultramsg.com/${instanceId}/instance/status?token=${token}`);
+      const statusData: any = await statusRes.json();
+
+      if (!statusRes.ok || statusData.error) {
+        return c.json({
+          success: false,
+          connected: false,
+          status: 'disconnected',
+          error: statusData.error || 'فشل الاتصال بـ UltraMsg'
+        });
+      }
+
+      const isAuth = statusData.status?.account_status === 'authenticated' || 
+                     statusData.status === 'authenticated' || 
+                     statusData.account_status === 'authenticated';
+
+      return c.json({
+        success: true,
+        connected: isAuth,
+        status: isAuth ? 'authenticated' : 'disconnected',
+        phone: statusData.status?.phone || config.sessionPhone || '',
+        rawStatus: statusData
+      });
+    } catch (err: any) {
+      return c.json({ success: false, connected: false, error: err.message });
+    }
+  } catch (err: any) {
+    return c.json({ success: false, connected: false, error: err.message }, 500);
+  }
+});
+
+// Direct Cloudflare Edge WhatsApp Send Endpoint
+app.post("/api/whatsapp/send", async (c) => {
+  try {
+    const { to, body, footer, buttons, config, templateParameters, templateComponents } = await c.req.json();
+    
+    if (!config || !config.isActive) {
+      return c.json({ success: false, error: "WhatsApp integration is not active." }, 400);
+    }
+
+    let cleanTo = (to || '').toString().replace(/\D/g, '').replace(/^00+/, '');
+    if (cleanTo.startsWith('0') && cleanTo.length === 11) {
+      cleanTo = '2' + cleanTo;
+    } else if (cleanTo.startsWith('1') && cleanTo.length === 10) {
+      cleanTo = '20' + cleanTo;
+    }
+
+    if (!cleanTo || cleanTo.length < 8) {
+      return c.json({ success: false, error: "رقم هاتف المستلم غير صحيح أو ناقص." }, 400);
+    }
+
+    if (config.providerType === 'meta_cloud') {
+      const phoneNumberId = (config.phoneNumberId || config.instanceId || '').trim();
+      const accessToken = (config.accessToken || config.token || '').trim();
+
+      if (!phoneNumberId || !accessToken) {
+        return c.json({ success: false, error: "Meta Cloud API requires Phone Number ID and Access Token." }, 400);
+      }
+
+      const storeDisplayName = config.storeName || '';
+      const cleanFooter = footer 
+        ? footer.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName) 
+        : undefined;
+      const cleanBody = body 
+        ? body.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName) 
+        : '';
+
+      let fullBodyText = cleanBody;
+      if (cleanFooter) fullBodyText += `\n\n📌 ${cleanFooter}`;
+
+      let metaPayload: any;
+
+      if (config.metaTemplateName && config.metaTemplateName.trim()) {
+        const components: any[] = [];
+        if (templateComponents && Array.isArray(templateComponents) && templateComponents.length > 0) {
+          components.push(...templateComponents);
+        } else if (templateParameters && Array.isArray(templateParameters) && templateParameters.length > 0) {
+          const validParams = templateParameters.map((p: any) => ({
+            type: "text",
+            text: String(p !== undefined && p !== null && p !== '' ? p : ' ').trim() || '-'
+          }));
+          if (validParams.length > 0) {
+            components.push({ type: "body", parameters: validParams });
+          }
+        }
+
+        metaPayload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: cleanTo,
+          type: "template",
+          template: {
+            name: config.metaTemplateName.trim(),
+            language: { code: config.metaTemplateLanguage?.trim() || "ar" },
+            ...(components.length > 0 ? { components } : {})
+          }
+        };
+      } else if (buttons && Array.isArray(buttons) && buttons.length > 0 && buttons.length <= 3 && cleanBody.length <= 1024) {
+        const safeFooter = cleanFooter ? [...cleanFooter.trim()].slice(0, 60).join('') : undefined;
+        metaPayload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: cleanTo,
+          type: "interactive",
+          interactive: {
+            type: "button",
+            body: { text: cleanBody.trim() || 'إشعار من المتجر' },
+            footer: safeFooter ? { text: safeFooter } : undefined,
+            action: {
+              buttons: buttons.map((b: any, idx: number) => {
+                const rawTitle = typeof b === 'string' ? b : (b.text || b.title || `زر ${idx + 1}`);
+                const title = [...(rawTitle.replace(/{storeName}/g, storeDisplayName).replace(/\[اسم المتجر\]/g, storeDisplayName).trim() || `زر ${idx + 1}`)].slice(0, 20).join('');
+                const id = (typeof b === 'object' && b.id ? b.id : `btn_${idx + 1}`).substring(0, 256);
+                return { type: "reply", reply: { id, title } };
+              })
+            }
+          }
+        };
+      } else {
+        metaPayload = {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: cleanTo,
+          type: "text",
+          text: { body: fullBodyText }
+        };
+      }
+
+      const metaRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(metaPayload)
+      });
+
+      const data: any = await metaRes.json();
+
+      if (metaRes.ok && data.messages && data.messages.length > 0) {
+        return c.json({ success: true, messageId: data.messages[0].id, raw: data });
+      }
+
+      // If interactive failed, fallback to plain text once
+      if (metaPayload.type !== 'text') {
+        try {
+          const fallbackRes = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${accessToken}`
+            },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              recipient_type: "individual",
+              to: cleanTo,
+              type: "text",
+              text: { body: fullBodyText }
+            })
+          });
+          const fallbackData: any = await fallbackRes.json();
+          if (fallbackRes.ok && fallbackData.messages) {
+            return c.json({ success: true, messageId: fallbackData.messages[0].id, raw: fallbackData, fallback: true });
+          }
+        } catch (_) {}
+      }
+
+      const errMessage = data.error?.message || "فشل إرسال رسالة واتساب عبر Meta Cloud API";
+      return c.json({ success: false, error: errMessage, details: data.error }, 400);
+    }
+
+    // UltraMsg sender
+    const instanceId = (config.instanceId || '').replace(/\s+/g, '');
+    const token = (config.token || '').trim();
+
+    if (!instanceId || !token) {
+      return c.json({ success: false, error: "UltraMsg requires instanceId and token." }, 400);
+    }
+
+    let fullBody = body || '';
+    if (footer) fullBody += `\n\n${footer}`;
+
+    const sendRes = await fetch(`https://api.ultramsg.com/${instanceId}/messages/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        to: cleanTo,
+        body: fullBody
+      })
+    });
+
+    const sendData: any = await sendRes.json();
+    if (sendData.sent === 'true' || sendData.sent === true || sendData.id) {
+      return c.json({ success: true, id: sendData.id });
+    }
+
+    return c.json({ success: false, error: sendData.message || sendData.error || "فشل الإرسال عبر UltraMsg" }, 400);
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+
+// Handle WhatsApp Webhook POST from Meta & UltraMsg
+const handleWorkerWhatsAppWebhookPost = async (c: any) => {
+  try {
+    let body: any = {};
+    try {
+      body = await c.req.json();
+    } catch (_) {}
+
+    console.log("[WORKER-META-WEBHOOK-POST] Received payload:", JSON.stringify(body).slice(0, 300));
+
+    // Handle Meta status updates (sent, delivered, read) immediately with 200 OK
+    if (body.entry?.[0]?.changes?.[0]?.value?.statuses) {
+      return c.json({ success: true, processed: "statuses" });
+    }
+
+    const defaultBackend = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+    const backendUrl = (c.env && c.env.BACKEND_URL) || defaultBackend;
+    const targetUrl = new URL(c.req.url).pathname + new URL(c.req.url).search;
+    const fullTargetUrl = new URL(targetUrl, backendUrl).toString();
+
+    const headers = new Headers(c.req.raw.headers);
+    headers.set("host", new URL(backendUrl).hostname);
+    headers.set("content-type", "application/json");
+
+    try {
+      const backendRes = await fetch(fullTargetUrl, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(body),
+        redirect: "follow"
+      });
+
+      const responseText = await backendRes.text();
+      try {
+        const parsed = JSON.parse(responseText);
+        return c.json(parsed, backendRes.ok ? 200 : 200); // Always return 200 to Meta
+      } catch (_) {
+        return c.json({ success: true, forwardStatus: backendRes.status });
+      }
+    } catch (fwdErr: any) {
+      console.warn("[WORKER-WEBHOOK-POST-FWD-WARN]", fwdErr?.message);
+      // Still return 200 OK to Meta so it does not disable the webhook
+      return c.json({ success: true, received: true });
+    }
+  } catch (err: any) {
+    console.error("[WORKER-META-WEBHOOK-POST-ERR]", err);
+    return c.json({ success: true, error: err?.message || "Processed with fallback" });
+  }
+};
+
+app.post("/api/webhook/whatsapp", handleWorkerWhatsAppWebhookPost);
+app.post("/api/webhooks/whatsapp", handleWorkerWhatsAppWebhookPost);
 
 // API Proxy for all backend routes (including Bosta, Turbo, Meta, etc.)
 app.all("/api/*", async (c) => {
