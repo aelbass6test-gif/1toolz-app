@@ -73,7 +73,7 @@ export const whatsappService = {
 
     const appOrigin = typeof window !== 'undefined' && window.location.origin && !window.location.hostname.includes('localhost')
       ? window.location.origin
-      : 'https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app';
+      : 'https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app';
 
     const orderIdParam = ord.id || ord.orderNumber || '';
     const phoneClean = (ord.customerPhone || '').replace(/\D/g, '');

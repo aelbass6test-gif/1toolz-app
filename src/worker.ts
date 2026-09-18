@@ -583,7 +583,7 @@ const handleWorkerWhatsAppWebhookPost = async (c: any) => {
       return c.json({ success: true, processed: "statuses" });
     }
 
-    const defaultBackend = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+    const defaultBackend = "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
     const backendUrl = (c.env && c.env.BACKEND_URL) || defaultBackend;
     const targetUrl = new URL(c.req.url).pathname + new URL(c.req.url).search;
     const fullTargetUrl = new URL(targetUrl, backendUrl).toString();
@@ -624,7 +624,7 @@ app.post("/api/webhooks/whatsapp", handleWorkerWhatsAppWebhookPost);
 // API Proxy for all backend routes (including Bosta, Turbo, Meta, etc.)
 app.all("/api/*", async (c) => {
 
-  const defaultBackend = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+  const defaultBackend = "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
   const backendUrl = (c.env && c.env.BACKEND_URL) || defaultBackend;
   
   const url = new URL(c.req.url);

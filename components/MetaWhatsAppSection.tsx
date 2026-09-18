@@ -77,7 +77,9 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
   const [isConnecting, setIsConnecting] = useState(false);
 
   // Derive active webhook URLs
-  const publicSharedUrl = 'https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app/api/webhook/whatsapp';
+  const publicSharedUrl = typeof window !== 'undefined' && window.location.origin 
+    ? `${window.location.origin}/api/webhook/whatsapp` 
+    : 'https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app/api/webhook/whatsapp';
   const customDomainUrl = 'https://app.abdomedi.com/api/webhook/whatsapp';
   const [selectedWebhookOption, setSelectedWebhookOption] = useState<'public' | 'custom'>('public');
 

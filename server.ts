@@ -3998,7 +3998,7 @@ async function startServer() {
              method: "POST",
              headers: { 
                  "Content-Type": "application/json",
-                 "Origin": matchedStoreData.settings?.customAppDomain || "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app"
+                 "Origin": matchedStoreData.settings?.customAppDomain || process.env.APP_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app"
              },
              body: JSON.stringify({
                  order: bostaOrderPayload,

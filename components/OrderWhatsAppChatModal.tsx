@@ -746,7 +746,10 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const portalLink = `https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app/order-action?orderId=${activeOrder.id || activeOrder.orderNumber}&phone=${(activeOrder.customerPhone || '').replace(/\D/g, '')}`;
+                        const appOrigin = typeof window !== 'undefined' && window.location.origin 
+                          ? window.location.origin 
+                          : 'https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app';
+                        const portalLink = `${appOrigin}/order-action?orderId=${activeOrder.id || activeOrder.orderNumber}&phone=${(activeOrder.customerPhone || '').replace(/\D/g, '')}`;
                         setCustomMessage(prev => prev + ' ' + portalLink);
                       }}
                       className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-600 text-[10px] font-bold"
