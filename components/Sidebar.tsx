@@ -36,24 +36,16 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
     const navItems = [
         { 
             type: 'group', 
-            title: 'لوحة القيادة والمتابعة العامة', 
+            title: 'الرئيسية والمتابعة العامة', 
             links: [
                 { to: `${storePrefix}/dashboard`, label: 'لوحة التحكم الرئيسية', icon: <LayoutDashboard size={18} /> },
                 { to: '/store', label: 'معاينة المتجر المباشر', icon: <Eye size={18} />, external: true },
-                { to: `${storePrefix}/reports`, label: 'التحليلات ومؤشرات النمو', icon: <BarChart2 size={18} /> },
-                { to: `${storePrefix}/standard-reports`, label: 'التقارير وسجلات الطباعة', icon: <FileText size={18} /> },
-                { to: `${storePrefix}/activity-logs`, label: 'نشاطات العمليات الفورية', icon: <History size={18} /> },
-                { 
-                    to: `${storePrefix}/webhook-monitor`, 
-                    label: 'صحة الويب هوك والإشعارات', 
-                    icon: <Activity size={18} />,
-                    badge: { text: "مباشر ⚡", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[9px] font-bold" }
-                },
+                { to: `${storePrefix}/reports`, label: 'التحليلات والمؤشرات', icon: <BarChart2 size={18} /> },
             ]
         },
         {
             type: 'group',
-            title: 'المبيعات الفورية ونقطة الكاشير',
+            title: 'إدارة المبيعات والطلبيات',
             links: [
                 ...(isPosEnabled ? [{ 
                     to: `${storePrefix}/pos`, 
@@ -63,12 +55,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                 }] : []),
                 { to: `${storePrefix}/create-order`, label: 'إنشاء طلب جديد', icon: <Plus size={18} /> },
                 { to: `${storePrefix}/orders`, label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={18} /> },
-                { 
-                    to: `${storePrefix}/dropshipping`, 
-                    label: 'الدروب شيبنج والشحن الخارجي', 
-                    icon: <Package size={18} />,
-                    badge: { text: "White Label 📦", color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/10 text-[9px] font-bold" } 
-                },
                 { 
                     to: `${storePrefix}/confirmation-queue`, 
                     label: 'تأكيد الطلبات والمعالجة', 
@@ -81,24 +67,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
         },
         {
             type: 'group',
-            title: 'كتالوج المنتجات والمستودعات',
+            title: 'كتالوج المنتجات والمخزون',
             links: [
                 { to: `${storePrefix}/products`, label: 'المنظومة والمخزون الموحد', icon: <Package size={18} /> },
                 { to: `${storePrefix}/collections`, label: 'مجموعات وتصنيفات المنتجات', icon: <Grid3x3 size={18} /> },
                 { to: `${storePrefix}/product-options`, label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={18} /> },
-                { to: `${storePrefix}/product-attributes`, label: 'خصائص وسمات المنتجات', icon: <ListOrdered size={18} /> },
-                { to: `${storePrefix}/inventory-transfers`, label: 'نقل وتحويلات المقاصة', icon: <ArrowRightLeft size={18} /> },
-                { to: `${storePrefix}/suppliers`, label: 'الموردين والفروع والمستودعات', icon: <UserCog size={18} /> },
-                { to: `${storePrefix}/purchase-returns`, label: 'مرتجع فواتير المشتريات', icon: <RotateCw size={18} /> },
                 { to: `${storePrefix}/reviews`, label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
-            ]
-        },
-        {
-            type: 'group',
-            title: 'قسم الصيانة والدعم الفني',
-            links: [
-                { to: `${storePrefix}/maintenance`, label: 'مركز إدارة عمليات الصيانة 🛠️', icon: <Wrench size={18} />, badge: { text: "جديد", color: "bg-blue-500/10 text-blue-600 border border-blue-500/10 text-[9px]" } },
-                { to: `${storePrefix}/reports?tab=maintenance`, label: 'تقارير الأداء الفني والتكاليف', icon: <BarChart2 size={18} /> },
             ]
         },
         {
@@ -112,57 +86,38 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
                     icon: <MessageSquare size={18} />, 
                     badge: { text: "شات 💬", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-bold" } 
                 },
-                { to: `${storePrefix}/team-chat`, label: 'دردشة ومناقشات طاقم العمل', icon: <Users2 size={18} /> },
                 { 
                     to: `${storePrefix}/ai-assistant`, 
                     label: 'مستشار الذكاء الاصطناعي (AI)', 
                     icon: <Wand2 size={18} />,
                     badge: { text: "AI ✨", color: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/10 text-[9px] font-bold animate-pulse" }
                 },
-                { to: `${storePrefix}/marketing`, label: 'توليد الرسائل والمحتوى الإعلاني', icon: <Megaphone size={18} /> },
                 { to: `${storePrefix}/discounts`, label: 'قسائم التخفيض وكوبونات الترويج', icon: <Percent size={18} /> },
             ]
         },
         {
             type: 'group',
-            title: 'الخزينة والمنظومة المالية والمصروفات',
+            title: 'المالية والخزائن والمصروفات',
             links: [
-                { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} />, badge: { text: "رئيسية", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px]" } },
-                { to: `${storePrefix}/cash-management`, label: 'حركات العُهد وتسليم الوردية', icon: <Handshake size={18} /> },
+                { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
-                { to: `${storePrefix}/employees-payroll`, label: 'إدارة شؤون الموظفين والرواتب', icon: <Users size={18} />, badge: { text: "جديد", color: "bg-blue-500/10 text-blue-600 border border-blue-500/10 text-[9px]" } },
-                { to: `${storePrefix}/partners`, label: 'حسابات الشركاء والمسحوبات الشخصية', icon: <Users size={18} /> },
-                { to: `${storePrefix}/partner-portal`, label: 'بوابة الشركاء الاستعلامية (PIN)', icon: <Users2 size={18} />, badge: { text: "مؤمن 🔒", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px] font-bold" } },
-                { to: `${storePrefix}/reconciliation`, label: 'مطابقة ومصالحة كشوف الإكسيل', icon: <FileSpreadsheet size={18} />, badge: { text: "ذكي ⚡", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[9px] font-bold" } },
-                { to: `${storePrefix}/collections-report`, label: 'سجلات التحصيل والمقاصة المالية', icon: <Receipt size={18} /> },
-                { to: `${storePrefix}/wallet`, label: 'المحفظة الإلكترونية لعمولات المتجر', icon: <WalletIcon size={18} /> },
-                { to: `${storePrefix}/withdrawals`, label: 'معاملات وتفاصيل سحب الأموال', icon: <ArrowRightLeft size={18} /> },
+                { to: `${storePrefix}/wallet`, label: 'محفظة عمولات المتجر', icon: <WalletIcon size={18} /> },
             ]
         },
         {
             type: 'group',
-            title: 'قنوات الشحن اللوجستي والتعبئة',
+            title: 'الشحن والتوصيل اللوجستي',
             links: [
                 { to: `${storePrefix}/shipping`, label: 'شركات وقنوات الشحن اللوجستي', icon: <Truck size={18} /> },
-                { 
-                    to: `${storePrefix}/failed-delivery-compensation`, 
-                    label: 'تعويضات أوردر فشل التوصيل', 
-                    icon: <ShieldAlert size={18} />,
-                    badge: { text: "مطالبات 💵", color: "bg-red-500/10 text-red-600 border border-red-500/10 text-[9px] font-bold" }
-                },
-                { to: `${storePrefix}/shipping-wrapping`, label: 'مستلزمات التعبئة والتغليف والشحن', icon: <Package size={18} /> },
             ]
         },
         {
             type: 'group',
-            title: 'الهندسة البرمجية وتصميم ومظهر الويب',
+            title: 'مظهر المتجر وربط الدومين',
             links: [
-                { to: `${storePrefix}/design-templates`, label: 'قوالب واجهة المتجر والويب', icon: <LayoutGrid size={18} /> },
                 { to: `${storePrefix}/customize-store`, label: 'تنسيق الخطوط والألوان والمظهر', icon: <Brush size={18} /> },
-                { to: `${storePrefix}/apps`, label: 'تثبيت التطبيقات وأدوات التكامل', icon: <AppWindow size={18} /> },
-                { to: `${storePrefix}/pages`, label: 'مدونة المتجر والصفحات الإضافية', icon: <FileText size={18} /> },
                 { to: `${storePrefix}/domain`, label: 'ربط النطاق المخصص والدومين', icon: <Globe size={18} /> },
-                { to: `${storePrefix}/legal-pages`, label: 'السياسات والشروط القانونية', icon: <Shield size={18} /> },
+                { to: `${storePrefix}/pages`, label: 'الصفحات الإضافية والمدونة', icon: <FileText size={18} /> },
             ]
         },
         {
@@ -170,15 +125,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeStore, settings, isOpen, onClos
             title: 'النظام وإعدادات التحكم الشاملة',
             links: [
                 { to: `${storePrefix}/settings`, label: 'الإعدادات العامة وإدارة المتجر ⚙️', icon: <Settings2 size={18} /> },
-                { to: `${storePrefix}/settings/payment`, label: 'بوابات وطرق الدفع والتحصيل للعملاء', icon: <CreditCard size={18} /> },
-                { to: `${storePrefix}/settings/tax`, label: 'الضرائب ورسوم القيمة المضافة للبائع', icon: <Landmark size={18} /> },
+                { to: `${storePrefix}/settings/payment`, label: 'بوابات وطرق الدفع والتحصيل', icon: <CreditCard size={18} /> },
                 { to: `${storePrefix}/settings/employees`, label: 'سجل صلاحيات طاقم العمل والـ CRM', icon: <Users2 size={18} /> },
-                { 
-                    to: `${storePrefix}/settings/developer`, 
-                    label: 'أدوات المطورين والربط السحابي (Cloud Sync)', 
-                    icon: <Code size={18} />,
-                    badge: { text: "مطور 🛠️", color: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/10 text-[9px] font-medium" }
-                }
             ]
         }
     ];

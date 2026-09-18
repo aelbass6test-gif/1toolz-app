@@ -3469,7 +3469,8 @@ async function startServer() {
     orderId,
     messageId,
     updatedAddress,
-    updatedGovernorate
+    updatedGovernorate,
+    referral
   }: {
     phone?: string;
     text: string;
@@ -3479,6 +3480,15 @@ async function startServer() {
     messageId?: string;
     updatedAddress?: string;
     updatedGovernorate?: string;
+    referral?: {
+      source_type?: string;
+      source_id?: string;
+      source_url?: string;
+      headline?: string;
+      body?: string;
+      media_type?: string;
+      image_url?: string;
+    };
   }) => {
     if (messageId) {
       if (processedMessageIds.has(messageId)) {
@@ -3709,6 +3719,20 @@ async function startServer() {
       const orderNumber = `WA-${cleanDigits.slice(-5) || Math.floor(1000 + Math.random() * 9000)}`;
       const displayName = (contactName || "").trim() || `عميل إعلان واتساب (${cleanDigits.slice(-4) || 'جديد'})`;
 
+      let notesText = `[استفسار واتساب جديد من الإعلان]:\n"${text}"`;
+      let sourceName = "إعلان واتساب (Meta Ad)";
+      let adDetails = "";
+
+      if (referral) {
+        adDetails = `\n\n📌 [بيانات الإعلان الممول]:` +
+          `\n- معرف الإعلان (Ad ID): ${referral.source_id || "غير معروف"}` +
+          `\n- عنوان الإعلان (Headline): ${referral.headline || "لا يوجد"}` +
+          `\n- وصف الإعلان (Body): ${referral.body || "لا يوجد"}` +
+          `\n- رابط المصدر (URL): ${referral.source_url || "لا يوجد"}`;
+        notesText += adDetails;
+        sourceName = `إعلان ممول - ID: ${referral.source_id || "Meta Ad"}`;
+      }
+
       const initialIncomingLog = {
         id: "wa_" + Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
@@ -3718,7 +3742,7 @@ async function startServer() {
         sender: displayName,
         recipient: "المتجر",
         status: 'received',
-        actionTaken: 'استفسار جديد من إعلان واتساب'
+        actionTaken: referral ? `استفسار جديد من إعلان ممول (ID: ${referral.source_id})` : 'استفسار جديد من إعلان واتساب'
       };
 
       const newLeadOrder = {
@@ -3733,15 +3757,16 @@ async function startServer() {
         date: new Date().toISOString(),
         total: 0,
         items: [],
-        notes: `[استفسار واتساب جديد من الإعلان]:\n"${text}"`,
-        source: "إعلان واتساب (Meta Ad)",
+        notes: notesText,
+        source: sourceName,
         whatsappLogs: [initialIncomingLog],
+        referral: referral || null,
         auditLogs: [
           {
             id: Math.random().toString(36).substr(2, 9),
             timestamp: new Date().toISOString(),
             action: "استقبال رسالة واتساب من عميل جديد",
-            details: `العميل أرسل: "${text}" عبر إعلان واتساب`,
+            details: `العميل أرسل: "${text}" عبر إعلان واتساب.` + (adDetails ? ` ${adDetails}` : ""),
             userEmail: "WhatsApp Bot"
           }
         ],
@@ -4473,12 +4498,19 @@ async function startServer() {
         return c.json({ success: false, reason: "No interactive action or phone parsed." });
       }
 
+      let referral: any = null;
+      if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.referral) {
+        referral = body.entry[0].changes[0].value.messages[0].referral;
+        console.log("[WHATSAPP-PUBLIC-WEBHOOK] Extracted referral from Meta:", JSON.stringify(referral));
+      }
+
       const result = await processCustomerWhatsAppAction({
         phone,
         text: buttonText,
         contactName,
         source: "webhook",
-        messageId
+        messageId,
+        referral
       });
 
       return c.json(result);

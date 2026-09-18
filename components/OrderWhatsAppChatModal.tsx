@@ -37,6 +37,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     initialOrder || (selectedOrderId ? orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId) : null) || orders[0] || null
   );
 
+  const [showChatMobile, setShowChatMobile] = useState<boolean>(!!initialOrder || !!selectedOrderId);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'shipping'>('all');
   const [customMessage, setCustomMessage] = useState('');
@@ -50,9 +52,13 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   useEffect(() => {
     if (initialOrder) {
       setActiveOrder(initialOrder);
+      setShowChatMobile(true);
     } else if (selectedOrderId) {
       const found = orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId);
-      if (found) setActiveOrder(found);
+      if (found) {
+        setActiveOrder(found);
+        setShowChatMobile(true);
+      }
     } else if (activeOrder) {
       const found = orders.find(o => o.id === activeOrder.id || o.orderNumber === activeOrder.orderNumber);
       if (found && (
@@ -123,6 +129,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   const handleSelectOrder = (ord: Order) => {
     setActiveOrder(ord);
     if (onSelectOrder) onSelectOrder(ord);
+    setShowChatMobile(true);
   };
 
   const copyText = (text: string, id: string) => {
@@ -168,8 +175,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         message: textToSend,
         sender: storeDisplayName + ' (المتجر)',
         recipient: activeOrder.customerName || phone,
-        status: res.success ? 'sent' : 'failed',
-        buttonSelected: undefined
+        status: res.success ? 'sent' : 'failed'
       };
 
       const updatedLogs = [...(activeOrder.whatsappLogs || []), newLog];
@@ -183,12 +189,31 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         await onUpdateOrder(updatedOrder);
       }
 
+      // Helper to clean undefined values before sending to Firestore
+      const cleanUndefined = (obj: any): any => {
+        if (Array.isArray(obj)) {
+          return obj.map(cleanUndefined);
+        }
+        if (obj !== null && typeof obj === 'object') {
+          const cleanObj: any = {};
+          for (const key of Object.keys(obj)) {
+            if (obj[key] !== undefined) {
+              cleanObj[key] = cleanUndefined(obj[key]);
+            }
+          }
+          return cleanObj;
+        }
+        return obj;
+      };
+
       // Also persist directly to Firestore orders collection for zero-loss guarantee
       if (activeOrder.id) {
-        setDoc(doc(firebaseDb, 'orders', activeOrder.id), {
+        const cleanPayload = cleanUndefined({
           whatsappLogs: updatedLogs,
           updatedAt: new Date().toISOString()
-        }, { merge: true }).catch((err: any) => console.warn('[PERSIST-CHAT-WARN]', err));
+        });
+        setDoc(doc(firebaseDb, 'orders', activeOrder.id), cleanPayload, { merge: true })
+          .catch((err: any) => console.warn('[PERSIST-CHAT-WARN]', err));
       }
 
       if (res.success) {
@@ -365,7 +390,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 min-h-0 overflow-hidden divide-y lg:divide-y-0 lg:divide-x lg:divide-x-reverse divide-slate-200 dark:divide-slate-800">
         
         {/* Right Sidebar: Orders & Customers List (4 cols) */}
-        <div className="lg:col-span-4 flex flex-col h-full min-h-0 bg-slate-50/50 dark:bg-slate-900/40 border-l border-slate-200 dark:border-slate-800">
+        <div className={`lg:col-span-4 flex-col h-full min-h-0 bg-slate-50/50 dark:bg-slate-900/40 border-l border-slate-200 dark:border-slate-800 ${showChatMobile ? 'hidden lg:flex' : 'flex'}`}>
           {/* Search Box */}
           <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0">
             <div className="relative">
@@ -461,12 +486,20 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         </div>
 
         {/* Center/Left Main Panel: Chat Window & Sent Messages (8 cols) */}
-        <div className="lg:col-span-8 flex flex-col h-full min-h-0 bg-[#F0F2F5] dark:bg-[#0B141A]">
+        <div className={`lg:col-span-8 flex-col h-full min-h-0 bg-[#F0F2F5] dark:bg-[#0B141A] ${showChatMobile ? 'flex' : 'hidden lg:flex'}`}>
           {activeOrder ? (
             <>
               {/* Order Chat Header Bar */}
               <div className="p-4 bg-white dark:bg-[#202C33] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 shrink-0 shadow-sm">
                 <div className="flex items-center gap-3">
+                  {/* Mobile Back Button */}
+                  <button
+                    onClick={() => setShowChatMobile(false)}
+                    className="lg:hidden p-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-1 inline-flex items-center justify-center shrink-0"
+                    title="الرجوع لقائمة الطلبات"
+                  >
+                    <ArrowRight size={20} className="text-emerald-600 dark:text-emerald-400" />
+                  </button>
                   <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 font-black text-lg flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-700">
                     {(activeOrder.customerName || 'ع').charAt(0)}
                   </div>
@@ -752,7 +785,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   // If embedded in a page, return directly without modal backdrop
   if (isEmbedded) {
     return (
-      <div className="h-[750px] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="h-full w-full overflow-hidden">
         {containerContent}
       </div>
     );

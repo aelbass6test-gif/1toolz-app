@@ -796,29 +796,35 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
             <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
               <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">2</span>
-              <span>ربط نطاق مخصص (GoDaddy, Cloudflare, Hostinger)</span>
+              <span>ربط وتفعيل نطاق مخصص (GoDaddy, Hostinger, cPanel)</span>
             </h2>
 
             <div className="space-y-4">
               <p className="text-xs text-slate-500 leading-relaxed">
-                هل اشتريت دوميناً خاصاً بك؟ اكتب العنوان هنا (مثال: <span className="font-semibold text-slate-700 dark:text-slate-350" dir="ltr">mystore.com</span>) للربط التلقائي عبر المنظومة السحابية.
+                هل اشتريت دوميناً خاصاً بك من GoDaddy أو Hostinger أو أي شركة أخرى؟ اكتب العنوان هنا (مثال: <span className="font-semibold text-slate-700 dark:text-slate-350" dir="ltr">yourstore.com</span>) للربط التلقائي وتفعيل شهادة الـ SSL المجانية.
               </p>
-              <div className="p-2 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-800/30 rounded-lg">
-                <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold leading-relaxed">
-                  ⚠️ تأكد من إضافة <strong>CLOUDFLARE_API_TOKEN</strong> و <strong>CLOUDFLARE_ZONE_ID</strong> في إعدادات التطبيق (Settings) لضمان عمل الربط التلقائي وشهادات الـ SSL.
-                </p>
-              </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <input 
                   type="text" 
                   value={customDomain}
                   onChange={(e) => setCustomDomain(e.target.value)}
                   disabled={domainStatus === 'verifying' || isSaving}
-                  placeholder="www.yourstore.com"
+                  placeholder="yourstore.com"
                   className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
                   dir="ltr"
                 />
+
+                <button
+                  type="button"
+                  onClick={handleActivateDemoMode}
+                  disabled={isSaving || !customDomain.trim()}
+                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2"
+                  title="تفعيل وحفظ مباشر داخل المتجر"
+                >
+                  <CheckCircle2 size={16} />
+                  <span>تفعيل وربط النطاق الآن 🟢</span>
+                </button>
               </div>
 
               {/* Action Buttons for Custom Domain */}
@@ -827,21 +833,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   type="button"
                   onClick={handleSaveDomain}
                   disabled={isSaving || domainStatus === 'verifying' || !customDomain.trim()}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-sm disabled:opacity-50 transition-all cursor-pointer flex items-center gap-2"
+                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/30 dark:text-indigo-300 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2"
                 >
                   {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                  <span>حفظ وتفعيل النطاق عبر Cloudflare ⚡</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleActivateDemoMode}
-                  disabled={isSaving || !customDomain.trim()}
-                  className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
-                  title="تفعيل وحفظ مباشر داخل المتجر"
-                >
-                  <CheckCircle2 size={14} />
-                  <span>تفعيل مباشر (فوري) 🚀</span>
+                  <span>ربط تلقائي متقدم (Cloudflare Sync) ⚡</span>
                 </button>
 
                 {(customDomain || settings.customDomain || settings.customAppDomain) && (
@@ -849,7 +844,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                     type="button"
                     onClick={handleDisconnect}
                     disabled={isSaving}
-                    className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/20 dark:hover:bg-red-900/20 dark:text-red-400 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
+                    className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/20 dark:hover:bg-red-900/20 dark:text-red-400 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
                   >
                     <Trash2 size={14} />
                     <span>حذف / فك ارتباط النطاق</span>
@@ -867,7 +862,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                             : `https://${targetDomain}`;
                         window.open(url, '_blank');
                     }}
-                    className="px-4 py-2.5 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                    className="px-4 py-2 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                   >
                     <span>معاينة النطاق المباشر</span>
                     <ExternalLink size={12} />
@@ -902,7 +897,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                     <RefreshCw size={18} />
                   </div>
-                  <span className="font-bold text-lg md:text-xl text-slate-900 dark:text-white" dir="ltr">{customDomain || settings.customDomain}</span>
+                  <span className="font-bold text-lg md:text-xl text-slate-900 dark:text-white" dir="ltr">{customDomain || settings.customDomain || 'يرجى إدخال نطاق مخصص'}</span>
                   
                   {domainStatus === 'active' || (settings.domainStatus === 'active' && !domainStatus) ? (
                     <span className="px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/50 text-xs font-bold flex items-center gap-1.5">
@@ -954,19 +949,19 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4">خطوات الربط والـ DNS</h3>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4">السجلات والبيانات المطلوب ربطها بالدومين 📋</h3>
                   <ul className="space-y-4 text-xs font-medium text-slate-600 dark:text-slate-400">
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">1</span>
-                      <span className="pt-1">اذهب إلى لوحة التحكم في الموقع الذي يستضيف الدومين الخاص بك (GoDaddy, Namecheap, Hostinger, GoDaddy ... إلخ).</span>
+                      <span className="pt-1">اذهب إلى لوحة التحكم في الموقع الذي اشتريت منه الدومين الخاص بك (مثال: GoDaddy, Namecheap, Hostinger, cPanel ... إلخ).</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">2</span>
-                      <span className="pt-1">انتقل إلى إعدادات إدارة سجلات DNS (DNS Management).</span>
+                      <span className="pt-1">انتقل إلى قسم إدارة سجلات الـ DNS (DNS Management أو Zone Editor).</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">3</span>
-                      <span className="pt-1">احذف أي سجلات قديمة تشير للروت (@) أو الـ (www)، ثم أضف السجلين التاليين من نوع CNAME ليشيروا إلى <code className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">fallback.abdomedi.com</code>:</span>
+                      <span className="pt-1">احذف أي سجلات قديمة تشير للروت (@) أو الـ (www)، ثم أضف السجلات التالية بالضبط:</span>
                     </li>
                   </ul>
                 </div>
@@ -974,25 +969,43 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                 {/* DNS Records Table */}
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
                   <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-200 dark:border-slate-800">
-                    <div>النوع</div>
-                    <div>الاسم</div>
-                    <div>القيمة / Target</div>
-                    <div>TTL</div>
+                    <div>نوع السجل</div>
+                    <div>اسم السجل (Host)</div>
+                    <div>القيمة / الهدف (Value)</div>
+                    <div>الحالة</div>
                   </div>
 
-                  {/* Record 1: CNAME for root (@) */}
+                  {/* Record 1: A Record for Root */}
+                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center bg-indigo-50/10 dark:bg-slate-800/40">
+                    <div className="font-mono text-slate-850 dark:text-indigo-400 font-bold text-center">A Record (مستحسن للروت)</div>
+                    <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-bold" dir="ltr">
+                        162.159.224.4
+                      </div>
+                      <button 
+                        onClick={() => handleCopy('162.159.224.4', 'arecord')}
+                        className="text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 transition"
+                      >
+                        {copiedText === 'arecord' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-emerald-650 font-bold">جاهز للربط ✅</div>
+                  </div>
+
+                  {/* Record 1.5: A Record Backup for Root */}
                   <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
-                    <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
+                    <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">A Record (احتياطي)</div>
                     <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
                     <div className="flex items-center justify-center gap-2">
                       <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
-                        fallback.abdomedi.com
+                        162.159.225.4
                       </div>
                       <button 
-                        onClick={() => handleCopy('fallback.abdomedi.com', 'arecord')}
+                        onClick={() => handleCopy('162.159.225.4', 'arecord2')}
                         className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
                       >
-                        {copiedText === 'arecord' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        {copiedText === 'arecord2' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                       </button>
                     </div>
                     <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>

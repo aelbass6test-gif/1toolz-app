@@ -804,7 +804,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
       )}
 
       {/* Tab Content Box */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden min-h-[550px]">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm overflow-hidden min-h-[350px] md:min-h-[550px]">
         {activeTab === 'meta' && (
           <MetaWhatsAppSection
             config={config}
@@ -1103,7 +1103,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'chats' && (
-          <div className="h-[750px] w-full">
+          <div className="h-[62vh] md:h-[calc(100vh-320px)] min-h-[420px] md:min-h-[600px] max-h-[800px] w-full">
             <OrderWhatsAppChatModal 
               orders={orders} 
               settings={settings} 

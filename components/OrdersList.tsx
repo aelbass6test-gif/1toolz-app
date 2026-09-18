@@ -4255,95 +4255,96 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       {/* Header & Main Actions */}
       <div
-        className="relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-7 rounded-[2rem] bg-[#101827] border border-slate-700/70 shadow-2xl shadow-slate-900/10"
+        className="relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-5 sm:p-7 rounded-[2rem] bg-[#101827] border border-slate-700/70 shadow-2xl shadow-slate-900/10"
         dir="rtl"
       >
         <div className="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-amber-400/15 blur-3xl" />
         <div className="pointer-events-none absolute -right-16 -bottom-32 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
-        <div className="flex items-center justify-between w-full lg:w-auto shrink-0">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-              <span className="text-xs font-bold text-amber-300/80 uppercase tracking-[0.22em]">
-                نظام الطلبات واللوجستيات المركزي
+        
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+            <span className="text-xs font-bold text-amber-300/80 uppercase tracking-[0.22em]">
+              نظام الطلبات واللوجستيات المركزي
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-2">
+              إدارة الطلبات وسجل المبيعات
+            </h1>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleManualRefresh}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-600 bg-white/5 text-slate-200 hover:text-amber-300 hover:border-amber-300/50 transition-all cursor-pointer ${isRefreshing ? "animate-spin text-amber-300 border-amber-300/60" : ""}`}
+              title="مزامنة الطلبات"
+            >
+              <RefreshCcw size={18} />
+              <span className="text-xs font-black uppercase tracking-tight">
+                مزامنة سحابية
               </span>
+            </motion.button>
+          </div>
+          <p className="text-xs font-bold text-slate-300/75 mt-1 leading-relaxed">
+            نظام موحد ومبسط لمتابعة الشحنات، معالجة وتجهيز الأوردرات، وتحليل مبيعات وأرباح المتجر بكل سهولة
+          </p>
+          <div className="flex flex-wrap items-center gap-3 mt-2">
+            <div className="px-3 py-1 bg-amber-300/10 text-amber-200 rounded-full text-[10px] font-black border border-amber-300/20">
+              {filteredOrders.length} طلب مطابق للفلتر
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-              <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
-                إدارة الطلبات وسجل المبيعات
-              </h1>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleManualRefresh}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-600 bg-white/5 text-slate-200 hover:text-amber-300 hover:border-amber-300/50 transition-all cursor-pointer ${isRefreshing ? "animate-spin text-amber-300 border-amber-300/60" : ""}`}
-                title="مزامنة الطلبات"
-              >
-                <RefreshCcw size={18} />
-                <span className="text-xs font-black uppercase tracking-tight">
-                  مزامنة سحابية
-                </span>
-              </motion.button>
-            </div>
-            <p className="text-xs font-bold text-slate-300/75 mt-1">
-              نظام موحد ومبسط لمتابعة الشحنات، معالجة وتجهيز الأوردرات، وتحليل مبيعات وأرباح المتجر بكل سهولة
-            </p>
-            <div className="flex items-center gap-3 mt-2">
-              <div className="px-3 py-1 bg-amber-300/10 text-amber-200 rounded-full text-[10px] font-black border border-amber-300/20">
-                {filteredOrders.length} طلب مطابق للفلتر
-              </div>
+            {activeStore?.id && (
               <div className="px-3 py-1 bg-cyan-300/10 text-cyan-200 rounded-full text-[10px] font-black border border-cyan-300/20">
                 المتجر النشط: {activeStore?.id}
               </div>
-            </div>
+            )}
           </div>
+        </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => setShowDuplicateFinder(true)}
-              className={`flex items-center gap-1.5 px-4 py-3 rounded-2xl border transition-all font-bold text-xs cursor-pointer relative ${
-                duplicateGroups.some(g => g.hasSuspectedDuplicate)
-                  ? "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40"
-                  : "bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/50 hover:bg-purple-100 dark:hover:bg-purple-900/40"
-              }`}
-              title="كشف الطلبات المكررة والعملاء ذوي الطلبات المتعددة"
-            >
-              {duplicateGroups.some(g => g.hasSuspectedDuplicate) ? (
-                <>
-                  <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 animate-pulse" />
-                  <span>👥 كاشف التكرار ({duplicateGroups.filter(g => g.hasSuspectedDuplicate).length})</span>
-                  <span className="absolute -top-1.5 -left-1.5 flex h-3.5 w-3.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 text-[8px] font-black text-white items-center justify-center">!</span>
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Users size={18} className="text-purple-600 dark:text-purple-400" />
-                  <span>👥 العملاء المكررين ({duplicateGroups.length})</span>
-                </>
-              )}
-            </button>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+          <button
+            onClick={() => setShowDuplicateFinder(true)}
+            className={`flex items-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl border transition-all font-bold text-xs cursor-pointer relative ${
+              duplicateGroups.some(g => g.hasSuspectedDuplicate)
+                ? "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40"
+                : "bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/50 hover:bg-purple-100 dark:hover:bg-purple-900/40"
+            }`}
+            title="كشف الطلبات المكررة والعملاء ذوي الطلبات المتعددة"
+          >
+            {duplicateGroups.some(g => g.hasSuspectedDuplicate) ? (
+              <>
+                <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 animate-pulse animate-duration-1000 shrink-0" />
+                <span>👥 كاشف التكرار ({duplicateGroups.filter(g => g.hasSuspectedDuplicate).length})</span>
+                <span className="absolute -top-1.5 -left-1.5 flex h-3.5 w-3.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 text-[8px] font-black text-white items-center justify-center">!</span>
+                </span>
+              </>
+            ) : (
+              <>
+                <Users size={18} className="text-purple-600 dark:text-purple-400 shrink-0" />
+                <span>👥 العملاء المكررين ({duplicateGroups.length})</span>
+              </>
+            )}
+          </button>
 
-            <button
-              onClick={() => setShowStatusGuide(true)}
-              className="flex items-center gap-1.5 px-4 py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 transition-all font-bold text-xs"
-              title="شرح مبسط لحالات الطلبات"
-            >
-              <Info size={18} />
-              <span>💡 دليل استخدام الحالات</span>
-            </button>
+          <button
+            onClick={() => setShowStatusGuide(true)}
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 transition-all font-bold text-xs shrink-0"
+            title="شرح مبسط لحالات الطلبات"
+          >
+            <Info size={18} className="shrink-0" />
+            <span>💡 دليل استخدام الحالات</span>
+          </button>
 
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => navigate(`${storePrefix}/orders/new`)}
-              className="bg-indigo-600 text-white px-5 py-3 rounded-2xl font-black shadow-xl shadow-indigo-500/25 transition-all flex items-center gap-2 text-sm shrink-0"
-            >
-              <Plus size={20} />
-              <span className="hidden sm:inline">طلب جديد</span>
-            </motion.button>
-          </div>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => navigate(`${storePrefix}/orders/new`)}
+            className="bg-indigo-600 text-white px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl font-black shadow-xl shadow-indigo-500/25 transition-all flex items-center gap-2 text-xs sm:text-sm shrink-0"
+          >
+            <Plus size={20} className="shrink-0" />
+            <span>طلب جديد</span>
+          </motion.button>
         </div>
       </div>
 
