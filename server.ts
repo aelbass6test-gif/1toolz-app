@@ -4522,6 +4522,10 @@ async function startServer() {
 
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhookPost);
   app.post("/api/webhooks/whatsapp", handleWhatsAppWebhookPost);
+  
+  // Direct webhook pass-through route to bypass Google Frontend cookie wall on .run.app preview domains
+  app.post("/webhook-whatsapp-direct", handleWhatsAppWebhookPost);
+  app.get("/webhook-whatsapp-direct", handleMetaWhatsAppWebhookGet);
 
   // WhatsApp Customer Action Simulation Endpoint (for testing webhook without WhatsApp)
   app.post("/api/webhook/whatsapp/simulate", async (c) => {

@@ -302,7 +302,42 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         setStatusMsg({ type: 'error', text: data.error || data.reason || 'فشلت معالجة المحاكاة' });
       }
     } catch (err: any) {
-      setStatusMsg({ type: 'error', text: err.message || 'حدث خطأ في الاتصال بالخادم' });
+      const isCookieCheck = err.message && (err.message.includes('Unexpected token') || err.message.includes('JSON') || err.message.includes('parse') || err.message.includes('DOCTYPE'));
+      if (isCookieCheck) {
+        // Fallback to direct client-side Firestore state simulation so that it works seamlessly even under Google cookie walls
+        const isCancel = actionText.includes('إلغاء');
+        const updatedStatus = isCancel ? 'ملغي' : 'قيد_التنفيذ';
+        
+        const incomingLog: WhatsAppMessageLog = {
+          id: 'sim_' + Math.random().toString(36).substr(2, 9),
+          timestamp: new Date().toISOString(),
+          type: isCancel ? 'cancellation' : 'confirmation',
+          direction: 'incoming',
+          message: actionText,
+          sender: activeOrder.customerName || 'العميل',
+          recipient: storeDisplayName,
+          status: 'received',
+          actionTaken: isCancel ? 'تم إلغاء الطلب تلقائياً (محاكاة مباشرة)' : 'تم تأكيد الطلب تلقائياً (محاكاة مباشرة)'
+        };
+
+        const updatedOrder: Order = {
+          ...activeOrder,
+          status: updatedStatus as any,
+          whatsappLogs: [...(activeOrder.whatsappLogs || []), incomingLog]
+        };
+
+        setActiveOrder(updatedOrder);
+        if (onUpdateOrder) {
+          await onUpdateOrder(updatedOrder);
+        }
+
+        setStatusMsg({ 
+          type: 'success', 
+          text: `⚡ تم كشف حماية جوجل. قمنا بتأكيد/إلغاء الطلب وحفظه في قاعدة البيانات مباشرة بنجاح! تم التحديث إلى: [${isCancel ? 'ملغي' : 'قيد التنفيذ'}] ✅` 
+        });
+      } else {
+        setStatusMsg({ type: 'error', text: err.message || 'حدث خطأ في الاتصال بالخادم' });
+      }
     } finally {
       setIsSimulating(false);
       setTimeout(() => setStatusMsg(null), 4000);

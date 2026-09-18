@@ -145,9 +145,11 @@ async function handleWhatsAppWebhook(request: Request, env: Env): Promise<Respon
     }
 
     // Forward to app backend asynchronously if configured
-    const backendUrl = env.APP_BACKEND_URL || env.APP_ORIGIN || "https://app.abdomedi.com";
-    if (backendUrl) {
-      const targetEndpoint = `${backendUrl.replace(/\/$/, "")}/api/webhook/whatsapp`;
+    // We forward to the custom domain (env.APP_ORIGIN) using the unintercepted '/webhook-whatsapp-direct' path
+    // to bypass the Google Frontend cookie wall on .run.app preview domains
+    const directBackendUrl = env.APP_ORIGIN || "https://app.abdomedi.com";
+    if (directBackendUrl) {
+      const targetEndpoint = `${directBackendUrl.replace(/\/$/, "")}/webhook-whatsapp-direct`;
       fetch(targetEndpoint, {
         method: "POST",
         headers: {
