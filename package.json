@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "node dist/server.mjs",
-    "build": "NODE_OPTIONS=--max-old-space-size=4096 vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.mjs",
+    "build": "NODE_OPTIONS=--max-old-space-size=4096 vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.mjs && esbuild cloudflare-worker/src/index.ts --bundle --format=esm --target=es2022 --outfile=cloudflare-worker/dist/index.js",
     "test:shipping": "tsx tests/shipping-status.test.ts",
     "preview": "vite preview",
     "lint": "tsc --noEmit"
