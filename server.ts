@@ -2568,6 +2568,7 @@ async function startServer() {
       const domainStatus = isStatusActive ? 'active' : 'pending_validation';
       await updateStoreDomainSettings(storeId, { 
           customDomain: cleanDomain, 
+          customAppDomain: cleanDomain,
           domainStatus, 
           domainDNSRecords: hostnameInfo 
       });
@@ -2619,7 +2620,7 @@ async function startServer() {
       const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
       // Always clear Firestore first or as part of it
-      await updateStoreDomainSettings(storeId, { customDomain: null, domainStatus: null, domainDNSRecords: null });
+      await updateStoreDomainSettings(storeId, { customDomain: null, customAppDomain: null, domainStatus: null, domainDNSRecords: null });
 
       if (!zoneId || !apiToken || !domain) {
           return c.json({ success: true, simulation: true });
@@ -2642,6 +2643,115 @@ async function startServer() {
     }
   });
 
+  // Cloudflare SSL for SaaS & Fallback Origin Status & Setup APIs
+  app.get("/api/cloudflare/saas-status", async (c) => {
+    try {
+      const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+      const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+      if (!zoneId || !apiToken) {
+        return c.json({
+          success: false,
+          configured: false,
+          error: "المتغيرات البيئية CLOUDFLARE_ZONE_ID و CLOUDFLARE_API_TOKEN غير محددة في إعدادات البيئة.",
+          hasZoneId: Boolean(zoneId),
+          hasApiToken: Boolean(apiToken)
+        });
+      }
+
+      // 1. Fetch Fallback Origin from Cloudflare API
+      const fbRes = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames/fallback_origin`,
+        {
+          headers: {
+            "Authorization": `Bearer ${apiToken}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      const fbData: any = await fbRes.json().catch(() => ({}));
+
+      // 2. Fetch list of custom hostnames to check SSL for SaaS enablement
+      const hostnamesRes = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames?per_page=5`,
+        {
+          headers: {
+            "Authorization": `Bearer ${apiToken}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      const hostnamesData: any = await hostnamesRes.json().catch(() => ({}));
+
+      const isSaaSActive = hostnamesData.success === true;
+      const fallbackOrigin = fbData.result?.origin || null;
+      const fallbackStatus = fbData.result?.status || (fbData.success ? "active" : "not_set");
+
+      return c.json({
+        success: true,
+        configured: true,
+        isSaaSActive,
+        zoneId: `${zoneId.slice(0, 6)}...${zoneId.slice(-4)}`,
+        fallbackOrigin,
+        fallbackStatus,
+        fallbackDetails: fbData.result || null,
+        errors: fbData.errors || hostnamesData.errors || null,
+        message: fallbackOrigin 
+          ? `ميزة SSL for SaaS مفعلة والـ Fallback Origin مضبوط على (${fallbackOrigin}) بحالة: ${fallbackStatus}`
+          : "ميزة SSL for SaaS مفعلة، ولكن لم يتم تحديد الـ Fallback Origin بعد."
+      });
+    } catch (err: any) {
+      console.error("[CLOUDFLARE-SAAS-STATUS-ERR]", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  app.post("/api/cloudflare/set-fallback-origin", async (c) => {
+    try {
+      const { origin } = await c.req.json().catch(() => ({ origin: "fallback.abdomedi.com" }));
+      const targetOrigin = (origin || "fallback.abdomedi.com").trim().toLowerCase().replace(/^https?:\/\//, '');
+
+      const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+      const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
+      if (!zoneId || !apiToken) {
+        return c.json({
+          success: false,
+          error: "المتغيرات البيئية CLOUDFLARE_ZONE_ID و CLOUDFLARE_API_TOKEN غير محددة."
+        }, 400);
+      }
+
+      const response = await fetch(
+        `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames/fallback_origin`,
+        {
+          method: "PUT",
+          headers: {
+            "Authorization": `Bearer ${apiToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ origin: targetOrigin })
+        }
+      );
+
+      const data: any = await response.json();
+      if (!response.ok || !data.success) {
+        return c.json({
+          success: false,
+          error: data.errors?.[0]?.message || "فشل ضبط الـ Fallback Origin في Cloudflare",
+          details: data.errors
+        }, 400);
+      }
+
+      return c.json({
+        success: true,
+        message: `تم ضبط وتفعيل الـ Fallback Origin بنجاح إلى: ${targetOrigin}`,
+        result: data.result
+      });
+    } catch (err: any) {
+      console.error("[CLOUDFLARE-SET-FALLBACK-ERR]", err);
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
 
   // Health check
   app.get("/api/health", (c) => {

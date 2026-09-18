@@ -1635,7 +1635,24 @@ export const AppComponent = () => {
                         const cdSnap = await getDocs(qCD);
                         if (!cdSnap.empty) {
                             foundStoreId = cdSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via custom domain query:', foundStoreId);
+                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customDomain query:', foundStoreId);
+                        }
+                    }
+
+                    if (!foundStoreId) {
+                        const qCAD = query(collection(firebaseDb, 'stores_data'), where('settings.customAppDomain', '==', hostNoWww));
+                        const cadSnap = await getDocs(qCAD);
+                        if (!cadSnap.empty) {
+                            foundStoreId = cadSnap.docs[0].id;
+                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customAppDomain query:', foundStoreId);
+                        }
+                    }
+
+                    if (!foundStoreId && host !== hostNoWww) {
+                        const qCDHost = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', host));
+                        const cdHostSnap = await getDocs(qCDHost);
+                        if (!cdHostSnap.empty) {
+                            foundStoreId = cdHostSnap.docs[0].id;
                         }
                     }
                 } catch (lookupErr) {

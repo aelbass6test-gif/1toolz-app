@@ -74,8 +74,80 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   const [isSubdomainSaving, setIsSubdomainSaving] = useState(false);
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [typedPassword, setTypedPassword] = useState('');
+  const [cfSaasInfo, setCfSaasInfo] = useState<{
+    checked: boolean;
+    loading: boolean;
+    configured: boolean;
+    isSaaSActive: boolean;
+    fallbackOrigin: string | null;
+    fallbackStatus: string;
+    message: string;
+    settingFallback: boolean;
+    error: string | null;
+  }>({
+    checked: false,
+    loading: false,
+    configured: false,
+    isSaaSActive: false,
+    fallbackOrigin: null,
+    fallbackStatus: '',
+    message: '',
+    settingFallback: false,
+    error: null
+  });
+
+  const checkCfSaasStatus = async () => {
+    setCfSaasInfo(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const res = await fetch('/api/cloudflare/saas-status');
+      const data = await res.json();
+      setCfSaasInfo({
+        checked: true,
+        loading: false,
+        configured: data.configured ?? false,
+        isSaaSActive: data.isSaaSActive ?? false,
+        fallbackOrigin: data.fallbackOrigin || null,
+        fallbackStatus: data.fallbackStatus || '',
+        message: data.message || '',
+        settingFallback: false,
+        error: data.error || null
+      });
+    } catch (e: any) {
+      setCfSaasInfo(prev => ({
+        ...prev,
+        checked: true,
+        loading: false,
+        error: e.message || 'فشل الاتصال بـ API فحص Cloudflare'
+      }));
+    }
+  };
+
+  const handleSetFallbackOrigin = async (origin = 'fallback.abdomedi.com') => {
+    setCfSaasInfo(prev => ({ ...prev, settingFallback: true, error: null }));
+    try {
+      const res = await fetch('/api/cloudflare/set-fallback-origin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origin })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showAlert("نجاح Cloudflare", `⚡ ${data.message}`, "success");
+        await checkCfSaasStatus();
+      } else {
+        showAlert("خطأ Cloudflare", `⚠️ ${data.error || 'فشل ضبط Fallback Origin'}`, "error");
+        setCfSaasInfo(prev => ({ ...prev, settingFallback: false, error: data.error }));
+      }
+    } catch (e: any) {
+      showAlert("خطأ", e.message, "error");
+      setCfSaasInfo(prev => ({ ...prev, settingFallback: false, error: e.message }));
+    }
+  };
 
   // --- Effects ---
+  useEffect(() => {
+    checkCfSaasStatus();
+  }, []);
   useEffect(() => {
     if (settings.subdomain) {
       setLocalSubdomain(settings.subdomain);
@@ -373,7 +445,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       // Save to global setSettings for SaaS configurations
       setSettings((prev: any) => ({
         ...prev,
-        customAppDomain: cleanDomain
+        customDomain: cleanDomain,
+        customAppDomain: cleanDomain,
+        domainStatus: nextStatus,
+        domainDNSRecords: data.details || prev.domainDNSRecords
       }));
 
       showAlert("نجاح", data.message || `⚡ تم تسجيل النطاق ${cleanDomain} بنجاح عبر API! يرجى إعداد سجلات الـ DNS في لوحة تحكم نطاقك لتبدأ شهادة SSL بالعمل.`, "success");
@@ -523,7 +598,9 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     
     setSettings((prev: any) => ({
       ...prev,
-      customAppDomain: cleanDomain
+      customDomain: cleanDomain,
+      customAppDomain: cleanDomain,
+      domainStatus: 'active'
     }));
     
     setBackendError(null);
@@ -540,7 +617,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           await fetch('/api/domains/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ domain: customDomain || settings.customAppDomain, storeId: activeStoreId })
+            body: JSON.stringify({ domain: customDomain || settings.customAppDomain || settings.customDomain, storeId: activeStoreId })
           });
         } catch (e) {
           console.error("Failed to delete domain on backend", e);
@@ -556,6 +633,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
         localStorage.removeItem(`custom_domain_details_${activeStoreId}`);
         setSettings((prev: any) => ({
           ...prev,
+          customDomain: '',
           customAppDomain: '',
           domainStatus: 'none',
           domainDNSRecords: null
@@ -693,14 +771,15 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   </button>
                 )}
 
-                {settings.subdomain && (
+                {((settings.subdomain || customDomain || settings.customDomain || settings.customAppDomain)) && (
                   <button
                     type="button"
                     onClick={() => {
+                        const targetDomain = customDomain || settings.customDomain || settings.customAppDomain || (settings.subdomain ? `${settings.subdomain}.abdomedi.com` : '');
                         const isInternal = window.location.hostname.includes('run.app') || window.location.hostname.includes('pages.dev') || window.location.hostname.includes('localhost');
                         const url = isInternal 
                             ? `${window.location.origin}${window.location.pathname}?preview_store=${activeStoreId}`
-                            : `https://${settings.customAppDomain || settings.subdomain + '.abdomedi.com'}`;
+                            : `https://${targetDomain}`;
                         window.open(url, '_blank');
                     }}
                     className="px-4 py-2.5 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
@@ -735,11 +814,65 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   type="text" 
                   value={customDomain}
                   onChange={(e) => setCustomDomain(e.target.value)}
-                  disabled={domainStatus === 'verifying'}
+                  disabled={domainStatus === 'verifying' || isSaving}
                   placeholder="www.yourstore.com"
                   className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
                   dir="ltr"
                 />
+              </div>
+
+              {/* Action Buttons for Custom Domain */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleSaveDomain}
+                  disabled={isSaving || domainStatus === 'verifying' || !customDomain.trim()}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-sm disabled:opacity-50 transition-all cursor-pointer flex items-center gap-2"
+                >
+                  {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>حفظ وتفعيل النطاق عبر Cloudflare ⚡</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleActivateDemoMode}
+                  disabled={isSaving || !customDomain.trim()}
+                  className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
+                  title="تفعيل وحفظ مباشر داخل المتجر"
+                >
+                  <CheckCircle2 size={14} />
+                  <span>تفعيل مباشر (فوري) 🚀</span>
+                </button>
+
+                {(customDomain || settings.customDomain || settings.customAppDomain) && (
+                  <button
+                    type="button"
+                    onClick={handleDisconnect}
+                    disabled={isSaving}
+                    className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/20 dark:hover:bg-red-900/20 dark:text-red-400 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Trash2 size={14} />
+                    <span>حذف / فك ارتباط النطاق</span>
+                  </button>
+                )}
+
+                {((customDomain || settings.customDomain || settings.customAppDomain)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                        const targetDomain = customDomain || settings.customDomain || settings.customAppDomain;
+                        const isInternal = window.location.hostname.includes('run.app') || window.location.hostname.includes('pages.dev') || window.location.hostname.includes('localhost');
+                        const url = isInternal 
+                            ? `${window.location.origin}${window.location.pathname}?preview_store=${activeStoreId}`
+                            : `https://${targetDomain}`;
+                        window.open(url, '_blank');
+                    }}
+                    className="px-4 py-2.5 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                  >
+                    <span>معاينة النطاق المباشر</span>
+                    <ExternalLink size={12} />
+                  </button>
+                )}
               </div>
 
               {customDomain && isCustomDomainTaken(customDomain) && (
@@ -758,13 +891,12 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
             </div>
           </div>
           
-          {/* DNS Configuration Table and details */}
-          {(domainStatus !== 'none' || cfDetails || settings.domainDNSRecords) && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6"
-            >
+          {/* DNS Configuration Table and details - Always visible for quick setup */}
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6"
+          >
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
@@ -953,228 +1085,6 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
               </div>
             </motion.div>
-          )}
-
-        <div className="space-y-6">
-          {/* Section 3: Admin Security */}
-          <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 self-start">
-            <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
-              <span className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center font-bold">3</span>
-              <span>🔒 إعدادات الأمان</span>
-            </h2>
-
-            <div className="space-y-4">
-              <p className="text-xs text-slate-500 leading-relaxed">
-                عيّن كلمة مرور لحماية إعدادات الدومينات.
-              </p>
-              <input
-                type="password"
-                value={settings.adminPassword || ''}
-                onChange={(e) => setSettings((prev: any) => ({ ...prev, adminPassword: e.target.value }))}
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
-                placeholder="**********"
-              />
-            </div>
-          </div>
-      </div>
-
-          {/* DNS Configuration Table and details */}
-          {(domainStatus !== 'none' || cfDetails || settings.domainDNSRecords) && (
-            <motion.div 
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6"
-            >
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-5 mb-6 gap-4 md:gap-0">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                    <RefreshCw size={18} />
-                  </div>
-                  <span className="font-bold text-lg md:text-xl text-slate-900 dark:text-white" dir="ltr">{customDomain || settings.customDomain}</span>
-                  
-                  {domainStatus === 'active' || (settings.domainStatus === 'active' && !domainStatus) ? (
-                    <span className="px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/50 text-xs font-bold flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      متصل ونشط
-                    </span>
-                  ) : domainStatus === 'pending_validation' || domainStatus === 'pending' ? (
-                    <span className="px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-800/50 text-xs font-bold flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      بانتظار التوثيق
-                    </span>
-                  ) : (
-                    <span className="px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800/50 text-xs font-bold flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                      غير متصل
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={handleVerify}
-                    disabled={domainStatus === 'verifying'}
-                    className={`px-6 py-2.5 rounded-full text-sm font-bold shadow-sm flex items-center gap-2 cursor-pointer transition-all ${
-                      domainStatus === 'active' 
-                        ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 cursor-default' 
-                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    }`}
-                  >
-                    {domainStatus === 'verifying' ? (
-                      <>
-                        <RefreshCw size={16} className="animate-spin" />
-                        <span>جاري التحقق...</span>
-                      </>
-                    ) : domainStatus === 'active' ? (
-                      <>
-                        <CheckCircle2 size={16} />
-                        <span>تحقق ناجح</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>تحقق من الاتصال</span>
-                        <CheckCircle2 size={16} />
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4">خطوات الربط والـ DNS</h3>
-                  <ul className="space-y-4 text-xs font-medium text-slate-600 dark:text-slate-400">
-                    <li className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">1</span>
-                      <span className="pt-1">اذهب إلى لوحة التحكم في الموقع الذي يستضيف الدومين الخاص بك (GoDaddy, Namecheap, Hostinger, GoDaddy ... إلخ).</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">2</span>
-                      <span className="pt-1">انتقل إلى إعدادات إدارة سجلات DNS (DNS Management).</span>
-                    </li>
-                    <li className="flex items-start gap-3">
-                      <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">3</span>
-                      <span className="pt-1">احذف أي سجلات قديمة تشير للروت (@) أو الـ (www)، ثم أضف السجلين التاليين من نوع CNAME ليشيروا إلى <code className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">fallback.abdomedi.com</code>:</span>
-                    </li>
-                  </ul>
-                </div>
-
-                {/* DNS Records Table */}
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 text-xs shadow-sm">
-                  <div className="grid grid-cols-4 bg-slate-50/50 dark:bg-slate-800/20 py-4 px-4 font-bold text-slate-500 dark:text-slate-400 text-center border-b border-slate-200 dark:border-slate-800">
-                    <div>النوع</div>
-                    <div>الاسم</div>
-                    <div>القيمة / Target</div>
-                    <div>TTL</div>
-                  </div>
-
-                  {/* Record 1: CNAME for root (@) */}
-                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
-                    <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
-                    <div className="font-mono text-slate-600 dark:text-slate-400">@</div>
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
-                        fallback.abdomedi.com
-                      </div>
-                      <button 
-                        onClick={() => handleCopy('fallback.abdomedi.com', 'arecord')}
-                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
-                      >
-                        {copiedText === 'arecord' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                      </button>
-                    </div>
-                    <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
-                  </div>
-
-                  {/* Record 2: CNAME for www */}
-                  <div className="grid grid-cols-4 py-5 px-4 text-center border-b border-slate-200 dark:border-slate-800 items-center">
-                    <div className="font-mono text-slate-800 dark:text-slate-200 font-medium">CNAME</div>
-                    <div className="font-mono text-slate-600 dark:text-slate-400">www</div>
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium" dir="ltr">
-                        fallback.abdomedi.com
-                      </div>
-                      <button 
-                        onClick={() => handleCopy('fallback.abdomedi.com', 'cname')}
-                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
-                      >
-                        {copiedText === 'cname' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                      </button>
-                    </div>
-                    <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
-                  </div>
-
-                  {/* TXT Records from Cloudflare */}
-                  {(cfDetails || settings.domainDNSRecords) && (
-                    <>
-                      {/* Record 3: Ownership Verification TXT */}
-                      {(cfDetails?.ownership_verification || settings.domainDNSRecords?.ownership_verification) && (
-                        <div className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-indigo-900/10">
-                          <div className="font-mono text-indigo-700 dark:text-indigo-400 font-bold text-[10px]">TXT (الملكية)</div>
-                          <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
-                            {(cfDetails?.ownership_verification?.name || settings.domainDNSRecords?.ownership_verification?.name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
-                          </div>
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
-                              {cfDetails?.ownership_verification?.value || settings.domainDNSRecords?.ownership_verification?.value}
-                            </div>
-                            <button 
-                              onClick={() => handleCopy(cfDetails?.ownership_verification?.value || settings.domainDNSRecords?.ownership_verification?.value, 'txt-own')}
-                              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
-                            >
-                              {copiedText === 'txt-own' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                            </button>
-                          </div>
-                          <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
-                        </div>
-                      )}
-
-                      {/* SSL Verification TXT Records */}
-                      {(cfDetails?.ssl?.validation_records || settings.domainDNSRecords?.ssl?.validation_records || []).map((record: any, idx: number) => (
-                        <div key={`ssl-rec-${idx}`} className="grid grid-cols-4 py-5 px-4 text-center items-center border-b border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-pink-900/10">
-                          <div className="font-mono text-pink-700 dark:text-pink-400 font-bold text-[10px]">TXT (SSL {idx + 1})</div>
-                          <div className="font-mono text-slate-600 dark:text-slate-400" dir="ltr">
-                            {(record?.txt_name || "").replace(`.${customDomain || settings.customDomain}`, '') || '@'}
-                          </div>
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="font-mono text-[11px] text-slate-600 dark:text-slate-400 select-all font-medium truncate max-w-[150px]" dir="ltr">
-                              {record?.txt_value}
-                            </div>
-                            <button 
-                              onClick={() => handleCopy(record?.txt_value, `txt-ssl-${idx}`)}
-                              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition shrink-0"
-                            >
-                              {copiedText === `txt-ssl-${idx}` ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                            </button>
-                          </div>
-                          <div className="font-mono text-slate-600 dark:text-slate-400">Auto</div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-
-                <div className="space-y-4 pt-4">
-                  <div className="flex items-center gap-3">
-                    <span className="w-6 h-6 rounded-full border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 flex items-center justify-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">4</span>
-                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200">تأكد من أنك قمت بإعداده بالشكل المطلوب</p>
-                  </div>
-                  
-                  <div className="bg-amber-50/50 dark:bg-amber-950/20 p-5 rounded-2xl border border-amber-100 dark:border-amber-900/30">
-                    <div className="flex items-center justify-center gap-2 mb-2 text-amber-700 dark:text-amber-400">
-                      <AlertTriangle size={18} className="shrink-0" />
-                      <p className="text-sm font-bold">يحتاج الدومين 24-48 ساعة لربطه ويظهر موقعك أونلاين على مستوى العالم</p>
-                    </div>
-                    <p className="text-xs text-center text-amber-600/80 dark:text-amber-500/80 font-medium font-arabic leading-relaxed">
-                      يحتاج ربط الدومين الجديد وقتاً، لأن خوادم الـ DNS العالمية تبدأ في تبادل السجلات وتحديث جهة توجيه الزوار تدريجياً.
-                    </p>
-                  </div>
-                </div>
-
-              </div>
-            </motion.div>
-          )}
-
         </div>
 
         {/* Informational Right Sidebar */}
