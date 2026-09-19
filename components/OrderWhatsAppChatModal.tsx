@@ -62,9 +62,11 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     } else if (activeOrder) {
       const found = orders.find(o => o.id === activeOrder.id || o.orderNumber === activeOrder.orderNumber);
       if (found && (
-        found.whatsappLogs?.length !== activeOrder.whatsappLogs?.length ||
+        ((found as any).whatsappLogs?.length || (found as any).whatsapp_logs?.length || 0) !== ((activeOrder as any).whatsappLogs?.length || (activeOrder as any).whatsapp_logs?.length || 0) ||
         found.status !== activeOrder.status ||
-        found.notes !== activeOrder.notes
+        found.notes !== activeOrder.notes ||
+        (found as any).updatedAt !== (activeOrder as any).updatedAt ||
+        (found as any).updated_at !== (activeOrder as any).updated_at
       )) {
         setActiveOrder(found);
       }

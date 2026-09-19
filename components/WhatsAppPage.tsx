@@ -22,10 +22,11 @@ interface WhatsAppPageProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
   onSave?: () => Promise<void>;
+  onRefresh?: () => Promise<void>;
   setOrders?: React.Dispatch<React.SetStateAction<Order[]>> | ((updater: any) => void);
 }
 
-const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettings, onSave, setOrders }) => {
+const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettings, onSave, onRefresh, setOrders }) => {
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab') as 'meta' | 'interactive' | 'chats' | 'templates' | 'devices' | 'settings' | null;
   const [activeTab, setActiveTab] = useState<'meta' | 'interactive' | 'chats' | 'templates' | 'devices' | 'settings'>(
@@ -37,6 +38,17 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
       setActiveTab(requestedTab);
     }
   }, [requestedTab]);
+
+  // Safety refresh for an open chat in case the browser misses a Realtime event.
+  useEffect(() => {
+    if (activeTab !== 'chats' || !onRefresh) return;
+    const intervalId = window.setInterval(() => {
+      void onRefresh().catch((error) => {
+        console.warn('[WHATSAPP-LIVE] Background refresh failed:', error);
+      });
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [activeTab, onRefresh]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [testPhone, setTestPhone] = useState('');
