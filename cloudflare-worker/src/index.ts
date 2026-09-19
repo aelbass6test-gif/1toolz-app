@@ -411,37 +411,6 @@ async function logWebhook(payload: any, env: Env) {
 }
 
 /**
- * Serves the dashboard inside a full-screen iframe to bypass Google Auth issues while keeping the custom domain.
- */
-async function handleProxy(request: Request, env: Env): Promise<Response> {
-  const publicUrl = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
-  
-  const html = `
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>OneToolz Dashboard</title>
-      <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #f8fafc; }
-        iframe { border: none; width: 100%; height: 100%; }
-        .loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-family: sans-serif; color: #64748b; z-index: -1; }
-      </style>
-    </head>
-    <body>
-      <div class="loading">جاري تحميل لوحة التحكم...</div>
-      <iframe src="${publicUrl}" allow="camera; microphone; geolocation; clipboard-read; clipboard-write; autoplay"></iframe>
-    </body>
-    </html>
-  `;
-
-  return new Response(html, {
-    headers: { "content-type": "text/html; charset=utf-8" }
-  });
-}
-
-/**
  * Checks if the incoming origin is allowed.
  * Supports production domains, AI Studio dev/pre domains, localhost, and custom configured origin.
  */
@@ -820,30 +789,13 @@ function turboOrder(order: any, config: any, key: string, client: number) {
 /* -------------------------------------------------------------------------- */
 /* Main Worker Fetch Handler                                                  */
 /* -------------------------------------------------------------------------- */
-export default {
-  async fetch(request, env, ctx) {
+export default { 
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const host = request.headers.get("host") || "";
 
     // Preflight CORS
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
-    }
-
-    // Logic to decide between Carrier API, WhatsApp Webhook, or Proxying to Dashboard
-    const isCarrierApi = url.pathname.startsWith("/api/bosta/") || 
-                         url.pathname.startsWith("/api/turbo/") || 
-                         url.pathname === "/api/shipping/turbo/track";
-    
-    const isWebhook = url.pathname === "/api/webhook/whatsapp" || 
-                       url.pathname === "/webhook/whatsapp";
-
-    // If it's the dashboard domain and NOT a carrier/webhook API, proxy to the dashboard app
-    if ((host === "app.abdomedi.com" || host === "abdomedi.com") && !isCarrierApi && !isWebhook) {
-      // Allow /health and /api root for health checks if needed, but otherwise proxy
-      if (url.pathname !== "/health" && url.pathname !== "/api") {
-        return await handleProxy(request, env);
-      }
     }
 
     // Health and status endpoint
