@@ -877,7 +877,36 @@ export default {
         return await turbo(request, env);
       }
 
-      return json(request, env, { success: false, error: "المسار غير موجود" }, 404); 
+      // Transparently proxy all unmatched routes (SPA pages, static assets, general APIs) to Hono backend
+      const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+      const targetUrl = new URL(request.url);
+      const parsedBackend = new URL(backendUrl);
+      targetUrl.hostname = parsedBackend.hostname;
+      targetUrl.protocol = parsedBackend.protocol;
+      targetUrl.port = parsedBackend.port || (parsedBackend.protocol === "https:" ? "443" : "80");
+
+      const headers = new Headers(request.headers);
+      headers.set("host", parsedBackend.host);
+
+      const proxyRequest = new Request(targetUrl.toString(), {
+        method: request.method,
+        headers,
+        body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+        redirect: "manual"
+      });
+
+      try {
+        const response = await fetch(proxyRequest);
+        // If the backend has a cookie/auth wall and returns a 302, let the browser handle it
+        return response;
+      } catch (proxyErr: any) {
+        console.error("[Worker Proxy Error]", proxyErr);
+        return json(request, env, { 
+          success: false, 
+          error: "بوابة إيدج: فشل الاتصال بالسيرفر الخلفي للتطبيق (Backend Connection Failed)", 
+          details: proxyErr.message 
+        }, 502);
+      } 
     } catch (error: any) { 
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
