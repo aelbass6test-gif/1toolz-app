@@ -15,6 +15,8 @@ import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 import { MetaWhatsAppSection } from './MetaWhatsAppSection';
 import { OrderWhatsAppChatModal } from './OrderWhatsAppChatModal';
 
+const SUPABASE_WHATSAPP_WEBHOOK_URL = 'https://kwirhppfowzqshltmoga.supabase.co/functions/v1/whatsapp-webhook';
+
 interface WhatsAppPageProps {
   orders: Order[];
   settings: Settings;
@@ -395,7 +397,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
   const handleAutoSetupWebhook = async () => {
     setIsSettingUpWebhook(true);
     try {
-      const webhookUrl = `${window.location.origin}/api/webhook/whatsapp`;
+      const webhookUrl = SUPABASE_WHATSAPP_WEBHOOK_URL;
       const res = await fetch('/api/whatsapp/setup-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -908,12 +910,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-[11px] font-mono font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-left select-all overflow-x-auto shadow-xs" dir="ltr">
-                    {typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : '/api/webhook/whatsapp'}
+                    {SUPABASE_WHATSAPP_WEBHOOK_URL}
                   </code>
                   <button
                     type="button"
                     onClick={() => {
-                      const url = typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : '/api/webhook/whatsapp';
+                      const url = SUPABASE_WHATSAPP_WEBHOOK_URL;
                       navigator.clipboard?.writeText(url);
                       setStatusMsg({ type: 'success', text: 'تم نسخ رابط الويب-هوك بنجاح!' });
                       setTimeout(() => setStatusMsg(null), 3000);

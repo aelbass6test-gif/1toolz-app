@@ -14,6 +14,8 @@ import confetti from 'canvas-confetti';
 import ApiKeysManager from './ApiKeysManager';
 import WebhooksManager from './WebhooksManager';
 
+const SUPABASE_WHATSAPP_WEBHOOK_URL = 'https://kwirhppfowzqshltmoga.supabase.co/functions/v1/whatsapp-webhook';
+
 interface AppsPageProps {
   storeId: string;
   storeData: StoreData | null;
@@ -2209,12 +2211,12 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                              <input 
                                type="text"
                                readOnly 
-                               value={selectedApp.id === 'whatsapp' ? `${hostUrl}/api/webhook/whatsapp` : getWebhookUrl(selectedApp.id)} 
+                               value={selectedApp.id === 'whatsapp' ? SUPABASE_WHATSAPP_WEBHOOK_URL : getWebhookUrl(selectedApp.id)}
                                className="w-full px-4 py-3 text-xs font-mono bg-transparent text-left focus:outline-none"
                                dir="ltr"
                              />
                              <button 
-                               onClick={() => copyToClipboard(selectedApp.id === 'whatsapp' ? `${hostUrl}/api/webhook/whatsapp` : getWebhookUrl(selectedApp.id))} 
+                               onClick={() => copyToClipboard(selectedApp.id === 'whatsapp' ? SUPABASE_WHATSAPP_WEBHOOK_URL : getWebhookUrl(selectedApp.id))}
                                className={`px-6 flex items-center justify-center transition-all border-r dark:border-slate-700 min-w-[80px] font-bold text-xs ${copied ? 'bg-green-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}
                              >
                                {copied ? 'تم النسخ!' : 'نسخ الرابط'}
