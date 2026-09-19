@@ -411,41 +411,33 @@ async function logWebhook(payload: any, env: Env) {
 }
 
 /**
- * Proxies requests to the main app backend.
+ * Serves the dashboard inside a full-screen iframe to bypass Google Auth issues while keeping the custom domain.
  */
 async function handleProxy(request: Request, env: Env): Promise<Response> {
-  const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
-  const url = new URL(request.url);
-  const targetUrl = new URL(url.pathname + url.search, backendUrl);
+  const publicUrl = "https://ais-pre-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
   
-  const headers = new Headers(request.headers);
-  // Important: set the host header to the target backend host so it accepts the request
-  const targetHost = new URL(backendUrl).host;
-  headers.set("Host", targetHost);
-  
-  // Forward the request to the backend
-  const response = await fetch(targetUrl.toString(), {
-    method: request.method,
-    headers: headers,
-    body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
-    redirect: "manual" // Handle redirects ourselves if needed
-  });
+  const html = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>OneToolz Dashboard</title>
+      <style>
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #f8fafc; }
+        iframe { border: none; width: 100%; height: 100%; }
+        .loading { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-family: sans-serif; color: #64748b; z-index: -1; }
+      </style>
+    </head>
+    <body>
+      <div class="loading">جاري تحميل لوحة التحكم...</div>
+      <iframe src="${publicUrl}" allow="camera; microphone; geolocation; clipboard-read; clipboard-write; autoplay"></iframe>
+    </body>
+    </html>
+  `;
 
-  // Reconstruct response to avoid immutable header issues and handle redirects
-  const responseHeaders = new Headers(response.headers);
-  
-  // Handle relative redirects
-  if (response.status >= 300 && response.status < 400) {
-    const location = responseHeaders.get("Location");
-    if (location && location.includes(targetHost)) {
-      responseHeaders.set("Location", location.replace(targetHost, url.host));
-    }
-  }
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: responseHeaders
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8" }
   });
 }
 
