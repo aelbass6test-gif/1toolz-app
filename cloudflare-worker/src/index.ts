@@ -411,6 +411,45 @@ async function logWebhook(payload: any, env: Env) {
 }
 
 /**
+ * Proxies requests to the main app backend.
+ */
+async function handleProxy(request: Request, env: Env): Promise<Response> {
+  const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+  const url = new URL(request.url);
+  const targetUrl = new URL(url.pathname + url.search, backendUrl);
+  
+  const headers = new Headers(request.headers);
+  // Important: set the host header to the target backend host so it accepts the request
+  const targetHost = new URL(backendUrl).host;
+  headers.set("Host", targetHost);
+  
+  // Forward the request to the backend
+  const response = await fetch(targetUrl.toString(), {
+    method: request.method,
+    headers: headers,
+    body: request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined,
+    redirect: "manual" // Handle redirects ourselves if needed
+  });
+
+  // Reconstruct response to avoid immutable header issues and handle redirects
+  const responseHeaders = new Headers(response.headers);
+  
+  // Handle relative redirects
+  if (response.status >= 300 && response.status < 400) {
+    const location = responseHeaders.get("Location");
+    if (location && location.includes(targetHost)) {
+      responseHeaders.set("Location", location.replace(targetHost, url.host));
+    }
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders
+  });
+}
+
+/**
  * Checks if the incoming origin is allowed.
  * Supports production domains, AI Studio dev/pre domains, localhost, and custom configured origin.
  */
@@ -789,13 +828,30 @@ function turboOrder(order: any, config: any, key: string, client: number) {
 /* -------------------------------------------------------------------------- */
 /* Main Worker Fetch Handler                                                  */
 /* -------------------------------------------------------------------------- */
-export default { 
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+export default {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const host = request.headers.get("host") || "";
 
     // Preflight CORS
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
+    }
+
+    // Logic to decide between Carrier API, WhatsApp Webhook, or Proxying to Dashboard
+    const isCarrierApi = url.pathname.startsWith("/api/bosta/") || 
+                         url.pathname.startsWith("/api/turbo/") || 
+                         url.pathname === "/api/shipping/turbo/track";
+    
+    const isWebhook = url.pathname === "/api/webhook/whatsapp" || 
+                       url.pathname === "/webhook/whatsapp";
+
+    // If it's the dashboard domain and NOT a carrier/webhook API, proxy to the dashboard app
+    if ((host === "app.abdomedi.com" || host === "abdomedi.com") && !isCarrierApi && !isWebhook) {
+      // Allow /health and /api root for health checks if needed, but otherwise proxy
+      if (url.pathname !== "/health" && url.pathname !== "/api") {
+        return await handleProxy(request, env);
+      }
     }
 
     // Health and status endpoint

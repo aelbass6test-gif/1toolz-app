@@ -1,4 +1,4 @@
-name = "abdomedi-carrier-api"
+name = "1toolz-app"
 main = "cloudflare-worker/dist/index.js"
 compatibility_date = "2024-03-20"
 
@@ -15,5 +15,5 @@ FIREBASE_DATABASE_ID = "ai-studio-9e748a9b-76d5-4a17-a942-c8226e822acb"
 CLOUDFLARE_ZONE_ID = "b548bd3bc36d71d87cddfa846c54c23e"
 
 [[routes]]
-pattern = "api.abdomedi.com/*"
+pattern = "*.abdomedi.com/*"
 zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
