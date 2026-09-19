@@ -546,6 +546,47 @@ async function upstream(request: Request, env: Env, url: string, init: RequestIn
   return json(request, env, { success: false, error: data?.message || data?.error || data?.error_msg || `رفضت ${mode} الطلب (HTTP ${res.status})`, data, status: res.status }, res.status);
 }
 
+async function proxyBackendRequest(request: Request, env: Env): Promise<Response> {
+  const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+  const publicUrl = new URL(request.url);
+  const backend = new URL(backendUrl);
+  const targetUrl = new URL(publicUrl.pathname + publicUrl.search, backend);
+  const headers = new Headers(request.headers);
+  headers.set("host", backend.host);
+
+  const response = await fetch(new Request(targetUrl.toString(), {
+    method: request.method,
+    headers,
+    body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+    redirect: "manual"
+  }));
+  const responseHeaders = new Headers(response.headers);
+
+  const location = responseHeaders.get("location");
+  if (location) {
+    const rewritten = new URL(location, backend);
+    // Keep browser navigation on the public app domain, including the
+    // return_url used by the Google cookie-check page.
+    rewritten.searchParams.forEach((value, key) => {
+      if (value.includes(backend.origin)) {
+        rewritten.searchParams.set(key, value.replaceAll(backend.origin, publicUrl.origin));
+      }
+    });
+    if (rewritten.origin === backend.origin) {
+      rewritten.protocol = publicUrl.protocol;
+      rewritten.host = publicUrl.host;
+    }
+    responseHeaders.set("location", rewritten.toString());
+  }
+
+  const setCookie = responseHeaders.get("set-cookie");
+  if (setCookie) {
+    responseHeaders.set("set-cookie", setCookie.replaceAll(`Domain=${backend.hostname}`, `Domain=${publicUrl.hostname}`));
+  }
+
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
+}
+
 function bostaHeaders(key: string, content = false): Record<string, string> {
   return { ...(content ? { "content-type": "application/json" } : {}), accept: "application/json", ...(key ? { Authorization: key, "x-api-key": key } : {}) };
 }
@@ -852,7 +893,7 @@ export default {
     }
 
     // Health and status endpoint
-    if (url.pathname === "/health" || url.pathname === "/" || url.pathname === "/api") {
+    if (url.pathname === "/health" || url.pathname === "/api") {
       return json(request, env, {
         ok: true,
         service: "abdomedi-carrier-api",
@@ -884,24 +925,9 @@ export default {
         return await turbo(request, env);
       }
 
-      // Forward application APIs and SPA assets to the Hono backend. This is
-      // required for routes such as /api/whatsapp/send that are not edge-native.
-      const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
-      const targetUrl = new URL(request.url);
-      const parsedBackend = new URL(backendUrl);
-      targetUrl.hostname = parsedBackend.hostname;
-      targetUrl.protocol = parsedBackend.protocol;
-      targetUrl.port = parsedBackend.port || (parsedBackend.protocol === "https:" ? "443" : "80");
-
-      const headers = new Headers(request.headers);
-      headers.set("host", parsedBackend.host);
-      const proxyRequest = new Request(targetUrl.toString(), {
-        method: request.method,
-        headers,
-        body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
-        redirect: "manual"
-      });
-      return await fetch(proxyRequest);
+      // Forward application APIs and SPA assets to the Hono backend while
+      // rewriting backend redirects/cookies back to the public app domain.
+      return await proxyBackendRequest(request, env);
     } catch (error: any) { 
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
