@@ -2233,8 +2233,78 @@ export const AppComponent = () => {
         }
 
         if (db.isSupabaseActive()) {
-            console.log('[REALTIME] Custom Supabase cloud active: Firestore live snapshots are disabled to prevent quota issues.');
-            return () => {};
+            console.log('[REALTIME] Custom Supabase cloud active: subscribing to live orders updates.');
+            refreshStoreDataRef.current = refreshStoreData;
+            activeStoreRef.current = activeStore;
+            allStoresDataRef.current = allStoresData;
+
+            const supabase = getSupabaseClient();
+            if (!supabase || !activeStoreId) {
+                console.warn('[REALTIME] Supabase client or active store is unavailable.');
+                return () => {};
+            }
+
+            const channel = supabase
+                .channel(`orders-realtime-${activeStoreId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'orders',
+                        filter: `store_id=eq.${activeStoreId}`
+                    },
+                    (payload: any) => {
+                        if (isSavingRef.current || isDirtyRef.current) return;
+
+                        const eventType = payload.eventType;
+                        const incoming = eventType === 'DELETE' ? payload.old : payload.new;
+                        if (!incoming?.id) return;
+
+                        console.log(`[REALTIME] Supabase orders change received: ${eventType}`, incoming.id);
+                        isRefreshing.current = true;
+                        setAllStoresData(prev => {
+                            const store = prev[activeStoreId];
+                            if (!store) return prev;
+                            const currentOrders = store.orders || [];
+
+                            if (eventType === 'DELETE') {
+                                return {
+                                    ...prev,
+                                    [activeStoreId]: {
+                                        ...store,
+                                        orders: currentOrders.filter((order: any) => order.id !== incoming.id)
+                                    }
+                                };
+                            }
+
+                            const existingIndex = currentOrders.findIndex((order: any) => order.id === incoming.id);
+                            const nextOrder = {
+                                ...(existingIndex >= 0 ? currentOrders[existingIndex] : {}),
+                                ...incoming,
+                                items: Array.isArray(incoming.items)
+                                    ? incoming.items
+                                    : (existingIndex >= 0 ? currentOrders[existingIndex].items || [] : [])
+                            };
+                            const nextOrders = [...currentOrders];
+                            if (existingIndex >= 0) nextOrders[existingIndex] = nextOrder;
+                            else nextOrders.unshift(nextOrder);
+
+                            return {
+                                ...prev,
+                                [activeStoreId]: { ...store, orders: nextOrders }
+                            };
+                        });
+                    }
+                )
+                .subscribe((status: string) => {
+                    console.log(`[REALTIME] Supabase orders channel status: ${status}`);
+                });
+
+            return () => {
+                console.log('[REALTIME] Removing Supabase orders subscription.');
+                void supabase.removeChannel(channel);
+            };
         }
 
         console.log('[REALTIME] Setting up Firestore snapshots...');
