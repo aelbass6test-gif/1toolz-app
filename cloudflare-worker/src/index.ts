@@ -1,4 +1,5 @@
 export interface Env {
+  ASSETS?: any;
   APP_ORIGIN?: string;
   APP_BACKEND_URL?: string;
   META_VERIFY_TOKEN?: string;
@@ -870,8 +871,8 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
 
-    // Health and status endpoint
-    if (url.pathname === "/health" || url.pathname === "/" || url.pathname === "/api") {
+    // Health and status endpoint (Only for /api/health or /health)
+    if (url.pathname === "/api/health" || url.pathname === "/health") {
       return json(request, env, {
         ok: true,
         service: "abdomedi-carrier-api",
@@ -903,8 +904,48 @@ export default {
         return await turbo(request, env);
       }
 
-      return json(request, env, { success: false, error: "المسار غير موجود" }, 404); 
+      // For unmatched /api/ routes, return JSON 404
+      if (url.pathname.startsWith("/api/")) {
+        return json(request, env, { success: false, error: "المسار غير موجود" }, 404);
+      }
+
+      // Pass non-API requests (frontend UI, assets, page routes) to env.ASSETS or origin
+      if (env.ASSETS) {
+        try {
+          const assetRes = await env.ASSETS.fetch(request);
+          if (assetRes.status !== 404) {
+            return assetRes;
+          }
+          // For SPA client-side routing, fallback to /index.html
+          const indexReq = new Request(new URL("/index.html", request.url).toString(), request);
+          const indexRes = await env.ASSETS.fetch(indexReq);
+          if (indexRes.status === 200) {
+            return indexRes;
+          }
+        } catch (e) {
+          console.error("ASSETS fetch error:", e);
+        }
+      }
+
+      if (env.APP_BACKEND_URL && !env.APP_BACKEND_URL.includes(url.hostname)) {
+        try {
+          const backendUrl = new URL(url.pathname + url.search, env.APP_BACKEND_URL);
+          const newHeaders = new Headers(request.headers);
+          newHeaders.set("Host", backendUrl.hostname);
+          const proxyReq = new Request(backendUrl.toString(), {
+            method: request.method,
+            headers: newHeaders,
+            body: request.method !== "GET" && request.method !== "HEAD" ? await request.arrayBuffer() : undefined,
+            redirect: "follow"
+          });
+          return await fetch(proxyReq);
+        } catch (e) {}
+      }
+      return await fetch(request);
     } catch (error: any) { 
+      if (!url.pathname.startsWith("/api/")) {
+        return await fetch(request);
+      }
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
   } 
