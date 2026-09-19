@@ -247,8 +247,11 @@ ${reason ? `📌 سبب الإلغاء: ${reason}\n` : ''}
     if (!order) return [];
 
     // 1. إذا كان الطلب يحتوي على سجل رسائل محفوظ مسبقاً
-    if (order.whatsappLogs && Array.isArray(order.whatsappLogs) && order.whatsappLogs.length > 0) {
-      return order.whatsappLogs.map((log: any, idx: number) => ({
+    const storedLogs = Array.isArray((order as any).whatsappLogs) && (order as any).whatsappLogs.length > 0
+      ? (order as any).whatsappLogs
+      : (Array.isArray((order as any).whatsapp_logs) ? (order as any).whatsapp_logs : []);
+    if (storedLogs.length > 0) {
+      return storedLogs.map((log: any, idx: number) => ({
         id: log.id || `log_${idx}`,
         timestamp: log.timestamp || order.date || new Date().toISOString(),
         type: log.type || 'custom',

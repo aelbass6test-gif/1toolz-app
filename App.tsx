@@ -2282,6 +2282,10 @@ export const AppComponent = () => {
                             const nextOrder = {
                                 ...(existingIndex >= 0 ? currentOrders[existingIndex] : {}),
                                 ...incoming,
+                                whatsappLogs: incoming.whatsappLogs || incoming.whatsapp_logs || (existingIndex >= 0 ? (currentOrders[existingIndex] as any).whatsappLogs : []),
+                                whatsapp_logs: incoming.whatsapp_logs || incoming.whatsappLogs || (existingIndex >= 0 ? (currentOrders[existingIndex] as any).whatsapp_logs : []),
+                                updatedAt: incoming.updatedAt || incoming.updated_at,
+                                updated_at: incoming.updated_at || incoming.updatedAt,
                                 items: Array.isArray(incoming.items)
                                     ? incoming.items
                                     : (existingIndex >= 0 ? currentOrders[existingIndex].items || [] : [])
