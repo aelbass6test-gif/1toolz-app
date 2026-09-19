@@ -4837,31 +4837,17 @@ async function startServer() {
             buttonText = `${msg.interactive.button_reply.title || ""} ${msg.interactive.button_reply.id || ""}`.trim();
           } else if (msg.interactive?.list_reply) {
             buttonText = `${msg.interactive.list_reply.title || ""} ${msg.interactive.list_reply.id || ""}`.trim();
-          } else if (msg.interactive?.nfm_reply) {
-            buttonText = `${msg.interactive.nfm_reply.response_json || ""}`.trim();
           }
         } else if (msg.type === "text") {
           buttonText = msg.text?.body || "";
-        } else if (msg.type === "reaction") {
-          buttonText = msg.reaction?.emoji || "";
-        } else if (msg.type === "location") {
-          buttonText = `${msg.location?.name || ""} ${msg.location?.address || ""} (${msg.location?.latitude || ""}, ${msg.location?.longitude || ""})`.trim();
-        } else if (msg.type === "contacts") {
-          buttonText = msg.contacts?.[0]?.name?.formatted_name || msg.contacts?.[0]?.phones?.[0]?.phone || "[جهة اتصال]";
-        } else if (msg.type === "order") {
-          buttonText = `[طلب منتجات: ${msg.order?.product_items?.length || 0}]`;
-        } else if (msg.type === "system") {
-          buttonText = msg.system?.body || "";
         } else if (msg.type === "audio" || msg.type === "voice") {
           buttonText = "[رسالة صوتية]";
         } else if (msg.type === "image") {
-          buttonText = msg.image?.caption || "[صورة]";
+          buttonText = "[صورة]";
         } else if (msg.type === "video") {
-          buttonText = msg.video?.caption || "[فيديو]";
+          buttonText = "[فيديو]";
         } else if (msg.type === "document") {
-          buttonText = msg.document?.filename || "[ملف]";
-        } else if (msg.type === "sticker") {
-          buttonText = "[ملصق]";
+          buttonText = "[ملف]";
         } else {
           buttonText = msg.text?.body || msg.body || msg.button?.text || msg.button_reply?.title || "";
         }

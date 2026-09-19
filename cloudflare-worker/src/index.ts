@@ -1,5 +1,4 @@
 export interface Env {
-  ASSETS?: any;
   APP_ORIGIN?: string;
   APP_BACKEND_URL?: string;
   META_VERIFY_TOKEN?: string;
@@ -78,39 +77,13 @@ async function writeToFirestore(payload: any, env: Env) {
       if (message.type === 'text') {
         text = message.text?.body || "";
       } else if (message.type === 'interactive') {
-        if (message.interactive?.button_reply) {
-          text = `${message.interactive.button_reply.title || ""} ${message.interactive.button_reply.id || ""}`.trim();
-        } else if (message.interactive?.list_reply) {
-          text = `${message.interactive.list_reply.title || ""} ${message.interactive.list_reply.id || ""}`.trim();
-        } else if (message.interactive?.nfm_reply) {
-          text = `${message.interactive.nfm_reply.response_json || ""}`.trim();
-        }
+        text = `${message.interactive?.button_reply?.title || ""} ${message.interactive?.button_reply?.id || ""}`.trim();
       } else if (message.type === 'button') {
         text = `${message.button?.text || ""} ${message.button?.payload || ""}`.trim();
       } else if (message.type === 'button_reply' || message.button_reply) {
         text = `${message.button_reply?.title || message.button_reply?.text || ""} ${message.button_reply?.id || message.button_reply?.payload || ""}`.trim();
       } else if (message.type === 'template_button_reply' || message.template_button_reply) {
         text = `${message.template_button_reply?.title || message.template_button_reply?.text || ""} ${message.template_button_reply?.id || message.template_button_reply?.payload || ""}`.trim();
-      } else if (message.type === 'reaction') {
-        text = message.reaction?.emoji || "";
-      } else if (message.type === 'location') {
-        text = `${message.location?.name || ""} ${message.location?.address || ""} (${message.location?.latitude || ""}, ${message.location?.longitude || ""})`.trim();
-      } else if (message.type === 'contacts') {
-        text = message.contacts?.[0]?.name?.formatted_name || message.contacts?.[0]?.phones?.[0]?.phone || "[جهة اتصال]";
-      } else if (message.type === 'order') {
-        text = `[طلب منتجات: ${message.order?.product_items?.length || 0}]`;
-      } else if (message.type === 'system') {
-        text = message.system?.body || "";
-      } else if (message.type === 'image') {
-        text = message.image?.caption || "[صورة]";
-      } else if (message.type === 'video') {
-        text = message.video?.caption || "[فيديو]";
-      } else if (message.type === 'audio' || message.type === 'voice') {
-        text = "[رسالة صوتية]";
-      } else if (message.type === 'document') {
-        text = message.document?.filename || "[ملف]";
-      } else if (message.type === 'sticker') {
-        text = "[ملصق]";
       } else {
         text = message.text?.body || message.body || message.button?.text || message.button_reply?.title || `[${message.type}]`;
       }
@@ -871,8 +844,8 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
 
-    // Health and status endpoint (Only for /api/health or /health)
-    if (url.pathname === "/api/health" || url.pathname === "/health") {
+    // Health and status endpoint
+    if (url.pathname === "/health" || url.pathname === "/" || url.pathname === "/api") {
       return json(request, env, {
         ok: true,
         service: "abdomedi-carrier-api",
@@ -904,48 +877,8 @@ export default {
         return await turbo(request, env);
       }
 
-      // For unmatched /api/ routes, return JSON 404
-      if (url.pathname.startsWith("/api/")) {
-        return json(request, env, { success: false, error: "المسار غير موجود" }, 404);
-      }
-
-      // Pass non-API requests (frontend UI, assets, page routes) to env.ASSETS or origin
-      if (env.ASSETS) {
-        try {
-          const assetRes = await env.ASSETS.fetch(request);
-          if (assetRes.status !== 404) {
-            return assetRes;
-          }
-          // For SPA client-side routing, fallback to /index.html
-          const indexReq = new Request(new URL("/index.html", request.url).toString(), request);
-          const indexRes = await env.ASSETS.fetch(indexReq);
-          if (indexRes.status === 200) {
-            return indexRes;
-          }
-        } catch (e) {
-          console.error("ASSETS fetch error:", e);
-        }
-      }
-
-      if (env.APP_BACKEND_URL && !env.APP_BACKEND_URL.includes(url.hostname)) {
-        try {
-          const backendUrl = new URL(url.pathname + url.search, env.APP_BACKEND_URL);
-          const newHeaders = new Headers(request.headers);
-          newHeaders.set("Host", backendUrl.hostname);
-          const proxyReq = new Request(backendUrl.toString(), {
-            method: request.method,
-            headers: newHeaders,
-            body: request.method !== "GET" && request.method !== "HEAD" ? await request.arrayBuffer() : undefined,
-            redirect: "follow"
-          });
-          return await fetch(proxyReq);
-        } catch (e) {}
-      }
-      return await fetch(request);
+      return json(request, env, { success: false, error: "المسار غير موجود" }, 404); 
     } catch (error: any) { 
-      if (!url.pathname.startsWith("/api/")) {
-        return await fetch(request);
-      }
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
   } 

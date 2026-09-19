@@ -1,14 +1,17 @@
-name = "1toolz-app"
+name = "abdomedi-carrier-api"
 main = "src/index.ts"
-compatibility_date = "2024-03-20"
+compatibility_date = "2026-09-09"
+workers_dev = true
 
-[assets]
-directory = "../dist"
-binding = "ASSETS"
-html_handling = "single-page-application"
+# After the first successful deploy, attach the custom domain from
+# Cloudflare Dashboard or uncomment this block if your account supports it.
+# [[routes]]
+# pattern = "api.abdomedi.com"
+# custom_domain = true
 
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
+APP_BACKEND_URL = "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app"
 META_VERIFY_TOKEN = "abdomedi_whatsapp_meta_token"
 TURBO_BASE_URL = "https://platform.turbo.info"
 BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"
@@ -16,3 +19,4 @@ BOSTA_STAGING_BASE_URL = "https://stg-app.bosta.co"
 FIREBASE_PROJECT_ID = "gen-lang-client-0887706674"
 FIREBASE_API_KEY = "AIzaSyDe0wW1dG5lQph7u2SJoilpIjMRdm80hDo"
 FIREBASE_DATABASE_ID = "ai-studio-9e748a9b-76d5-4a17-a942-c8226e822acb"
+
