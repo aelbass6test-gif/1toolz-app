@@ -599,10 +599,12 @@ async function handleWhatsAppWebhook(request: Request, env: Env, ctx: ExecutionC
     // 2. ALSO attempt to forward to backend asynchronously
     const firestorePromise = writeToFirestore(payload, env);
 
-    // Forward to app backend asynchronously if configured
-    // We favor APP_BACKEND_URL if present as it typically points to the actual running instance
-    const directBackendUrl = env.APP_BACKEND_URL || env.APP_ORIGIN || "https://app.abdomedi.com";
-    if (directBackendUrl) {
+    // Forward to the backend only when an explicit backend URL is configured.
+    // Never default to the public Worker origin: doing so would recursively
+    // invoke this same webhook route and duplicate incoming messages.
+    const directBackendUrl = env.APP_BACKEND_URL?.trim();
+    const currentOrigin = new URL(request.url).origin;
+    if (directBackendUrl && directBackendUrl !== currentOrigin) {
       const targetEndpoint = `${directBackendUrl.replace(/\/$/, "")}/wa-webhook-direct`;
       
       console.log(`[Edge Webhook] Forwarding to backend: ${targetEndpoint}`);
