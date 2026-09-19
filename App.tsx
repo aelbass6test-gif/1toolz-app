@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
@@ -137,6 +137,41 @@ const MainLayout = ({
     setIsShippingCalculatorOpen
 }: any) => {
     const location = useLocation();
+
+    // Desktop Screen Expansion & Sidebar Collapse State (persisted locally)
+    const [isDesktopCollapsed, setIsDesktopCollapsed] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem('sidebar_desktop_collapsed') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleDesktopSidebar = useCallback(() => {
+        setIsDesktopCollapsed(prev => {
+            const next = !prev;
+            try {
+                localStorage.setItem('sidebar_desktop_collapsed', String(next));
+            } catch {}
+            return next;
+        });
+    }, []);
+
+    // Global keyboard shortcut: Ctrl+B / Cmd+B to toggle sidebar & expand screen
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+                const target = e.target as HTMLElement;
+                const tag = target?.tagName?.toLowerCase();
+                if (tag !== 'input' && tag !== 'textarea' && !target?.isContentEditable) {
+                    e.preventDefault();
+                    toggleDesktopSidebar();
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [toggleDesktopSidebar]);
 
     const isStoreManagementOrCreationPage = useMemo(() => {
         const path = location.pathname;
@@ -499,6 +534,8 @@ const MainLayout = ({
                         currentUser={currentUser} 
                         onLogout={handleLogout} 
                         onToggleSidebar={() => setSidebarOpen(true)} 
+                        isDesktopSidebarCollapsed={isDesktopCollapsed}
+                        onToggleDesktopSidebar={toggleDesktopSidebar}
                         theme={theme} 
                         setTheme={setTheme} 
                         activeStore={effectiveActiveStore} 
@@ -512,7 +549,14 @@ const MainLayout = ({
                 <div className="flex flex-1 overflow-hidden relative">
                     {!isStoreManagementOrCreationPage && (
                         <div className="no-print">
-                            <Sidebar activeStore={activeStore} settings={settings} isOpen={isSidebarOpen} onClose={() => setSidebarOpen(false)} />
+                            <Sidebar 
+                                activeStore={activeStore} 
+                                settings={settings} 
+                                isOpen={isSidebarOpen} 
+                                onClose={() => setSidebarOpen(false)} 
+                                isDesktopCollapsed={isDesktopCollapsed}
+                                onToggleDesktopCollapse={toggleDesktopSidebar}
+                            />
                         </div>
                     )}
                     <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative print:overflow-visible print:h-auto print:static">
@@ -3218,6 +3262,11 @@ export const AppComponent = () => {
                     <Route path="webhook-monitor" element={<WebhookMonitorPage />} />
                     <Route path="docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                     <Route path="api-docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
+                    <Route path="tracking" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
+                    <Route path="track-order" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
+                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
+                    <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
+                    <Route path="admin" element={<Navigate to="/admin" replace />} />
                 </Route>
 
                 {/* Standalone Public Docs Route */}

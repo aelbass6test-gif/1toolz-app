@@ -8,6 +8,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, limit } from "firebase/firestore";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
@@ -3457,6 +3458,68 @@ async function startServer() {
     }
   };
 
+  // Supabase Client Manager & Sync Helper
+  const supabaseClientsMap = new Map<string, SupabaseClient>();
+
+  const getSupabaseClientInstance = (url?: string | null, key?: string | null): SupabaseClient | null => {
+    const targetUrl = (url || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "").trim();
+    const targetKey = (key || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
+    if (!targetUrl || !targetKey || !targetUrl.startsWith("http")) return null;
+    const cacheKey = `${targetUrl}_${targetKey}`;
+    if (supabaseClientsMap.has(cacheKey)) {
+      return supabaseClientsMap.get(cacheKey)!;
+    }
+    try {
+      const client = createClient(targetUrl, targetKey);
+      supabaseClientsMap.set(cacheKey, client);
+      return client;
+    } catch (e) {
+      console.error("[SUPABASE-SERVER] Failed to create Supabase client:", e);
+      return null;
+    }
+  };
+
+  const getAllActiveSupabaseClients = async (): Promise<Array<{ client: SupabaseClient; storeId?: string }>> => {
+    const clients: Array<{ client: SupabaseClient; storeId?: string }> = [];
+    const seenKeys = new Set<string>();
+
+    // 1. Check environment variables
+    const envUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+    const envKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    if (envUrl && envKey && envUrl.startsWith("http")) {
+      const defaultClient = getSupabaseClientInstance(envUrl, envKey);
+      if (defaultClient) {
+        seenKeys.add(`${envUrl}_${envKey}`);
+        clients.push({ client: defaultClient });
+      }
+    }
+
+    // 2. Check all stores in Firestore stores_data for custom Supabase credentials
+    try {
+      const storesSnap = await getDocs(collection(db, "stores_data"));
+      for (const storeDoc of storesSnap.docs) {
+        const sData = storeDoc.data();
+        const sSettings = sData.settings || {};
+        const sUrl = sSettings.supabaseUrl || sSettings.custom_cloud_url;
+        const sKey = sSettings.supabaseAnonKey || sSettings.custom_cloud_anon_key;
+        if (sUrl && sKey && typeof sUrl === "string" && sUrl.startsWith("http")) {
+          const cKey = `${sUrl}_${sKey}`;
+          if (!seenKeys.has(cKey)) {
+            seenKeys.add(cKey);
+            const cl = getSupabaseClientInstance(sUrl, sKey);
+            if (cl) {
+              clients.push({ client: cl, storeId: storeDoc.id });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[SUPABASE-SERVER] Error checking stores for Supabase config:", e);
+    }
+
+    return clients;
+  };
+
   // Cache to prevent duplicate processing of the same message in polling
   const processedMessageIds = new Set<string>();
 
@@ -3526,9 +3589,83 @@ async function startServer() {
     let matchedStoreDocId: string | null = null;
     let matchedStoreData: any = null;
 
-    const candidates: Array<{ order: any; storeDocId: string; storeData: any; score: number }> = [];
+    const candidates: Array<{ order: any; storeDocId: string; storeData: any; score: number; sourceDb?: string }> = [];
 
-    // --- Search 1: Search standalone orders collection (the modern and correct place) ---
+    // --- Search 0: Search Supabase orders table across all active Supabase clients ---
+    try {
+      const sbClients = await getAllActiveSupabaseClients();
+      for (const { client: sbClient, storeId: sbStoreId } of sbClients) {
+        let sbOrders: any[] = [];
+
+        if (basePhone) {
+          for (const cand of phoneCandidates.slice(0, 10)) {
+            const { data: byPhone } = await sbClient
+              .from("orders")
+              .select("*")
+              .or(`customer_phone.eq.${cand},customerPhone.eq.${cand}`)
+              .limit(10);
+            if (byPhone && byPhone.length > 0) sbOrders.push(...byPhone);
+          }
+        }
+
+        if (extractedOrderNumber) {
+          const { data: byNum } = await sbClient
+            .from("orders")
+            .select("*")
+            .or(`id.eq.${extractedOrderNumber},order_number.eq.${extractedOrderNumber},orderNumber.eq.${extractedOrderNumber}`)
+            .limit(5);
+          if (byNum && byNum.length > 0) sbOrders.push(...byNum);
+        }
+
+        for (const ord of sbOrders) {
+          const oPhone = (ord.customer_phone || ord.customerPhone || "").replace(/\D/g, "");
+          const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
+          const isNumMatch = extractedOrderNumber && (String(ord.order_number || ord.orderNumber) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
+
+          if (isPhoneMatch || isNumMatch) {
+            let score = 0;
+            if (isNumMatch) score += 1000;
+            if (isPhoneMatch) score += 100;
+
+            const ordStatus = ord.status || "";
+            const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'بالانتظار التأكيد', 'draft', 'pending'].includes(ordStatus);
+            if (isPending) score += 50;
+            if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
+            if (ordStatus !== 'ملغي' && ordStatus !== 'تم_التوصيل' && ordStatus !== 'تم_التحصيل') score += 20;
+
+            const orderDate = new Date(ord.date || ord.created_at || ord.createdAt || 0).getTime();
+            score += (orderDate / 1e13);
+
+            const sId = ord.store_id || ord.storeId || sbStoreId || 'default';
+            const alreadyIn = candidates.some(c => c.order.id === ord.id);
+            if (!alreadyIn) {
+              candidates.push({
+                order: {
+                  ...ord,
+                  id: ord.id,
+                  orderNumber: ord.order_number || ord.orderNumber,
+                  customerPhone: ord.customer_phone || ord.customerPhone,
+                  customerName: ord.customer_name || ord.customerName,
+                  customerAddress: ord.customer_address || ord.customerAddress,
+                  shippingCompany: ord.shipping_company || ord.shippingCompany,
+                  totalPrice: ord.total_price || ord.totalPrice,
+                  whatsappLogs: ord.whatsapp_logs || ord.whatsappLogs || (ord.details?.whatsappLogs) || [],
+                  auditLogs: ord.audit_logs || ord.auditLogs || (ord.details?.auditLogs) || []
+                },
+                storeDocId: sId,
+                storeData: null,
+                score: score + 15,
+                sourceDb: "supabase"
+              });
+            }
+          }
+        }
+      }
+    } catch (sbSearchErr) {
+      console.error("[SUPABASE-SEARCH] Error searching Supabase orders:", sbSearchErr);
+    }
+
+    // --- Search 1: Search standalone Firestore orders collection ---
     try {
       const ordersRef = collection(db, "orders");
       let matchedDocs: any[] = [];
@@ -3575,10 +3712,7 @@ async function startServer() {
 
       for (const ord of uniqueMatchedDocs) {
         const storeId = ord.storeId || ord.store_id;
-        if (!storeId) continue;
-
-        const storeData = storesMap.get(storeId);
-        if (!storeData) continue;
+        const storeData = storeId ? storesMap.get(storeId) : null;
 
         const oPhone = (ord.customerPhone || ord.customer_phone || "").replace(/\D/g, "");
         const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
@@ -3597,12 +3731,16 @@ async function startServer() {
           const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
           score += (orderDate / 1e13);
 
-          candidates.push({
-            order: ord,
-            storeDocId: storeId,
-            storeData: storeData,
-            score
-          });
+          const alreadyIn = candidates.some(c => c.order.id === ord.id);
+          if (!alreadyIn) {
+            candidates.push({
+              order: ord,
+              storeDocId: storeId || "default",
+              storeData: storeData,
+              score,
+              sourceDb: "firestore"
+            });
+          }
         }
       }
     } catch (err) {
@@ -3616,9 +3754,9 @@ async function startServer() {
         const storeData = storeDoc.data();
         const orders = storeData.orders || [];
         for (const ord of orders) {
-          const oPhone = (ord.customerPhone || "").replace(/\D/g, "");
+          const oPhone = (ord.customerPhone || ord.customer_phone || "").replace(/\D/g, "");
           const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
-          const isNumMatch = extractedOrderNumber && (String(ord.orderNumber) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
+          const isNumMatch = extractedOrderNumber && (String(ord.orderNumber || ord.order_number) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
 
           if (isPhoneMatch || isNumMatch) {
             let score = 0;
@@ -3633,7 +3771,6 @@ async function startServer() {
             const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
             score += (orderDate / 1e13);
 
-            // Avoid duplicating if already found in standalone
             const ordId = ord.id;
             const alreadyExists = candidates.some(c => c.order.id === ordId && c.storeDocId === storeDoc.id);
             if (!alreadyExists) {
@@ -3641,7 +3778,8 @@ async function startServer() {
                 order: ord,
                 storeDocId: storeDoc.id,
                 storeData: storeData,
-                score
+                score,
+                sourceDb: "stores_data"
               });
             }
           }
@@ -3665,7 +3803,6 @@ async function startServer() {
           const ordSnap = await getDoc(doc(db, "orders", orderId));
           if (ordSnap.exists()) {
             matchedOrder = { id: ordSnap.id, ...ordSnap.data() as any };
-            // Auto-resolve store doc id if missing
             const sId = matchedOrder.storeId || matchedOrder.store_id;
             if (sId) {
               matchedStoreDocId = sId;
@@ -3698,7 +3835,7 @@ async function startServer() {
     }
 
     // If customer contacted without an existing order (e.g. from Facebook / Meta Ads Click-to-WhatsApp),
-    // automatically capture their lead and message so the merchant sees it instantly!
+    // automatically capture their lead and message so the merchant sees it instantly in both Supabase & Firestore!
     if (!matchedOrder) {
       console.log(`[WHATSAPP-PROCESSOR] Creating new ad lead/inquiry for customer with phone: ${phone}, text: "${text}"`);
       
@@ -3748,18 +3885,26 @@ async function startServer() {
       const newLeadOrder = {
         id: newOrderId,
         storeId: targetStoreId,
+        store_id: targetStoreId,
         orderNumber: orderNumber,
+        order_number: orderNumber,
         customerName: displayName,
+        customer_name: displayName,
         customerPhone: phone || "",
+        customer_phone: phone || "",
         customerAddress: "",
+        customer_address: "",
         governorate: "القاهرة",
         status: "جديد",
         date: new Date().toISOString(),
         total: 0,
+        totalPrice: 0,
+        total_price: 0,
         items: [],
         notes: notesText,
         source: sourceName,
         whatsappLogs: [initialIncomingLog],
+        whatsapp_logs: [initialIncomingLog],
         referral: referral || null,
         auditLogs: [
           {
@@ -3774,12 +3919,26 @@ async function startServer() {
         updatedAt: new Date().toISOString()
       };
 
-      // Save to standalone orders collection
+      // 1. Save to Supabase
+      try {
+        const sbClients = await getAllActiveSupabaseClients();
+        for (const { client: sbClient } of sbClients) {
+          try {
+            await sbClient.from("orders").insert(newLeadOrder);
+          } catch (sbErr) {
+            console.error("[SUPABASE-INSERT-LEAD-ERR]", sbErr);
+          }
+        }
+      } catch (sbLeadErr) {
+        console.error("[SUPABASE-LEAD-EXCEPTION]", sbLeadErr);
+      }
+
+      // 2. Save to standalone Firestore orders collection
       await setDoc(doc(db, "orders", newOrderId), newLeadOrder, { merge: true }).catch(err => {
         console.error("[WHATSAPP-PROCESSOR] Error creating new lead in orders:", err);
       });
 
-      // Also save to stores_data
+      // 3. Also save to stores_data
       if (matchedStoreDocId && matchedStoreData) {
         const existingOrders = matchedStoreData.orders || [];
         await setDoc(doc(db, "stores_data", matchedStoreDocId), {
@@ -3805,7 +3964,7 @@ async function startServer() {
     const normalizedText = (text || "").toLowerCase().trim();
     let updatedStatus = matchedOrder.status;
     let notes = matchedOrder.notes || "";
-    let customerAddress = updatedAddress || matchedOrder.customerAddress;
+    let customerAddress = updatedAddress || matchedOrder.customerAddress || matchedOrder.customer_address || "";
     let replyMessage = "";
     let actionName = "";
 
@@ -3841,7 +4000,10 @@ async function startServer() {
                       normalizedText.includes("تمام") || 
                       normalizedText.includes("جاهز") || 
                       normalizedText.includes("اشحن") || 
-                      normalizedText.includes("ابعت");
+                      normalizedText.includes("ابعت") ||
+                      normalizedText.includes("اكيد") ||
+                      normalizedText.includes("ايوة") ||
+                      normalizedText.includes("نعم");
 
     const isEdit = normalizedText.includes("تعديل") || 
                    normalizedText.includes("edit") || 
@@ -3852,28 +4014,47 @@ async function startServer() {
                    normalizedText.includes("تغيير العنوان") || 
                    normalizedText.includes("العنوان غلط");
 
+    // Check if customer is actively expected to provide a new address
+    const isAwaitingAddress = notes.includes("[بانتظار_العنوان_الجديد]") || 
+                              notes.includes("بانتظار عنوانه الجديد") ||
+                              (matchedOrder.status === "مؤجل" && notes.includes("تعديل العنوان"));
+
+    const orderNumDisplay = matchedOrder.orderNumber || matchedOrder.order_number || matchedOrder.id;
+
     if (isCancel) {
       updatedStatus = "ملغي";
       actionName = "إلغاء الطلب";
+      notes = notes.replace(/\[بانتظار_العنوان_الجديد\]/g, "");
       notes += `\n[واتساب] تم إلغاء الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
-      replyMessage = "تم الإلغاء بنجاح ❌";
+      replyMessage = `عزيزي العميل، تم إلغاء طلبك رقم #${orderNumDisplay} بنجاح. ❌ إذا كنت ترغب في إعادة تفعيل الطلب في أي وقت، يسعدنا تواصلك معنا!`;
     } else if (isConfirm) {
       updatedStatus = "قيد_التنفيذ";
       actionName = "تأكيد الطلب";
+      notes = notes.replace(/\[بانتظار_العنوان_الجديد\]/g, "");
       notes += `\n[واتساب] تم تأكيد الطلب تلقائياً بواسطة العميل عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}).`;
-      replyMessage = "تم التأكيد، شكراً لتعاملك معنا! ✅";
+      replyMessage = `أهلاً بك! تم تأكيد طلبك رقم #${orderNumDisplay} بنجاح ✅ جارٍ تجهيز شحنتك وسيتم التواصل معك عند التسليم. شكراً لتعاملك معنا! 🎉`;
     } else if (isEdit) {
       updatedStatus = "مؤجل";
       actionName = "طلب تعديل البيانات/العنوان";
-      notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}). بانتظار عنوانه الجديد.`;
-      replyMessage = "عزيزي العميل، يرجى كتابة عنوانك الجديد بالتفصيل في رسالة واحدة ليتم تحديثه في طلبك فوراً. ✍️";
-    } else if (matchedOrder.status === "مؤجل" || (matchedOrder.notes && matchedOrder.notes.includes("تعديل العنوان"))) {
-      updatedStatus = "قيد_التنفيذ";
-      actionName = "تحديث العنوان وتأكيد الطلب";
-      const oldAddress = customerAddress || "بدون عنوان";
-      customerAddress = text;
-      notes += `\n[واتساب] تم تحديث العنوان تلقائياً من (${oldAddress}) إلى (${text}) وتأكيد الطلب (${new Date().toLocaleTimeString('ar-EG')}).`;
-      replyMessage = "تم تحديث عنوانك بنجاح وتأكيد الطلب! ✅ سيتم الشحن والتوصيل قريباً.";
+      if (!notes.includes("[بانتظار_العنوان_الجديد]")) {
+        notes += `\n[واتساب] طلب العميل تعديل العنوان/البيانات عبر الواتساب (${new Date().toLocaleTimeString('ar-EG')}). [بانتظار_العنوان_الجديد]`;
+      }
+      replyMessage = `عزيزي العميل، يرجى كتابة عنوانك الجديد بالتفصيل في رسالة واحدة (المحافظة - المدينة - اسم الشارع - رقم العمارة/الشقة) ليتم تحديثه في طلبك رقم #${orderNumDisplay} وتأكيده فوراً. ✍️📍`;
+    } else if ((isAwaitingAddress && text.trim().length > 0) || updatedAddress) {
+      const newAddr = updatedAddress || text;
+      const genericGreetingWords = ["شكرا", "شكراً", "تمام", "تسلم", "سلام", "ازيك", "ok", "مرحبا", "أهلا", "اهلا"];
+      if (!updatedAddress && genericGreetingWords.includes(normalizedText)) {
+        actionName = "تذكير بإرسال العنوان الجديد";
+        replyMessage = `وصلتنا رسالتك 🌺 يرجى كتابة تفاصيل عنوانك الجديد (المحافظة - المدينة - الشارع - رقم العمارة) ليتم حفظه وتأكيد طلبك رقم #${orderNumDisplay}. 📍`;
+      } else {
+        updatedStatus = "قيد_التنفيذ";
+        actionName = "تحديث العنوان وتأكيد الطلب";
+        const oldAddress = customerAddress || "بدون عنوان سابق";
+        customerAddress = newAddr;
+        notes = notes.replace(/\[بانتظار_العنوان_الجديد\]/g, "").replace(/بانتظار عنوانه الجديد/g, "تم استلام العنوان");
+        notes += `\n[واتساب] تم تحديث العنوان بنجاح من (${oldAddress}) إلى (${newAddr}) وتأكيد الطلب (${new Date().toLocaleTimeString('ar-EG')}).`;
+        replyMessage = `تم تحديث عنوانك بنجاح إلى:\n📍 "${newAddr}"\nوتم تأكيد طلبك رقم #${orderNumDisplay} ✅ جارٍ تجهيز الشحنة للتوصيل. شكراً لك! 🚚`;
+      }
     } else {
       // General customer message (chat/inquiry) - Record in chat log without altering order status
       actionName = "رسالة واردة من العميل";
@@ -3886,7 +4067,7 @@ async function startServer() {
       type: isCancel ? 'cancellation' : (isConfirm ? 'confirmation' : 'incoming'),
       direction: 'incoming',
       message: text,
-      sender: phone || matchedOrder.customerPhone || "العميل",
+      sender: phone || matchedOrder.customerPhone || matchedOrder.customer_phone || "العميل",
       recipient: "المتجر",
       status: 'received',
       actionTaken: actionName
@@ -3899,15 +4080,15 @@ async function startServer() {
       direction: 'outgoing',
       message: replyMessage,
       sender: "المتجر (رد تلقائي)",
-      recipient: phone || matchedOrder.customerPhone || "العميل",
+      recipient: phone || matchedOrder.customerPhone || matchedOrder.customer_phone || "العميل",
       status: 'sent'
     } : null;
 
-    const existingWhatsappLogs = Array.isArray(matchedOrder.whatsappLogs) ? matchedOrder.whatsappLogs : [];
+    const existingWhatsappLogs = Array.isArray(matchedOrder.whatsappLogs || matchedOrder.whatsapp_logs) ? (matchedOrder.whatsappLogs || matchedOrder.whatsapp_logs) : [];
     const updatedWhatsappLogs = [...existingWhatsappLogs, incomingMsgLog, ...(replyMsgLog ? [replyMsgLog] : [])];
 
     const updatedAuditLogs = [
-      ...(matchedOrder.auditLogs || []),
+      ...(matchedOrder.auditLogs || matchedOrder.audit_logs || []),
       {
         id: Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
@@ -3917,7 +4098,67 @@ async function startServer() {
       }
     ];
 
-    // 1. Update in stores_data
+    // ==========================================
+    // 0. Update in Supabase across all active clients
+    // ==========================================
+    try {
+      const sbClients = await getAllActiveSupabaseClients();
+      for (const { client: sbClient } of sbClients) {
+        const supabaseUpdatePayload: any = {
+          status: updatedStatus,
+          customer_address: customerAddress,
+          customerAddress: customerAddress,
+          governorate: updatedGovernorate || matchedOrder.governorate,
+          notes: notes,
+          audit_logs: updatedAuditLogs,
+          auditLogs: updatedAuditLogs,
+          whatsapp_logs: updatedWhatsappLogs,
+          whatsappLogs: updatedWhatsappLogs,
+          updated_at: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        const matchedId = matchedOrder.id;
+        const matchedNum = matchedOrder.orderNumber || matchedOrder.order_number;
+
+        if (matchedId) {
+          await sbClient.from("orders").update(supabaseUpdatePayload).eq("id", matchedId);
+        }
+        if (matchedNum) {
+          await sbClient.from("orders").update(supabaseUpdatePayload).or(`order_number.eq.${matchedNum},orderNumber.eq.${matchedNum}`);
+        }
+
+        // Also update in stores_data table if orders array exists
+        const sId = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId;
+        if (sId) {
+          const { data: sDoc } = await sbClient.from("stores_data").select("*").eq("id", sId).single();
+          if (sDoc && sDoc.orders && Array.isArray(sDoc.orders)) {
+            const updatedSbOrders = sDoc.orders.map((o: any) => {
+              if (o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber) {
+                return {
+                  ...o,
+                  status: updatedStatus,
+                  customerAddress: customerAddress || o.customerAddress,
+                  governorate: updatedGovernorate || o.governorate,
+                  notes: notes,
+                  auditLogs: updatedAuditLogs,
+                  whatsappLogs: updatedWhatsappLogs,
+                  updatedAt: new Date().toISOString()
+                };
+              }
+              return o;
+            });
+            await sbClient.from("stores_data").update({ orders: updatedSbOrders, updated_at: new Date().toISOString() }).eq("id", sId);
+          }
+        }
+      }
+    } catch (sbUpdateErr) {
+      console.error("[SUPABASE-UPDATE-ERR] Error updating Supabase order:", sbUpdateErr);
+    }
+
+    // ==========================================
+    // 1. Update in Firestore stores_data
+    // ==========================================
     if (matchedStoreDocId && matchedStoreData) {
       const orderList = matchedStoreData.orders || [];
       const updatedOrders = orderList.map((o: any) => {
@@ -3945,7 +4186,9 @@ async function startServer() {
       storeCache.delete(matchedStoreDocId);
     }
 
-    // 2. Also update standalone orders collection
+    // ==========================================
+    // 2. Update standalone Firestore orders collection
+    // ==========================================
     try {
       let cleanOrderId = matchedOrder.id;
       if (matchedStoreDocId && cleanOrderId.startsWith(matchedStoreDocId + "_")) {
@@ -4455,6 +4698,40 @@ async function startServer() {
     const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
     const phoneCandidates = [recipientPhone, cleanPhone, basePhone, "0" + basePhone, "20" + basePhone];
 
+    // 1. Update in Supabase
+    try {
+      const sbClients = await getAllActiveSupabaseClients();
+      for (const { client: sbClient } of sbClients) {
+        for (const p of phoneCandidates) {
+          const { data: ords } = await sbClient.from("orders").select("*").or(`customer_phone.eq.${p},customerPhone.eq.${p}`).limit(10);
+          if (ords && ords.length > 0) {
+            for (const ord of ords) {
+              const logs = ord.whatsapp_logs || ord.whatsappLogs || (ord.details?.whatsappLogs) || [];
+              let changed = false;
+              const updatedLogs = logs.map((log: any) => {
+                if (log.id === messageId) {
+                  changed = true;
+                  return { ...log, status: status === 'read' ? 'read' : (status === 'delivered' ? 'delivered' : status) };
+                }
+                return log;
+              });
+              if (changed) {
+                await sbClient.from("orders").update({
+                  whatsapp_logs: updatedLogs,
+                  whatsappLogs: updatedLogs,
+                  updated_at: new Date().toISOString(),
+                  updatedAt: new Date().toISOString()
+                }).eq("id", ord.id);
+              }
+            }
+          }
+        }
+      }
+    } catch (sbErr) {
+      console.error("[SUPABASE-STATUS-UPDATE-ERR]", sbErr);
+    }
+
+    // 2. Update in Firestore
     const ordersRef = collection(db, "orders");
     const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
     const qSnap = await getDocs(q);
@@ -4495,7 +4772,7 @@ async function startServer() {
           }
         }
         console.log(`[WHATSAPP-STATUS] Updated message ${messageId} to ${status} for order ${ordDoc.id}`);
-        break; // Assume one match is enough
+        break;
       }
     }
   }
@@ -4656,9 +4933,89 @@ async function startServer() {
         return pCore === phoneCore || pCore.endsWith(phoneCore) || phoneCore.endsWith(pCore) || (phoneCore.length >= 8 && pCore.includes(phoneCore));
       };
 
+      // 0. Search in Supabase across all active clients
+      try {
+        const sbClients = await getAllActiveSupabaseClients();
+        for (const { client: sbClient } of sbClients) {
+          if (orderId) {
+            const { data: byId } = await sbClient.from("orders").select("*").eq("id", orderId).limit(1);
+            if (byId && byId.length > 0) {
+              const ordData = byId[0];
+              const matchPhone = checkPhoneMatch(ordData.customer_phone || ordData.customerPhone || ordData.phone);
+              if (!phoneCore || matchPhone) {
+                foundOrder = {
+                  id: ordData.id,
+                  orderNumber: ordData.order_number || ordData.orderNumber,
+                  customerName: ordData.customer_name || ordData.customerName,
+                  customerPhone: ordData.customer_phone || ordData.customerPhone,
+                  customerAddress: ordData.customer_address || ordData.customerAddress,
+                  governorate: ordData.governorate,
+                  totalPrice: ordData.total_price || ordData.totalPrice || ordData.total,
+                  status: ordData.status,
+                  items: ordData.items,
+                  date: ordData.date || ordData.created_at,
+                  storeId: ordData.store_id || ordData.storeId
+                };
+                break;
+              }
+            }
+          }
+          if (!foundOrder && (orderNumber || orderId)) {
+            const targetNum = orderNumber || orderId;
+            const { data: byNum } = await sbClient.from("orders").select("*").or(`order_number.eq.${targetNum},orderNumber.eq.${targetNum}`).limit(5);
+            if (byNum && byNum.length > 0) {
+              for (const ordData of byNum) {
+                const matchPhone = checkPhoneMatch(ordData.customer_phone || ordData.customerPhone || ordData.phone);
+                if (!phoneCore || matchPhone) {
+                  foundOrder = {
+                    id: ordData.id,
+                    orderNumber: ordData.order_number || ordData.orderNumber,
+                    customerName: ordData.customer_name || ordData.customerName,
+                    customerPhone: ordData.customer_phone || ordData.customerPhone,
+                    customerAddress: ordData.customer_address || ordData.customerAddress,
+                    governorate: ordData.governorate,
+                    totalPrice: ordData.total_price || ordData.totalPrice || ordData.total,
+                    status: ordData.status,
+                    items: ordData.items,
+                    date: ordData.date || ordData.created_at,
+                    storeId: ordData.store_id || ordData.storeId
+                  };
+                  break;
+                }
+              }
+            }
+          }
+          if (!foundOrder && phoneCore) {
+            const phoneCandidates = [phoneCore, "0" + phoneCore, "20" + phoneCore, "+20" + phoneCore, "0020" + phoneCore];
+            for (const p of phoneCandidates) {
+              const { data: byPhone } = await sbClient.from("orders").select("*").or(`customer_phone.eq.${p},customerPhone.eq.${p}`).limit(5);
+              if (byPhone && byPhone.length > 0) {
+                const ordData = byPhone[0];
+                foundOrder = {
+                  id: ordData.id,
+                  orderNumber: ordData.order_number || ordData.orderNumber,
+                  customerName: ordData.customer_name || ordData.customerName,
+                  customerPhone: ordData.customer_phone || ordData.customerPhone,
+                  customerAddress: ordData.customer_address || ordData.customerAddress,
+                  governorate: ordData.governorate,
+                  totalPrice: ordData.total_price || ordData.totalPrice || ordData.total,
+                  status: ordData.status,
+                  items: ordData.items,
+                  date: ordData.date || ordData.created_at,
+                  storeId: ordData.store_id || ordData.storeId
+                };
+                break;
+              }
+            }
+          }
+        }
+      } catch (sbLookErr) {
+        console.warn("Supabase public-details lookup notice:", sbLookErr);
+      }
+
       // 1. Direct indexed search in primary standalone orders collection (Fast O(1))
       try {
-        if (orderId) {
+        if (!foundOrder && orderId) {
           const directSnap = await getDoc(doc(db, "orders", orderId)).catch(() => null);
           if (directSnap?.exists()) {
             const ordData = { id: directSnap.id, ...directSnap.data() as any };

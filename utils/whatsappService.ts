@@ -156,10 +156,10 @@ export const whatsappService = {
       }
     }
 
-    // Append 1-click action links if this is a confirmation template and not already present
+    // Append 1-click single action link if this is a confirmation template and not already present
     if (template.includes('تأكيد') || template.includes('استلمنا طلبك') || template.includes('طلب جديد')) {
-      if (!template.includes('{confirmLink}') && !message.includes('/order-action')) {
-        message += `\n\n⚡ *تأكيد أو إلغاء الطلب بضغطة واحدة:*\n🟢 تأكيد الطلب والشحن فوراً:\n${confirmLink}\n\n🔴 إلغاء الطلب:\n${cancelLink}`;
+      if (!template.includes('{confirmLink}') && !template.includes('{portalLink}') && !template.includes('{actionLink}') && !message.includes('/order-action')) {
+        message += `\n\n⚡ *تأكيد أو إلغاء أو تعديل العنوان بضغطة واحدة:*\n👉 ${portalLink}`;
       }
     }
 

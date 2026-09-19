@@ -215,7 +215,14 @@ CREATE TABLE IF NOT EXISTS orders (
     "cancellationReason" TEXT,
     "followUpReminder" TEXT,
     "auditLogs" JSONB DEFAULT '[]'::jsonb,
+    audit_logs JSONB DEFAULT '[]'::jsonb,
     "callAttempts" JSONB DEFAULT '[]'::jsonb,
+    call_attempts JSONB DEFAULT '[]'::jsonb,
+    "whatsappLogs" JSONB DEFAULT '[]'::jsonb,
+    whatsapp_logs JSONB DEFAULT '[]'::jsonb,
+    "whatsappStatus" TEXT,
+    whatsapp_status TEXT,
+    referral JSONB DEFAULT '{}'::jsonb,
     created_at TEXT,
     createdAt TEXT,
     updated_at TEXT,
@@ -882,6 +889,21 @@ CREATE TABLE IF NOT EXISTS whatsapp_templates (
     updatedAt TEXT
 );
 
+-- 33b. WEBHOOK_LOGS (سجلات استقبال الواتساب والويب هوك)
+CREATE TABLE IF NOT EXISTS webhook_logs (
+    id TEXT PRIMARY KEY,
+    store_id TEXT,
+    storeId TEXT,
+    source TEXT,
+    event TEXT,
+    payload JSONB DEFAULT '{}'::jsonb,
+    status TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
+);
+
 -- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
 CREATE TABLE IF NOT EXISTS call_scripts (
     id TEXT PRIMARY KEY,
@@ -1051,6 +1073,7 @@ ALTER TABLE pos_sales DISABLE ROW LEVEL SECURITY;
 ALTER TABLE cash_holders DISABLE ROW LEVEL SECURITY;
 ALTER TABLE cash_handovers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE whatsapp_templates DISABLE ROW LEVEL SECURITY;
+ALTER TABLE webhook_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE customer_transactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier_transactions DISABLE ROW LEVEL SECURITY;
@@ -1280,6 +1303,15 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnProductValue" NUMERIC;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnTrackingNumber" TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "whatsappLogs" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "whatsapp_logs" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "whatsappStatus" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "whatsapp_status" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "auditLogs" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "audit_logs" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "callAttempts" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "call_attempts" JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "referral" JSONB DEFAULT '{}'::jsonb;
 
 -- 2. جدول المنتجات (products)
 ALTER TABLE products ADD COLUMN IF NOT EXISTS "min_stock_level" NUMERIC DEFAULT 0;

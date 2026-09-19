@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Store } from '../types';
-import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command, X, FileText, MessageSquare, ClipboardList, Send, Trash2, Code } from 'lucide-react';
+import { Menu, ChevronDown, User as UserIcon, Settings, LogOut, ExternalLink, Replace, Sun, Moon, Monitor, ShieldAlert, Loader2, RefreshCw, Wifi, WifiOff, Database, Cloud, HardDrive, Activity, CheckCircle, Bell, AlertCircle, Package, Clock, ShoppingCart, HandCoins, Calendar, Calculator, Search, Command, X, FileText, MessageSquare, ClipboardList, Send, Trash2, Code, PanelLeftClose, PanelLeftOpen, Maximize2 } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
@@ -39,6 +39,8 @@ interface HeaderProps {
     currentUser: User | null;
     onLogout: () => void;
     onToggleSidebar: () => void;
+    isDesktopSidebarCollapsed?: boolean;
+    onToggleDesktopSidebar?: () => void;
     theme: string;
     setTheme: (theme: string) => void;
     activeStore?: Store;
@@ -57,6 +59,8 @@ const Header: React.FC<HeaderProps> = ({
     currentUser, 
     onLogout, 
     onToggleSidebar, 
+    isDesktopSidebarCollapsed = false,
+    onToggleDesktopSidebar,
     theme, 
     setTheme, 
     activeStore,
@@ -269,9 +273,44 @@ const Header: React.FC<HeaderProps> = ({
             <header className="h-16 sm:h-20 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-2xl border-b border-slate-200/70 dark:border-slate-800/80 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 flex-shrink-0 shadow-xs">
             <div className="flex items-center gap-2 sm:gap-4">
     {!isStoreManagementOrCreationPage && (
-        <button onClick={onToggleSidebar} className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer">
-            <Menu size={22} />
-        </button>
+        <div className="flex items-center gap-1.5">
+            {/* Mobile Drawer Toggle */}
+            <button 
+                onClick={onToggleSidebar} 
+                className="md:hidden p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-600 dark:text-slate-300 cursor-pointer"
+                title="فتح القائمة الجانبية"
+            >
+                <Menu size={22} />
+            </button>
+
+            {/* Desktop Screen Expansion & Sidebar Collapse System */}
+            {onToggleDesktopSidebar && (
+                <button
+                    onClick={onToggleDesktopSidebar}
+                    className={`hidden md:flex items-center gap-2 px-2.5 py-1.5 rounded-xl border transition-all text-xs font-bold shadow-2xs cursor-pointer group hover:scale-[1.02] active:scale-[0.98] ${
+                        isDesktopSidebarCollapsed 
+                            ? 'bg-indigo-50 border-indigo-200/80 text-indigo-600 dark:bg-indigo-950/40 dark:border-indigo-800/80 dark:text-indigo-400' 
+                            : 'bg-slate-100/70 border-slate-200/80 hover:bg-indigo-50/70 text-slate-700 hover:text-indigo-600 dark:bg-slate-800/70 dark:border-slate-700/80 dark:text-slate-200 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-400'
+                    }`}
+                    title={isDesktopSidebarCollapsed ? "إظهار الشريط الجانبي كاملاً (Ctrl + B)" : "طي الشريط الجانبي وتوسيع الشاشة (Ctrl + B)"}
+                >
+                    {isDesktopSidebarCollapsed ? (
+                        <>
+                            <PanelLeftOpen size={16} className="text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                            <span className="text-[11px] font-black text-indigo-600 dark:text-indigo-400">توسيع القائمة</span>
+                        </>
+                    ) : (
+                        <>
+                            <PanelLeftClose size={16} className="text-slate-500 group-hover:text-indigo-600 dark:text-slate-400 dark:group-hover:text-indigo-400 group-hover:scale-110 transition-transform" />
+                            <span className="text-[11px] font-bold">توسيع الشاشة</span>
+                        </>
+                    )}
+                    <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[9px] font-mono bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 rounded-md border border-slate-200 dark:border-slate-700/80 shadow-2xs">
+                        Ctrl+B
+                    </kbd>
+                </button>
+            )}
+        </div>
     )}
     <div className="flex items-center gap-2 sm:gap-3 max-w-[160px] sm:max-w-none">
         <div className="flex items-center gap-2">
