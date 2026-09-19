@@ -12,6 +12,8 @@ export interface Env {
   FIREBASE_API_KEY?: string;
   FIREBASE_PROJECT_ID?: string;
   FIREBASE_DATABASE_ID?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_ANON_KEY?: string;
 }
 
 export interface ExecutionContext {
@@ -75,11 +77,41 @@ async function writeToFirestore(payload: any, env: Env) {
       if (message.type === 'text') {
         text = message.text?.body || "";
       } else if (message.type === 'interactive') {
-        text = `${message.interactive?.button_reply?.title || ""} ${message.interactive?.button_reply?.id || ""}`.trim();
+        if (message.interactive?.button_reply) {
+          text = `${message.interactive.button_reply.title || ""} ${message.interactive.button_reply.id || ""}`.trim();
+        } else if (message.interactive?.list_reply) {
+          text = `${message.interactive.list_reply.title || ""} ${message.interactive.list_reply.id || ""}`.trim();
+        } else if (message.interactive?.nfm_reply) {
+          text = `${message.interactive.nfm_reply.response_json || ""}`.trim();
+        }
       } else if (message.type === 'button') {
         text = `${message.button?.text || ""} ${message.button?.payload || ""}`.trim();
+      } else if (message.type === 'button_reply' || message.button_reply) {
+        text = `${message.button_reply?.title || message.button_reply?.text || ""} ${message.button_reply?.id || message.button_reply?.payload || ""}`.trim();
+      } else if (message.type === 'template_button_reply' || message.template_button_reply) {
+        text = `${message.template_button_reply?.title || message.template_button_reply?.text || ""} ${message.template_button_reply?.id || message.template_button_reply?.payload || ""}`.trim();
+      } else if (message.type === 'reaction') {
+        text = message.reaction?.emoji || "";
+      } else if (message.type === 'location') {
+        text = `${message.location?.name || ""} ${message.location?.address || ""} (${message.location?.latitude || ""}, ${message.location?.longitude || ""})`.trim();
+      } else if (message.type === 'contacts') {
+        text = message.contacts?.[0]?.name?.formatted_name || message.contacts?.[0]?.phones?.[0]?.phone || "[جهة اتصال]";
+      } else if (message.type === 'order') {
+        text = `[طلب منتجات: ${message.order?.product_items?.length || 0}]`;
+      } else if (message.type === 'system') {
+        text = message.system?.body || "";
+      } else if (message.type === 'image') {
+        text = message.image?.caption || "[صورة]";
+      } else if (message.type === 'video') {
+        text = message.video?.caption || "[فيديو]";
+      } else if (message.type === 'audio' || message.type === 'voice') {
+        text = "[رسالة صوتية]";
+      } else if (message.type === 'document') {
+        text = message.document?.filename || "[ملف]";
+      } else if (message.type === 'sticker') {
+        text = "[ملصق]";
       } else {
-        text = `[${message.type}]`;
+        text = message.text?.body || message.body || message.button?.text || message.button_reply?.title || `[${message.type}]`;
       }
     }
   } catch (e) {}
@@ -88,8 +120,48 @@ async function writeToFirestore(payload: any, env: Env) {
   if (isStatusUpdate || !phone || !text) return false;
 
   const normalizedText = text.toLowerCase();
-  const isCancel = normalizedText.includes("إلغاء") || normalizedText.includes("الغاء") || normalizedText.includes("cancel") || normalizedText.includes("btn_3") || normalizedText.includes("btn_cancel") || normalizedText.includes("❌");
-  const isConfirm = normalizedText.includes("تأكيد") || normalizedText.includes("تاكيد") || normalizedText.includes("confirm") || normalizedText.includes("btn_1") || normalizedText.includes("btn_confirm") || normalizedText.includes("✅");
+  const isCancel = normalizedText.includes("إلغاء") || 
+                   normalizedText.includes("الغاء") || 
+                   normalizedText.includes("الغي") || 
+                   normalizedText.includes("إلغى") || 
+                   normalizedText.includes("cancel") || 
+                   normalizedText.includes("btn_3") || 
+                   normalizedText.includes("btn_cancel") || 
+                   normalizedText.includes("btn_3️⃣") || 
+                   normalizedText.includes("❌") || 
+                   normalizedText === "2" || 
+                   normalizedText === "3" || 
+                   normalizedText === "3️⃣" || 
+                   normalizedText.includes("مش عاوز") || 
+                   normalizedText.includes("مش عايز") || 
+                   normalizedText.includes("مش هقدر") || 
+                   normalizedText.includes("كنسل") || 
+                   normalizedText.includes("رفض") || 
+                   normalizedText.includes("لا اريد") || 
+                   normalizedText.includes("غير موافق") || 
+                   normalizedText.includes("مش محتاجه");
+
+  const isConfirm = normalizedText.includes("تأكيد") || 
+                    normalizedText.includes("تاكيد") || 
+                    normalizedText.includes("اكيد") || 
+                    normalizedText.includes("أكيد") || 
+                    normalizedText.includes("confirm") || 
+                    normalizedText.includes("btn_1") || 
+                    normalizedText.includes("btn_confirm") || 
+                    normalizedText.includes("👍") || 
+                    normalizedText.includes("✅") || 
+                    normalizedText === "1" || 
+                    normalizedText === "1️⃣" || 
+                    normalizedText.includes("موافق") || 
+                    normalizedText.includes("تمام") || 
+                    normalizedText.includes("جاهز") || 
+                    normalizedText.includes("اشحن") || 
+                    normalizedText.includes("ابعت") || 
+                    normalizedText.includes("ايوة") || 
+                    normalizedText.includes("إيوة") || 
+                    normalizedText.includes("نعم") || 
+                    normalizedText.includes("متاكد") || 
+                    normalizedText.includes("متأكد");
 
   try {
     // 1. Search for existing order by phone number
@@ -817,7 +889,7 @@ export default {
 
     try { 
       // Meta WhatsApp Webhook Route
-      if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/webhook/whatsapp") {
+      if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/webhook/whatsapp" || url.pathname === "/api/webhooks/whatsapp" || url.pathname === "/wa-webhook-direct") {
         return await handleWhatsAppWebhook(request, env, ctx);
       }
 
