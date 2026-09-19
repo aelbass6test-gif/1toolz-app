@@ -4828,10 +4828,6 @@ async function startServer() {
         phone = msg.from;
         if (msg.type === "button") {
           buttonText = `${msg.button?.text || ""} ${msg.button?.payload || ""}`.trim();
-        } else if (msg.type === "button_reply" || msg.button_reply) {
-          buttonText = `${msg.button_reply?.title || msg.button_reply?.text || ""} ${msg.button_reply?.id || msg.button_reply?.payload || ""}`.trim();
-        } else if (msg.type === "template_button_reply" || msg.template_button_reply) {
-          buttonText = `${msg.template_button_reply?.title || msg.template_button_reply?.text || ""} ${msg.template_button_reply?.id || msg.template_button_reply?.payload || ""}`.trim();
         } else if (msg.type === "interactive") {
           if (msg.interactive?.button_reply) {
             buttonText = `${msg.interactive.button_reply.title || ""} ${msg.interactive.button_reply.id || ""}`.trim();
@@ -4849,7 +4845,7 @@ async function startServer() {
         } else if (msg.type === "document") {
           buttonText = "[ملف]";
         } else {
-          buttonText = msg.text?.body || msg.body || msg.button?.text || msg.button_reply?.title || "";
+          buttonText = msg.text?.body || "";
         }
       } else if (body.messages?.[0]) {
         const msg = body.messages[0];

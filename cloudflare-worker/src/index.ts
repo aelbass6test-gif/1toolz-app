@@ -12,8 +12,6 @@ export interface Env {
   FIREBASE_API_KEY?: string;
   FIREBASE_PROJECT_ID?: string;
   FIREBASE_DATABASE_ID?: string;
-  SUPABASE_URL?: string;
-  SUPABASE_ANON_KEY?: string;
 }
 
 export interface ExecutionContext {
@@ -80,12 +78,8 @@ async function writeToFirestore(payload: any, env: Env) {
         text = `${message.interactive?.button_reply?.title || ""} ${message.interactive?.button_reply?.id || ""}`.trim();
       } else if (message.type === 'button') {
         text = `${message.button?.text || ""} ${message.button?.payload || ""}`.trim();
-      } else if (message.type === 'button_reply' || message.button_reply) {
-        text = `${message.button_reply?.title || message.button_reply?.text || ""} ${message.button_reply?.id || message.button_reply?.payload || ""}`.trim();
-      } else if (message.type === 'template_button_reply' || message.template_button_reply) {
-        text = `${message.template_button_reply?.title || message.template_button_reply?.text || ""} ${message.template_button_reply?.id || message.template_button_reply?.payload || ""}`.trim();
       } else {
-        text = message.text?.body || message.body || message.button?.text || message.button_reply?.title || `[${message.type}]`;
+        text = `[${message.type}]`;
       }
     }
   } catch (e) {}
@@ -94,48 +88,8 @@ async function writeToFirestore(payload: any, env: Env) {
   if (isStatusUpdate || !phone || !text) return false;
 
   const normalizedText = text.toLowerCase();
-  const isCancel = normalizedText.includes("إلغاء") || 
-                   normalizedText.includes("الغاء") || 
-                   normalizedText.includes("الغي") || 
-                   normalizedText.includes("إلغى") || 
-                   normalizedText.includes("cancel") || 
-                   normalizedText.includes("btn_3") || 
-                   normalizedText.includes("btn_cancel") || 
-                   normalizedText.includes("btn_3️⃣") || 
-                   normalizedText.includes("❌") || 
-                   normalizedText === "2" || 
-                   normalizedText === "3" || 
-                   normalizedText === "3️⃣" || 
-                   normalizedText.includes("مش عاوز") || 
-                   normalizedText.includes("مش عايز") || 
-                   normalizedText.includes("مش هقدر") || 
-                   normalizedText.includes("كنسل") || 
-                   normalizedText.includes("رفض") || 
-                   normalizedText.includes("لا اريد") || 
-                   normalizedText.includes("غير موافق") || 
-                   normalizedText.includes("مش محتاجه");
-
-  const isConfirm = normalizedText.includes("تأكيد") || 
-                    normalizedText.includes("تاكيد") || 
-                    normalizedText.includes("اكيد") || 
-                    normalizedText.includes("أكيد") || 
-                    normalizedText.includes("confirm") || 
-                    normalizedText.includes("btn_1") || 
-                    normalizedText.includes("btn_confirm") || 
-                    normalizedText.includes("👍") || 
-                    normalizedText.includes("✅") || 
-                    normalizedText === "1" || 
-                    normalizedText === "1️⃣" || 
-                    normalizedText.includes("موافق") || 
-                    normalizedText.includes("تمام") || 
-                    normalizedText.includes("جاهز") || 
-                    normalizedText.includes("اشحن") || 
-                    normalizedText.includes("ابعت") || 
-                    normalizedText.includes("ايوة") || 
-                    normalizedText.includes("إيوة") || 
-                    normalizedText.includes("نعم") || 
-                    normalizedText.includes("متاكد") || 
-                    normalizedText.includes("متأكد");
+  const isCancel = normalizedText.includes("إلغاء") || normalizedText.includes("الغاء") || normalizedText.includes("cancel") || normalizedText.includes("btn_3") || normalizedText.includes("btn_cancel") || normalizedText.includes("❌");
+  const isConfirm = normalizedText.includes("تأكيد") || normalizedText.includes("تاكيد") || normalizedText.includes("confirm") || normalizedText.includes("btn_1") || normalizedText.includes("btn_confirm") || normalizedText.includes("✅");
 
   try {
     // 1. Search for existing order by phone number
@@ -863,7 +817,7 @@ export default {
 
     try { 
       // Meta WhatsApp Webhook Route
-      if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/webhook/whatsapp" || url.pathname === "/api/webhooks/whatsapp" || url.pathname === "/wa-webhook-direct") {
+      if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/webhook/whatsapp") {
         return await handleWhatsAppWebhook(request, env, ctx);
       }
 
@@ -877,36 +831,7 @@ export default {
         return await turbo(request, env);
       }
 
-      // Transparently proxy all unmatched routes (SPA pages, static assets, general APIs) to Hono backend
-      const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
-      const targetUrl = new URL(request.url);
-      const parsedBackend = new URL(backendUrl);
-      targetUrl.hostname = parsedBackend.hostname;
-      targetUrl.protocol = parsedBackend.protocol;
-      targetUrl.port = parsedBackend.port || (parsedBackend.protocol === "https:" ? "443" : "80");
-
-      const headers = new Headers(request.headers);
-      headers.set("host", parsedBackend.host);
-
-      const proxyRequest = new Request(targetUrl.toString(), {
-        method: request.method,
-        headers,
-        body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
-        redirect: "manual"
-      });
-
-      try {
-        const response = await fetch(proxyRequest);
-        // If the backend has a cookie/auth wall and returns a 302, let the browser handle it
-        return response;
-      } catch (proxyErr: any) {
-        console.error("[Worker Proxy Error]", proxyErr);
-        return json(request, env, { 
-          success: false, 
-          error: "بوابة إيدج: فشل الاتصال بالسيرفر الخلفي للتطبيق (Backend Connection Failed)", 
-          details: proxyErr.message 
-        }, 502);
-      } 
+      return json(request, env, { success: false, error: "المسار غير موجود" }, 404); 
     } catch (error: any) { 
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
