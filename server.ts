@@ -4818,9 +4818,21 @@ async function startServer() {
         messageId = msg.id || "";
         phone = msg.from || msg.phone || "";
         if (msg.type === "button_reply" || msg.type === "button" || msg.type === "buttons_response" || msg.type === "template_button_reply") {
-          buttonText = msg.body || msg.payload || msg.selectedButtonId || msg.text || "";
+          buttonText = [
+            msg.body,
+            msg.payload,
+            msg.selectedButtonId,
+            msg.button_reply?.title,
+            msg.button_reply?.text,
+            msg.button_reply?.id,
+            msg.template_button_reply?.title,
+            msg.template_button_reply?.text,
+            msg.template_button_reply?.id,
+            msg.text?.body,
+            msg.text
+          ].filter(Boolean).join(" ").trim();
         } else {
-          buttonText = msg.body || msg.text || "";
+          buttonText = msg.body || msg.text?.body || msg.text || "";
         }
       } else if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
         const msg = body.entry[0].changes[0].value.messages[0];
@@ -4845,13 +4857,25 @@ async function startServer() {
         } else if (msg.type === "document") {
           buttonText = "[ملف]";
         } else {
-          buttonText = msg.text?.body || "";
+          buttonText = msg.text?.body || msg.body || msg.button_reply?.title || msg.button_reply?.id || "";
         }
       } else if (body.messages?.[0]) {
         const msg = body.messages[0];
         messageId = msg.id || "";
         phone = msg.from || msg.sender || "";
-        buttonText = msg.text?.body || msg.body || "";
+        buttonText = [
+          msg.text?.body,
+          msg.body,
+          msg.button?.text,
+          msg.button?.payload,
+          msg.button_reply?.title,
+          msg.button_reply?.text,
+          msg.button_reply?.id,
+          msg.interactive?.button_reply?.title,
+          msg.interactive?.button_reply?.id,
+          msg.interactive?.list_reply?.title,
+          msg.interactive?.list_reply?.id
+        ].filter(Boolean).join(" ").trim();
       }
 
       console.log(`[WHATSAPP-WEBHOOK] Extracted - Phone: ${phone}, Text: ${buttonText}, Name: ${contactName}`);

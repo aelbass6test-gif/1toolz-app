@@ -75,12 +75,63 @@ async function writeToFirestore(payload: any, env: Env) {
       if (message.type === 'text') {
         text = message.text?.body || "";
       } else if (message.type === 'interactive') {
-        text = `${message.interactive?.button_reply?.title || ""} ${message.interactive?.button_reply?.id || ""}`.trim();
+        text = [
+          message.interactive?.button_reply?.title,
+          message.interactive?.button_reply?.id,
+          message.interactive?.list_reply?.title,
+          message.interactive?.list_reply?.id
+        ].filter(Boolean).join(" ").trim();
       } else if (message.type === 'button') {
         text = `${message.button?.text || ""} ${message.button?.payload || ""}`.trim();
+      } else if (message.type === 'button_reply' || message.type === 'buttons_response' || message.type === 'template_button_reply') {
+        text = [
+          message.body,
+          message.payload,
+          message.selectedButtonId,
+          message.button_reply?.title,
+          message.button_reply?.text,
+          message.button_reply?.id,
+          message.template_button_reply?.title,
+          message.template_button_reply?.text,
+          message.template_button_reply?.id,
+          message.text?.body
+        ].filter(Boolean).join(" ").trim();
       } else {
-        text = `[${message.type}]`;
+        text = message.body || message.text?.body || `[${message.type}]`;
       }
+    } else if (payload.data && (payload.event_type === 'message_received' || payload.event === 'message')) {
+      const message = payload.data;
+      phone = message.from || message.phone || message.sender || "";
+      contactName = message.name || message.profile?.name || message.senderName || contactName;
+      text = [
+        message.body,
+        message.payload,
+        message.selectedButtonId,
+        message.button_reply?.title,
+        message.button_reply?.text,
+        message.button_reply?.id,
+        message.template_button_reply?.title,
+        message.template_button_reply?.text,
+        message.template_button_reply?.id,
+        message.text?.body,
+        message.text
+      ].filter(Boolean).join(" ").trim();
+    } else if (payload.messages?.[0]) {
+      const message = payload.messages[0];
+      phone = message.from || message.sender || "";
+      text = [
+        message.text?.body,
+        message.body,
+        message.button?.text,
+        message.button?.payload,
+        message.button_reply?.title,
+        message.button_reply?.text,
+        message.button_reply?.id,
+        message.interactive?.button_reply?.title,
+        message.interactive?.button_reply?.id,
+        message.interactive?.list_reply?.title,
+        message.interactive?.list_reply?.id
+      ].filter(Boolean).join(" ").trim();
     }
   } catch (e) {}
 
@@ -817,7 +868,7 @@ export default {
 
     try { 
       // Meta WhatsApp Webhook Route
-      if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/webhook/whatsapp") {
+      if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/api/webhooks/whatsapp" || url.pathname === "/webhook/whatsapp" || url.pathname === "/wa-webhook-direct") {
         return await handleWhatsAppWebhook(request, env, ctx);
       }
 
@@ -831,10 +882,26 @@ export default {
         return await turbo(request, env);
       }
 
-      return json(request, env, { success: false, error: "المسار غير موجود" }, 404); 
+      // Forward application APIs and SPA assets to the Hono backend. This is
+      // required for routes such as /api/whatsapp/send that are not edge-native.
+      const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+      const targetUrl = new URL(request.url);
+      const parsedBackend = new URL(backendUrl);
+      targetUrl.hostname = parsedBackend.hostname;
+      targetUrl.protocol = parsedBackend.protocol;
+      targetUrl.port = parsedBackend.port || (parsedBackend.protocol === "https:" ? "443" : "80");
+
+      const headers = new Headers(request.headers);
+      headers.set("host", parsedBackend.host);
+      const proxyRequest = new Request(targetUrl.toString(), {
+        method: request.method,
+        headers,
+        body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+        redirect: "manual"
+      });
+      return await fetch(proxyRequest);
     } catch (error: any) { 
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
   } 
 };
-
