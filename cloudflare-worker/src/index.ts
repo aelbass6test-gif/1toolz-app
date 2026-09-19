@@ -547,9 +547,26 @@ async function upstream(request: Request, env: Env, url: string, init: RequestIn
 }
 
 async function proxyBackendRequest(request: Request, env: Env): Promise<Response> {
-  const backendUrl = env.APP_BACKEND_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app";
+  const backendUrl = env.APP_BACKEND_URL?.trim();
+  if (!backendUrl) {
+    return json(request, env, {
+      success: false,
+      error: "Backend غير مكوّن لهذا المسار",
+      code: "BACKEND_NOT_CONFIGURED"
+    }, 503);
+  }
+
   const publicUrl = new URL(request.url);
   const backend = new URL(backendUrl);
+  const isGoogleAiStudioBackend = backend.hostname.endsWith(".run.app") && backend.hostname.startsWith("ais-");
+  if (isGoogleAiStudioBackend) {
+    return json(request, env, {
+      success: false,
+      error: "تم منع Backend تجريبي تابع لـ Google AI Studio",
+      code: "BLOCKED_EXTERNAL_BACKEND"
+    }, 503);
+  }
+
   const targetUrl = new URL(publicUrl.pathname + publicUrl.search, backend);
   const headers = new Headers(request.headers);
   headers.set("host", backend.host);
@@ -563,6 +580,14 @@ async function proxyBackendRequest(request: Request, env: Env): Promise<Response
   const responseHeaders = new Headers(response.headers);
 
   const location = responseHeaders.get("location");
+  if (location && /(aistudio\.google\.com|accounts\.google\.com|\.run\.app)/i.test(location)) {
+    return json(request, env, {
+      success: false,
+      error: "تم منع تحويل خارجي من Backend",
+      code: "BLOCKED_EXTERNAL_REDIRECT"
+    }, 502);
+  }
+
   if (location) {
     const rewritten = new URL(location, backend);
     // Keep browser navigation on the public app domain, including the
