@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import { Order, Settings, WhatsAppConfig, WhatsAppMessageLog } from '../types';
 import { 
   MessageSquare, Send, Search, CheckCircle2, AlertTriangle, 
@@ -34,6 +35,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   selectedOrderId,
   onSelectOrder
 }) => {
+  const { storeId } = useParams<{ storeId: string }>();
+
   // Current active order
   const [activeOrder, setActiveOrder] = useState<Order | null>(
     initialOrder || (selectedOrderId ? orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId) : null) || orders[0] || null
@@ -276,12 +279,12 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
 
       const supabase = getSupabaseClient();
       let conversationId = liveConversationId;
-      if (supabase && activeOrder.id && activeStore?.id) {
+      if (supabase && activeOrder.id && storeId) {
         if (!conversationId) {
           const created = await supabase
             .from('whatsapp_conversations')
-            .insert({
-              store_id: activeStore.id,
+              .insert({
+              store_id: storeId,
               order_id: activeOrder.id,
               customer_phone: phone,
               customer_name: activeOrder.customerName || ''
@@ -294,7 +297,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         if (conversationId) {
           await supabase.from('whatsapp_messages').insert({
             conversation_id: conversationId,
-            store_id: activeStore.id,
+            store_id: storeId,
             order_id: activeOrder.id,
             customer_phone: phone,
             provider: whatsappConfig.providerType === 'direct_web' ? 'direct_web' : 'meta_cloud',
