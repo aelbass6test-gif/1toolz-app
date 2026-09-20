@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Order, OrderItem, Settings, User, CustomerProfile, Store, OrderStatus, MaintenanceRequest, AdvancePaymentHistoryLog } from '../types';
 import { OrderForm, NewOrderState } from './OrderForm';
@@ -48,6 +48,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 
     const [orderToConfirm, setOrderToConfirm] = useState<Omit<Order, 'id'> | null>(null);
     const [showSummaryModal, setShowSummaryModal] = useState<Order | null>(null);
+    const confirmingOrderRef = useRef(false);
 
     const [newOrder, setNewOrder] = useState<NewOrderState>({
         customerName: '',
@@ -238,7 +239,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
     };
 
     const handleConfirmAddOrder = async () => {
-        if (!orderToConfirm) return;
+        if (!orderToConfirm || confirmingOrderRef.current) return;
+        confirmingOrderRef.current = true;
         const orderToAdd = orderToConfirm;
         
         // Calculate exact customer billing/collection amount to save in totalPrice
@@ -689,6 +691,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         
         setOrderToConfirm(null);
         setShowSummaryModal(orderWithId);
+        confirmingOrderRef.current = false;
     };
 
     const uniqueCustomers = useMemo(() => {
