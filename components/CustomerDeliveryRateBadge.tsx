@@ -54,9 +54,13 @@ export const CustomerDeliveryRateBadge: React.FC<CustomerDeliveryRateBadgeProps>
       const p2 = (o.customerPhone2 || '').replace(/\D/g, '');
       if ((p1 && p1.slice(-8) === last8) || (p2 && p2.slice(-8) === last8)) {
         const st = String(o.status || '').toLowerCase();
+        // إلغاء العميل قبل إنشاء الشحنة ليس مرتجعاً ولا يدخل في نسبة الاستلام.
+        if (st.includes('ملغي') || st.includes('إلغاء') || st.includes('canceled') || st.includes('cancelled')) {
+          return;
+        }
         if (st.includes('سلم') || st.includes('تسليم') || st.includes('delivered') || st.includes('تم الاستلام')) {
           delivered++;
-        } else if (st.includes('مرتجع') || st.includes('ملغي') || st.includes('إلغاء') || st.includes('canceled') || st.includes('returned') || st.includes('مرفوض')) {
+        } else if (st.includes('مرتجع') || st.includes('returned') || st.includes('مرفوض')) {
           returned++;
         } else {
           pending++;
