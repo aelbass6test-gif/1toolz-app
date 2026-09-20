@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
+import { getSupabaseClient } from '../services/databaseService';
 import { doc, setDoc } from 'firebase/firestore';
 import { db as firebaseDb } from '../services/firebaseClient';
 
@@ -49,7 +50,68 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   const [isSimulating, setIsSimulating] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [liveConversationId, setLiveConversationId] = useState<string | null>(null);
+  const [liveMessages, setLiveMessages] = useState<any[]>([]);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Canonical inbox stream: use whatsapp_messages when a conversation exists,
+  // while retaining the legacy order log as a compatibility fallback.
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = getSupabaseClient();
+    if (!supabase || !activeOrder?.id) {
+      setLiveConversationId(null);
+      setLiveMessages([]);
+      return;
+    }
+
+    const loadConversation = async () => {
+      const { data: conversation } = await supabase
+        .from('whatsapp_conversations')
+        .select('id')
+        .eq('order_id', activeOrder.id)
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      setLiveConversationId(conversation?.id || null);
+      if (!conversation?.id) {
+        setLiveMessages([]);
+        return;
+      }
+      const { data: initialMessages } = await supabase
+        .from('whatsapp_messages')
+        .select('*')
+        .eq('conversation_id', conversation.id)
+        .order('occurred_at', { ascending: true });
+      if (!cancelled) setLiveMessages(initialMessages || []);
+    };
+
+    void loadConversation();
+    return () => { cancelled = true; };
+  }, [activeOrder?.id]);
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !liveConversationId) return;
+    const channel = supabase
+      .channel(`whatsapp-messages-${liveConversationId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'whatsapp_messages',
+        filter: `conversation_id=eq.${liveConversationId}`
+      }, (payload: any) => {
+        if (payload.eventType === 'INSERT') {
+          setLiveMessages(prev => prev.some(item => item.id === payload.new.id) ? prev : [...prev, payload.new]);
+        } else if (payload.eventType === 'UPDATE') {
+          setLiveMessages(prev => prev.map(item => item.id === payload.new.id ? { ...item, ...payload.new } : item));
+        } else if (payload.eventType === 'DELETE') {
+          setLiveMessages(prev => prev.filter(item => item.id !== payload.old.id));
+        }
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [liveConversationId]);
 
   // Keep activeOrder synchronized when props change
   useEffect(() => {
@@ -142,8 +204,22 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   // Extract messages and history for active order
   const chatMessages = useMemo(() => {
     if (!activeOrder) return [];
+    if (liveMessages.length > 0) {
+      return liveMessages.map((message: any) => ({
+        id: message.id,
+        timestamp: message.occurred_at || message.created_at,
+        type: message.message_type === 'interactive' ? 'confirmation' : message.message_type || 'custom',
+        direction: message.direction === 'incoming' ? 'incoming' : 'outgoing',
+        message: message.body || '',
+        sender: message.sender_name || (message.direction === 'incoming' ? activeOrder.customerName || 'العميل' : storeDisplayName),
+        recipient: message.recipient_phone || (message.direction === 'incoming' ? 'المتجر' : activeOrder.customerName || 'العميل'),
+        status: message.status || (message.direction === 'incoming' ? 'received' : 'sent'),
+        buttons: message.buttons || [],
+        actionTaken: message.metadata?.actionTaken
+      }));
+    }
     return whatsappService.getEffectiveChatForOrder(activeOrder, settings, storeDisplayName);
-  }, [activeOrder, settings, storeDisplayName]);
+  }, [activeOrder, liveMessages, settings, storeDisplayName]);
 
   // Handle Order Selection
   const handleSelectOrder = (ord: Order) => {

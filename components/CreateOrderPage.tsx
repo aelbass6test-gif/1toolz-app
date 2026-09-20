@@ -12,6 +12,7 @@ import { collection, addDoc } from 'firebase/firestore';
 import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
 import { deductOrderStock } from '../utils/inventoryManager';
+import { getSupabaseClient } from '../services/databaseService';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -600,6 +601,48 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
             try {
                 const sendResult = await whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse, activeStore?.name);
+                const supabase = getSupabaseClient();
+                if (supabase && activeStore?.id) {
+                    let { data: conversation } = await supabase
+                        .from('whatsapp_conversations')
+                        .select('id')
+                        .eq('store_id', activeStore.id)
+                        .eq('order_id', orderWithId.id)
+                        .limit(1)
+                        .maybeSingle();
+                    if (!conversation?.id) {
+                        const created = await supabase
+                            .from('whatsapp_conversations')
+                            .insert({
+                                store_id: activeStore.id,
+                                order_id: orderWithId.id,
+                                customer_phone: orderWithId.customerPhone || '',
+                                customer_name: orderWithId.customerName || ''
+                            })
+                            .select('id')
+                            .single();
+                        conversation = created.data;
+                    }
+                    if (conversation?.id) {
+                        await supabase.from('whatsapp_messages').insert({
+                            conversation_id: conversation.id,
+                            store_id: activeStore.id,
+                            order_id: orderWithId.id,
+                            customer_phone: orderWithId.customerPhone || '',
+                            provider: settings.whatsappConfig?.providerType === 'direct_web' ? 'direct_web' : 'meta_cloud',
+                            provider_message_id: sendResult.messageId || `local_${Date.now()}`,
+                            direction: 'outgoing',
+                            message_type: 'interactive',
+                            body: formattedMsg,
+                            sender_name: `${activeStore.name || 'المتجر'} (المتجر)`,
+                            recipient_phone: orderWithId.customerPhone || '',
+                            status: sendResult.success ? 'sent' : 'failed',
+                            occurred_at: new Date().toISOString(),
+                            sent_at: sendResult.success ? new Date().toISOString() : null,
+                            metadata: { source: 'new_order_automation', buttons: buttonsToUse }
+                        });
+                    }
+                }
                 const automaticLog = {
                     id: sendResult.messageId || `wa_auto_${Date.now()}`,
                     timestamp: new Date().toISOString(),
