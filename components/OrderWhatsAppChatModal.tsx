@@ -4,7 +4,8 @@ import {
   MessageSquare, Send, Search, CheckCircle2, AlertTriangle, 
   X, Phone, ExternalLink, RefreshCw, Copy, Check, Sparkles, 
   Clock, Shield, Truck, XCircle, ChevronRight, User, ShoppingBag, 
-  MapPin, DollarSign, ArrowRight, Play, CheckCheck, FileText, CornerDownLeft, Zap
+  MapPin, DollarSign, ArrowRight, Play, CheckCheck, FileText, CornerDownLeft, Zap,
+  Pin, Archive, MoreVertical, Smile, Paperclip, BellRing
 } from 'lucide-react';
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
@@ -41,6 +42,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'shipping'>('all');
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [readOrderIds, setReadOrderIds] = useState<Set<string>>(new Set());
   const [customMessage, setCustomMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -99,13 +102,18 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
 
   // Filtered orders for the side list
   const filteredOrders = useMemo(() => {
-    return orders.filter(ord => {
+    const result = orders.filter(ord => {
       const name = (ord.customerName || '').toLowerCase();
       const phone = (ord.customerPhone || '').toLowerCase();
       const orderNum = (ord.orderNumber || '').toString().toLowerCase();
       const matchesSearch = !searchTerm || name.includes(searchTerm.toLowerCase()) || phone.includes(searchTerm.toLowerCase()) || orderNum.includes(searchTerm.toLowerCase());
+      const logs = Array.isArray((ord as any).whatsappLogs) && (ord as any).whatsappLogs.length > 0
+        ? (ord as any).whatsappLogs
+        : (Array.isArray((ord as any).whatsapp_logs) ? (ord as any).whatsapp_logs : []);
+      const lastOutgoingIndex = logs.reduce((index: number, log: any, i: number) => log.direction === 'outgoing' ? i : index, -1);
+      const hasUnread = !readOrderIds.has(String(ord.id || ord.orderNumber)) && logs.some((log: any, i: number) => i > lastOutgoingIndex && log.direction === 'incoming');
 
-      if (!matchesSearch) return false;
+      if (!matchesSearch || (showUnreadOnly && !hasUnread)) return false;
 
       if (filterType === 'pending') {
         return ['جديد', 'قيد_المراجعة', 'في_انتظار_المكالمة', 'معلق', 'بانتظار_التأكيد', 'pending'].includes(ord.status);
@@ -121,7 +129,15 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       }
       return true;
     });
-  }, [orders, searchTerm, filterType]);
+    return result.sort((a: any, b: any) => {
+      const getTime = (order: any) => {
+        const logs = Array.isArray(order.whatsappLogs) && order.whatsappLogs.length > 0 ? order.whatsappLogs : (order.whatsapp_logs || []);
+        const last = logs[logs.length - 1];
+        return new Date(last?.timestamp || order.updatedAt || order.updated_at || order.date || 0).getTime() || 0;
+      };
+      return getTime(b) - getTime(a);
+    });
+  }, [orders, searchTerm, filterType, showUnreadOnly, readOrderIds]);
 
   // Extract messages and history for active order
   const chatMessages = useMemo(() => {
@@ -132,6 +148,11 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   // Handle Order Selection
   const handleSelectOrder = (ord: Order) => {
     setActiveOrder(ord);
+    setReadOrderIds(prev => {
+      const next = new Set(prev);
+      next.add(String(ord.id || ord.orderNumber));
+      return next;
+    });
     if (onSelectOrder) onSelectOrder(ord);
     setShowChatMobile(true);
   };
@@ -431,7 +452,17 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         {/* Right Sidebar: Orders & Customers List (4 cols) */}
         <div className={`lg:col-span-4 flex-col h-full min-h-0 bg-slate-50/50 dark:bg-slate-900/40 border-l border-slate-200 dark:border-slate-800 ${showChatMobile ? 'hidden lg:flex' : 'flex'}`}>
           {/* Search Box */}
-          <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0">
+          <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0 bg-white/80 dark:bg-[#202C33]/90">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center"><MessageSquare size={16} /></div>
+                <div><h3 className="text-sm font-black text-slate-900 dark:text-white">المحادثات</h3><p className="text-[10px] text-slate-400 font-bold">{orders.length} طلب متصل</p></div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => setShowUnreadOnly(v => !v)} className={`p-2 rounded-xl transition-colors ${showUnreadOnly ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`} title="المحادثات غير المقروءة"><BellRing size={15} /></button>
+                <button type="button" className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="خيارات القائمة"><MoreVertical size={15} /></button>
+              </div>
+            </div>
             <div className="relative">
               <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input 
@@ -465,6 +496,10 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 </button>
               ))}
             </div>
+            <div className="flex items-center justify-between px-1 pt-1 text-[10px] font-bold text-slate-400">
+              <span>{showUnreadOnly ? 'غير مقروءة فقط' : 'مرتبة حسب آخر رسالة'}</span>
+              {showUnreadOnly && <button type="button" onClick={() => setShowUnreadOnly(false)} className="text-emerald-600 hover:underline">عرض الكل</button>}
+            </div>
           </div>
 
           {/* Orders List Items */}
@@ -479,6 +514,11 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 const isSelected = activeOrder?.id === ord.id || activeOrder?.orderNumber === ord.orderNumber;
                 const formattedPhone = ord.customerPhone || 'بدون هاتف';
                 const totalPrice = ord.totalPrice || (ord.productPrice || 0) + (ord.shippingFee || 0) - (ord.discount || 0);
+                const logs = Array.isArray((ord as any).whatsappLogs) && (ord as any).whatsappLogs.length > 0 ? (ord as any).whatsappLogs : ((ord as any).whatsapp_logs || []);
+                const lastLog = logs[logs.length - 1];
+                const lastOutgoingIndex = logs.reduce((index: number, log: any, i: number) => log.direction === 'outgoing' ? i : index, -1);
+                const unread = !readOrderIds.has(String(ord.id || ord.orderNumber)) && logs.filter((log: any, i: number) => i > lastOutgoingIndex && log.direction === 'incoming').length;
+                const preview = lastLog?.message || 'لا توجد رسائل بعد';
 
                 return (
                   <button
@@ -490,22 +530,22 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                         : 'bg-white dark:bg-slate-800/80 hover:bg-slate-100/80 dark:hover:bg-slate-800 border-slate-200/80 dark:border-slate-700/60'
                     }`}
                   >
-                    <div className="flex items-center justify-between w-full">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-black text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-100/80 dark:bg-emerald-900/50 px-2 py-0.5 rounded-md">
-                          #{ord.orderNumber}
-                        </span>
-                        <h4 className="text-xs font-black text-slate-800 dark:text-white truncate max-w-[130px]">
-                          {ord.customerName || 'عميل'}
-                        </h4>
+                    <div className="flex items-center gap-2 w-full">
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black shrink-0">{(ord.customerName || 'ع').charAt(0)}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-xs font-black text-slate-800 dark:text-white truncate">{ord.customerName || 'عميل'}</h4>
+                          <span className={`text-[9px] font-mono shrink-0 ${unread ? 'text-emerald-600 font-black' : 'text-slate-400'}`}>{lastLog?.timestamp ? new Date(lastLog.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <span className={`text-[10px] truncate ${unread ? 'text-slate-800 dark:text-white font-black' : 'text-slate-500 dark:text-slate-400'}`}>{preview}</span>
+                          {unread > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-black">{unread}</span>}
+                        </div>
                       </div>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {ord.date ? new Date(ord.date).toLocaleDateString('ar-EG', { month: 'numeric', day: 'numeric' }) : ''}
-                      </span>
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                      <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">{formattedPhone}</span>
+                      <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">#{ord.orderNumber} · {formattedPhone}</span>
                       <span className="font-bold text-slate-700 dark:text-slate-200">{totalPrice} ج.م</span>
                     </div>
 
@@ -572,6 +612,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
 
                 {/* Header Action Buttons */}
                 <div className="flex items-center gap-2">
+                  <button type="button" className="hidden sm:inline-flex p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40" title="تثبيت المحادثة"><Pin size={15} /></button>
+                  <button type="button" className="hidden sm:inline-flex p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40" title="تنبيهات المحادثة"><BellRing size={15} /></button>
                   <button
                     onClick={openDirectWhatsApp}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-500/20 transition-all"
@@ -733,6 +775,14 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                   </div>
                 </div>
 
+                {/* WhatsApp Business-style quick replies */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                  <span className="text-[10px] text-slate-400 font-black shrink-0">رد سريع:</span>
+                  {['تم استلام رسالتك ✅', 'جاري متابعة طلبك الآن', 'شكرًا لتواصلك معنا'].map(reply => (
+                    <button key={reply} type="button" onClick={() => setCustomMessage(reply)} className="px-2.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#111B21] text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 whitespace-nowrap transition-colors">{reply}</button>
+                  ))}
+                </div>
+
                 {/* Instant Template Action Buttons */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button
@@ -780,8 +830,12 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                           handleSendMessage(customMessage.trim(), 'custom');
                         }
                       }}
-                      className="w-full pr-4 pl-10 py-2.5 text-xs bg-slate-100 dark:bg-[#111B21] border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                      className="w-full pr-20 pl-10 py-2.5 text-xs bg-slate-100 dark:bg-[#111B21] border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
                     />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-400">
+                      <button type="button" className="hover:text-emerald-600" title="إيموجي"><Smile size={15} /></button>
+                      <button type="button" className="hover:text-emerald-600" title="مرفق تجريبي"><Paperclip size={15} /></button>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
