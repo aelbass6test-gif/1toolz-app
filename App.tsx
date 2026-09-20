@@ -522,11 +522,10 @@ const MainLayout = ({
     }, [settings, orders, sharedAudits, chatMessages, currentUser]);
 
     return (
-        <div className="flex flex-col h-screen bg-slate-100/70 dark:bg-[#030712] text-slate-900 dark:text-slate-50 transition-colors duration-500 overflow-hidden relative" dir="rtl">
+        <div className="flex flex-col h-screen bg-[#f6f7f5] dark:bg-[#0b1210] text-slate-900 dark:text-slate-50 transition-colors duration-300 overflow-hidden relative" dir="rtl">
             {/* Immersive Floating Ambient Glow Elements */}
-            <div className="absolute top-[-5%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-indigo-500/10 dark:bg-indigo-500/15 blur-[120px] pointer-events-none z-0 animate-ambient-pulse" />
-            <div className="absolute bottom-[-10%] left-[-10%] w-[50vw] h-[50vw] rounded-full bg-purple-500/8 dark:bg-purple-500/12 blur-[140px] pointer-events-none z-0 animate-ambient-pulse-slow" />
-            <div className="absolute top-[35%] left-[25%] w-[300px] h-[300px] rounded-full bg-cyan-400/8 dark:bg-cyan-550/10 blur-[100px] pointer-events-none z-0 animate-float" />
+            <div className="absolute top-[-12%] right-[-8%] w-[42vw] h-[42vw] rounded-full bg-emerald-500/5 dark:bg-emerald-500/10 blur-[130px] pointer-events-none z-0" />
+            <div className="absolute bottom-[-16%] left-[-10%] w-[38vw] h-[38vw] rounded-full bg-lime-500/5 dark:bg-lime-500/8 blur-[140px] pointer-events-none z-0" />
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 <div className="no-print">
@@ -559,7 +558,7 @@ const MainLayout = ({
                             />
                         </div>
                     )}
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 no-scrollbar relative print:overflow-visible print:h-auto print:static">
+                    <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 pb-24 md:pb-6 no-scrollbar relative print:overflow-visible print:h-auto print:static">
                         <Outlet />
                     </main>
                     {!isStoreManagementOrCreationPage && (

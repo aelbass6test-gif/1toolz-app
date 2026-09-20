@@ -299,12 +299,12 @@ const Sidebar: React.FC<SidebarProps> = ({
     const hasActiveSearch = searchQuery.trim().length > 0;
 
     const sidebarContentJSX = (
-        <div className="h-full flex flex-col p-3.5 sm:p-4 bg-white/80 dark:bg-[#090d16]/90 backdrop-blur-2xl border-l border-slate-200/70 dark:border-slate-800/80 font-sans text-right select-none" dir="rtl">
+        <div className="h-full flex flex-col p-3 sm:p-3.5 bg-white/95 dark:bg-[#0d1714]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-emerald-950/80 font-sans text-right select-none" dir="rtl">
             
             {/* Header section */}
             <div className="p-3 mb-2.5 rounded-2xl bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-purple-50/50 dark:from-slate-900/90 dark:via-indigo-950/30 dark:to-purple-950/30 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex justify-between items-center">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#008060] to-[#0f5c48] flex items-center justify-center text-white shadow-md shadow-emerald-500/20 shrink-0">
                         <ShoppingCart size={20} />
                     </div>
                     <div className="overflow-hidden">
@@ -456,8 +456,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                         rel={link.external ? "noopener noreferrer" : undefined}
                                                         className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 text-xs font-bold ${
                                                             active 
-                                                                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-600/20 font-black' 
-                                                                : 'text-slate-700 dark:text-slate-300 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400'
+                                                                ? 'bg-gradient-to-r from-[#008060] to-[#0f5c48] text-white shadow-md shadow-emerald-600/20 font-black' 
+                                                                : 'text-slate-700 dark:text-slate-300 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400'
                                                         }`}
                                                     >
                                                         {() => (

@@ -1119,7 +1119,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
   return (
     <motion.div 
-      className="space-y-8 pb-12"
+      className="space-y-6 pb-12 max-w-[1680px] mx-auto"
       variants={containerVariants}
       initial="hidden"
       animate="visible"
@@ -1157,9 +1157,9 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         </motion.div>
       )}
       {/* Header Section */}
-      <motion.div variants={itemVariants} className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 sm:p-8 shadow-xl shadow-indigo-950/20 border border-indigo-800/30">
-        <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/3 translate-y-1/3" />
+      <motion.div variants={itemVariants} className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-[#123c32] via-[#0f5c48] to-[#008060] text-white p-6 sm:p-8 shadow-[0_14px_30px_rgba(0,128,96,0.18)] border border-emerald-700/30">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-300/10 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-lime-300/10 rounded-full blur-3xl pointer-events-none translate-x-1/3 translate-y-1/3" />
         
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-3">
@@ -1185,7 +1185,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           <div className="flex flex-wrap items-center gap-3 shrink-0">
             <Link 
               to="/orders/create" 
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-xs sm:text-sm font-black shadow-lg shadow-indigo-500/30 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+              className="px-5 py-2.5 rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 text-xs sm:text-sm font-black shadow-lg shadow-emerald-950/15 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
             >
               <ShoppingBag size={18} />
               <span>+ أوردر جديد</span>
