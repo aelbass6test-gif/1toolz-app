@@ -2277,6 +2277,37 @@ export const AppComponent = () => {
                 return () => {};
             }
 
+            const notifyWhatsAppMessage = (message: any) => {
+                if (message.direction !== 'incoming') return;
+                const action = message.metadata?.action;
+                const title = action === 'confirm' ? 'تأكيد طلب جديد عبر واتساب' : action === 'cancel' ? 'إلغاء طلب عبر واتساب' : 'رسالة جديدة من عميل';
+                const body = message.body || 'وصلت رسالة جديدة من العميل.';
+                if ('Notification' in window) {
+                    if (Notification.permission === 'granted') {
+                        new Notification(title, { body, tag: `whatsapp-${message.id}` });
+                    } else if (Notification.permission === 'default') {
+                        void Notification.requestPermission().then(permission => {
+                            if (permission === 'granted') new Notification(title, { body, tag: `whatsapp-${message.id}` });
+                        });
+                    }
+                }
+            };
+
+            const messagesChannel = supabase
+                .channel(`whatsapp-inbox-realtime-${activeStoreId}`)
+                .on('postgres_changes', {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'whatsapp_messages',
+                    filter: `store_id=eq.${activeStoreId}`
+                }, (payload: any) => {
+                    if (isSavingRef.current || isDirtyRef.current) return;
+                    console.log('[REALTIME] WhatsApp message received:', payload.new?.id);
+                    notifyWhatsAppMessage(payload.new);
+                    void refreshStoreData(activeStoreId);
+                })
+                .subscribe((status: string) => console.log(`[REALTIME] WhatsApp messages channel status: ${status}`));
+
             const channel = supabase
                 .channel(`orders-realtime-${activeStoreId}`)
                 .on(
@@ -2341,6 +2372,7 @@ export const AppComponent = () => {
             return () => {
                 console.log('[REALTIME] Removing Supabase orders subscription.');
                 void supabase.removeChannel(channel);
+                void supabase.removeChannel(messagesChannel);
             };
         }
 
