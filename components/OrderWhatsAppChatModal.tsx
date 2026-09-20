@@ -204,21 +204,27 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   // Extract messages and history for active order
   const chatMessages = useMemo(() => {
     if (!activeOrder) return [];
-    if (liveMessages.length > 0) {
-      return liveMessages.map((message: any) => ({
-        id: message.id,
-        timestamp: message.occurred_at || message.created_at,
-        type: message.message_type === 'interactive' ? 'confirmation' : message.message_type || 'custom',
-        direction: message.direction === 'incoming' ? 'incoming' : 'outgoing',
-        message: message.body || '',
-        sender: message.sender_name || (message.direction === 'incoming' ? activeOrder.customerName || 'العميل' : storeDisplayName),
-        recipient: message.recipient_phone || (message.direction === 'incoming' ? 'المتجر' : activeOrder.customerName || 'العميل'),
-        status: message.status || (message.direction === 'incoming' ? 'received' : 'sent'),
-        buttons: message.buttons || [],
-        actionTaken: message.metadata?.actionTaken
-      }));
-    }
-    return whatsappService.getEffectiveChatForOrder(activeOrder, settings, storeDisplayName);
+    const legacyMessages = whatsappService.getEffectiveChatForOrder(activeOrder, settings, storeDisplayName);
+    const liveChatMessages = liveMessages.map((message: any) => ({
+      id: message.provider_message_id || message.id,
+      timestamp: message.occurred_at || message.created_at,
+      type: message.message_type === 'interactive' ? 'confirmation' : message.message_type || 'custom',
+      direction: message.direction === 'incoming' ? 'incoming' : 'outgoing',
+      message: message.body || '',
+      sender: message.sender_name || (message.direction === 'incoming' ? activeOrder.customerName || 'العميل' : storeDisplayName),
+      recipient: message.recipient_phone || (message.direction === 'incoming' ? 'المتجر' : activeOrder.customerName || 'العميل'),
+      status: message.status || (message.direction === 'incoming' ? 'received' : 'sent'),
+      buttons: message.buttons || [],
+      actionTaken: message.metadata?.actionTaken
+    }));
+    const merged = new Map<string, any>();
+    [...legacyMessages, ...liveChatMessages].forEach(message => {
+      const key = String(message.id || `${message.direction}|${message.message}|${message.timestamp}`);
+      merged.set(key, message);
+    });
+    return Array.from(merged.values()).sort((a, b) =>
+      new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
+    );
   }, [activeOrder, liveMessages, settings, storeDisplayName]);
 
   // Handle Order Selection
