@@ -949,6 +949,7 @@ export const AppComponent = () => {
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const refreshDebounceTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
     const isRefreshing = useRef(false);
+    const notifiedWhatsAppMessagesRef = useRef<Set<string>>(new Set());
     
     // Stable refs for unstable dependencies
     const refreshStoreDataRef = useRef<any>(null);
@@ -2279,9 +2280,17 @@ export const AppComponent = () => {
 
             const notifyWhatsAppMessage = (message: any) => {
                 if (message.direction !== 'incoming') return;
+                const messageKey = String(message.provider_message_id || message.id || '');
+                if (!messageKey || notifiedWhatsAppMessagesRef.current.has(messageKey)) return;
+                notifiedWhatsAppMessagesRef.current.add(messageKey);
+                if (notifiedWhatsAppMessagesRef.current.size > 250) {
+                    const oldest = notifiedWhatsAppMessagesRef.current.values().next().value;
+                    if (oldest) notifiedWhatsAppMessagesRef.current.delete(oldest);
+                }
                 const action = message.metadata?.action;
                 const title = action === 'confirm' ? 'تأكيد طلب جديد عبر واتساب' : action === 'cancel' ? 'إلغاء طلب عبر واتساب' : 'رسالة جديدة من عميل';
                 const body = message.body || 'وصلت رسالة جديدة من العميل.';
+                audioSynth.playTone(action === 'confirm' ? 'success' : action === 'cancel' ? 'warning' : 'info');
                 if ('Notification' in window) {
                     if (Notification.permission === 'granted') {
                         new Notification(title, { body, tag: `whatsapp-${message.id}` });
