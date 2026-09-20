@@ -1834,7 +1834,40 @@ export const AppComponent = () => {
         setOtpError('');
     };
     
-    const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null) => {
+    const syncSupabaseAuth = async (user: User, password?: string, storeId?: string) => {
+        const supabase = getSupabaseClient();
+        if (!supabase || !password) return;
+        const email = user.email || `${user.phone}@mystore-auth.app`;
+        let { data } = await supabase.auth.signInWithPassword({ email, password });
+        if (!data.session) {
+            const signup = await supabase.auth.signUp({
+                email,
+                password,
+                options: { data: { phone: user.phone, full_name: user.fullName } }
+            });
+            data = signup.data;
+            if (signup.error && !signup.error.message.toLowerCase().includes('already')) {
+                console.warn('[SUPABASE AUTH] Could not create shadow session:', signup.error.message);
+                return;
+            }
+            if (!data.session) {
+                const retry = await supabase.auth.signInWithPassword({ email, password });
+                data = retry.data;
+            }
+        }
+        const supabaseUserId = data.user?.id;
+        if (!supabaseUserId) return;
+        const memberships = [
+            ...(user.stores || []).map(store => ({ user_id: supabaseUserId, store_id: store.id, role: user.isAdmin ? 'owner' : 'staff' })),
+            ...(storeId ? [{ user_id: supabaseUserId, store_id: storeId, role: 'staff' }] : [])
+        ];
+        if (memberships.length > 0) {
+            await supabase.from('store_memberships').upsert(memberships, { onConflict: 'user_id,store_id' });
+        }
+    };
+
+    const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null, password?: string) => {
+        void syncSupabaseAuth(user, password, sessionInfo?.storeId);
         setUsers(prev => {
             if (!prev.some(u => u.phone === user.phone)) {
                 return [...prev, user];
@@ -2044,7 +2077,7 @@ export const AppComponent = () => {
             throw new Error("لم يتم العثور على بيانات الموظف.");
         }
 
-        completeLogin(employeeUser, { isEmployee: true, storeId: storeId });
+        completeLogin(employeeUser, { isEmployee: true, storeId: storeId }, password);
     };
 
     const handleEmployeeRegisterRequest = async (data: EmployeeRegisterRequestData) => {
@@ -3139,7 +3172,7 @@ export const AppComponent = () => {
     return (
         <Suspense fallback={<GlobalLoader />}>
             <Routes>
-                <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user) => completeLogin(user, null)} users={users} setUsers={setUsers} />} />
+                <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user, password) => completeLogin(user, null, password)} users={users} setUsers={setUsers} />} />
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />

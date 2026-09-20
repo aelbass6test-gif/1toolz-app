@@ -789,7 +789,7 @@ ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
 
 // --- Main Page Component ---
 interface SignUpPageProps {
-  onPasswordSuccess: (user: User) => void;
+  onPasswordSuccess: (user: User, password?: string) => void;
   users: User[];
   setUsers: React.Dispatch<React.SetStateAction<User[]>>;
 }
@@ -890,7 +890,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             setIsLoading(false);
             return;
           }
-          onPasswordSuccess(foundUser);
+          onPasswordSuccess(foundUser, userPassword);
         } else {
           setUserError('لم يتم العثور على بيانات المستخدم.');
           setIsLoading(false);
@@ -918,7 +918,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 await signInWithEmailAndPassword(auth, legacyUser.email, userPassword);
                 const foundUser = await getUserByPhone(userPhone.trim());
                 if (foundUser) {
-                  onPasswordSuccess(foundUser);
+                  onPasswordSuccess(foundUser, userPassword);
                   return;
                 }
               } catch (secondErr: any) {
@@ -946,7 +946,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   await createUserWithEmailAndPassword(auth, emailToCreate, userPassword);
                   console.log('[MIGRATION] Creating Firestore user doc for legacy user:', userPhone);
                   await createUserDoc(legacyUser);
-                  onPasswordSuccess(legacyUser);
+                  onPasswordSuccess(legacyUser, userPassword);
                 } catch (createErr: any) {
                   if (createErr.code === 'auth/email-already-in-use') {
                     console.log('[MIGRATION] Firebase Auth account already exists for legacy user, attempting sign-in...');
@@ -966,7 +966,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       if (!existingFsUser) {
                         await createUserDoc(legacyUser);
                       }
-                      onPasswordSuccess(legacyUser);
+                      onPasswordSuccess(legacyUser, userPassword);
                     } catch (signInErr: any) {
                       if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
                         console.warn('[MIGRATION] Existing account found but password mismatch for legacy user:', userPhone);
@@ -1036,7 +1036,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           }
           
           setUsers(prevUsers => [...prevUsers, newUser]);
-          onPasswordSuccess(newUser);
+          onPasswordSuccess(newUser, userPassword);
         } else {
           setUserError('فشل تسجيل الحساب في قاعدة البيانات. يرجى المحاولة لاحقاً.');
           setIsLoading(false);
@@ -1135,7 +1135,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       await signInWithEmailAndPassword(auth, firebaseEmail, adminPassword);
       const adminUser = await getUserByPhone(adminPhone.trim());
       if (adminUser && adminUser.isAdmin) {
-        onPasswordSuccess(adminUser);
+        onPasswordSuccess(adminUser, adminPassword);
       } else {
         setAdminError('ليس لديك صلاحيات المدير.');
         setIsLoading(false);
@@ -1171,7 +1171,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 await createUserWithEmailAndPassword(auth, firebaseEmail, adminPassword);
                 console.log('[MIGRATION] Creating Firestore user doc for legacy admin:', adminPhone);
                 await createUserDoc(legacyUser);
-                onPasswordSuccess(legacyUser);
+                onPasswordSuccess(legacyUser, adminPassword);
               } catch (createErr: any) {
                 if (createErr.code === 'auth/email-already-in-use') {
                   console.log('[MIGRATION] Firebase Auth account already exists for legacy admin, attempting sign-in...');
@@ -1181,7 +1181,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                     if (!existingFsUser) {
                       await createUserDoc(legacyUser);
                     }
-                    onPasswordSuccess(legacyUser);
+                    onPasswordSuccess(legacyUser, adminPassword);
                   } catch (signInErr: any) {
                     if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
                       console.warn('[MIGRATION] Existing account found but password mismatch for legacy admin:', adminPhone);

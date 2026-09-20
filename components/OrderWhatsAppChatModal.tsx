@@ -268,6 +268,45 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         storeDisplayName
       ) as any;
 
+      const supabase = getSupabaseClient();
+      let conversationId = liveConversationId;
+      if (supabase && activeOrder.id && activeStore?.id) {
+        if (!conversationId) {
+          const created = await supabase
+            .from('whatsapp_conversations')
+            .insert({
+              store_id: activeStore.id,
+              order_id: activeOrder.id,
+              customer_phone: phone,
+              customer_name: activeOrder.customerName || ''
+            })
+            .select('id')
+            .single();
+          conversationId = created.data?.id || null;
+          if (conversationId) setLiveConversationId(conversationId);
+        }
+        if (conversationId) {
+          await supabase.from('whatsapp_messages').insert({
+            conversation_id: conversationId,
+            store_id: activeStore.id,
+            order_id: activeOrder.id,
+            customer_phone: phone,
+            provider: whatsappConfig.providerType === 'direct_web' ? 'direct_web' : 'meta_cloud',
+            provider_message_id: res.messageId || `local_${Date.now()}`,
+            direction: 'outgoing',
+            message_type: buttons?.length ? 'interactive' : 'text',
+            body: textToSend,
+            sender_name: `${storeDisplayName} (المتجر)`,
+            recipient_phone: phone,
+            status: res.success ? 'sent' : 'failed',
+            buttons: buttons || [],
+            occurred_at: new Date().toISOString(),
+            sent_at: res.success ? new Date().toISOString() : null,
+            metadata: { source: 'dashboard_manual_send', type }
+          });
+        }
+      }
+
       const newLog: WhatsAppMessageLog = {
         id: res.messageId || ('wa_' + Math.random().toString(36).substr(2, 9)),
         timestamp: new Date().toISOString(),
