@@ -236,7 +236,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         setOrderToConfirm(orderToAdd);
     };
 
-    const handleConfirmAddOrder = () => {
+    const handleConfirmAddOrder = async () => {
         if (!orderToConfirm) return;
         const orderToAdd = orderToConfirm;
         
@@ -527,20 +527,6 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             });
         }
 
-        // --- 2. Interactive WhatsApp Automation Message ---
-        if (settings.whatsappConfig?.isActive) {
-            const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
-            const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فوراً 🚚";
-            const buttonsToUse = template?.buttons && template.buttons.length > 0 
-                ? template.buttons 
-                : ['تأكيد الطلب ✅', 'تعديل العنوان 📍', 'إلغاء الطلب ❌'];
-            const footerToUse = template?.footer || "خدمة عملاء {storeName}";
-
-            const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
-            whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse)
-                .catch(err => console.error("Failed to send automatic WhatsApp message:", err));
-        }
-
         // --- LINK TO MAINTENANCE CENTER ---
         const isMaintenanceAction = orderWithId.orderType === 'maintenance' || orderWithId.shipmentType?.startsWith('maintenance_');
         if (isMaintenanceAction && orderWithId.shipmentType === 'maintenance_pickup') {
@@ -596,9 +582,60 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     cashHandovers: updatedHandovers
                 }
             };
-            void forceSync(updatedStoreData);
+            await forceSync(updatedStoreData);
         } else if (forceSync) {
-            void forceSync();
+            await forceSync();
+        }
+
+        // --- 2. Interactive WhatsApp Automation Message ---
+        // The message must be persisted in the same order record after a successful send;
+        // otherwise the customer receives it but the conversation loses it on reload.
+        if (settings.whatsappConfig?.isActive) {
+            const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
+            const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فوراً 🚚";
+            const buttonsToUse = template?.buttons && template.buttons.length > 0
+                ? template.buttons
+                : ['تأكيد الطلب ✅', 'تعديل العنوان 📍', 'إلغاء الطلب ❌'];
+            const footerToUse = template?.footer || "خدمة عملاء {storeName}";
+            const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
+            try {
+                const sendResult = await whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse, activeStore?.name);
+                const automaticLog = {
+                    id: sendResult.messageId || `wa_auto_${Date.now()}`,
+                    timestamp: new Date().toISOString(),
+                    type: 'confirmation',
+                    direction: 'outgoing',
+                    message: formattedMsg,
+                    sender: `${activeStore?.name || 'المتجر'} (المتجر)`,
+                    recipient: orderWithId.customerName || orderWithId.customerPhone || 'العميل',
+                    status: sendResult.success ? 'sent' : 'failed'
+                } as any;
+                const currentLogs = Array.isArray((orderWithId as any).whatsappLogs)
+                    ? (orderWithId as any).whatsappLogs
+                    : (Array.isArray((orderWithId as any).whatsapp_logs) ? (orderWithId as any).whatsapp_logs : []);
+                const orderWithMessage = {
+                    ...orderWithId,
+                    whatsappLogs: [...currentLogs, automaticLog],
+                    whatsapp_logs: [...currentLogs, automaticLog],
+                    updatedAt: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                } as Order;
+
+                setOrders(prev => prev.map(existing => existing.id === orderWithId.id ? orderWithMessage : existing));
+                if (forceSync && currentStoreId && allStoresData?.[currentStoreId]) {
+                    const savedStore = allStoresData[currentStoreId];
+                    const hasOrder = (savedStore.orders || []).some(existing => existing.id === orderWithId.id);
+                    const savedOrders = hasOrder
+                        ? (savedStore.orders || []).map(existing => existing.id === orderWithId.id ? orderWithMessage : existing)
+                        : [orderWithMessage, ...(savedStore.orders || [])];
+                    await forceSync({ ...savedStore, orders: savedOrders });
+                }
+                if (!sendResult.success) {
+                    console.warn('Automatic WhatsApp confirmation was not sent:', sendResult.error);
+                }
+            } catch (err) {
+                console.error("Failed to send automatic WhatsApp message:", err);
+            }
         }
         
         // تشغيل صوت واحتفالات نجاح تسجيل الطلب
@@ -660,4 +697,3 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 };
 
 export default CreateOrderPage;
-
