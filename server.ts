@@ -7686,13 +7686,9 @@ async function startServer() {
               bostaTotal = list.length;
               list.forEach((item: any) => {
                 const st = String(item.state?.value || item.state?.name || item.state || item.status || "").toLowerCase();
-                if (st.includes("canceled") || st.includes("cancelled") || st.includes("terminated") || st.includes("ملغي")) {
-                  // إلغاء الشحنة قبل التسليم ليس رفض استلام ولا يُحسب مرتجعاً.
-                  return;
-                }
                 if (st.includes("delivered") || st.includes("تم التسليم") || st.includes("سلم")) {
                   bostaDelivered++;
-                } else if (st.includes("returned font") || st.includes("returned") || st.includes("مرتجع") || st.includes("مرفوض")) {
+                } else if (st.includes("returned font") || st.includes("returned") || st.includes("canceled") || st.includes("cancelled") || st.includes("terminated") || st.includes("مرتجع") || st.includes("ملغي") || st.includes("مرفوض")) {
                   bostaReturned++;
                 } else {
                   bostaPending++;
@@ -7722,13 +7718,17 @@ async function startServer() {
           
           if ((p1 && p1.slice(-8) === last8) || (p2 && p2.slice(-8) === last8)) {
             const st = String(data.status || "").toLowerCase();
-            if (st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) {
+            const wasDispatched = Boolean(
+              data.trackingNumber || data.bostaTrackingNumber || data.shipmentId || data.awb ||
+              data.sentToShippingAt || data.shippedAt || /قيد.?الشحن|تم.?الارسال|تم.?الإرسال|قيد.?التوصيل|out.?for.?delivery|shipped/.test(st)
+            );
+            if ((st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) && !wasDispatched) {
               return;
             }
             localTotal++;
             if (st.includes("سلم") || st.includes("تسليم") || st.includes("delivered") || st.includes("تم الاستلام")) {
               localDelivered++;
-            } else if (st.includes("مرتجع") || st.includes("returned") || st.includes("مرفوض")) {
+            } else if (st.includes("مرتجع") || st.includes("returned") || st.includes("مرفوض") || st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) {
               localReturned++;
             } else {
               localPending++;
