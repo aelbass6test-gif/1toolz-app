@@ -44,6 +44,7 @@ with check (
 -- Members can read and create inbox records for stores they belong to, but
 -- destructive membership or message deletion must stay out of the browser.
 drop policy if exists "Store members can write conversations" on public.whatsapp_conversations;
+drop policy if exists "Store members can insert conversations" on public.whatsapp_conversations;
 create policy "Store members can insert conversations"
 on public.whatsapp_conversations for insert
 to authenticated
@@ -53,6 +54,7 @@ with check (exists (
 ));
 
  drop policy if exists "Store members can write messages" on public.whatsapp_messages;
+drop policy if exists "Store members can insert messages" on public.whatsapp_messages;
 create policy "Store members can insert messages"
 on public.whatsapp_messages for insert
 to authenticated
@@ -62,6 +64,7 @@ with check (exists (
 ));
 
 drop policy if exists "Store members can write message events" on public.whatsapp_message_events;
+drop policy if exists "Store members can insert message events" on public.whatsapp_message_events;
 create policy "Store members can insert message events"
 on public.whatsapp_message_events for insert
 to authenticated
